@@ -1,0 +1,7 @@
+{
+  "binary": ".venv\\Scripts\\python.exe",
+  "args_prefix": ["frontend_only.py"],
+  "build_mode": "cpython-3.12",
+  "compiler": "CPython 3.12.10",
+  "built_at": "2026-11-23"
+}

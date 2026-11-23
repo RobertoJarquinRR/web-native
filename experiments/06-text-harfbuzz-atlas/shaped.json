@@ -1,0 +1,121 @@
+{
+  "font_file": "C:\\Windows\\Fonts\\segoeui.ttf",
+  "font_family": "Segoe UI",
+  "runs": [
+    {
+      "text": "Hola",
+      "font": "Segoe UI",
+      "size": 32.0,
+      "color": "#ffffff",
+      "direction": "ltr",
+      "script": "Latn",
+      "hb_scale": 2048,
+      "advance": 65.5,
+      "glyphs": [
+        {
+          "gid": 43,
+          "cluster": 0,
+          "adv": 22.71875,
+          "dx": 0.0,
+          "dy": 0.0
+        },
+        {
+          "gid": 82,
+          "cluster": 1,
+          "adv": 18.75,
+          "dx": 0.0,
+          "dy": 0.0
+        },
+        {
+          "gid": 79,
+          "cluster": 2,
+          "adv": 7.75,
+          "dx": 0.0,
+          "dy": 0.0
+        },
+        {
+          "gid": 68,
+          "cluster": 3,
+          "adv": 16.28125,
+          "dx": 0.0,
+          "dy": 0.0
+        }
+      ]
+    },
+    {
+      "text": "webnative",
+      "font": "Segoe UI",
+      "size": 20.0,
+      "color": "#3498db",
+      "direction": "ltr",
+      "script": "Latn",
+      "hb_scale": 1280,
+      "advance": 89.8125,
+      "glyphs": [
+        {
+          "gid": 90,
+          "cluster": 0,
+          "adv": 14.453125,
+          "dx": 0.0,
+          "dy": 0.0
+        },
+        {
+          "gid": 72,
+          "cluster": 1,
+          "adv": 10.453125,
+          "dx": 0.0,
+          "dy": 0.0
+        },
+        {
+          "gid": 69,
+          "cluster": 2,
+          "adv": 11.765625,
+          "dx": 0.0,
+          "dy": 0.0
+        },
+        {
+          "gid": 81,
+          "cluster": 3,
+          "adv": 11.3125,
+          "dx": 0.0,
+          "dy": 0.0
+        },
+        {
+          "gid": 68,
+          "cluster": 4,
+          "adv": 10.171875,
+          "dx": 0.0,
+          "dy": 0.0
+        },
+        {
+          "gid": 87,
+          "cluster": 5,
+          "adv": 6.78125,
+          "dx": 0.0,
+          "dy": 0.0
+        },
+        {
+          "gid": 76,
+          "cluster": 6,
+          "adv": 4.84375,
+          "dx": 0.0,
+          "dy": 0.0
+        },
+        {
+          "gid": 89,
+          "cluster": 7,
+          "adv": 9.578125,
+          "dx": 0.0,
+          "dy": 0.0
+        },
+        {
+          "gid": 72,
+          "cluster": 8,
+          "adv": 10.453125,
+          "dx": 0.0,
+          "dy": 0.0
+        }
+      ]
+    }
+  ]
+}

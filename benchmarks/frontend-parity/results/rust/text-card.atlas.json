@@ -1,0 +1,9 @@
+{
+  "width": 512,
+  "height": 512,
+  "format": "r8unorm",
+  "glyph_count": 4,
+  "size_bytes": 262144,
+  "sha256": "cd8ece2213648b45a419823f58381e675837914d6d59948a6783c737105588a0",
+  "pixels_nonzero": 462
+}

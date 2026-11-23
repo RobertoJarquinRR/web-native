@@ -1,0 +1,152 @@
+{
+  "fixed_viewport_height": {
+    "viewport": [
+      640,
+      400
+    ],
+    "body_height": 480.0,
+    "footer_y": 448.0,
+    "footer_bottom": 480.0,
+    "conclusion": "body fijo en 480px; el footer cae en 448..480, fuera de un viewport de 400px"
+  },
+  "no_ua_stylesheet": {
+    "h1_font_size": 16.0,
+    "h1_font_weight": 400,
+    "h1_margin_top": 0.0,
+    "p_margin_top": 0.0,
+    "browser_reference": "h1: 32px/700, margin 21.44px; p: 16px, margin 16px",
+    "conclusion": "sin reset, el motor no aplica la hoja UA; el fixture la compensa con *{margin:0} y font-size/weight explícitos"
+  },
+  "font_family_ignored": {
+    "css_family": "Arial, sans-serif",
+    "computed_font_family": "Arial, sans-serif",
+    "resolved_face_key": "regular",
+    "loaded_regular": "C:\\Windows\\Fonts\\segoeui.ttf",
+    "loaded_bold": "C:\\Windows\\Fonts\\segoeuib.ttf",
+    "conclusion": "FontBook no lee font-family: CSS 'Arial' sigue renderizando con segoeui.ttf"
+  },
+  "box_sizing_forced": {
+    "declared": "width:180px; padding:12px; box-sizing:content-box",
+    "engine_border_width": 180.0,
+    "engine_border_height": 120.0,
+    "browser_border_box": [
+      204,
+      144
+    ],
+    "conclusion": "box-sizing se parsea pero no se usa; el motor fuerza border-box"
+  },
+  "css_wide_keywords": {
+    "parent_color": "#ff0000",
+    "span_computed_color": "#000000",
+    "conclusion": "inherit/initial/unset no se interpretan; color:inherit termina en negro"
+  },
+  "mixed_inline_block": {
+    "html": "<div>Hola <p>mundo</p> tail</div>",
+    "rendered_lines": [
+      "mundo"
+    ],
+    "conclusion": "solo se pinta la caja de texto del <p>; 'Hola' y 'tail' se pierden"
+  },
+  "anonymous_flex_item": {
+    "html": "<div style='display:flex'><span>a</span>texto suelto</div>",
+    "rendered_lines": [
+      "a"
+    ],
+    "conclusion": "el texto sin elemento se ignora; el fixture envuelve el footer en <span>"
+  },
+  "flex_grow_ignored": {
+    "container_width": 400,
+    "child_widths": [
+      100.0,
+      100.0
+    ],
+    "flex_info": {
+      "direction": "row",
+      "content": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 400.0,
+        "h": 50.0
+      },
+      "used": 200.0,
+      "free": 200.0,
+      "start": 0.0,
+      "spacing": 0.0,
+      "cross": 50.0,
+      "justify": "flex-start",
+      "align": "stretch"
+    },
+    "conclusion": "free=200px no se reparte; no hay grow/shrink/basis"
+  },
+  "percent_sizes": {
+    "parent_height": 200,
+    "child_css_height": "50%",
+    "engine_child_height": 21.28125,
+    "browser_expected": 100,
+    "conclusion": "%/em/rem/vh/min/max se tratan como auto (None)"
+  },
+  "margin_collapse": {
+    "margin_bottom_a": 20,
+    "margin_top_b": 30,
+    "gap": 50.0,
+    "browser_gap": 30,
+    "conclusion": "no hay colapso de márgenes; los márgenes verticales se suman"
+  },
+  "long_word_break": {
+    "width": 80,
+    "font_size": 16,
+    "lines": [
+      "Supercalifr",
+      "agilisticoes",
+      "pialidoso"
+    ],
+    "conclusion": "el wrapping parte palabras largas por carácter; no hay overflow-wrap/word-break"
+  },
+  "font_weight": {
+    "requested": 600,
+    "computed": 600,
+    "face": "bold",
+    "face_file": "C:\\Windows\\Fonts\\segoeuib.ttf",
+    "conclusion": "solo hay 400/700; 600 usa el archivo bold. Sin italic ni pesos variables"
+  },
+  "line_metrics": {
+    "metrics": {
+      "regular_16": {
+        "asc": 17.27,
+        "desc": 4.02,
+        "gap": 0.0,
+        "line_height": 21.28
+      },
+      "regular_13": {
+        "asc": 14.03,
+        "desc": 3.27,
+        "gap": 0.0,
+        "line_height": 17.3
+      },
+      "bold_28": {
+        "asc": 30.22,
+        "desc": 7.03,
+        "gap": 0.0,
+        "line_height": 37.25
+      },
+      "bold_18": {
+        "asc": 19.42,
+        "desc": 4.52,
+        "gap": 0.0,
+        "line_height": 23.94
+      }
+    },
+    "conclusion": "line-height:normal usa las extents de HarfBuzz (asc+desc+gap); no se leen OS/2 typo metrics ni overrides CSS"
+  },
+  "border_ignored": {
+    "declared_border": "4px solid #ff0000",
+    "engine_width": 100.0,
+    "engine_height": 40.0,
+    "conclusion": "border no se parsea como shorthand ni se pinta; no hay border-radius"
+  },
+  "bidi": {
+    "shaping_direction": "ltr",
+    "script": "Latn",
+    "conclusion": "Face.shape fija ltr/Latn; árabe, hebreo, devanagari y RTL no están soportados"
+  }
+}

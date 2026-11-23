@@ -1,0 +1,411 @@
+{
+  "status": "SUCCESS",
+  "experiment": "exp09-v1-core",
+  "viewport": {
+    "width": 400,
+    "height": 240
+  },
+  "backend": "Microsoft Basic Render Driver / D3D12 / CPU",
+  "font_file": "C:\\Windows\\Fonts\\segoeui.ttf",
+  "versions": {
+    "python": "3.12.10",
+    "html5lib": "1.1",
+    "tinycss2": "1.5.1",
+    "cssselect2": "0.10.1",
+    "wgpu": "0.33.0",
+    "pillow": "13.0.0",
+    "uharfbuzz": "0.57.0",
+    "freetype-py": "2.5.1",
+    "pytest": "9.2.0"
+  },
+  "checks": [
+    {
+      "check": "geometría root = (0,0,400,240)",
+      "pass": true,
+      "detail": "[0.0, 0.0, 400.0, 240.0]"
+    },
+    {
+      "check": "baseline = 20 + ascender(28px)",
+      "pass": true,
+      "detail": "51.0 = 20 + 31.0"
+    },
+    {
+      "check": "fila = bottom(título) + gap 12",
+      "pass": true,
+      "detail": "71.0 = 59.0 + 12"
+    },
+    {
+      "check": "chips x = 20, 88, 156; y = fila; 60x60",
+      "pass": true,
+      "detail": "[[20.0, 71.0, 60.0, 60.0], [88.0, 71.0, 60.0, 60.0], [156.0, 71.0, 60.0, 60.0]]"
+    },
+    {
+      "check": "PNG/viewport del IR = 400x240",
+      "pass": true,
+      "detail": "{'width': 400, 'height': 240}"
+    },
+    {
+      "check": "exactamente un text_run",
+      "pass": true,
+      "detail": "1"
+    },
+    {
+      "check": "text_run: 'Hola', 28px, blanco, 4 glyphs",
+      "pass": true,
+      "detail": "('Hola', 28.0, '#ffffff', 4)"
+    },
+    {
+      "check": "root rect (0,0,400,240,#101014) presente",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "3 chip rects en el IR",
+      "pass": true,
+      "detail": "[{'type': 'rect', 'x': 20, 'y': 71, 'w': 60, 'h': 60, 'fill': '#e74c3c'}, {'type': 'rect', 'x': 88, 'y': 71, 'w': 60, 'h': 60, 'fill': '#2ecc71'}, {'type': 'rect', 'x': 156, 'y': 71, 'w': 60, 'h': 60, 'fill': '#3498db'}]"
+    },
+    {
+      "check": "IR roundtrip exacto (ops ==)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "CLI wgpu termina con código 0",
+      "pass": true,
+      "detail": "rc=0 Returned GL context is 1.1, when 3.3+ is needed"
+    },
+    {
+      "check": "CLI wgpu imprime backend elegido",
+      "pass": true,
+      "detail": "backend = wgpu (Microsoft Basic Render Driver / D3D12 / CPU)"
+    },
+    {
+      "check": "render.png 400x240",
+      "pass": true,
+      "detail": "(400, 240)"
+    },
+    {
+      "check": "display_list.json: 1 text_run + 5 rects",
+      "pass": true,
+      "detail": "['rect', 'rect', 'text_run', 'rect', 'rect', 'rect']"
+    },
+    {
+      "check": "CLI cpu termina con código 0",
+      "pass": true,
+      "detail": "rc=0 "
+    },
+    {
+      "check": "CLI cpu elige cpu",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "render-cpu.png 400x240",
+      "pass": true,
+      "detail": "(400, 240)"
+    },
+    {
+      "check": "IR cpu == IR wgpu (byte-idéntico)",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "CLI auto imprime el backend elegido",
+      "pass": true,
+      "detail": "wgpu (Microsoft Basic Render Driver / D3D12 / CPU)"
+    },
+    {
+      "check": "CLI auto elige wgpu en esta máquina",
+      "pass": true,
+      "detail": "wgpu (Microsoft Basic Render Driver / D3D12 / CPU)"
+    },
+    {
+      "check": "render-auto.png 400x240",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "wgpu: centros de chip exactos",
+      "pass": true,
+      "detail": "{'chip_0': (231, 76, 60), 'chip_1': (46, 204, 113), 'chip_2': (52, 152, 219)}"
+    },
+    {
+      "check": "wgpu: fondo #101014 exacto",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "wgpu: título con >100 píxeles brillantes",
+      "pass": true,
+      "detail": "luminance>100 = 360, channel>100 = 362"
+    },
+    {
+      "check": "cpu: centros de chip exactos",
+      "pass": true,
+      "detail": "{'chip_0': (231, 76, 60), 'chip_1': (46, 204, 113), 'chip_2': (52, 152, 219)}"
+    },
+    {
+      "check": "cpu: fondo #101014 exacto",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "cpu: título con >100 píxeles brillantes",
+      "pass": true,
+      "detail": "luminance>100 = 357, channel>100 = 359"
+    },
+    {
+      "check": "fuera de la banda de texto: CPU == wgpu píxel a píxel",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "texto CPU aprox. vs wgpu: IoU de máscara > 0.90",
+      "pass": true,
+      "detail": "IoU=0.975"
+    },
+    {
+      "check": "texto CPU vs wgpu: diferencia media < 1 nivel",
+      "pass": true,
+      "detail": "mean_abs=0.168, max=49, px distintos=295/24000"
+    },
+    {
+      "check": "contrato v0: IR de 4 rects sin texto",
+      "pass": true,
+      "detail": "4 ops"
+    },
+    {
+      "check": "contrato v0: CPU vs wgpu píxeles byte-idénticos",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "contrato v0: PNG CPU vs wgpu byte-idéntico",
+      "pass": true,
+      "detail": "sha256=3d9256f64e37b978…"
+    },
+    {
+      "check": "contrato v0: tamaño 400x300",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "check": "render desde JSON == render directo (byte-idéntico)",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "geometry": {
+    "root": [
+      0.0,
+      0.0,
+      400.0,
+      240.0
+    ],
+    "title": [
+      20.0,
+      20.0,
+      360.0,
+      39.0
+    ],
+    "title_baseline": 51.0,
+    "title_ascender_28": 31.0,
+    "title_descender_28": 8.0,
+    "title_bottom": 59.0,
+    "row": [
+      20.0,
+      71.0,
+      360.0,
+      60.0
+    ],
+    "chips": [
+      [
+        20.0,
+        71.0,
+        60.0,
+        60.0
+      ],
+      [
+        88.0,
+        71.0,
+        60.0,
+        60.0
+      ],
+      [
+        156.0,
+        71.0,
+        60.0,
+        60.0
+      ]
+    ]
+  },
+  "ir": {
+    "viewport": {
+      "width": 400,
+      "height": 240
+    },
+    "total_ops": 6,
+    "rect_ops": 5,
+    "text_run_ops": 1
+  },
+  "text_run": {
+    "x": 20.0,
+    "y": 51.0,
+    "text": "Hola",
+    "size": 28.0,
+    "color": "#ffffff",
+    "glyphs": [
+      {
+        "gid": 43,
+        "x": 22.0,
+        "y": 31.0,
+        "w": 16,
+        "h": 20,
+        "u0": 0.001953,
+        "v0": 0.001953,
+        "u1": 0.033203,
+        "v1": 0.041016,
+        "adv": 19.875
+      },
+      {
+        "gid": 82,
+        "x": 40.875,
+        "y": 37.0,
+        "w": 15,
+        "h": 14,
+        "u0": 0.037109,
+        "v0": 0.001953,
+        "u1": 0.066406,
+        "v1": 0.029297,
+        "adv": 16.4062
+      },
+      {
+        "gid": 79,
+        "x": 58.281,
+        "y": 30.0,
+        "w": 3,
+        "h": 21,
+        "u0": 0.070312,
+        "v0": 0.001953,
+        "u1": 0.076172,
+        "v1": 0.042969,
+        "adv": 6.7812
+      },
+      {
+        "gid": 68,
+        "x": 64.062,
+        "y": 37.0,
+        "w": 12,
+        "h": 14,
+        "u0": 0.080078,
+        "v0": 0.001953,
+        "u1": 0.103516,
+        "v1": 0.029297,
+        "adv": 14.25
+      }
+    ]
+  },
+  "pixels": {
+    "wgpu": {
+      "chip_samples": {
+        "chip_0": [
+          231,
+          76,
+          60
+        ],
+        "chip_1": [
+          46,
+          204,
+          113
+        ],
+        "chip_2": [
+          52,
+          152,
+          219
+        ]
+      },
+      "chips_exact": true,
+      "background": [
+        16,
+        16,
+        20
+      ],
+      "title_lit_luminance_gt100": 360,
+      "title_channel_gt100": 362,
+      "pixel_sha256": "7670a3a59e16d4b8f320839c32a35440fb3d5fb53420ba3816965aa87f8cfda2"
+    },
+    "cpu": {
+      "chip_samples": {
+        "chip_0": [
+          231,
+          76,
+          60
+        ],
+        "chip_1": [
+          46,
+          204,
+          113
+        ],
+        "chip_2": [
+          52,
+          152,
+          219
+        ]
+      },
+      "chips_exact": true,
+      "background": [
+        16,
+        16,
+        20
+      ],
+      "title_lit_luminance_gt100": 357,
+      "title_channel_gt100": 359,
+      "pixel_sha256": "a7d949e4f2aabd18b84222702cd596e4c057e8bf26783937af63b135f5909705"
+    }
+  },
+  "parity": {
+    "outside_title_band_pixel_identical": true,
+    "text_band": {
+      "mean_abs_channel_diff": 0.1679,
+      "max_channel_diff": 49,
+      "differing_pixels": 295,
+      "band_pixels": 24000,
+      "differing_fraction": 0.01229,
+      "lit_mask_iou": 0.9752
+    }
+  },
+  "old_contract": {
+    "png_sha256_wgpu": "3d9256f64e37b9787c9ad1354f39bcaca3d4f51f141167abf81e49a661275ec3",
+    "png_sha256_cpu": "3d9256f64e37b9787c9ad1354f39bcaca3d4f51f141167abf81e49a661275ec3",
+    "pixel_sha256_wgpu": "b7cb8cfaf0f9e09588ffb4c22de8cc7de38c7ad4676422917eac09f601da012b",
+    "pixel_sha256_cpu": "b7cb8cfaf0f9e09588ffb4c22de8cc7de38c7ad4676422917eac09f601da012b"
+  },
+  "timings_ms": {
+    "build_html": 16.53,
+    "build_css": 2.524,
+    "build_cascade": 0.725,
+    "build_fonts": 0.022,
+    "build_layout": 1.754,
+    "build_text+ir": 2.057,
+    "build_pipeline": 23.649,
+    "build_total": 23.86,
+    "cli_wgpu_wall": 3640.44,
+    "cli_cpu_wall": 583.03,
+    "cli_auto_wall": 3223.42,
+    "wgpu_frame_1": 102.29,
+    "wgpu_frame_2_cached": 3.63,
+    "cpu_frame": 1.32,
+    "png_encode": 12.44,
+    "verify_total": 10670.25
+  },
+  "artifacts": [
+    "render.png",
+    "render-cpu.png",
+    "render-auto.png",
+    "display_list.json",
+    "display_list-cpu.json",
+    "display_list-auto.json",
+    "verify/old-wgpu.png",
+    "verify/old-cpu.png"
+  ]
+}

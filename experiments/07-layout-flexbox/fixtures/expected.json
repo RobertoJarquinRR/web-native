@@ -1,0 +1,58 @@
+{
+  "colors": {
+    "root": "#101014",
+    "a": "#e74c3c",
+    "b": "#2ecc71",
+    "c": "#3498db"
+  },
+  "variants": {
+    "v1": {
+      "justify": "flex-start",
+      "align": "flex-start",
+      "start": 0,
+      "spacing": 16,
+      "cross": 0,
+      "boxes": {
+        "a": [20, 20, 80, 60],
+        "b": [116, 20, 80, 60],
+        "c": [212, 20, 80, 60]
+      }
+    },
+    "v2": {
+      "justify": "center",
+      "align": "flex-start",
+      "start": 44,
+      "spacing": 16,
+      "cross": 0,
+      "boxes": {
+        "a": [64, 20, 80, 60],
+        "b": [160, 20, 80, 60],
+        "c": [256, 20, 80, 60]
+      }
+    },
+    "v3": {
+      "justify": "space-between",
+      "align": "flex-start",
+      "start": 0,
+      "spacing": 60,
+      "cross": 0,
+      "boxes": {
+        "a": [20, 20, 80, 60],
+        "b": [160, 20, 80, 60],
+        "c": [300, 20, 80, 60]
+      }
+    },
+    "v4": {
+      "justify": "center",
+      "align": "center",
+      "start": 44,
+      "spacing": 16,
+      "cross": 10,
+      "boxes": {
+        "a": [64, 30, 80, 60],
+        "b": [160, 30, 80, 60],
+        "c": [256, 30, 80, 60]
+      }
+    }
+  }
+}

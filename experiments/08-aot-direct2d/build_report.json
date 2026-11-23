@@ -1,0 +1,26 @@
+﻿{
+    "ir":  "display_list.json",
+    "png":  "scene.png",
+    "exe":  "scene.exe",
+    "compiler":  "Microsoft (R) C/C++ Optimizing Compiler Version 19.51.36260 for x64",
+    "backend":  "Direct2D + WIC (C++)",
+    "commands":  {
+                     "emit":  ".\\exp08-aot\\.venv\\Scripts\\python.exe emit_c.py --ir display_list.json --out scene_data.h",
+                     "compile":  "cl /nologo /O2 /W4 /wd4201 /Brepro /EHsc /TP runtime_d2d.cpp /Fe:scene.exe /link /Brepro d2d1.lib windowscodecs.lib ole32.lib uuid.lib",
+                     "run":  ".\\scene.exe scene.png",
+                     "verify":  ".\\exp08-aot\\.venv\\Scripts\\python.exe verify.py --png scene.png --ir display_list.json --report verify_report.json"
+                 },
+    "timings_ms":  {
+                       "emit_ms":  164.88,
+                       "compile_ms":  1773.56,
+                       "run_ms":  101.21,
+                       "verify_ms":  367.53,
+                       "total_ms":  2566.32
+                   },
+    "hashes":  {
+                   "scene_exe_sha256":  "c4bac2fc0b4f69d711b66a7795ff49aae22d824b117b6f1b2a61ee9cd143f739",
+                   "png_sha256":  "9e1bf828e0fe87f9cf63b5c3ee127a30e29042ae1b9d954b9406ddf7a838dbb9"
+               },
+    "verify_exit_code":  0,
+    "pass":  true
+}

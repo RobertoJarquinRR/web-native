@@ -1,0 +1,273 @@
+{
+  "png": "scene_text.png",
+  "checks": [
+    {
+      "check": "png-size",
+      "pass": true,
+      "detail": "400x240"
+    },
+    {
+      "check": "text-bright-pixels",
+      "pass": true,
+      "detail": "360 px with luminance > 100.0 (need >= 100)"
+    },
+    {
+      "check": "text-bbox-in-band",
+      "pass": true,
+      "detail": "bbox=(22,30)-(76.062,51) inside band (0, 10, 400, 70)"
+    },
+    {
+      "check": "text-bbox-lit",
+      "pass": true,
+      "detail": "360 bright px inside glyph bbox"
+    },
+    {
+      "check": "each-glyph-visible",
+      "pass": true,
+      "detail": "gid43=120px, gid82=92px, gid79=63px, gid68=85px"
+    },
+    {
+      "check": "text-not-solid-block",
+      "pass": true,
+      "detail": "360 lit of 1135 bbox px"
+    },
+    {
+      "check": "chip-a-exact",
+      "pass": true,
+      "detail": "(50,100)=(231, 76, 60) expected=(231, 76, 60)"
+    },
+    {
+      "check": "chip-b-exact",
+      "pass": true,
+      "detail": "(118,100)=(46, 204, 113) expected=(46, 204, 113)"
+    },
+    {
+      "check": "chip-c-exact",
+      "pass": true,
+      "detail": "(186,100)=(52, 152, 219) expected=(52, 152, 219)"
+    },
+    {
+      "check": "chip-20-uniform",
+      "pass": true,
+      "detail": "rect (20,71) 60x60: 3600/3600 px exact (231, 76, 60)"
+    },
+    {
+      "check": "chip-88-uniform",
+      "pass": true,
+      "detail": "rect (88,71) 60x60: 3600/3600 px exact (46, 204, 113)"
+    },
+    {
+      "check": "chip-156-uniform",
+      "pass": true,
+      "detail": "rect (156,71) 60x60: 3600/3600 px exact (52, 152, 219)"
+    },
+    {
+      "check": "background-300x200",
+      "pass": true,
+      "detail": "(16, 16, 20) expected=(16, 16, 20)"
+    },
+    {
+      "check": "background-390x20",
+      "pass": true,
+      "detail": "(16, 16, 20) expected=(16, 16, 20)"
+    },
+    {
+      "check": "background-10x200",
+      "pass": true,
+      "detail": "(16, 16, 20) expected=(16, 16, 20)"
+    },
+    {
+      "check": "background-260x120",
+      "pass": true,
+      "detail": "(16, 16, 20) expected=(16, 16, 20)"
+    },
+    {
+      "check": "glyph-count-ir-header-atlas",
+      "pass": true,
+      "detail": "IR=4 header=4 atlas=4 quads=4"
+    },
+    {
+      "check": "glyph-vertex-count",
+      "pass": true,
+      "detail": "24 == 4 * 6"
+    },
+    {
+      "check": "atlas-gpu-upload",
+      "pass": true,
+      "detail": "gpu=0xCAB0968C cpu=0xCAB0968C atlas.bin=0xCAB0968C"
+    },
+    {
+      "check": "atlas-texture-shape",
+      "pass": true,
+      "detail": "(512, 512, 262144)"
+    },
+    {
+      "check": "exe-draw-calls",
+      "pass": true,
+      "detail": "rects + glyphs in one pass, 2 draws"
+    },
+    {
+      "check": "frontend-parity-whole",
+      "pass": true,
+      "detail": "maxdiff=0 changed=0 (0.0%)"
+    },
+    {
+      "check": "frontend-parity-text",
+      "pass": true,
+      "detail": "box=(20, 28, 78, 53) maxdiff=0 changed=0 (0.0%)"
+    },
+    {
+      "check": "frontend-parity-chips",
+      "pass": true,
+      "detail": "box=(20, 71, 216, 131) maxdiff=0"
+    },
+    {
+      "check": "exp09-artifact-parity",
+      "pass": true,
+      "detail": "maxdiff=0 changed=0 (0.0%)"
+    },
+    {
+      "check": "frontend-render-reproduces-exp09",
+      "pass": true,
+      "detail": "render_frontend.png == .\\experiments\\09-core-package-v1\\render.png"
+    }
+  ],
+  "metrics": {
+    "title_band": {
+      "box": [
+        0,
+        10,
+        400,
+        70
+      ],
+      "threshold_luminance": 100.0,
+      "bright_pixels": 360,
+      "background_luminance": 16.289
+    },
+    "text_bbox": [
+      22.0,
+      30.0,
+      76.062,
+      51.0
+    ],
+    "per_glyph": [
+      {
+        "index": 0,
+        "gid": 43,
+        "box": [
+          22,
+          31,
+          16,
+          20
+        ],
+        "bright_pixels": 120
+      },
+      {
+        "index": 1,
+        "gid": 82,
+        "box": [
+          40,
+          37,
+          15,
+          14
+        ],
+        "bright_pixels": 92
+      },
+      {
+        "index": 2,
+        "gid": 79,
+        "box": [
+          58,
+          30,
+          3,
+          21
+        ],
+        "bright_pixels": 63
+      },
+      {
+        "index": 3,
+        "gid": 68,
+        "box": [
+          64,
+          37,
+          12,
+          14
+        ],
+        "bright_pixels": 85
+      }
+    ],
+    "counts": {
+      "ir_glyphs": 4,
+      "header_glyph_quads": 4,
+      "header_glyph_vertices": 24,
+      "atlas_glyph_count": 4,
+      "atlas_quads": 4
+    },
+    "atlas_hash": {
+      "gpu": "0xCAB0968C",
+      "cpu": "0xCAB0968C",
+      "atlas_bin": "0xCAB0968C",
+      "verdict": "MATCH"
+    },
+    "frontend_diff": {
+      "whole": {
+        "region": [
+          0,
+          0,
+          400,
+          240
+        ],
+        "pixels": 96000,
+        "maxdiff": 0,
+        "changed_pixels": 0,
+        "changed_pct": 0.0
+      },
+      "text_area": {
+        "region": [
+          20,
+          28,
+          78,
+          53
+        ],
+        "pixels": 1450,
+        "maxdiff": 0,
+        "changed_pixels": 0,
+        "changed_pct": 0.0
+      },
+      "chip_area": {
+        "region": [
+          20,
+          71,
+          216,
+          131
+        ],
+        "pixels": 11760,
+        "maxdiff": 0,
+        "changed_pixels": 0,
+        "changed_pct": 0.0
+      }
+    },
+    "exp09_artifact_diff": {
+      "png": ".\\experiments\\09-core-package-v1\\render.png",
+      "region": [
+        0,
+        0,
+        400,
+        240
+      ],
+      "pixels": 96000,
+      "maxdiff": 0,
+      "changed_pixels": 0,
+      "changed_pct": 0.0
+    }
+  },
+  "visuals": {
+    "text_zoom_c": "proof\\text_zoom_c.png",
+    "text_zoom_frontend": "proof\\text_zoom_frontend.png",
+    "text_compare_4x": "proof\\text_compare_4x.png",
+    "atlas_used_8x": "proof\\atlas_used_8x.png"
+  },
+  "passed": 26,
+  "failed": 0,
+  "ok": true
+}

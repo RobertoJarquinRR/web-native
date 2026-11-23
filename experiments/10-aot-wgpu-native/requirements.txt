@@ -1,0 +1,2 @@
+# Build/verification only. The runtime .exe has no Python dependency.
+pillow==13.0.0

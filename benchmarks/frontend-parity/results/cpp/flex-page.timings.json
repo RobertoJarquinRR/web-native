@@ -1,0 +1,11 @@
+{
+  "html": 0.609,
+  "css": 0.114,
+  "cascade": 0.264,
+  "fonts": 0.0,
+  "layout": 0.019,
+  "text+ir": 0.011,
+  "pipeline": 1.018,
+  "ops": 23,
+  "peak_rss_kb": 3592
+}

@@ -1,0 +1,435 @@
+{
+  "ok": true,
+  "total_checks": 69,
+  "failed_checks": 0,
+  "checks": [
+    {
+      "group": "layout",
+      "name": "report node count",
+      "ok": true,
+      "detail": "28 nodes"
+    },
+    {
+      "group": "layout@960",
+      "name": "sidebar width = 30%",
+      "ok": true,
+      "detail": "288.0 == 288.0"
+    },
+    {
+      "group": "layout@960",
+      "name": "content width = 70%",
+      "ok": true,
+      "detail": "672.0 == 672.0"
+    },
+    {
+      "group": "layout@960",
+      "name": "content starts at sidebar right",
+      "ok": true,
+      "detail": "288.0 == 288.0"
+    },
+    {
+      "group": "layout@960",
+      "name": "header width = content inner width",
+      "ok": true,
+      "detail": "624.0 == 624.0"
+    },
+    {
+      "group": "layout@960",
+      "name": "panel width = content inner width",
+      "ok": true,
+      "detail": "624.0 == 624.0"
+    },
+    {
+      "group": "layout@960",
+      "name": "pill right = content inner right",
+      "ok": true,
+      "detail": "936.0 == 936.0"
+    },
+    {
+      "group": "layout@960",
+      "name": "cards container inner width",
+      "ok": true,
+      "detail": "624.0 == 624.0"
+    },
+    {
+      "group": "layout@960",
+      "name": "layout timing present",
+      "ok": true,
+      "detail": "avg=0.0012 ms best=0.0009 ms"
+    },
+    {
+      "group": "layout@960",
+      "name": "3 cards on one row",
+      "ok": true,
+      "detail": "y=80.0,80.0,80.0"
+    },
+    {
+      "group": "layout@960",
+      "name": "card width = 180 at 960",
+      "ok": true,
+      "detail": "180.0"
+    },
+    {
+      "group": "layout@960",
+      "name": "card x spaced by 180+16",
+      "ok": true,
+      "detail": "196.0"
+    },
+    {
+      "group": "layout@720",
+      "name": "sidebar width = 30%",
+      "ok": true,
+      "detail": "216.0 == 216.0"
+    },
+    {
+      "group": "layout@720",
+      "name": "content width = 70%",
+      "ok": true,
+      "detail": "504.0 == 503.99999999999994"
+    },
+    {
+      "group": "layout@720",
+      "name": "content starts at sidebar right",
+      "ok": true,
+      "detail": "216.0 == 216.0"
+    },
+    {
+      "group": "layout@720",
+      "name": "header width = content inner width",
+      "ok": true,
+      "detail": "456.0 == 456.0"
+    },
+    {
+      "group": "layout@720",
+      "name": "panel width = content inner width",
+      "ok": true,
+      "detail": "456.0 == 456.0"
+    },
+    {
+      "group": "layout@720",
+      "name": "pill right = content inner right",
+      "ok": true,
+      "detail": "696.0 == 696.0"
+    },
+    {
+      "group": "layout@720",
+      "name": "cards container inner width",
+      "ok": true,
+      "detail": "456.0 == 456.0"
+    },
+    {
+      "group": "layout@720",
+      "name": "layout timing present",
+      "ok": true,
+      "detail": "avg=0.001 ms best=0.0009 ms"
+    },
+    {
+      "group": "layout@720",
+      "name": "wrap also at 720 (2 rows)",
+      "ok": true,
+      "detail": "card2.y=216.0 card0.y=80.0"
+    },
+    {
+      "group": "layout@560",
+      "name": "sidebar width = 30%",
+      "ok": true,
+      "detail": "168.0 == 168.0"
+    },
+    {
+      "group": "layout@560",
+      "name": "content width = 70%",
+      "ok": true,
+      "detail": "392.0 == 392.0"
+    },
+    {
+      "group": "layout@560",
+      "name": "content starts at sidebar right",
+      "ok": true,
+      "detail": "168.0 == 168.0"
+    },
+    {
+      "group": "layout@560",
+      "name": "header width = content inner width",
+      "ok": true,
+      "detail": "344.0 == 344.0"
+    },
+    {
+      "group": "layout@560",
+      "name": "panel width = content inner width",
+      "ok": true,
+      "detail": "344.0 == 344.0"
+    },
+    {
+      "group": "layout@560",
+      "name": "pill right = content inner right",
+      "ok": true,
+      "detail": "536.0 == 536.0"
+    },
+    {
+      "group": "layout@560",
+      "name": "cards container inner width",
+      "ok": true,
+      "detail": "344.0 == 344.0"
+    },
+    {
+      "group": "layout@560",
+      "name": "layout timing present",
+      "ok": true,
+      "detail": "avg=0.001 ms best=0.0009 ms"
+    },
+    {
+      "group": "layout@560",
+      "name": "2 cards on row 1",
+      "ok": true,
+      "detail": "card0.y=80.0 card1.y=80.0"
+    },
+    {
+      "group": "layout@560",
+      "name": "one card on row 2",
+      "ok": true,
+      "detail": "card2.y=216.0 > card0.y=80.0"
+    },
+    {
+      "group": "layout@560",
+      "name": "row pitch = 120+16",
+      "ok": true,
+      "detail": "136.0"
+    },
+    {
+      "group": "layout@560",
+      "name": "row-1 cards shrink to fit",
+      "ok": true,
+      "detail": "w=164.0,164.0,180.0"
+    },
+    {
+      "group": "pixels",
+      "name": "image size",
+      "ok": true,
+      "detail": "(960, 640)"
+    },
+    {
+      "group": "pixels@960",
+      "name": "sidebar bg",
+      "ok": true,
+      "detail": "(8,300) #121824 == #121824"
+    },
+    {
+      "group": "pixels@960",
+      "name": "content bg",
+      "ok": true,
+      "detail": "(296,300) #0b0e14 == #0b0e14"
+    },
+    {
+      "group": "pixels@960",
+      "name": "card bg",
+      "ok": true,
+      "detail": "(402,140) #1a1f2a == #1a1f2a"
+    },
+    {
+      "group": "pixels@960",
+      "name": "accent 1 red",
+      "ok": true,
+      "detail": "(372,95) #e74c3c == #e74c3c"
+    },
+    {
+      "group": "pixels@960",
+      "name": "accent 2 green",
+      "ok": true,
+      "detail": "(568,95) #2ecc71 == #2ecc71"
+    },
+    {
+      "group": "pixels@960",
+      "name": "accent 3 blue",
+      "ok": true,
+      "detail": "(764,95) #3498db == #3498db"
+    },
+    {
+      "group": "pixels@960",
+      "name": "pill bg",
+      "ok": true,
+      "detail": "(896,44) #2a3140 == #2a3140"
+    },
+    {
+      "group": "pixels@960",
+      "name": "panel bg",
+      "ok": true,
+      "detail": "(624,266) #10141b == #10141b"
+    },
+    {
+      "group": "pixels@960",
+      "name": "panel line",
+      "ok": true,
+      "detail": "(348,235) #2a3140 == #2a3140"
+    },
+    {
+      "group": "pixels",
+      "name": "image size",
+      "ok": true,
+      "detail": "(560, 640)"
+    },
+    {
+      "group": "pixels@560",
+      "name": "card 1 row 1",
+      "ok": true,
+      "detail": "(272,140) #1a1f2a == #1a1f2a"
+    },
+    {
+      "group": "pixels@560",
+      "name": "card 2 row 1",
+      "ok": true,
+      "detail": "(452,140) #1a1f2a == #1a1f2a"
+    },
+    {
+      "group": "pixels@560",
+      "name": "card 3 row 2",
+      "ok": true,
+      "detail": "(272,276) #1a1f2a == #1a1f2a"
+    },
+    {
+      "group": "pixels@560",
+      "name": "no card past row 1",
+      "ok": true,
+      "detail": "(548,140) #0b0e14 == #0b0e14"
+    },
+    {
+      "group": "pixels@560",
+      "name": "no card past row 2",
+      "ok": true,
+      "detail": "(384,276) #0b0e14 == #0b0e14"
+    },
+    {
+      "group": "text@960",
+      "name": "title glyph pixels",
+      "ok": true,
+      "detail": "455 bright px"
+    },
+    {
+      "group": "text@960",
+      "name": "brand glyph pixels",
+      "ok": true,
+      "detail": "121 bright px"
+    },
+    {
+      "group": "text@960",
+      "name": "nav label glyph pixels",
+      "ok": true,
+      "detail": "105 bright px"
+    },
+    {
+      "group": "text@960",
+      "name": "text is not a solid block",
+      "ok": true,
+      "detail": "455 < 2435"
+    },
+    {
+      "group": "text@960",
+      "name": "no bright glyph pixels outside text boxes",
+      "ok": true,
+      "detail": "0 stray pixels"
+    },
+    {
+      "group": "text@720",
+      "name": "title glyph pixels",
+      "ok": true,
+      "detail": "455 bright px"
+    },
+    {
+      "group": "text@560",
+      "name": "title glyph pixels",
+      "ok": true,
+      "detail": "455 bright px"
+    },
+    {
+      "group": "text@560",
+      "name": "title follows reflow",
+      "ok": true,
+      "detail": "960=(312.0,27.5) 720=(240.0,27.5) 560=(192.0,27.5)"
+    },
+    {
+      "group": "states",
+      "name": "normal = transparent nav",
+      "ok": true,
+      "detail": "(76,67) #121824 == #121824"
+    },
+    {
+      "group": "states",
+      "name": "hover color",
+      "ok": true,
+      "detail": "(76,67) #2a3140 == #2a3140"
+    },
+    {
+      "group": "states",
+      "name": "hover diff pixels inside node",
+      "ok": true,
+      "detail": "3812 px, rect area 3840"
+    },
+    {
+      "group": "states",
+      "name": "hover changes only that node",
+      "ok": true,
+      "detail": "bbox=(16, 51, 135, 82) rect=(16.0,51.0,120.0,32.0)"
+    },
+    {
+      "group": "states",
+      "name": "press color",
+      "ok": true,
+      "detail": "(76,67) #3a4a5c == #3a4a5c"
+    },
+    {
+      "group": "states",
+      "name": "press diff pixels inside node",
+      "ok": true,
+      "detail": "3813 px, rect area 3840"
+    },
+    {
+      "group": "states",
+      "name": "press changes only that node",
+      "ok": true,
+      "detail": "bbox=(16, 51, 135, 82) rect=(16.0,51.0,120.0,32.0)"
+    },
+    {
+      "group": "states",
+      "name": "selected color",
+      "ok": true,
+      "detail": "(76,67) #3498db == #3498db"
+    },
+    {
+      "group": "states",
+      "name": "selected diff pixels inside node",
+      "ok": true,
+      "detail": "3824 px, rect area 3840"
+    },
+    {
+      "group": "states",
+      "name": "selected changes only that node",
+      "ok": true,
+      "detail": "bbox=(16, 51, 135, 82) rect=(16.0,51.0,120.0,32.0)"
+    },
+    {
+      "group": "states",
+      "name": "press differs from hover",
+      "ok": true,
+      "detail": "3809 px"
+    },
+    {
+      "group": "states",
+      "name": "selected differs from press",
+      "ok": true,
+      "detail": "3824 px"
+    }
+  ],
+  "layout": {
+    "960": {
+      "layout_ms_avg": 0.0012,
+      "layout_ms_best": 0.0009
+    },
+    "720": {
+      "layout_ms_avg": 0.001,
+      "layout_ms_best": 0.0009
+    },
+    "560": {
+      "layout_ms_avg": 0.001,
+      "layout_ms_best": 0.0009
+    }
+  }
+}

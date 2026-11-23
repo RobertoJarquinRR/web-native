@@ -1,0 +1,43 @@
+{
+  "status": "PARTIAL",
+  "backend": "pillow-fallback",
+  "gl_info": null,
+  "gl_error": "Exception: wglCreateContextAttribsARB not found",
+  "timings_ms": {
+    "1_parse_html_ms": 163.33,
+    "2_cascade_ms": 10.51,
+    "3_layout_ms": 0.01,
+    "4_ir_ms": 0.64,
+    "5_render_ms": 92.22,
+    "6_verify_ms": 2.47,
+    "total_ms": 269.28
+  },
+  "checks": [
+    {
+      "check": "IR has expected 3 rects in painter's order",
+      "pass": true,
+      "detail": "(4 ops total)"
+    },
+    {
+      "check": "PNG size is 400x300",
+      "pass": true,
+      "detail": "got (400, 300)"
+    },
+    {
+      "check": "pixel (60,60) ~= #e74c3c (box a)",
+      "pass": true,
+      "detail": "got #e74c3c delta=0"
+    },
+    {
+      "check": "pixel (60,156) ~= #3498db (box b)",
+      "pass": true,
+      "detail": "got #3498db delta=0"
+    },
+    {
+      "check": "pixel (200,250) ~= #101014 (root)",
+      "pass": true,
+      "detail": "got #101014 delta=0"
+    }
+  ],
+  "python": "3.12.10"
+}

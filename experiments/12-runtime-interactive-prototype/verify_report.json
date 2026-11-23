@@ -1,0 +1,757 @@
+{
+  "ok": true,
+  "passed": 150,
+  "failed": 0,
+  "checks": [
+    {
+      "check": "state_log: 1 frame inicial + 1 por evento",
+      "ok": true,
+      "detail": "frames=13 eventos=12"
+    },
+    {
+      "check": "state_log: summary.frame_count/event_count",
+      "ok": true,
+      "detail": "{\"frame_count\": 13, \"event_count\": 12, \"wall_ms\": 105.26, \"timing_ms\": {\"hit_test\": {\"min\": 0.0, \"median\": 0.025, \"mean\": 0.024, \"p95\": 0.043, \"max\": 0.043}, \"build_display_list\": {\"min\": 0.02, \"median\": 0.025, \"mean\": 0.028, \"p95\": 0.072, \"max\": 0.072}, \"render_cpu\": {\"min\": 0.29, \"median\": 0.321, \"mean\": 0.424, \"p95\": 1.049, \"max\": 1.049}, \"save_png\": {\"min\": 2.826, \"median\": 3.324, \"mean\": 5.942, \"p95\": 36.572, \"max\": 36.572}, \"total\": {\"min\": 3.159, \"median\": 3.686, \"mean\": 6.42, \"p95\": 37.276, \"max\": 37.276}}, \"steady_state_timing_ms\": {\"hit_test\": {\"min\": 0.019, \"median\": 0.025, \"mean\": 0.026, \"p95\": 0.043, \"max\": 0.043}, \"build_display_list\": {\"min\": 0.02, \"median\": 0.025, \"mean\": 0.024, \"p95\": 0.029, \"max\": 0.029}, \"render_cpu\": {\"min\": 0.29, \"median\": 0.313, \"mean\": 0.407, \"p95\": 1.049, \"max\": 1.049}, \"save_png\": {\"min\": 2.826, \"median\": 3.159, \"mean\": 3.389, \"p95\": 4.264, \"max\": 4.264}, \"total\": {\"min\": 3.159, \"median\": 3.677, \"mean\": 3.849, \"p95\": 4.839, \"max\": 4.839}}}"
+    },
+    {
+      "check": "frame_000 sin evento y estado inicial",
+      "ok": true,
+      "detail": "{\"hovered\": null, \"pressed\": null, \"clicks\": 0}"
+    },
+    {
+      "check": "frame_001: evento #1 en orden",
+      "ok": true,
+      "detail": "{'t_ms': 0, 'type': 'pointer_move', 'x': 190, 'y': 70, 'note': 'centro de btn-b: hover'} != {'t_ms': 0, 'type': 'pointer_move', 'x': 190, 'y': 70, 'note': 'centro de btn-b: hover'}"
+    },
+    {
+      "check": "frame_001: hit=btn-b",
+      "ok": true,
+      "detail": "got btn-b"
+    },
+    {
+      "check": "frame_001: estado {'hovered': 'btn-b', 'pressed': None, 'clicks': 0}",
+      "ok": true,
+      "detail": "got {'hovered': 'btn-b', 'pressed': None, 'clicks': 0}"
+    },
+    {
+      "check": "frame_001: op_count=9",
+      "ok": true,
+      "detail": "got 9"
+    },
+    {
+      "check": "frame_002: evento #2 en orden",
+      "ok": true,
+      "detail": "{'t_ms': 16, 'type': 'pointer_down', 'x': 190, 'y': 70, 'note': 'press btn-b'} != {'t_ms': 16, 'type': 'pointer_down', 'x': 190, 'y': 70, 'note': 'press btn-b'}"
+    },
+    {
+      "check": "frame_002: hit=btn-b",
+      "ok": true,
+      "detail": "got btn-b"
+    },
+    {
+      "check": "frame_002: estado {'hovered': 'btn-b', 'pressed': 'btn-b', 'clicks': 0}",
+      "ok": true,
+      "detail": "got {'hovered': 'btn-b', 'pressed': 'btn-b', 'clicks': 0}"
+    },
+    {
+      "check": "frame_002: op_count=9",
+      "ok": true,
+      "detail": "got 9"
+    },
+    {
+      "check": "frame_003: evento #3 en orden",
+      "ok": true,
+      "detail": "{'t_ms': 32, 'type': 'pointer_up', 'x': 190, 'y': 70, 'note': 'suelta sobre btn-b: click 1'} != {'t_ms': 32, 'type': 'pointer_up', 'x': 190, 'y': 70, 'note': 'suelta sobre btn-b: click 1'}"
+    },
+    {
+      "check": "frame_003: hit=btn-b",
+      "ok": true,
+      "detail": "got btn-b"
+    },
+    {
+      "check": "frame_003: estado {'hovered': 'btn-b', 'pressed': None, 'clicks': 1}",
+      "ok": true,
+      "detail": "got {'hovered': 'btn-b', 'pressed': None, 'clicks': 1}"
+    },
+    {
+      "check": "frame_003: op_count=9",
+      "ok": true,
+      "detail": "got 9"
+    },
+    {
+      "check": "frame_004: evento #4 en orden",
+      "ok": true,
+      "detail": "{'t_ms': 48, 'type': 'pointer_move', 'x': 195, 'y': 80, 'note': 'otro punto dentro de btn-b: el estado no cambia -> frame identico'} != {'t_ms': 48, 'type': 'pointer_move', 'x': 195, 'y': 80, 'note': 'otro punto dentro de btn-b: el estado no cambia -> frame identico'}"
+    },
+    {
+      "check": "frame_004: hit=btn-b",
+      "ok": true,
+      "detail": "got btn-b"
+    },
+    {
+      "check": "frame_004: estado {'hovered': 'btn-b', 'pressed': None, 'clicks': 1}",
+      "ok": true,
+      "detail": "got {'hovered': 'btn-b', 'pressed': None, 'clicks': 1}"
+    },
+    {
+      "check": "frame_004: op_count=9",
+      "ok": true,
+      "detail": "got 9"
+    },
+    {
+      "check": "frame_005: evento #5 en orden",
+      "ok": true,
+      "detail": "{'t_ms': 64, 'type': 'pointer_move', 'x': 200, 'y': 150, 'note': 'espacio vacio: hover None'} != {'t_ms': 64, 'type': 'pointer_move', 'x': 200, 'y': 150, 'note': 'espacio vacio: hover None'}"
+    },
+    {
+      "check": "frame_005: hit=None",
+      "ok": true,
+      "detail": "got None"
+    },
+    {
+      "check": "frame_005: estado {'hovered': None, 'pressed': None, 'clicks': 1}",
+      "ok": true,
+      "detail": "got {'hovered': None, 'pressed': None, 'clicks': 1}"
+    },
+    {
+      "check": "frame_005: op_count=9",
+      "ok": true,
+      "detail": "got 9"
+    },
+    {
+      "check": "frame_006: evento #6 en orden",
+      "ok": true,
+      "detail": "{'t_ms': 80, 'type': 'pointer_move', 'x': 240, 'y': 70, 'note': 'borde derecho de btn-b (x1): half-open -> fuera'} != {'t_ms': 80, 'type': 'pointer_move', 'x': 240, 'y': 70, 'note': 'borde derecho de btn-b (x1): half-open -> fuera'}"
+    },
+    {
+      "check": "frame_006: hit=None",
+      "ok": true,
+      "detail": "got None"
+    },
+    {
+      "check": "frame_006: estado {'hovered': None, 'pressed': None, 'clicks': 1}",
+      "ok": true,
+      "detail": "got {'hovered': None, 'pressed': None, 'clicks': 1}"
+    },
+    {
+      "check": "frame_006: op_count=9",
+      "ok": true,
+      "detail": "got 9"
+    },
+    {
+      "check": "frame_007: evento #7 en orden",
+      "ok": true,
+      "detail": "{'t_ms': 96, 'type': 'pointer_move', 'x': 140, 'y': 40, 'note': 'borde superior-izquierdo de btn-b: half-open -> dentro'} != {'t_ms': 96, 'type': 'pointer_move', 'x': 140, 'y': 40, 'note': 'borde superior-izquierdo de btn-b: half-open -> dentro'}"
+    },
+    {
+      "check": "frame_007: hit=btn-b",
+      "ok": true,
+      "detail": "got btn-b"
+    },
+    {
+      "check": "frame_007: estado {'hovered': 'btn-b', 'pressed': None, 'clicks': 1}",
+      "ok": true,
+      "detail": "got {'hovered': 'btn-b', 'pressed': None, 'clicks': 1}"
+    },
+    {
+      "check": "frame_007: op_count=9",
+      "ok": true,
+      "detail": "got 9"
+    },
+    {
+      "check": "frame_008: evento #8 en orden",
+      "ok": true,
+      "detail": "{'t_ms': 112, 'type': 'pointer_move', 'x': 310, 'y': 70, 'note': 'centro de btn-c: hover'} != {'t_ms': 112, 'type': 'pointer_move', 'x': 310, 'y': 70, 'note': 'centro de btn-c: hover'}"
+    },
+    {
+      "check": "frame_008: hit=btn-c",
+      "ok": true,
+      "detail": "got btn-c"
+    },
+    {
+      "check": "frame_008: estado {'hovered': 'btn-c', 'pressed': None, 'clicks': 1}",
+      "ok": true,
+      "detail": "got {'hovered': 'btn-c', 'pressed': None, 'clicks': 1}"
+    },
+    {
+      "check": "frame_008: op_count=9",
+      "ok": true,
+      "detail": "got 9"
+    },
+    {
+      "check": "frame_009: evento #9 en orden",
+      "ok": true,
+      "detail": "{'t_ms': 128, 'type': 'pointer_down', 'x': 310, 'y': 70, 'note': 'press btn-c'} != {'t_ms': 128, 'type': 'pointer_down', 'x': 310, 'y': 70, 'note': 'press btn-c'}"
+    },
+    {
+      "check": "frame_009: hit=btn-c",
+      "ok": true,
+      "detail": "got btn-c"
+    },
+    {
+      "check": "frame_009: estado {'hovered': 'btn-c', 'pressed': 'btn-c', 'clicks': 1}",
+      "ok": true,
+      "detail": "got {'hovered': 'btn-c', 'pressed': 'btn-c', 'clicks': 1}"
+    },
+    {
+      "check": "frame_009: op_count=9",
+      "ok": true,
+      "detail": "got 9"
+    },
+    {
+      "check": "frame_010: evento #10 en orden",
+      "ok": true,
+      "detail": "{'t_ms': 144, 'type': 'pointer_up', 'x': 310, 'y': 70, 'note': 'suelta sobre btn-c: click 2'} != {'t_ms': 144, 'type': 'pointer_up', 'x': 310, 'y': 70, 'note': 'suelta sobre btn-c: click 2'}"
+    },
+    {
+      "check": "frame_010: hit=btn-c",
+      "ok": true,
+      "detail": "got btn-c"
+    },
+    {
+      "check": "frame_010: estado {'hovered': 'btn-c', 'pressed': None, 'clicks': 2}",
+      "ok": true,
+      "detail": "got {'hovered': 'btn-c', 'pressed': None, 'clicks': 2}"
+    },
+    {
+      "check": "frame_010: op_count=9",
+      "ok": true,
+      "detail": "got 9"
+    },
+    {
+      "check": "frame_011: evento #11 en orden",
+      "ok": true,
+      "detail": "{'t_ms': 160, 'type': 'pointer_down', 'x': 70, 'y': 70, 'note': 'press btn-a'} != {'t_ms': 160, 'type': 'pointer_down', 'x': 70, 'y': 70, 'note': 'press btn-a'}"
+    },
+    {
+      "check": "frame_011: hit=btn-a",
+      "ok": true,
+      "detail": "got btn-a"
+    },
+    {
+      "check": "frame_011: estado {'hovered': 'btn-a', 'pressed': 'btn-a', 'clicks': 2}",
+      "ok": true,
+      "detail": "got {'hovered': 'btn-a', 'pressed': 'btn-a', 'clicks': 2}"
+    },
+    {
+      "check": "frame_011: op_count=9",
+      "ok": true,
+      "detail": "got 9"
+    },
+    {
+      "check": "frame_012: evento #12 en orden",
+      "ok": true,
+      "detail": "{'t_ms': 176, 'type': 'pointer_up', 'x': 200, 'y': 150, 'note': 'suelta fuera de btn-a: no cuenta como click (drag-out)'} != {'t_ms': 176, 'type': 'pointer_up', 'x': 200, 'y': 150, 'note': 'suelta fuera de btn-a: no cuenta como click (drag-out)'}"
+    },
+    {
+      "check": "frame_012: hit=None",
+      "ok": true,
+      "detail": "got None"
+    },
+    {
+      "check": "frame_012: estado {'hovered': None, 'pressed': None, 'clicks': 2}",
+      "ok": true,
+      "detail": "got {'hovered': None, 'pressed': None, 'clicks': 2}"
+    },
+    {
+      "check": "frame_012: op_count=9",
+      "ok": true,
+      "detail": "got 9"
+    },
+    {
+      "check": "frame_000: PNG existe",
+      "ok": true,
+      "detail": ".\\exp12-interactivity\\frames\\frame_000.png"
+    },
+    {
+      "check": "frame_000: 400x300",
+      "ok": true,
+      "detail": "(400, 300)"
+    },
+    {
+      "check": "frame_000: sha256 del log",
+      "ok": true,
+      "detail": "hash distinto"
+    },
+    {
+      "check": "frame_000: IR->PNG exacto",
+      "ok": true,
+      "detail": "píxeles distintos del IR"
+    },
+    {
+      "check": "frame_001: PNG existe",
+      "ok": true,
+      "detail": ".\\exp12-interactivity\\frames\\frame_001.png"
+    },
+    {
+      "check": "frame_001: 400x300",
+      "ok": true,
+      "detail": "(400, 300)"
+    },
+    {
+      "check": "frame_001: sha256 del log",
+      "ok": true,
+      "detail": "hash distinto"
+    },
+    {
+      "check": "frame_001: IR->PNG exacto",
+      "ok": true,
+      "detail": "píxeles distintos del IR"
+    },
+    {
+      "check": "frame_002: PNG existe",
+      "ok": true,
+      "detail": ".\\exp12-interactivity\\frames\\frame_002.png"
+    },
+    {
+      "check": "frame_002: 400x300",
+      "ok": true,
+      "detail": "(400, 300)"
+    },
+    {
+      "check": "frame_002: sha256 del log",
+      "ok": true,
+      "detail": "hash distinto"
+    },
+    {
+      "check": "frame_002: IR->PNG exacto",
+      "ok": true,
+      "detail": "píxeles distintos del IR"
+    },
+    {
+      "check": "frame_003: PNG existe",
+      "ok": true,
+      "detail": ".\\exp12-interactivity\\frames\\frame_003.png"
+    },
+    {
+      "check": "frame_003: 400x300",
+      "ok": true,
+      "detail": "(400, 300)"
+    },
+    {
+      "check": "frame_003: sha256 del log",
+      "ok": true,
+      "detail": "hash distinto"
+    },
+    {
+      "check": "frame_003: IR->PNG exacto",
+      "ok": true,
+      "detail": "píxeles distintos del IR"
+    },
+    {
+      "check": "frame_004: PNG existe",
+      "ok": true,
+      "detail": ".\\exp12-interactivity\\frames\\frame_004.png"
+    },
+    {
+      "check": "frame_004: 400x300",
+      "ok": true,
+      "detail": "(400, 300)"
+    },
+    {
+      "check": "frame_004: sha256 del log",
+      "ok": true,
+      "detail": "hash distinto"
+    },
+    {
+      "check": "frame_004: IR->PNG exacto",
+      "ok": true,
+      "detail": "píxeles distintos del IR"
+    },
+    {
+      "check": "frame_005: PNG existe",
+      "ok": true,
+      "detail": ".\\exp12-interactivity\\frames\\frame_005.png"
+    },
+    {
+      "check": "frame_005: 400x300",
+      "ok": true,
+      "detail": "(400, 300)"
+    },
+    {
+      "check": "frame_005: sha256 del log",
+      "ok": true,
+      "detail": "hash distinto"
+    },
+    {
+      "check": "frame_005: IR->PNG exacto",
+      "ok": true,
+      "detail": "píxeles distintos del IR"
+    },
+    {
+      "check": "frame_006: PNG existe",
+      "ok": true,
+      "detail": ".\\exp12-interactivity\\frames\\frame_006.png"
+    },
+    {
+      "check": "frame_006: 400x300",
+      "ok": true,
+      "detail": "(400, 300)"
+    },
+    {
+      "check": "frame_006: sha256 del log",
+      "ok": true,
+      "detail": "hash distinto"
+    },
+    {
+      "check": "frame_006: IR->PNG exacto",
+      "ok": true,
+      "detail": "píxeles distintos del IR"
+    },
+    {
+      "check": "frame_007: PNG existe",
+      "ok": true,
+      "detail": ".\\exp12-interactivity\\frames\\frame_007.png"
+    },
+    {
+      "check": "frame_007: 400x300",
+      "ok": true,
+      "detail": "(400, 300)"
+    },
+    {
+      "check": "frame_007: sha256 del log",
+      "ok": true,
+      "detail": "hash distinto"
+    },
+    {
+      "check": "frame_007: IR->PNG exacto",
+      "ok": true,
+      "detail": "píxeles distintos del IR"
+    },
+    {
+      "check": "frame_008: PNG existe",
+      "ok": true,
+      "detail": ".\\exp12-interactivity\\frames\\frame_008.png"
+    },
+    {
+      "check": "frame_008: 400x300",
+      "ok": true,
+      "detail": "(400, 300)"
+    },
+    {
+      "check": "frame_008: sha256 del log",
+      "ok": true,
+      "detail": "hash distinto"
+    },
+    {
+      "check": "frame_008: IR->PNG exacto",
+      "ok": true,
+      "detail": "píxeles distintos del IR"
+    },
+    {
+      "check": "frame_009: PNG existe",
+      "ok": true,
+      "detail": ".\\exp12-interactivity\\frames\\frame_009.png"
+    },
+    {
+      "check": "frame_009: 400x300",
+      "ok": true,
+      "detail": "(400, 300)"
+    },
+    {
+      "check": "frame_009: sha256 del log",
+      "ok": true,
+      "detail": "hash distinto"
+    },
+    {
+      "check": "frame_009: IR->PNG exacto",
+      "ok": true,
+      "detail": "píxeles distintos del IR"
+    },
+    {
+      "check": "frame_010: PNG existe",
+      "ok": true,
+      "detail": ".\\exp12-interactivity\\frames\\frame_010.png"
+    },
+    {
+      "check": "frame_010: 400x300",
+      "ok": true,
+      "detail": "(400, 300)"
+    },
+    {
+      "check": "frame_010: sha256 del log",
+      "ok": true,
+      "detail": "hash distinto"
+    },
+    {
+      "check": "frame_010: IR->PNG exacto",
+      "ok": true,
+      "detail": "píxeles distintos del IR"
+    },
+    {
+      "check": "frame_011: PNG existe",
+      "ok": true,
+      "detail": ".\\exp12-interactivity\\frames\\frame_011.png"
+    },
+    {
+      "check": "frame_011: 400x300",
+      "ok": true,
+      "detail": "(400, 300)"
+    },
+    {
+      "check": "frame_011: sha256 del log",
+      "ok": true,
+      "detail": "hash distinto"
+    },
+    {
+      "check": "frame_011: IR->PNG exacto",
+      "ok": true,
+      "detail": "píxeles distintos del IR"
+    },
+    {
+      "check": "frame_012: PNG existe",
+      "ok": true,
+      "detail": ".\\exp12-interactivity\\frames\\frame_012.png"
+    },
+    {
+      "check": "frame_012: 400x300",
+      "ok": true,
+      "detail": "(400, 300)"
+    },
+    {
+      "check": "frame_012: sha256 del log",
+      "ok": true,
+      "detail": "hash distinto"
+    },
+    {
+      "check": "frame_012: IR->PNG exacto",
+      "ok": true,
+      "detail": "píxeles distintos del IR"
+    },
+    {
+      "check": "frame_000: btn-b normal",
+      "ok": true,
+      "detail": "(190,70) got #2b2b36 want #2b2b36"
+    },
+    {
+      "check": "frame_001: hover en btn-b",
+      "ok": true,
+      "detail": "(190,70) got #3a3a48 want #3a3a48"
+    },
+    {
+      "check": "frame_002: pressed en btn-b",
+      "ok": true,
+      "detail": "(190,70) got #4a4a5c want #4a4a5c"
+    },
+    {
+      "check": "frame_003: dot 1 activo tras click 1",
+      "ok": true,
+      "detail": "(25,225) got #3498db want #3498db"
+    },
+    {
+      "check": "frame_003: dot 2 inactivo",
+      "ok": true,
+      "detail": "(43,225) got #2b2b36 want #2b2b36"
+    },
+    {
+      "check": "frame_003: btn-b sigue hover",
+      "ok": true,
+      "detail": "(190,70) got #3a3a48 want #3a3a48"
+    },
+    {
+      "check": "frame_004: mismo estado visual",
+      "ok": true,
+      "detail": "(190,70) got #3a3a48 want #3a3a48"
+    },
+    {
+      "check": "frame_005: hover limpiado",
+      "ok": true,
+      "detail": "(190,70) got #2b2b36 want #2b2b36"
+    },
+    {
+      "check": "frame_006: borde derecho (240,70) fuera",
+      "ok": true,
+      "detail": "(190,70) got #2b2b36 want #2b2b36"
+    },
+    {
+      "check": "frame_007: borde izq./sup. (140,40) dentro",
+      "ok": true,
+      "detail": "(190,70) got #3a3a48 want #3a3a48"
+    },
+    {
+      "check": "frame_008: hover en btn-c",
+      "ok": true,
+      "detail": "(310,70) got #3a3a48 want #3a3a48"
+    },
+    {
+      "check": "frame_008: btn-b normal",
+      "ok": true,
+      "detail": "(190,70) got #2b2b36 want #2b2b36"
+    },
+    {
+      "check": "frame_009: pressed en btn-c",
+      "ok": true,
+      "detail": "(310,70) got #4a4a5c want #4a4a5c"
+    },
+    {
+      "check": "frame_010: dot 1 activo",
+      "ok": true,
+      "detail": "(25,225) got #3498db want #3498db"
+    },
+    {
+      "check": "frame_010: dot 2 activo tras click 2",
+      "ok": true,
+      "detail": "(43,225) got #3498db want #3498db"
+    },
+    {
+      "check": "frame_010: dot 3 inactivo",
+      "ok": true,
+      "detail": "(61,225) got #2b2b36 want #2b2b36"
+    },
+    {
+      "check": "frame_011: pressed en btn-a",
+      "ok": true,
+      "detail": "(70,70) got #4a4a5c want #4a4a5c"
+    },
+    {
+      "check": "frame_012: drag-out suelta btn-a",
+      "ok": true,
+      "detail": "(70,70) got #2b2b36 want #2b2b36"
+    },
+    {
+      "check": "frame_012: dot 2 sigue activo",
+      "ok": true,
+      "detail": "(43,225) got #3498db want #3498db"
+    },
+    {
+      "check": "frame_012: dot 3 no activado",
+      "ok": true,
+      "detail": "(61,225) got #2b2b36 want #2b2b36"
+    },
+    {
+      "check": "frame_000: fondo en espacio vacío",
+      "ok": true,
+      "detail": "(200,150) got #101014 want #101014"
+    },
+    {
+      "check": "frame_001: fondo en espacio vacío",
+      "ok": true,
+      "detail": "(200,150) got #101014 want #101014"
+    },
+    {
+      "check": "frame_002: fondo en espacio vacío",
+      "ok": true,
+      "detail": "(200,150) got #101014 want #101014"
+    },
+    {
+      "check": "frame_003: fondo en espacio vacío",
+      "ok": true,
+      "detail": "(200,150) got #101014 want #101014"
+    },
+    {
+      "check": "frame_004: fondo en espacio vacío",
+      "ok": true,
+      "detail": "(200,150) got #101014 want #101014"
+    },
+    {
+      "check": "frame_005: fondo en espacio vacío",
+      "ok": true,
+      "detail": "(200,150) got #101014 want #101014"
+    },
+    {
+      "check": "frame_006: fondo en espacio vacío",
+      "ok": true,
+      "detail": "(200,150) got #101014 want #101014"
+    },
+    {
+      "check": "frame_007: fondo en espacio vacío",
+      "ok": true,
+      "detail": "(200,150) got #101014 want #101014"
+    },
+    {
+      "check": "frame_008: fondo en espacio vacío",
+      "ok": true,
+      "detail": "(200,150) got #101014 want #101014"
+    },
+    {
+      "check": "frame_009: fondo en espacio vacío",
+      "ok": true,
+      "detail": "(200,150) got #101014 want #101014"
+    },
+    {
+      "check": "frame_010: fondo en espacio vacío",
+      "ok": true,
+      "detail": "(200,150) got #101014 want #101014"
+    },
+    {
+      "check": "frame_011: fondo en espacio vacío",
+      "ok": true,
+      "detail": "(200,150) got #101014 want #101014"
+    },
+    {
+      "check": "frame_012: fondo en espacio vacío",
+      "ok": true,
+      "detail": "(200,150) got #101014 want #101014"
+    },
+    {
+      "check": "frames 003 y 004 idénticos",
+      "ok": true,
+      "detail": "deberían ser iguales"
+    },
+    {
+      "check": "frames 005 y 006 idénticos",
+      "ok": true,
+      "detail": "deberían ser iguales"
+    },
+    {
+      "check": "frames 000 y 001 distintos",
+      "ok": true,
+      "detail": "deberían diferir"
+    },
+    {
+      "check": "frames 001 y 002 distintos",
+      "ok": true,
+      "detail": "deberían diferir"
+    },
+    {
+      "check": "frames 002 y 003 distintos",
+      "ok": true,
+      "detail": "deberían diferir"
+    },
+    {
+      "check": "frames 003 y 005 distintos",
+      "ok": true,
+      "detail": "deberían diferir"
+    },
+    {
+      "check": "frames 005 y 007 distintos",
+      "ok": true,
+      "detail": "deberían diferir"
+    },
+    {
+      "check": "frames 007 y 008 distintos",
+      "ok": true,
+      "detail": "deberían diferir"
+    },
+    {
+      "check": "frames 008 y 009 distintos",
+      "ok": true,
+      "detail": "deberían diferir"
+    },
+    {
+      "check": "frames 009 y 010 distintos",
+      "ok": true,
+      "detail": "deberían diferir"
+    },
+    {
+      "check": "frames 010 y 011 distintos",
+      "ok": true,
+      "detail": "deberían diferir"
+    },
+    {
+      "check": "frames 011 y 012 distintos",
+      "ok": true,
+      "detail": "deberían diferir"
+    },
+    {
+      "check": "frames 004 y 005 distintos",
+      "ok": true,
+      "detail": "deberían diferir"
+    },
+    {
+      "check": "frames 006 y 007 distintos",
+      "ok": true,
+      "detail": "deberían diferir"
+    }
+  ]
+}

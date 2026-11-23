@@ -1,0 +1,8 @@
+# Build byproducts (not evidence): the .venv is build-time only and
+# wgpu_native.dll is copied read-only from exp10-aot-gpu.
+.venv/
+__pycache__/
+*.pyc
+*.obj
+build_step.cmd
+wgpu_native.dll

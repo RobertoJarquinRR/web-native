@@ -1,0 +1,52 @@
+﻿{
+    "experiment":  "exp10-aot-gpu",
+    "started":  "2026-11-23T13:33:52.1607696-06:00",
+    "timings_ms":  {
+                       "emit":  149.09,
+                       "compile":  3262.72,
+                       "run":  451.43,
+                       "verify":  299.98,
+                       "proof_rebuild_run":  6723.12
+                   },
+    "commands":  {
+                     "emit":  ".\\exp10-aot-gpu\\.venv\\Scripts\\python.exe emit_c.py --ir display_list.json --out scene_data.h",
+                     "compile":  "cl /nologo /O2 /W3 /std:c17 /TC runtime_gpu.c /Iwgpu-native\\include /Fe:scene_gpu.exe /link wgpu-native\\lib\\wgpu_native.dll.lib windowscodecs.lib ole32.lib user32.lib",
+                     "run":  "PATH=C:\\Windows\\System32;.\\exp10-aot-gpu ; .\\scene_gpu.exe scene_gpu.png",
+                     "verify":  ".\\exp10-aot-gpu\\.venv\\Scripts\\python.exe verify.py --png scene_gpu.png --report verify_report.json"
+                 },
+    "proof":  {
+                  "extra_rect":  "x=260 y=180 w=80 h=60 fill=#2ecc71",
+                  "exe":  "proof\\scene_gpu_proof.exe",
+                  "png":  "proof\\scene_gpu_proof.png",
+                  "verify":  "proof\\verify_report_proof.json",
+                  "pixel":  "(300,210) = #2ecc71",
+                  "note":  "display_list.json was modified, re-emitted, recompiled and rendered; canonical file restored afterwards"
+              },
+    "wgpu_native":  "v29.0.1.1 wgpu-windows-x86_64-msvc-release.zip",
+    "isolation":  {
+                      "path":  "C:\\Windows\\System32;.\\exp10-aot-gpu",
+                      "exit_code":  0,
+                      "stdout":  "scene_gpu: AOT GPU scene 400x300, 3 rect op(s), 18 vertices\r\n  op[0] rect x=0.0 y=0.0 w=400.0 h=300.0 rgba=0x101014FF\r\n  op[1] rect x=20.0 y=20.0 w=120.0 h=80.0 rgba=0xE74C3CFF\r\n  op[2] rect x=20.0 y=116.0 w=120.0 h=80.0 rgba=0x3498DBFF\r\nscene_gpu: clear color rgb(16,16,20)\r\nadapter: backend=D3D12 (4) type=cpu vendorID=0x1414 deviceID=0x008C\r\nadapter: vendor=10.0.19041.5794\r\nadapter: architecture=(none)\r\nadapter: device=Microsoft Basic Render Driver\r\nadapter: description=(none)\r\nscene_gpu: wrote scene_gpu.png (400x300)\r\ntimings: init+adapter+device+upload=88.64ms | pipeline=6.02ms | render+copy+submit=2.56ms | map=23.43ms | png=8.43ms | total=129.08ms",
+                      "stderr":  "[wgpu 2] Returned GL context is 3.1, when 3.3+ is needed"
+                  },
+    "adapter":  {
+                    "backend":  "adapter: backend=D3D12 (4) type=cpu vendorID=0x1414 deviceID=0x008C",
+                    "device":  "adapter: device=Microsoft Basic Render Driver"
+                },
+    "verify_report":  "verify_report.json",
+    "exe":  {
+                "path":  ".\\exp10-aot-gpu\\scene_gpu.exe",
+                "bytes":  172032
+            },
+    "png":  {
+                "path":  ".\\exp10-aot-gpu\\scene_gpu.png",
+                "bytes":  1227
+            },
+    "hashes":  {
+                   "display_list_json":  "89ab71b6a675e002e94ab98a691dcfedba957858a4421c1f057279095813cb10",
+                   "scene_data_h":  "e811c48515c00bed0ff4e8e5fb98ccae8c6bb6888fd780e5a2fb7fa6ef782f1b",
+                   "scene_gpu_png":  "9e1bf828e0fe87f9cf63b5c3ee127a30e29042ae1b9d954b9406ddf7a838dbb9"
+               },
+    "compiler":  "Microsoft (R) C/C++ Optimizing Compiler Version 19.51.36260 for x64",
+    "finished":  "2026-11-23T13:34:11.2178213-06:00"
+}

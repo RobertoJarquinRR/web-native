@@ -1,0 +1,82 @@
+{
+    "experiment":  "exp16-text-c",
+    "started":  "2026-11-23T14:48:27.6372908-06:00",
+    "timings_ms":  {
+                       "emit":  5512.33,
+                       "compile":  11687.88,
+                       "run":  2332.47,
+                       "verify":  946.08,
+                       "proof_selfcontained":  721.57
+                   },
+    "commands":  {
+                     "emit":  ".\\experiments\\16-text-atlas-c\\.venv\\Scripts\\python.exe run.py",
+                     "compile":  "cl /nologo /O2 /W3 /std:c17 /TC runtime_text.c /I\".\\third_party\\wgpu-native\\include\" /Fe:scene_text.exe /link \".\\third_party\\wgpu-native\\lib\\wgpu_native.dll.lib\" windowscodecs.lib ole32.lib user32.lib",
+                     "run":  "PATH=C:\\Windows\\System32;.\\experiments\\16-text-atlas-c ; .\\scene_text.exe scene_text.png",
+                     "verify":  ".\\experiments\\16-text-atlas-c\\.venv\\Scripts\\python.exe verify.py --png scene_text.png --frontend render_frontend.png --report verify_report.json"
+                 },
+    "bake_subtimings_ms":  {
+                               "frontend_ir":  92.953,
+                               "atlas_export":  22.046,
+                               "emit_c":  126.721,
+                               "frontend_render":  4106.411,
+                               "total":  4348.323
+                           },
+    "isolation":  {
+                      "path":  "C:\\Windows\\System32;.\\experiments\\16-text-atlas-c",
+                      "exit_code":  0,
+                      "stdout":  "scene_text: AOT GPU scene 400x240 | 5 rect op(s) + 1 text run(s) | atlas 512x512 R8Unorm, 4 glyphs\r\n  rect[0] x=0.0 y=0.0 w=400.0 h=240.0 rgba=0x0F0F12FF\r\n  rect[1] x=0.0 y=0.0 w=400.0 h=240.0 rgba=0x101014FF\r\n  rect[2] x=20.0 y=71.0 w=60.0 h=60.0 rgba=0xE74C3CFF\r\n  rect[3] x=88.0 y=71.0 w=60.0 h=60.0 rgba=0x2ECC71FF\r\n  rect[4] x=156.0 y=71.0 w=60.0 h=60.0 rgba=0x3498DBFF\r\n  glyph[0] run=0 gid=43 x=22.000 y=31.000 16x20 uv=(0.001953,0.001953)-(0.033203,0.041016)\r\n  glyph[1] run=0 gid=82 x=40.875 y=37.000 15x14 uv=(0.037109,0.001953)-(0.066406,0.029297)\r\n  glyph[2] run=0 gid=79 x=58.281 y=30.000 3x21 uv=(0.070312,0.001953)-(0.076172,0.042969)\r\n  glyph[3] run=0 gid=68 x=64.062 y=37.000 12x14 uv=(0.080078,0.001953)-(0.103516,0.029297)\r\nscene_text: clear color rgb(15,15,18)\r\nadapter: backend=D3D12 (4) type=cpu vendorID=0x1414 deviceID=0x008C\r\nadapter: device=Microsoft Basic Render Driver\r\natlas: uploaded 512x512 R8Unorm (262144 bytes) gpu-hash=0xCAB0968C cpu-hash=0xCAB0968C MATCH\r\nscene_text: wrote scene_text.png (400x240)\r\nscene_text: 4 glyph(s) drawn in 2 draw call(s) after 5 rect op(s)\r\ntimings: init+adapter+device+upload=140.78ms | atlas+shaders=1.19ms | pipelines+bindgroup=57.86ms | render+copy+submit=2.47ms | map=28.49ms | png=8.51ms | total=239.30ms",
+                      "stderr":  "[wgpu 2] Returned GL context is 3.1, when 3.3+ is needed"
+                  },
+    "adapter":  "adapter: backend=D3D12 (4) type=cpu vendorID=0x1414 deviceID=0x008C",
+    "atlas_proof":  "atlas: uploaded 512x512 R8Unorm (262144 bytes) gpu-hash=0xCAB0968C cpu-hash=0xCAB0968C MATCH",
+    "self_contained":  {
+                           "dir":  ".\\experiments\\16-text-atlas-c\\proof\\runtime_only",
+                           "files_before_run":  "scene_text.exe, wgpu_native.dll",
+                           "files_after_run":  "scene_text.exe, scene_text.png, wgpu_native.dll",
+                           "png":  ".\\experiments\\16-text-atlas-c\\proof\\runtime_only\\scene_text.png",
+                           "png_sha256_matches":  true,
+                           "exit_code":  0,
+                           "path":  "C:\\Windows\\System32;.\\experiments\\16-text-atlas-c\\proof\\runtime_only"
+                       },
+    "dependents":  {
+                       "imports":  [
+                                       "wgpu_native.dll",
+                                       "ole32.dll",
+                                       "KERNEL32.dll"
+                                   ],
+                       "forbidden":  [
+
+                                     ],
+                       "python_imports":  [
+
+                                          ],
+                       "file":  "proof\\dependents.txt"
+                   },
+    "artifacts":  {
+                      "exe":  {
+                                  "path":  ".\\experiments\\16-text-atlas-c\\scene_text.exe",
+                                  "bytes":  440832
+                              },
+                      "png":  {
+                                  "path":  ".\\experiments\\16-text-atlas-c\\scene_text.png",
+                                  "bytes":  2330
+                              },
+                      "scene_data_h":  {
+                                           "bytes":  576312
+                                       },
+                      "atlas_bin":  {
+                                        "bytes":  262144
+                                    }
+                  },
+    "hashes":  {
+                   "display_list_json":  "8d32d008b37694c6ed92056641d3204b747973da14b32b1059d722697743e8e6",
+                   "atlas_bin":  "c0321dbf236e51f6708e6a5f9316b7c444b86f1479ee5833ae2e87ac368df540",
+                   "glyph_quads_json":  "1650f477a04b621fb1d456331d50b4d3e3981bdb982c7e552dfa6290b81ef30e",
+                   "scene_data_h":  "405f55ff185db29d8424a7e8c6e02ce83d794314fc35a72323342e518957efd6",
+                   "scene_text_exe":  "53638290e767ea393bb983dca14a99be0aca794da1d62439dd10bd9042b6cae6",
+                   "scene_text_png":  "7124383f96e6075a3362c5261940266262538d3ddb10455200a04cd564109bef",
+                   "render_frontend":  "eee0d33ff93ff5a60a1d627e5df8953b4ac51f72700be70955e5bf25057660cb"
+               },
+    "verify_report":  "verify_report.json",
+    "finished":  "2026-11-23T14:49:06.2123416-06:00"
+}

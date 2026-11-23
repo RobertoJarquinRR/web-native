@@ -1,0 +1,7 @@
+{
+    "binary":  "out/frontend-csharp.exe",
+    "build_mode":  "aot",
+    "dotnet_version":  "10.0.403",
+    "binary_bytes":  8379392,
+    "built_at":  "2026-11-23T20:57:22Z"
+}

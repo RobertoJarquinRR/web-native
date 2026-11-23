@@ -1,0 +1,4 @@
+body { margin:0; background:#0f0f12; }
+#root { width:400px; height:200px; background:#101014; padding:20px; }
+.title { font-family: "Segoe UI"; font-size:32px; color:#ffffff; }
+.body { font-family: "Segoe UI"; font-size:20px; color:#3498db; margin-top:8px; }

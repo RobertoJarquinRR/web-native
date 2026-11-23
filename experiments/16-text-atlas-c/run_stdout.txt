@@ -1,0 +1,18 @@
+scene_text: AOT GPU scene 400x240 | 5 rect op(s) + 1 text run(s) | atlas 512x512 R8Unorm, 4 glyphs
+  rect[0] x=0.0 y=0.0 w=400.0 h=240.0 rgba=0x0F0F12FF
+  rect[1] x=0.0 y=0.0 w=400.0 h=240.0 rgba=0x101014FF
+  rect[2] x=20.0 y=71.0 w=60.0 h=60.0 rgba=0xE74C3CFF
+  rect[3] x=88.0 y=71.0 w=60.0 h=60.0 rgba=0x2ECC71FF
+  rect[4] x=156.0 y=71.0 w=60.0 h=60.0 rgba=0x3498DBFF
+  glyph[0] run=0 gid=43 x=22.000 y=31.000 16x20 uv=(0.001953,0.001953)-(0.033203,0.041016)
+  glyph[1] run=0 gid=82 x=40.875 y=37.000 15x14 uv=(0.037109,0.001953)-(0.066406,0.029297)
+  glyph[2] run=0 gid=79 x=58.281 y=30.000 3x21 uv=(0.070312,0.001953)-(0.076172,0.042969)
+  glyph[3] run=0 gid=68 x=64.062 y=37.000 12x14 uv=(0.080078,0.001953)-(0.103516,0.029297)
+scene_text: clear color rgb(15,15,18)
+adapter: backend=D3D12 (4) type=cpu vendorID=0x1414 deviceID=0x008C
+adapter: device=Microsoft Basic Render Driver
+atlas: uploaded 512x512 R8Unorm (262144 bytes) gpu-hash=0xCAB0968C cpu-hash=0xCAB0968C MATCH
+scene_text: wrote scene_text.png (400x240)
+scene_text: 4 glyph(s) drawn in 2 draw call(s) after 5 rect op(s)
+timings: init+adapter+device+upload=140.78ms | atlas+shaders=1.19ms | pipelines+bindgroup=57.86ms | render+copy+submit=2.47ms | map=28.49ms | png=8.51ms | total=239.30ms
+

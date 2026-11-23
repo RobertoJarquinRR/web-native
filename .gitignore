@@ -1,0 +1,48 @@
+# Python
+**/.venv/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Rust
+**/target/
+
+# C/C++ build outputs
+**/build/
+**/obj/
+**/out/
+**/out-jit/
+**/bin/
+*.obj
+*.exe
+*.pdb
+*.ilk
+*.exp
+*.dll
+*.lib
+
+# Keep the wgpu-native runtime dependency (needed to run the demos)
+!third_party/wgpu-native/bin/
+!third_party/wgpu-native/bin/wgpu_native.dll
+!third_party/wgpu-native/lib/wgpu_native.dll.lib
+
+# Generated artifacts
+**/scene_data.h
+**/ui_data.h
+**/ui_meta.json
+**/display_list.json
+**/atlas.bin
+**/atlas.json
+**/proof/
+**/states/
+**/frames/
+**/.mesa/
+*.png
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+Desktop.ini
+.DS_Store

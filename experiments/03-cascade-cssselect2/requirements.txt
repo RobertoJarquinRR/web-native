@@ -1,0 +1,8 @@
+html5lib==1.1
+tinycss2==1.5.1
+cssselect2==0.10.1
+moderngl==5.13.0
+Pillow==13.0.0
+
+# Optional probe only, NOT usable on this machine (needs GTK/Pango native DLLs).
+# Installed manually for the experiment: weasyprint==70.0

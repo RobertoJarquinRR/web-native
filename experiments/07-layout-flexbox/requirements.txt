@@ -1,0 +1,4 @@
+html5lib==1.1
+tinycss2==1.5.1
+wgpu==0.33.0
+pillow==13.0.0

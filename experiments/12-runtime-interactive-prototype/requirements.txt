@@ -1,0 +1,6 @@
+pillow==13.0.0
+wgpu==0.33.0
+html5lib==1.1
+tinycss2==1.5.1
+cssselect2==0.10.1
+pytest==9.2.0

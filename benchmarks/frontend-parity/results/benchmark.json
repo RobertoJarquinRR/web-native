@@ -1,0 +1,215 @@
+{
+  "runs": 3,
+  "fixtures": {
+    "contract": {
+      "html": ".\\benchmarks\\frontend-parity\\fixtures\\contract\\input.html",
+      "viewport": [
+        400,
+        300
+      ],
+      "golden_ops": 4
+    },
+    "flex-page": {
+      "html": ".\\benchmarks\\frontend-parity\\fixtures\\flex-page\\index.html",
+      "viewport": [
+        480,
+        320
+      ],
+      "golden_ops": 23
+    }
+  },
+  "frontends": {
+    "python": {
+      "contract": {
+        "fixture": "contract",
+        "status": "PASS",
+        "mode": "direct",
+        "error": "",
+        "wall_ms": {
+          "median": 375.763,
+          "min": 374.178,
+          "max": 380.523
+        },
+        "internal_timings_ms": {
+          "html": 15.534,
+          "css": 1.423,
+          "cascade": 0.483,
+          "fonts": 0.008,
+          "layout": 0.042,
+          "text+ir": 0.017,
+          "pipeline": 17.536,
+          "ops": 4
+        },
+        "ir": ".\\benchmarks\\frontend-parity\\results\\python\\contract.ir.json"
+      },
+      "flex-page": {
+        "fixture": "flex-page",
+        "status": "PASS",
+        "mode": "direct",
+        "error": "",
+        "wall_ms": {
+          "median": 382.721,
+          "min": 378.618,
+          "max": 383.748
+        },
+        "internal_timings_ms": {
+          "html": 15.816,
+          "css": 5.872,
+          "cascade": 1.68,
+          "fonts": 0.013,
+          "layout": 0.178,
+          "text+ir": 0.046,
+          "pipeline": 23.634,
+          "ops": 23
+        },
+        "ir": ".\\benchmarks\\frontend-parity\\results\\python\\flex-page.ir.json"
+      }
+    },
+    "cpp": {
+      "contract": {
+        "fixture": "contract",
+        "status": "PASS",
+        "mode": "direct",
+        "error": "",
+        "wall_ms": {
+          "median": 10.872,
+          "min": 10.833,
+          "max": 11.224
+        },
+        "internal_timings_ms": {
+          "html": 0.503,
+          "css": 0.049,
+          "cascade": 0.059,
+          "fonts": 0.0,
+          "layout": 0.006,
+          "text+ir": 0.003,
+          "pipeline": 0.62,
+          "ops": 4,
+          "peak_rss_kb": 3536
+        },
+        "ir": ".\\benchmarks\\frontend-parity\\results\\cpp\\contract.ir.json"
+      },
+      "flex-page": {
+        "fixture": "flex-page",
+        "status": "PASS",
+        "mode": "direct",
+        "error": "",
+        "wall_ms": {
+          "median": 11.612,
+          "min": 11.355,
+          "max": 11.855
+        },
+        "internal_timings_ms": {
+          "html": 0.609,
+          "css": 0.114,
+          "cascade": 0.264,
+          "fonts": 0.0,
+          "layout": 0.019,
+          "text+ir": 0.011,
+          "pipeline": 1.018,
+          "ops": 23,
+          "peak_rss_kb": 3592
+        },
+        "ir": ".\\benchmarks\\frontend-parity\\results\\cpp\\flex-page.ir.json"
+      }
+    },
+    "rust": {
+      "contract": {
+        "fixture": "contract",
+        "status": "PASS",
+        "mode": "direct",
+        "error": "",
+        "wall_ms": {
+          "median": 10.155,
+          "min": 9.742,
+          "max": 10.479
+        },
+        "internal_timings_ms": {
+          "parse": 0.474,
+          "html": 0.474,
+          "css": 0.067,
+          "cascade": 0.081,
+          "fonts": 0.0,
+          "layout": 0.008,
+          "text": 0.007,
+          "emit": 0.676,
+          "pipeline": 1.317,
+          "ops": 4,
+          "peak_rss_kb": 4060
+        },
+        "ir": ".\\benchmarks\\frontend-parity\\results\\rust\\contract.ir.json"
+      },
+      "flex-page": {
+        "fixture": "flex-page",
+        "status": "PASS",
+        "mode": "direct",
+        "error": "",
+        "wall_ms": {
+          "median": 10.351,
+          "min": 10.186,
+          "max": 11.389
+        },
+        "internal_timings_ms": {
+          "parse": 0.604,
+          "html": 0.604,
+          "css": 0.186,
+          "cascade": 0.235,
+          "fonts": 0.0,
+          "layout": 0.027,
+          "text": 0.003,
+          "emit": 0.737,
+          "pipeline": 1.794,
+          "ops": 23,
+          "peak_rss_kb": 4156
+        },
+        "ir": ".\\benchmarks\\frontend-parity\\results\\rust\\flex-page.ir.json"
+      }
+    },
+    "csharp": {
+      "contract": {
+        "fixture": "contract",
+        "status": "PASS",
+        "mode": "direct",
+        "error": "",
+        "wall_ms": {
+          "median": 29.266,
+          "min": 29.178,
+          "max": 29.591
+        },
+        "internal_timings_ms": {
+          "parse": 3.805,
+          "css": 4.757,
+          "cascade": 0.229,
+          "layout": 0.008,
+          "emit": 0.621,
+          "total": 9.425,
+          "ops": 4,
+          "peak_rss_kb": 18184
+        },
+        "ir": ".\\benchmarks\\frontend-parity\\results\\csharp\\contract.ir.json"
+      },
+      "flex-page": {
+        "fixture": "flex-page",
+        "status": "PASS",
+        "mode": "direct",
+        "error": "",
+        "wall_ms": {
+          "median": 29.57,
+          "min": 29.444,
+          "max": 30.005
+        },
+        "internal_timings_ms": {
+          "parse": 3.801,
+          "css": 5.062,
+          "cascade": 0.527,
+          "layout": 0.024,
+          "emit": 0.673,
+          "total": 10.092,
+          "ops": 23,
+          "peak_rss_kb": 18532
+        },
+        "ir": ".\\benchmarks\\frontend-parity\\results\\csharp\\flex-page.ir.json"
+      }
+    }
+  }
+}

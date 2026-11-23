@@ -1,0 +1,1112 @@
+{
+  "status": "SUCCESS",
+  "experiment": "exp07-flex",
+  "viewport": {
+    "width": 400,
+    "height": 120
+  },
+  "backend": "wgpu/D3D12",
+  "adapter": {
+    "device": "Microsoft Basic Render Driver",
+    "backend_type": "D3D12",
+    "adapter_type": "CPU",
+    "vendor_id": "5140"
+  },
+  "render_error": null,
+  "versions": {
+    "python": "3.12.10",
+    "html5lib": "1.1",
+    "tinycss2": "1.5.1",
+    "wgpu": "0.33.0",
+    "pillow": "13.0.0"
+  },
+  "timings_ms": {
+    "parse_html": 19.59,
+    "parse_css": 4.92,
+    "cascade": 0.94,
+    "layout": 0.18,
+    "display_list": 2.56,
+    "render": 625.33,
+    "verify": 9.98,
+    "wgpu_init": 1680.12,
+    "total": 2347.21
+  },
+  "variants": [
+    {
+      "name": "v1",
+      "backend": "wgpu/D3D12",
+      "justify": "flex-start",
+      "align": "flex-start",
+      "pass": true,
+      "checks": [
+        {
+          "kind": "flex",
+          "check": "free-space distribution",
+          "expected": {
+            "content": {
+              "x": 20,
+              "y": 20,
+              "w": 360,
+              "h": 80
+            },
+            "used": 272,
+            "free": 88,
+            "start_offset": 0,
+            "spacing": 16,
+            "cross_offsets": [
+              0,
+              0,
+              0
+            ]
+          },
+          "got": {
+            "content": {
+              "x": 20,
+              "y": 20,
+              "w": 360,
+              "h": 80
+            },
+            "used": 272,
+            "free": 88,
+            "start_offset": 0,
+            "spacing": 16,
+            "cross_offsets": [
+              0,
+              0,
+              0
+            ]
+          },
+          "point": null,
+          "delta": null,
+          "pass": true
+        },
+        {
+          "kind": "geometry",
+          "check": "box a rect",
+          "expected": {
+            "x": 20,
+            "y": 20,
+            "w": 80,
+            "h": 60
+          },
+          "got": {
+            "x": 20,
+            "y": 20,
+            "w": 80,
+            "h": 60
+          },
+          "point": null,
+          "delta": null,
+          "pass": true
+        },
+        {
+          "kind": "geometry",
+          "check": "box b rect",
+          "expected": {
+            "x": 116,
+            "y": 20,
+            "w": 80,
+            "h": 60
+          },
+          "got": {
+            "x": 116,
+            "y": 20,
+            "w": 80,
+            "h": 60
+          },
+          "point": null,
+          "delta": null,
+          "pass": true
+        },
+        {
+          "kind": "geometry",
+          "check": "box c rect",
+          "expected": {
+            "x": 212,
+            "y": 20,
+            "w": 80,
+            "h": 60
+          },
+          "got": {
+            "x": 212,
+            "y": 20,
+            "w": 80,
+            "h": 60
+          },
+          "point": null,
+          "delta": null,
+          "pass": true
+        },
+        {
+          "kind": "display-list",
+          "check": "ops (root, a, b, c)",
+          "expected": [
+            {
+              "type": "rect",
+              "x": 0,
+              "y": 0,
+              "w": 400,
+              "h": 120,
+              "fill": "#101014"
+            },
+            {
+              "type": "rect",
+              "x": 20,
+              "y": 20,
+              "w": 80,
+              "h": 60,
+              "fill": "#e74c3c"
+            },
+            {
+              "type": "rect",
+              "x": 116,
+              "y": 20,
+              "w": 80,
+              "h": 60,
+              "fill": "#2ecc71"
+            },
+            {
+              "type": "rect",
+              "x": 212,
+              "y": 20,
+              "w": 80,
+              "h": 60,
+              "fill": "#3498db"
+            }
+          ],
+          "got": [
+            {
+              "type": "rect",
+              "x": 0,
+              "y": 0,
+              "w": 400,
+              "h": 120,
+              "fill": "#101014"
+            },
+            {
+              "type": "rect",
+              "x": 20,
+              "y": 20,
+              "w": 80,
+              "h": 60,
+              "fill": "#e74c3c"
+            },
+            {
+              "type": "rect",
+              "x": 116,
+              "y": 20,
+              "w": 80,
+              "h": 60,
+              "fill": "#2ecc71"
+            },
+            {
+              "type": "rect",
+              "x": 212,
+              "y": 20,
+              "w": 80,
+              "h": 60,
+              "fill": "#3498db"
+            }
+          ],
+          "point": null,
+          "delta": null,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "png size",
+          "expected": [
+            400,
+            120
+          ],
+          "got": [
+            400,
+            120
+          ],
+          "point": null,
+          "delta": null,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "root corner",
+          "expected": "#101014",
+          "got": "#101014",
+          "point": [
+            4,
+            4
+          ],
+          "delta": 0,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "root bottom band",
+          "expected": "#101014",
+          "got": "#101014",
+          "point": [
+            200,
+            116
+          ],
+          "delta": 0,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "gap a-b",
+          "expected": "#101014",
+          "got": "#101014",
+          "point": [
+            108,
+            50
+          ],
+          "delta": 0,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "box a center",
+          "expected": "#e74c3c",
+          "got": "#e74c3c",
+          "point": [
+            60,
+            50
+          ],
+          "delta": 0,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "box b center",
+          "expected": "#2ecc71",
+          "got": "#2ecc71",
+          "point": [
+            156,
+            50
+          ],
+          "delta": 0,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "box c center",
+          "expected": "#3498db",
+          "got": "#3498db",
+          "point": [
+            252,
+            50
+          ],
+          "delta": 0,
+          "pass": true
+        }
+      ]
+    },
+    {
+      "name": "v2",
+      "backend": "wgpu/D3D12",
+      "justify": "center",
+      "align": "flex-start",
+      "pass": true,
+      "checks": [
+        {
+          "kind": "flex",
+          "check": "free-space distribution",
+          "expected": {
+            "content": {
+              "x": 20,
+              "y": 20,
+              "w": 360,
+              "h": 80
+            },
+            "used": 272,
+            "free": 88,
+            "start_offset": 44,
+            "spacing": 16,
+            "cross_offsets": [
+              0,
+              0,
+              0
+            ]
+          },
+          "got": {
+            "content": {
+              "x": 20,
+              "y": 20,
+              "w": 360,
+              "h": 80
+            },
+            "used": 272,
+            "free": 88,
+            "start_offset": 44,
+            "spacing": 16,
+            "cross_offsets": [
+              0,
+              0,
+              0
+            ]
+          },
+          "point": null,
+          "delta": null,
+          "pass": true
+        },
+        {
+          "kind": "geometry",
+          "check": "box a rect",
+          "expected": {
+            "x": 64,
+            "y": 20,
+            "w": 80,
+            "h": 60
+          },
+          "got": {
+            "x": 64,
+            "y": 20,
+            "w": 80,
+            "h": 60
+          },
+          "point": null,
+          "delta": null,
+          "pass": true
+        },
+        {
+          "kind": "geometry",
+          "check": "box b rect",
+          "expected": {
+            "x": 160,
+            "y": 20,
+            "w": 80,
+            "h": 60
+          },
+          "got": {
+            "x": 160,
+            "y": 20,
+            "w": 80,
+            "h": 60
+          },
+          "point": null,
+          "delta": null,
+          "pass": true
+        },
+        {
+          "kind": "geometry",
+          "check": "box c rect",
+          "expected": {
+            "x": 256,
+            "y": 20,
+            "w": 80,
+            "h": 60
+          },
+          "got": {
+            "x": 256,
+            "y": 20,
+            "w": 80,
+            "h": 60
+          },
+          "point": null,
+          "delta": null,
+          "pass": true
+        },
+        {
+          "kind": "display-list",
+          "check": "ops (root, a, b, c)",
+          "expected": [
+            {
+              "type": "rect",
+              "x": 0,
+              "y": 0,
+              "w": 400,
+              "h": 120,
+              "fill": "#101014"
+            },
+            {
+              "type": "rect",
+              "x": 64,
+              "y": 20,
+              "w": 80,
+              "h": 60,
+              "fill": "#e74c3c"
+            },
+            {
+              "type": "rect",
+              "x": 160,
+              "y": 20,
+              "w": 80,
+              "h": 60,
+              "fill": "#2ecc71"
+            },
+            {
+              "type": "rect",
+              "x": 256,
+              "y": 20,
+              "w": 80,
+              "h": 60,
+              "fill": "#3498db"
+            }
+          ],
+          "got": [
+            {
+              "type": "rect",
+              "x": 0,
+              "y": 0,
+              "w": 400,
+              "h": 120,
+              "fill": "#101014"
+            },
+            {
+              "type": "rect",
+              "x": 64,
+              "y": 20,
+              "w": 80,
+              "h": 60,
+              "fill": "#e74c3c"
+            },
+            {
+              "type": "rect",
+              "x": 160,
+              "y": 20,
+              "w": 80,
+              "h": 60,
+              "fill": "#2ecc71"
+            },
+            {
+              "type": "rect",
+              "x": 256,
+              "y": 20,
+              "w": 80,
+              "h": 60,
+              "fill": "#3498db"
+            }
+          ],
+          "point": null,
+          "delta": null,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "png size",
+          "expected": [
+            400,
+            120
+          ],
+          "got": [
+            400,
+            120
+          ],
+          "point": null,
+          "delta": null,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "root corner",
+          "expected": "#101014",
+          "got": "#101014",
+          "point": [
+            4,
+            4
+          ],
+          "delta": 0,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "root bottom band",
+          "expected": "#101014",
+          "got": "#101014",
+          "point": [
+            200,
+            116
+          ],
+          "delta": 0,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "gap a-b",
+          "expected": "#101014",
+          "got": "#101014",
+          "point": [
+            152,
+            50
+          ],
+          "delta": 0,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "box a center",
+          "expected": "#e74c3c",
+          "got": "#e74c3c",
+          "point": [
+            104,
+            50
+          ],
+          "delta": 0,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "box b center",
+          "expected": "#2ecc71",
+          "got": "#2ecc71",
+          "point": [
+            200,
+            50
+          ],
+          "delta": 0,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "box c center",
+          "expected": "#3498db",
+          "got": "#3498db",
+          "point": [
+            296,
+            50
+          ],
+          "delta": 0,
+          "pass": true
+        }
+      ]
+    },
+    {
+      "name": "v3",
+      "backend": "wgpu/D3D12",
+      "justify": "space-between",
+      "align": "flex-start",
+      "pass": true,
+      "checks": [
+        {
+          "kind": "flex",
+          "check": "free-space distribution",
+          "expected": {
+            "content": {
+              "x": 20,
+              "y": 20,
+              "w": 360,
+              "h": 80
+            },
+            "used": 272,
+            "free": 88,
+            "start_offset": 0,
+            "spacing": 60,
+            "cross_offsets": [
+              0,
+              0,
+              0
+            ]
+          },
+          "got": {
+            "content": {
+              "x": 20,
+              "y": 20,
+              "w": 360,
+              "h": 80
+            },
+            "used": 272,
+            "free": 88,
+            "start_offset": 0,
+            "spacing": 60,
+            "cross_offsets": [
+              0,
+              0,
+              0
+            ]
+          },
+          "point": null,
+          "delta": null,
+          "pass": true
+        },
+        {
+          "kind": "geometry",
+          "check": "box a rect",
+          "expected": {
+            "x": 20,
+            "y": 20,
+            "w": 80,
+            "h": 60
+          },
+          "got": {
+            "x": 20,
+            "y": 20,
+            "w": 80,
+            "h": 60
+          },
+          "point": null,
+          "delta": null,
+          "pass": true
+        },
+        {
+          "kind": "geometry",
+          "check": "box b rect",
+          "expected": {
+            "x": 160,
+            "y": 20,
+            "w": 80,
+            "h": 60
+          },
+          "got": {
+            "x": 160,
+            "y": 20,
+            "w": 80,
+            "h": 60
+          },
+          "point": null,
+          "delta": null,
+          "pass": true
+        },
+        {
+          "kind": "geometry",
+          "check": "box c rect",
+          "expected": {
+            "x": 300,
+            "y": 20,
+            "w": 80,
+            "h": 60
+          },
+          "got": {
+            "x": 300,
+            "y": 20,
+            "w": 80,
+            "h": 60
+          },
+          "point": null,
+          "delta": null,
+          "pass": true
+        },
+        {
+          "kind": "display-list",
+          "check": "ops (root, a, b, c)",
+          "expected": [
+            {
+              "type": "rect",
+              "x": 0,
+              "y": 0,
+              "w": 400,
+              "h": 120,
+              "fill": "#101014"
+            },
+            {
+              "type": "rect",
+              "x": 20,
+              "y": 20,
+              "w": 80,
+              "h": 60,
+              "fill": "#e74c3c"
+            },
+            {
+              "type": "rect",
+              "x": 160,
+              "y": 20,
+              "w": 80,
+              "h": 60,
+              "fill": "#2ecc71"
+            },
+            {
+              "type": "rect",
+              "x": 300,
+              "y": 20,
+              "w": 80,
+              "h": 60,
+              "fill": "#3498db"
+            }
+          ],
+          "got": [
+            {
+              "type": "rect",
+              "x": 0,
+              "y": 0,
+              "w": 400,
+              "h": 120,
+              "fill": "#101014"
+            },
+            {
+              "type": "rect",
+              "x": 20,
+              "y": 20,
+              "w": 80,
+              "h": 60,
+              "fill": "#e74c3c"
+            },
+            {
+              "type": "rect",
+              "x": 160,
+              "y": 20,
+              "w": 80,
+              "h": 60,
+              "fill": "#2ecc71"
+            },
+            {
+              "type": "rect",
+              "x": 300,
+              "y": 20,
+              "w": 80,
+              "h": 60,
+              "fill": "#3498db"
+            }
+          ],
+          "point": null,
+          "delta": null,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "png size",
+          "expected": [
+            400,
+            120
+          ],
+          "got": [
+            400,
+            120
+          ],
+          "point": null,
+          "delta": null,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "root corner",
+          "expected": "#101014",
+          "got": "#101014",
+          "point": [
+            4,
+            4
+          ],
+          "delta": 0,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "root bottom band",
+          "expected": "#101014",
+          "got": "#101014",
+          "point": [
+            200,
+            116
+          ],
+          "delta": 0,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "gap a-b",
+          "expected": "#101014",
+          "got": "#101014",
+          "point": [
+            130,
+            50
+          ],
+          "delta": 0,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "box a center",
+          "expected": "#e74c3c",
+          "got": "#e74c3c",
+          "point": [
+            60,
+            50
+          ],
+          "delta": 0,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "box b center",
+          "expected": "#2ecc71",
+          "got": "#2ecc71",
+          "point": [
+            200,
+            50
+          ],
+          "delta": 0,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "box c center",
+          "expected": "#3498db",
+          "got": "#3498db",
+          "point": [
+            340,
+            50
+          ],
+          "delta": 0,
+          "pass": true
+        }
+      ]
+    },
+    {
+      "name": "v4",
+      "backend": "wgpu/D3D12",
+      "justify": "center",
+      "align": "center",
+      "pass": true,
+      "checks": [
+        {
+          "kind": "flex",
+          "check": "free-space distribution",
+          "expected": {
+            "content": {
+              "x": 20,
+              "y": 20,
+              "w": 360,
+              "h": 80
+            },
+            "used": 272,
+            "free": 88,
+            "start_offset": 44,
+            "spacing": 16,
+            "cross_offsets": [
+              10,
+              10,
+              10
+            ]
+          },
+          "got": {
+            "content": {
+              "x": 20,
+              "y": 20,
+              "w": 360,
+              "h": 80
+            },
+            "used": 272,
+            "free": 88,
+            "start_offset": 44,
+            "spacing": 16,
+            "cross_offsets": [
+              10,
+              10,
+              10
+            ]
+          },
+          "point": null,
+          "delta": null,
+          "pass": true
+        },
+        {
+          "kind": "geometry",
+          "check": "box a rect",
+          "expected": {
+            "x": 64,
+            "y": 30,
+            "w": 80,
+            "h": 60
+          },
+          "got": {
+            "x": 64,
+            "y": 30,
+            "w": 80,
+            "h": 60
+          },
+          "point": null,
+          "delta": null,
+          "pass": true
+        },
+        {
+          "kind": "geometry",
+          "check": "box b rect",
+          "expected": {
+            "x": 160,
+            "y": 30,
+            "w": 80,
+            "h": 60
+          },
+          "got": {
+            "x": 160,
+            "y": 30,
+            "w": 80,
+            "h": 60
+          },
+          "point": null,
+          "delta": null,
+          "pass": true
+        },
+        {
+          "kind": "geometry",
+          "check": "box c rect",
+          "expected": {
+            "x": 256,
+            "y": 30,
+            "w": 80,
+            "h": 60
+          },
+          "got": {
+            "x": 256,
+            "y": 30,
+            "w": 80,
+            "h": 60
+          },
+          "point": null,
+          "delta": null,
+          "pass": true
+        },
+        {
+          "kind": "display-list",
+          "check": "ops (root, a, b, c)",
+          "expected": [
+            {
+              "type": "rect",
+              "x": 0,
+              "y": 0,
+              "w": 400,
+              "h": 120,
+              "fill": "#101014"
+            },
+            {
+              "type": "rect",
+              "x": 64,
+              "y": 30,
+              "w": 80,
+              "h": 60,
+              "fill": "#e74c3c"
+            },
+            {
+              "type": "rect",
+              "x": 160,
+              "y": 30,
+              "w": 80,
+              "h": 60,
+              "fill": "#2ecc71"
+            },
+            {
+              "type": "rect",
+              "x": 256,
+              "y": 30,
+              "w": 80,
+              "h": 60,
+              "fill": "#3498db"
+            }
+          ],
+          "got": [
+            {
+              "type": "rect",
+              "x": 0,
+              "y": 0,
+              "w": 400,
+              "h": 120,
+              "fill": "#101014"
+            },
+            {
+              "type": "rect",
+              "x": 64,
+              "y": 30,
+              "w": 80,
+              "h": 60,
+              "fill": "#e74c3c"
+            },
+            {
+              "type": "rect",
+              "x": 160,
+              "y": 30,
+              "w": 80,
+              "h": 60,
+              "fill": "#2ecc71"
+            },
+            {
+              "type": "rect",
+              "x": 256,
+              "y": 30,
+              "w": 80,
+              "h": 60,
+              "fill": "#3498db"
+            }
+          ],
+          "point": null,
+          "delta": null,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "png size",
+          "expected": [
+            400,
+            120
+          ],
+          "got": [
+            400,
+            120
+          ],
+          "point": null,
+          "delta": null,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "root corner",
+          "expected": "#101014",
+          "got": "#101014",
+          "point": [
+            4,
+            4
+          ],
+          "delta": 0,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "root bottom band",
+          "expected": "#101014",
+          "got": "#101014",
+          "point": [
+            200,
+            116
+          ],
+          "delta": 0,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "gap a-b",
+          "expected": "#101014",
+          "got": "#101014",
+          "point": [
+            152,
+            60
+          ],
+          "delta": 0,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "box a center",
+          "expected": "#e74c3c",
+          "got": "#e74c3c",
+          "point": [
+            104,
+            60
+          ],
+          "delta": 0,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "box b center",
+          "expected": "#2ecc71",
+          "got": "#2ecc71",
+          "point": [
+            200,
+            60
+          ],
+          "delta": 0,
+          "pass": true
+        },
+        {
+          "kind": "pixel",
+          "check": "box c center",
+          "expected": "#3498db",
+          "got": "#3498db",
+          "point": [
+            296,
+            60
+          ],
+          "delta": 0,
+          "pass": true
+        }
+      ]
+    }
+  ]
+}

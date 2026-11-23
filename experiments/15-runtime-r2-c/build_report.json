@@ -1,0 +1,67 @@
+{
+    "experiment":  "exp15-r2-core",
+    "started":  "2026-11-23T14:47:51.9860162-06:00",
+    "timings_ms":  {
+                       "emit":  5687.38,
+                       "compile":  9751.7,
+                       "verify":  3854.13
+                   },
+    "steps":  {
+                  "compile":  "cl /nologo /O2 /W3 /std:c17 /TC /D_CRT_SECURE_NO_WARNINGS runtime_r2.c /I\".\\third_party\\wgpu-native\\include\" /Fe:runtime_r2.exe /link \".\\third_party\\wgpu-native\\lib\\wgpu_native.dll.lib\" windowscodecs.lib ole32.lib user32.lib gdi32.lib"
+              },
+    "adapter":  {
+                    "backend":  "adapter: backend=D3D12 (4) type=cpu vendorID=0x1414 deviceID=0x008C",
+                    "device":  "adapter: device=Microsoft Basic Render Driver"
+                },
+    "render":  {
+                   "960":  {
+                               "layout_ms":  0.014,
+                               "frame_ms":  85.061,
+                               "log":  "render: out_960.png 960x640 nodes=28 vertices=84 glyph_vertices=210 layout=0.014ms frame=85.061ms"
+                           },
+                   "720":  {
+                               "layout_ms":  0.017,
+                               "frame_ms":  55.867,
+                               "log":  "render: out_720.png 720x640 nodes=28 vertices=84 glyph_vertices=210 layout=0.017ms frame=55.867ms"
+                           },
+                   "560":  {
+                               "layout_ms":  0.014,
+                               "frame_ms":  49.383,
+                               "log":  "render: out_560.png 560x640 nodes=28 vertices=84 glyph_vertices=210 layout=0.014ms frame=49.383ms"
+                           }
+               },
+    "window":  {
+                   "exit":  0,
+                   "reflow":  [
+                                  "WM_SIZE/layout: 960x640 layout 0.015ms card0_y=80.0 card2_y=80.0 vertices=84 glyph_vertices=210",
+                                  "resize-demo: frame 5 -\u003e client 560x640",
+                                  "WM_SIZE/layout: 560x640 layout 0.010ms card0_y=80.0 card2_y=216.0 vertices=84 glyph_vertices=210",
+                                  "input-demo: WM_MOUSEMOVE (76,67) -\u003e hover=4 body.root/div.sidebar/div.nav",
+                                  "input-demo: WM_LBUTTONDOWN -\u003e press=4 body.root/div.sidebar/div.nav",
+                                  "input-demo: WM_LBUTTONUP -\u003e selected=4 body.root/div.sidebar/div.nav",
+                                  "input-demo: WM_MOUSEMOVE away -\u003e hover=-1",
+                                  "resize-demo: frame 15 -\u003e client 960x640",
+                                  "WM_SIZE/layout: 960x640 layout 0.006ms card0_y=80.0 card2_y=80.0 vertices=90 glyph_vertices=210"
+                              ],
+                   "summary":  [
+                                   "window: closed after 30 frame(s), init 230.96 ms, 16.15 ms/frame average",
+                                   "window: last layout 0.006 ms at 960x640, vertices=90 glyph_vertices=210",
+                                   "window: cpu frame 0.699 ms average (layout excluded, present/vsync excluded)"
+                               ],
+                   "frames":  30,
+                   "init_ms":  230.96,
+                   "frame_avg_ms":  16.15
+               },
+    "states":  {
+                   "normal":  "states/state_normal.png",
+                   "hover":  "states/state_hover.png",
+                   "press":  "states/state_press.png",
+                   "selected":  "states/state_selected.png",
+                   "report":  "states/state_states.json"
+               },
+    "exe":  {
+                "path":  ".\\experiments\\15-runtime-r2-c\\runtime_r2.exe",
+                "bytes":  299008
+            },
+    "finished":  "2026-11-23T14:48:15.3244959-06:00"
+}

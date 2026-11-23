@@ -1,0 +1,116 @@
+/* exp11-real-page — fixture de 640x480.
+   El motor usa border-box y no tiene hoja de estilos de usuario: este archivo
+   declara explícitamente todo lo que la página necesita. */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box; /* el motor fuerza border-box; se declara por honestidad */
+}
+
+body {
+  margin: 0;
+  height: 480px;
+  background-color: #0f0f14;
+  color: #ffffff;
+  font-family: "Segoe UI", sans-serif;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------------------------------------------------------------- nav (56px) */
+.nav {
+  height: 56px;
+  padding: 16px;
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  background-color: #12121a;
+}
+
+.logo {
+  font-size: 18px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.links {
+  display: flex;
+  flex-direction: row;
+  gap: 16px;
+  align-items: center;
+}
+
+.links a {
+  font-size: 14px;
+  color: #9aa0aa;
+}
+
+/* ---------------------------------------------------------------------- hero */
+.hero {
+  padding: 32px;
+}
+
+.hero h1 {
+  font-size: 28px;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 8px;
+}
+
+.hero p {
+  font-size: 16px;
+  color: #9aa0aa;
+}
+
+/* --------------------------------------------------------------------- cards */
+.cards {
+  padding: 16px;
+  display: flex;
+  flex-direction: row;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.card {
+  width: 180px;
+  height: 120px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background-color: #1a1a22;
+}
+
+.badge {
+  height: 4px;
+}
+
+.badge-a { background-color: #e74c3c; }
+.badge-b { background-color: #2ecc71; }
+.badge-c { background-color: #3498db; }
+
+.card-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.card-body {
+  font-size: 13px;
+  color: #9aa0aa;
+}
+
+/* -------------------------------------------------------------------- footer */
+.footer {
+  height: 32px;
+  margin-top: auto;
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  background-color: #0b0b0e;
+  color: #6b7280;
+  font-size: 12px;
+}

@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "frame": 10,
+  "cpu_png": "frames/frame_010.png",
+  "wgpu_png": "frames/frame_010_wgpu.png",
+  "maxdiff": 0,
+  "backend": "D3D12",
+  "adapter": "Microsoft Basic Render Driver",
+  "adapter_type": "CPU",
+  "gpu_total_ms": 2103.61,
+  "device_init_ms": 1100.95
+}

@@ -1,0 +1,647 @@
+{
+  "tag": "body",
+  "class": "",
+  "kind": "flex",
+  "rect": {
+    "x": 0.0,
+    "y": 0.0,
+    "w": 640.0,
+    "h": 480.0
+  },
+  "flex": {
+    "direction": "column",
+    "content": {
+      "x": 0.0,
+      "y": 0.0,
+      "w": 640.0,
+      "h": 480.0
+    },
+    "used": 370.53125,
+    "free": 109.46875,
+    "start": 0.0,
+    "spacing": 0.0,
+    "justify": "flex-start",
+    "align": "stretch"
+  },
+  "lines": [],
+  "children": [
+    {
+      "tag": "main",
+      "class": "page",
+      "kind": "block",
+      "rect": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 640.0,
+        "h": 338.531
+      },
+      "flex": null,
+      "lines": [],
+      "children": [
+        {
+          "tag": "nav",
+          "class": "nav",
+          "kind": "flex",
+          "rect": {
+            "x": 0.0,
+            "y": 0.0,
+            "w": 640.0,
+            "h": 56.0
+          },
+          "flex": {
+            "direction": "row",
+            "content": {
+              "x": 16.0,
+              "y": 16.0,
+              "w": 608.0,
+              "h": 24.0
+            },
+            "used": 225.125,
+            "free": 382.875,
+            "start": 0.0,
+            "spacing": 382.875,
+            "cross": 24.0,
+            "justify": "space-between",
+            "align": "center"
+          },
+          "lines": [],
+          "children": [
+            {
+              "tag": "div",
+              "class": "logo",
+              "kind": "text",
+              "rect": {
+                "x": 16.0,
+                "y": 16.031,
+                "w": 87.156,
+                "h": 23.938
+              },
+              "flex": null,
+              "lines": [
+                {
+                  "text": "webnative",
+                  "x": 16.0,
+                  "baseline": 35.453,
+                  "width": 87.156,
+                  "face": "bold",
+                  "size": 18.0,
+                  "color": "#ffffff"
+                }
+              ],
+              "children": []
+            },
+            {
+              "tag": "div",
+              "class": "links",
+              "kind": "flex",
+              "rect": {
+                "x": 486.031,
+                "y": 18.688,
+                "w": 137.969,
+                "h": 18.625
+              },
+              "flex": {
+                "direction": "row",
+                "content": {
+                  "x": 486.03125,
+                  "y": 18.6875,
+                  "w": 137.96875,
+                  "h": null
+                },
+                "used": 137.96875,
+                "free": 0.0,
+                "start": 0.0,
+                "spacing": 16.0,
+                "cross": 18.625,
+                "justify": "flex-start",
+                "align": "center"
+              },
+              "lines": [],
+              "children": [
+                {
+                  "tag": "a",
+                  "class": "",
+                  "kind": "text",
+                  "rect": {
+                    "x": 486.031,
+                    "y": 18.688,
+                    "w": 30.422,
+                    "h": 18.625
+                  },
+                  "flex": null,
+                  "lines": [
+                    {
+                      "text": "Docs",
+                      "x": 486.031,
+                      "baseline": 33.797,
+                      "width": 30.422,
+                      "face": "regular",
+                      "size": 14.0,
+                      "color": "#9aa0aa"
+                    }
+                  ],
+                  "children": []
+                },
+                {
+                  "tag": "a",
+                  "class": "",
+                  "kind": "text",
+                  "rect": {
+                    "x": 532.453,
+                    "y": 18.688,
+                    "w": 37.406,
+                    "h": 18.625
+                  },
+                  "flex": null,
+                  "lines": [
+                    {
+                      "text": "Demo",
+                      "x": 532.453,
+                      "baseline": 33.797,
+                      "width": 37.406,
+                      "face": "regular",
+                      "size": 14.0,
+                      "color": "#9aa0aa"
+                    }
+                  ],
+                  "children": []
+                },
+                {
+                  "tag": "a",
+                  "class": "",
+                  "kind": "text",
+                  "rect": {
+                    "x": 585.859,
+                    "y": 18.688,
+                    "w": 38.141,
+                    "h": 18.625
+                  },
+                  "flex": null,
+                  "lines": [
+                    {
+                      "text": "About",
+                      "x": 585.859,
+                      "baseline": 33.797,
+                      "width": 38.141,
+                      "face": "regular",
+                      "size": 14.0,
+                      "color": "#9aa0aa"
+                    }
+                  ],
+                  "children": []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "tag": "section",
+          "class": "hero",
+          "kind": "block",
+          "rect": {
+            "x": 0.0,
+            "y": 56.0,
+            "w": 640.0,
+            "h": 130.531
+          },
+          "flex": null,
+          "lines": [],
+          "children": [
+            {
+              "tag": "h1",
+              "class": "",
+              "kind": "text",
+              "rect": {
+                "x": 32.0,
+                "y": 88.0,
+                "w": 576.0,
+                "h": 37.25
+              },
+              "flex": null,
+              "lines": [
+                {
+                  "text": "Compila la web",
+                  "x": 32.0,
+                  "baseline": 118.219,
+                  "width": 201.734,
+                  "face": "bold",
+                  "size": 28.0,
+                  "color": "#ffffff"
+                }
+              ],
+              "children": []
+            },
+            {
+              "tag": "p",
+              "class": "",
+              "kind": "text",
+              "rect": {
+                "x": 32.0,
+                "y": 133.25,
+                "w": 576.0,
+                "h": 21.281
+              },
+              "flex": null,
+              "lines": [
+                {
+                  "text": "HTML y CSS a nativo, sin navegador.",
+                  "x": 32.0,
+                  "baseline": 150.516,
+                  "width": 256.188,
+                  "face": "regular",
+                  "size": 16.0,
+                  "color": "#9aa0aa"
+                }
+              ],
+              "children": []
+            }
+          ]
+        },
+        {
+          "tag": "section",
+          "class": "cards",
+          "kind": "flex",
+          "rect": {
+            "x": 0.0,
+            "y": 186.531,
+            "w": 640.0,
+            "h": 152.0
+          },
+          "flex": {
+            "direction": "row",
+            "content": {
+              "x": 16.0,
+              "y": 202.53125,
+              "w": 608.0,
+              "h": null
+            },
+            "used": 572.0,
+            "free": 36.0,
+            "start": 0.0,
+            "spacing": 16.0,
+            "cross": 120.0,
+            "justify": "flex-start",
+            "align": "flex-start"
+          },
+          "lines": [],
+          "children": [
+            {
+              "tag": "article",
+              "class": "card card-a",
+              "kind": "flex",
+              "rect": {
+                "x": 16.0,
+                "y": 202.531,
+                "w": 180.0,
+                "h": 120.0
+              },
+              "flex": {
+                "direction": "column",
+                "content": {
+                  "x": 28.0,
+                  "y": 214.53125,
+                  "w": 156.0,
+                  "h": 96.0
+                },
+                "used": 75.875,
+                "free": 20.125,
+                "start": 0.0,
+                "spacing": 8.0,
+                "justify": "flex-start",
+                "align": "stretch"
+              },
+              "lines": [],
+              "children": [
+                {
+                  "tag": "div",
+                  "class": "badge badge-a",
+                  "kind": "block",
+                  "rect": {
+                    "x": 28.0,
+                    "y": 214.531,
+                    "w": 156.0,
+                    "h": 4.0
+                  },
+                  "flex": null,
+                  "lines": [],
+                  "children": []
+                },
+                {
+                  "tag": "div",
+                  "class": "card-title",
+                  "kind": "text",
+                  "rect": {
+                    "x": 28.0,
+                    "y": 226.531,
+                    "w": 156.0,
+                    "h": 21.281
+                  },
+                  "flex": null,
+                  "lines": [
+                    {
+                      "text": "IR neutral",
+                      "x": 28.0,
+                      "baseline": 243.797,
+                      "width": 73.75,
+                      "face": "bold",
+                      "size": 16.0,
+                      "color": "#ffffff"
+                    }
+                  ],
+                  "children": []
+                },
+                {
+                  "tag": "div",
+                  "class": "card-body",
+                  "kind": "text",
+                  "rect": {
+                    "x": 28.0,
+                    "y": 255.812,
+                    "w": 156.0,
+                    "h": 34.594
+                  },
+                  "flex": null,
+                  "lines": [
+                    {
+                      "text": "Display list sin navegador",
+                      "x": 28.0,
+                      "baseline": 269.844,
+                      "width": 145.5,
+                      "face": "regular",
+                      "size": 13.0,
+                      "color": "#9aa0aa"
+                    },
+                    {
+                      "text": "web",
+                      "x": 28.0,
+                      "baseline": 287.141,
+                      "width": 23.828,
+                      "face": "regular",
+                      "size": 13.0,
+                      "color": "#9aa0aa"
+                    }
+                  ],
+                  "children": []
+                }
+              ]
+            },
+            {
+              "tag": "article",
+              "class": "card card-b",
+              "kind": "flex",
+              "rect": {
+                "x": 212.0,
+                "y": 202.531,
+                "w": 180.0,
+                "h": 120.0
+              },
+              "flex": {
+                "direction": "column",
+                "content": {
+                  "x": 224.0,
+                  "y": 214.53125,
+                  "w": 156.0,
+                  "h": 96.0
+                },
+                "used": 75.875,
+                "free": 20.125,
+                "start": 0.0,
+                "spacing": 8.0,
+                "justify": "flex-start",
+                "align": "stretch"
+              },
+              "lines": [],
+              "children": [
+                {
+                  "tag": "div",
+                  "class": "badge badge-b",
+                  "kind": "block",
+                  "rect": {
+                    "x": 224.0,
+                    "y": 214.531,
+                    "w": 156.0,
+                    "h": 4.0
+                  },
+                  "flex": null,
+                  "lines": [],
+                  "children": []
+                },
+                {
+                  "tag": "div",
+                  "class": "card-title",
+                  "kind": "text",
+                  "rect": {
+                    "x": 224.0,
+                    "y": 226.531,
+                    "w": 156.0,
+                    "h": 21.281
+                  },
+                  "flex": null,
+                  "lines": [
+                    {
+                      "text": "Texto real",
+                      "x": 224.0,
+                      "baseline": 243.797,
+                      "width": 73.938,
+                      "face": "bold",
+                      "size": 16.0,
+                      "color": "#ffffff"
+                    }
+                  ],
+                  "children": []
+                },
+                {
+                  "tag": "div",
+                  "class": "card-body",
+                  "kind": "text",
+                  "rect": {
+                    "x": 224.0,
+                    "y": 255.812,
+                    "w": 156.0,
+                    "h": 34.594
+                  },
+                  "flex": null,
+                  "lines": [
+                    {
+                      "text": "Flex nativo y texto de",
+                      "x": 224.0,
+                      "baseline": 269.844,
+                      "width": 121.859,
+                      "face": "regular",
+                      "size": 13.0,
+                      "color": "#9aa0aa"
+                    },
+                    {
+                      "text": "HarfBuzz",
+                      "x": 224.0,
+                      "baseline": 287.141,
+                      "width": 50.984,
+                      "face": "regular",
+                      "size": 13.0,
+                      "color": "#9aa0aa"
+                    }
+                  ],
+                  "children": []
+                }
+              ]
+            },
+            {
+              "tag": "article",
+              "class": "card card-c",
+              "kind": "flex",
+              "rect": {
+                "x": 408.0,
+                "y": 202.531,
+                "w": 180.0,
+                "h": 120.0
+              },
+              "flex": {
+                "direction": "column",
+                "content": {
+                  "x": 420.0,
+                  "y": 214.53125,
+                  "w": 156.0,
+                  "h": 96.0
+                },
+                "used": 75.875,
+                "free": 20.125,
+                "start": 0.0,
+                "spacing": 8.0,
+                "justify": "flex-start",
+                "align": "stretch"
+              },
+              "lines": [],
+              "children": [
+                {
+                  "tag": "div",
+                  "class": "badge badge-c",
+                  "kind": "block",
+                  "rect": {
+                    "x": 420.0,
+                    "y": 214.531,
+                    "w": 156.0,
+                    "h": 4.0
+                  },
+                  "flex": null,
+                  "lines": [],
+                  "children": []
+                },
+                {
+                  "tag": "div",
+                  "class": "card-title",
+                  "kind": "text",
+                  "rect": {
+                    "x": 420.0,
+                    "y": 226.531,
+                    "w": 156.0,
+                    "h": 21.281
+                  },
+                  "flex": null,
+                  "lines": [
+                    {
+                      "text": "Cero WebView",
+                      "x": 420.0,
+                      "baseline": 243.797,
+                      "width": 110.031,
+                      "face": "bold",
+                      "size": 16.0,
+                      "color": "#ffffff"
+                    }
+                  ],
+                  "children": []
+                },
+                {
+                  "tag": "div",
+                  "class": "card-body",
+                  "kind": "text",
+                  "rect": {
+                    "x": 420.0,
+                    "y": 255.812,
+                    "w": 156.0,
+                    "h": 34.594
+                  },
+                  "flex": null,
+                  "lines": [
+                    {
+                      "text": "Sin WebView, Skia ni",
+                      "x": 420.0,
+                      "baseline": 269.844,
+                      "width": 118.078,
+                      "face": "regular",
+                      "size": 13.0,
+                      "color": "#9aa0aa"
+                    },
+                    {
+                      "text": "Electron",
+                      "x": 420.0,
+                      "baseline": 287.141,
+                      "width": 46.438,
+                      "face": "regular",
+                      "size": 13.0,
+                      "color": "#9aa0aa"
+                    }
+                  ],
+                  "children": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tag": "footer",
+      "class": "footer",
+      "kind": "flex",
+      "rect": {
+        "x": 0.0,
+        "y": 448.0,
+        "w": 640.0,
+        "h": 32.0
+      },
+      "flex": {
+        "direction": "row",
+        "content": {
+          "x": 0.0,
+          "y": 448.0,
+          "w": 640.0,
+          "h": 32.0
+        },
+        "used": 217.421875,
+        "free": 422.578125,
+        "start": 211.2890625,
+        "spacing": 0.0,
+        "cross": 32.0,
+        "justify": "center",
+        "align": "center"
+      },
+      "lines": [],
+      "children": [
+        {
+          "tag": "span",
+          "class": "footer-text",
+          "kind": "text",
+          "rect": {
+            "x": 211.289,
+            "y": 456.016,
+            "w": 217.422,
+            "h": 15.969
+          },
+          "flex": null,
+          "lines": [
+            {
+              "text": "webnative · sin navegador · render nativo",
+              "x": 211.289,
+              "baseline": 468.969,
+              "width": 217.422,
+              "face": "regular",
+              "size": 12.0,
+              "color": "#6b7280"
+            }
+          ],
+          "children": []
+        }
+      ]
+    }
+  ]
+}

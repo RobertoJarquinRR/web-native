@@ -1,0 +1,56 @@
+{
+  "png": "scene_cpu.png",
+  "ir": "display_list.json",
+  "size": [
+    400,
+    300
+  ],
+  "expected_size": [
+    400,
+    300
+  ],
+  "size_ok": true,
+  "ops": 3,
+  "tolerance": 8,
+  "maxdiff": 0,
+  "pixels_over_tolerance": 0,
+  "sample_over_tolerance": [],
+  "contract_points": [
+    {
+      "label": "box a",
+      "point": [
+        60,
+        60
+      ],
+      "expected": "#e74c3c",
+      "actual": "#e74c3c",
+      "maxdiff": 0,
+      "pass": true
+    },
+    {
+      "label": "box b",
+      "point": [
+        60,
+        156
+      ],
+      "expected": "#3498db",
+      "actual": "#3498db",
+      "maxdiff": 0,
+      "pass": true
+    },
+    {
+      "label": "root background",
+      "point": [
+        200,
+        250
+      ],
+      "expected": "#101014",
+      "actual": "#101014",
+      "maxdiff": 0,
+      "pass": true
+    }
+  ],
+  "extra_points": [],
+  "pass": true,
+  "failures": []
+}

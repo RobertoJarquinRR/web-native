@@ -1,0 +1,535 @@
+//! CSS -> reglas. Usa `cssparser` para trocear bloques y valores crudos.
+//!
+//! Subconjunto de selectores soportado (el del SPEC): tipo, `.clase`, `#id`,
+//! compuestos, descendiente (` `) e hijo (`>`), y listas con coma.
+//! Cualquier construccion no soportada descarta esa regla (nunca hace panic).
+
+use cssparser::{Delimiter, ParseError, Parser, ParserInput, Token};
+
+use crate::dom::Dom;
+
+#[derive(Debug, Clone)]
+pub struct Declaration {
+    pub name: String,
+    pub value: String,
+    pub important: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct Rule {
+    pub selector: Selector,
+    pub declarations: Vec<Declaration>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum Simple {
+    Type(String),
+    Universal,
+    Class(String),
+    Id(String),
+    Attr {
+        name: String,
+        value: Option<String>,
+    },
+    Pseudo(String),
+    Never,
+}
+
+#[derive(Debug, Clone)]
+struct Compound {
+    simples: Vec<Simple>,
+    spec: (u32, u32, u32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Combinator {
+    Descendant,
+    Child,
+}
+
+#[derive(Debug, Clone)]
+pub struct Selector {
+    /// `parts[i].0` es el combinador que une `parts[i-1]` con `parts[i]`
+    /// (el de `parts[0]` no se usa).
+    parts: Vec<(Combinator, Compound)>,
+    spec: (u32, u32, u32),
+}
+
+impl Selector {
+    pub fn specificity(&self) -> (u32, u32, u32) {
+        self.spec
+    }
+
+    pub fn matches(&self, dom: &Dom, node: usize) -> bool {
+        self.matches_at(dom, node, self.parts.len() - 1)
+    }
+
+    fn matches_at(&self, dom: &Dom, node: usize, index: usize) -> bool {
+        if !compound_matches(dom, node, &self.parts[index].1) {
+            return false;
+        }
+        if index == 0 {
+            return true;
+        }
+        match self.parts[index].0 {
+            Combinator::Child => dom.nodes[node]
+                .parent
+                .map_or(false, |parent| self.matches_at(dom, parent, index - 1)),
+            Combinator::Descendant => {
+                let mut cursor = dom.nodes[node].parent;
+                while let Some(parent) = cursor {
+                    if self.matches_at(dom, parent, index - 1) {
+                        return true;
+                    }
+                    cursor = dom.nodes[parent].parent;
+                }
+                false
+            }
+        }
+    }
+}
+
+fn compound_matches(dom: &Dom, node: usize, compound: &Compound) -> bool {
+    let element = &dom.nodes[node];
+    for simple in &compound.simples {
+        let ok = match simple {
+            Simple::Type(tag) => element.tag == *tag,
+            Simple::Universal => true,
+            Simple::Class(class) => element.classes().any(|item| item == class),
+            Simple::Id(id) => element.attr("id") == Some(id.as_str()),
+            Simple::Attr { name, value } => match element.attr(name) {
+                None => false,
+                Some(actual) => value
+                    .as_ref()
+                    .map_or(true, |expected| actual == expected.as_str()),
+            },
+            Simple::Pseudo(name) => pseudo_matches(dom, node, name),
+            Simple::Never => false,
+        };
+        if !ok {
+            return false;
+        }
+    }
+    true
+}
+
+fn pseudo_matches(dom: &Dom, node: usize, name: &str) -> bool {
+    match name {
+        "root" => dom.nodes[node].parent.is_none(),
+        "first-child" => match dom.nodes[node].parent {
+            None => false,
+            Some(parent) => dom.nodes[parent].children.first() == Some(&node),
+        },
+        "last-child" => match dom.nodes[node].parent {
+            None => false,
+            Some(parent) => dom.nodes[parent].children.last() == Some(&node),
+        },
+        "only-child" => match dom.nodes[node].parent {
+            None => false,
+            Some(parent) => dom.nodes[parent].children.len() == 1,
+        },
+        _ => false,
+    }
+}
+
+// ---------------------------------------------------------------- stylesheet
+
+fn consume_all<'i, 't>(parser: &mut Parser<'i, 't>) -> Result<(), ParseError<'i, ()>> {
+    while parser.next_including_whitespace_and_comments().is_ok() {}
+    Ok(())
+}
+
+fn capture_block<'i, 't>(parser: &mut Parser<'i, 't>) -> Result<String, ParseError<'i, ()>> {
+    let start = parser.position();
+    while parser.next_including_whitespace_and_comments().is_ok() {}
+    Ok(parser.slice_from(start).to_string())
+}
+
+pub fn parse_stylesheets(texts: &[String]) -> Vec<Rule> {
+    let mut rules = Vec::new();
+    for text in texts {
+        parse_stylesheet(text, &mut rules);
+    }
+    rules
+}
+
+pub fn parse_stylesheet(text: &str, rules: &mut Vec<Rule>) {
+    let mut input = ParserInput::new(text);
+    let mut parser = Parser::new(&mut input);
+    loop {
+        if parser.is_exhausted() {
+            break;
+        }
+        let start = parser.position();
+        let _ = parser.parse_until_before(
+            Delimiter::Semicolon | Delimiter::CurlyBracketBlock,
+            consume_all,
+        );
+        let end = parser.position();
+        let prelude = text[start.byte_index()..end.byte_index()].trim().to_string();
+
+        match parser.next_including_whitespace_and_comments() {
+            Ok(Token::CurlyBracketBlock) => {
+                let block = parser.parse_nested_block(capture_block).unwrap_or_default();
+                if !prelude.is_empty() && !prelude.starts_with('@') {
+                    push_rule(&prelude, &block, rules);
+                }
+            }
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+}
+
+fn push_rule(prelude: &str, block: &str, rules: &mut Vec<Rule>) {
+    let declarations = parse_declarations(block);
+    if declarations.is_empty() {
+        return;
+    }
+    for selector_text in split_top_level_commas(prelude) {
+        if let Some(selector) = parse_selector(selector_text) {
+            rules.push(Rule {
+                selector,
+                declarations: declarations.clone(),
+            });
+        }
+    }
+}
+
+// -------------------------------------------------------------- declarations
+
+pub fn parse_declarations(text: &str) -> Vec<Declaration> {
+    let mut out = Vec::new();
+    let mut input = ParserInput::new(text);
+    let mut parser = Parser::new(&mut input);
+    loop {
+        if parser.is_exhausted() {
+            break;
+        }
+        let start = parser.position();
+        let _ = parser.parse_until_before(Delimiter::Semicolon, consume_all);
+        let end = parser.position();
+        let raw = text[start.byte_index()..end.byte_index()].trim();
+        if !raw.is_empty() {
+            if let Some((name, value, important)) = split_declaration(raw) {
+                for (expanded_name, expanded_value) in expand_shorthand(&name, &value) {
+                    out.push(Declaration {
+                        name: expanded_name,
+                        value: expanded_value,
+                        important,
+                    });
+                }
+            }
+        }
+        match parser.next_including_whitespace_and_comments() {
+            Ok(Token::Semicolon) => continue,
+            Ok(_) => continue,
+            Err(_) => break,
+        }
+    }
+    out
+}
+
+fn split_declaration(raw: &str) -> Option<(String, String, bool)> {
+    let colon = raw.find(':')?;
+    let name = raw[..colon].trim().to_ascii_lowercase();
+    if name.is_empty() {
+        return None;
+    }
+    let mut value = raw[colon + 1..].trim().to_string();
+    let mut important = false;
+    let lowered = value.to_ascii_lowercase();
+    let trimmed = lowered.trim_end();
+    if trimmed.ends_with("important") {
+        let without = trimmed[..trimmed.len() - "important".len()].trim_end();
+        if let Some(stripped) = without.strip_suffix('!') {
+            important = true;
+            value = stripped.trim_end().to_string();
+        }
+    }
+    Some((name, value, important))
+}
+
+/// Expande `margin`/`padding` a longhands, igual que `css_parse._expand`.
+fn expand_shorthand(name: &str, value: &str) -> Vec<(String, String)> {
+    if name != "margin" && name != "padding" {
+        return vec![(name.to_string(), value.to_string())];
+    }
+    let parts: Vec<&str> = value.split_whitespace().collect();
+    if parts.is_empty() || parts.len() > 4 {
+        return Vec::new();
+    }
+    let top = parts[0];
+    let right = parts.get(1).copied().unwrap_or(top);
+    let bottom = parts.get(2).copied().unwrap_or(top);
+    let left = parts.get(3).copied().unwrap_or(right);
+    ["top", "right", "bottom", "left"]
+        .iter()
+        .zip([top, right, bottom, left])
+        .map(|(side, item)| (format!("{name}-{side}"), item.to_string()))
+        .collect()
+}
+
+fn split_top_level_commas(text: &str) -> Vec<&str> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::new();
+    let mut start = 0usize;
+    let mut depth = 0i32;
+    let mut quote: Option<u8> = None;
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let byte = bytes[i];
+        if let Some(active) = quote {
+            if byte == b'\\' {
+                i += 2;
+                continue;
+            }
+            if byte == active {
+                quote = None;
+            }
+        } else {
+            match byte {
+                b'"' | b'\'' => quote = Some(byte),
+                b'(' | b'[' => depth += 1,
+                b')' | b']' => depth -= 1,
+                b',' if depth <= 0 => {
+                    out.push(text[start..i].trim());
+                    start = i + 1;
+                }
+                b'\\' => {
+                    i += 2;
+                    continue;
+                }
+                _ => {}
+            }
+        }
+        i += 1;
+    }
+    out.push(text[start..].trim());
+    out.into_iter().filter(|item| !item.is_empty()).collect()
+}
+
+// ------------------------------------------------------------------ selectors
+
+fn parse_selector(text: &str) -> Option<Selector> {
+    let chars: Vec<char> = text.trim().chars().collect();
+    if chars.is_empty() {
+        return None;
+    }
+    let mut index = 0usize;
+    let mut parts: Vec<(Combinator, Compound)> = Vec::new();
+    let mut pending = Combinator::Descendant;
+    while index < chars.len() {
+        let before = index;
+        skip_ws(&chars, &mut index);
+        if index >= chars.len() {
+            break;
+        }
+        let had_ws = index > before;
+        match chars[index] {
+            '>' => {
+                if parts.is_empty() {
+                    return None;
+                }
+                pending = Combinator::Child;
+                index += 1;
+                continue;
+            }
+            '+' | '~' => return None,
+            _ => {}
+        }
+        if !parts.is_empty() && !had_ws && pending == Combinator::Descendant {
+            return None;
+        }
+        let (compound, next) = parse_compound(&chars, index)?;
+        index = next;
+        if compound.simples.is_empty() {
+            return None;
+        }
+        parts.push((pending, compound));
+        pending = Combinator::Descendant;
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    let mut spec = (0u32, 0u32, 0u32);
+    for (_, compound) in &parts {
+        spec.0 += compound.spec.0;
+        spec.1 += compound.spec.1;
+        spec.2 += compound.spec.2;
+    }
+    Some(Selector { parts, spec })
+}
+
+fn skip_ws(chars: &[char], index: &mut usize) {
+    while *index < chars.len() && chars[*index].is_whitespace() {
+        *index += 1;
+    }
+}
+
+fn is_name_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '-' || c == '_' || (c as u32) >= 0x80
+}
+
+fn is_name_start(c: char) -> bool {
+    c.is_alphabetic() || c == '-' || c == '_' || (c as u32) >= 0x80
+}
+
+fn parse_ident(chars: &[char], mut index: usize) -> Option<(String, usize)> {
+    if index >= chars.len() || !is_name_start(chars[index]) {
+        return None;
+    }
+    let mut out = String::new();
+    while index < chars.len() {
+        let c = chars[index];
+        if c == '\\' {
+            index += 1;
+            if index >= chars.len() {
+                return None;
+            }
+            out.push(chars[index]);
+            index += 1;
+        } else if is_name_char(c) {
+            out.push(c);
+            index += 1;
+        } else {
+            break;
+        }
+    }
+    if out.is_empty() {
+        None
+    } else {
+        Some((out, index))
+    }
+}
+
+fn parse_compound(chars: &[char], mut index: usize) -> Option<(Compound, usize)> {
+    let start = index;
+    let mut simples = Vec::new();
+    let mut spec = (0u32, 0u32, 0u32);
+    if index < chars.len() && chars[index] == '*' {
+        simples.push(Simple::Universal);
+        index += 1;
+    } else if index < chars.len() && is_name_start(chars[index]) {
+        let (name, next) = parse_ident(chars, index)?;
+        simples.push(Simple::Type(name));
+        spec.2 += 1;
+        index = next;
+    }
+    loop {
+        if index >= chars.len() {
+            break;
+        }
+        match chars[index] {
+            '.' => {
+                index += 1;
+                let (name, next) = parse_ident(chars, index)?;
+                simples.push(Simple::Class(name));
+                spec.1 += 1;
+                index = next;
+            }
+            '#' => {
+                index += 1;
+                let (name, next) = parse_ident(chars, index)?;
+                simples.push(Simple::Id(name));
+                spec.0 += 1;
+                index = next;
+            }
+            '[' => {
+                index += 1;
+                skip_ws(chars, &mut index);
+                let (name, next) = parse_ident(chars, index)?;
+                index = next;
+                skip_ws(chars, &mut index);
+                let mut value = None;
+                if index < chars.len() && chars[index] == '=' {
+                    index += 1;
+                    skip_ws(chars, &mut index);
+                    value = Some(parse_attr_value(chars, &mut index)?);
+                    skip_ws(chars, &mut index);
+                }
+                if index >= chars.len() || chars[index] != ']' {
+                    return None;
+                }
+                index += 1;
+                simples.push(Simple::Attr { name, value });
+                spec.1 += 1;
+            }
+            ':' => {
+                index += 1;
+                let doubled = index < chars.len() && chars[index] == ':';
+                if doubled {
+                    index += 1;
+                }
+                let (name, next) = parse_ident(chars, index)?;
+                index = next;
+                if index < chars.len() && chars[index] == '(' {
+                    index = skip_balanced(chars, index)?;
+                    simples.push(Simple::Never);
+                } else if doubled || !matches!(
+                    name.as_str(),
+                    "root" | "first-child" | "last-child" | "only-child"
+                ) {
+                    simples.push(Simple::Never);
+                } else {
+                    simples.push(Simple::Pseudo(name));
+                    spec.1 += 1;
+                }
+            }
+            _ => break,
+        }
+    }
+    if index == start {
+        return None;
+    }
+    Some((Compound { simples, spec }, index))
+}
+
+fn parse_attr_value(chars: &[char], index: &mut usize) -> Option<String> {
+    if *index >= chars.len() {
+        return None;
+    }
+    let quote = chars[*index];
+    if quote == '"' || quote == '\'' {
+        *index += 1;
+        let mut out = String::new();
+        while *index < chars.len() {
+            let c = chars[*index];
+            if c == quote {
+                *index += 1;
+                return Some(out);
+            }
+            if c == '\\' {
+                *index += 1;
+                if *index >= chars.len() {
+                    return None;
+                }
+            }
+            out.push(chars[*index]);
+            *index += 1;
+        }
+        None
+    } else {
+        let (name, next) = parse_ident(chars, *index)?;
+        *index = next;
+        Some(name)
+    }
+}
+
+fn skip_balanced(chars: &[char], mut index: usize) -> Option<usize> {
+    let mut depth = 0i32;
+    while index < chars.len() {
+        match chars[index] {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(index + 1);
+                }
+            }
+            _ => {}
+        }
+        index += 1;
+    }
+    None
+}

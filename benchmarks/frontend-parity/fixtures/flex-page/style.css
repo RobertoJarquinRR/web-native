@@ -1,0 +1,95 @@
+body {
+  margin: 0;
+  background: #0f1115;
+}
+
+#root {
+  width: 480px;
+  height: 320px;
+  background: #0f1115;
+  padding: 24px;
+}
+
+.topbar {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  height: 12px;
+}
+
+.dots {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  align-items: center;
+  width: 52px;
+  height: 12px;
+}
+
+.dot {
+  width: 12px;
+  height: 12px;
+}
+
+.dot-a { background: #e74c3c; }
+.dot-b { background: #2ecc71; }
+.dot-c { background: #3498db; }
+
+.pill {
+  width: 60px;
+  height: 12px;
+  background: #2a3140;
+}
+
+.cards {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 24px;
+  height: 148px;
+}
+
+.card {
+  width: 128px;
+  height: 148px;
+  background: #1a1f2a;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.accent {
+  width: 96px;
+  height: 6px;
+}
+
+.accent-a { background: #e74c3c; }
+.accent-b { background: #2ecc71; }
+.accent-c { background: #3498db; }
+
+.line {
+  height: 6px;
+  background: #2a3140;
+}
+
+.line-1 { width: 96px; }
+.line-2 { width: 72px; }
+.line-2b { width: 84px; }
+.line-2c { width: 60px; }
+.line-3 { width: 90px; }
+
+.footer {
+  margin-top: 24px;
+  height: 44px;
+  background: #161a22;
+  padding: 16px;
+}
+
+.footer-bar {
+  width: 140px;
+  height: 8px;
+  background: #2a3140;
+}

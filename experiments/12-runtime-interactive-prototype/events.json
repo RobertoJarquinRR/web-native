@@ -1,0 +1,74 @@
+[
+  {
+    "t_ms": 0,
+    "type": "pointer_move",
+    "x": 190, "y": 70,
+    "note": "centro de btn-b: hover"
+  },
+  {
+    "t_ms": 16,
+    "type": "pointer_down",
+    "x": 190, "y": 70,
+    "note": "press btn-b"
+  },
+  {
+    "t_ms": 32,
+    "type": "pointer_up",
+    "x": 190, "y": 70,
+    "note": "suelta sobre btn-b: click 1"
+  },
+  {
+    "t_ms": 48,
+    "type": "pointer_move",
+    "x": 195, "y": 80,
+    "note": "otro punto dentro de btn-b: el estado no cambia -> frame identico"
+  },
+  {
+    "t_ms": 64,
+    "type": "pointer_move",
+    "x": 200, "y": 150,
+    "note": "espacio vacio: hover None"
+  },
+  {
+    "t_ms": 80,
+    "type": "pointer_move",
+    "x": 240, "y": 70,
+    "note": "borde derecho de btn-b (x1): half-open -> fuera"
+  },
+  {
+    "t_ms": 96,
+    "type": "pointer_move",
+    "x": 140, "y": 40,
+    "note": "borde superior-izquierdo de btn-b: half-open -> dentro"
+  },
+  {
+    "t_ms": 112,
+    "type": "pointer_move",
+    "x": 310, "y": 70,
+    "note": "centro de btn-c: hover"
+  },
+  {
+    "t_ms": 128,
+    "type": "pointer_down",
+    "x": 310, "y": 70,
+    "note": "press btn-c"
+  },
+  {
+    "t_ms": 144,
+    "type": "pointer_up",
+    "x": 310, "y": 70,
+    "note": "suelta sobre btn-c: click 2"
+  },
+  {
+    "t_ms": 160,
+    "type": "pointer_down",
+    "x": 70, "y": 70,
+    "note": "press btn-a"
+  },
+  {
+    "t_ms": 176,
+    "type": "pointer_up",
+    "x": 200, "y": 150,
+    "note": "suelta fuera de btn-a: no cuenta como click (drag-out)"
+  }
+]

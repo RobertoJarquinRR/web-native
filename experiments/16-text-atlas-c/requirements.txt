@@ -1,0 +1,9 @@
+# Build-time and verification only. The produced scene_text.exe does NOT use
+# any of these at runtime (see proof\dependents.txt).
+html5lib
+tinycss2
+cssselect2
+uharfbuzz
+freetype-py
+pillow
+wgpu

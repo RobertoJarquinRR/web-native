@@ -1,0 +1,4 @@
+selectolax==1.0.2
+lightningcss==0.3.2
+moderngl==5.13.0
+pillow==13.0.0

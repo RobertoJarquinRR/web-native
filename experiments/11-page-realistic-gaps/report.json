@@ -1,0 +1,835 @@
+{
+  "status": "SUCCESS",
+  "experiment": "exp11-real-page",
+  "viewport": {
+    "width": 640,
+    "height": 480
+  },
+  "backend": "wgpu/D3D12",
+  "adapter": {
+    "device": "Microsoft Basic Render Driver",
+    "backend": "D3D12",
+    "adapter_type": "CPU",
+    "vendor_id": 5140
+  },
+  "render_error": null,
+  "timings_ms": {
+    "parse_html": 16.73,
+    "parse_css": 6.9,
+    "cascade": 2.97,
+    "fonts_init": 2.95,
+    "layout": 6.09,
+    "shape_atlas_ir": 20.62,
+    "wgpu_init": 2130.36,
+    "render_png": 687.75,
+    "verify": 310.53,
+    "TOTAL": 3194.06
+  },
+  "stats": {
+    "ops": 25,
+    "rects": 9,
+    "text_runs": 16,
+    "glyph_quads": 231,
+    "nonzero_quads": 204,
+    "atlas_unique": 111,
+    "atlas_overflow": 0,
+    "atlas_bytes": 1048576
+  },
+  "checks": [
+    {
+      "kind": "image",
+      "name": "png size",
+      "pass": true,
+      "expected": [
+        640,
+        480
+      ],
+      "got": [
+        640,
+        480
+      ],
+      "detail": ""
+    },
+    {
+      "kind": "ir",
+      "name": "viewport en display_list",
+      "pass": true,
+      "expected": [
+        640,
+        480
+      ],
+      "got": {
+        "width": 640,
+        "height": 480
+      },
+      "detail": ""
+    },
+    {
+      "kind": "ir",
+      "name": "hay ops rect y text_run",
+      "pass": true,
+      "expected": ">=8 rects, >=14 runs",
+      "got": "9 rects, 16 runs",
+      "detail": ""
+    },
+    {
+      "kind": "ir",
+      "name": "todos los text_run tienen glifos",
+      "pass": true,
+      "expected": "glyphs>0 en cada run",
+      "got": [
+        9,
+        4,
+        4,
+        5,
+        14,
+        35,
+        10,
+        26,
+        3,
+        10,
+        22,
+        8,
+        12,
+        20,
+        8,
+        41
+      ],
+      "detail": ""
+    },
+    {
+      "kind": "ir",
+      "name": "glifos dibujables suficientes",
+      "pass": true,
+      "expected": ">=150 quads con w,h>0",
+      "got": 204,
+      "detail": ""
+    },
+    {
+      "kind": "atlas",
+      "name": "bitmaps únicos",
+      "pass": true,
+      "expected": ">=40",
+      "got": 111,
+      "detail": ""
+    },
+    {
+      "kind": "atlas",
+      "name": "sin overflow",
+      "pass": true,
+      "expected": "0",
+      "got": 0,
+      "detail": ""
+    },
+    {
+      "kind": "geometry",
+      "name": "existe nav/hero/footer",
+      "pass": true,
+      "expected": "1 de cada",
+      "got": "1/1/1",
+      "detail": ""
+    },
+    {
+      "kind": "geometry",
+      "name": "existen 3 cards",
+      "pass": true,
+      "expected": 3,
+      "got": 3,
+      "detail": ""
+    },
+    {
+      "kind": "geometry",
+      "name": "nav x",
+      "pass": true,
+      "expected": 0,
+      "got": 0.0,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "nav y",
+      "pass": true,
+      "expected": 0,
+      "got": 0.0,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "nav width",
+      "pass": true,
+      "expected": 640,
+      "got": 640.0,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "nav height",
+      "pass": true,
+      "expected": 56,
+      "got": 56.0,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "hero x",
+      "pass": true,
+      "expected": 0,
+      "got": 0.0,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "hero width",
+      "pass": true,
+      "expected": 640,
+      "got": 640.0,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "card 0 x",
+      "pass": true,
+      "expected": 16,
+      "got": 16.0,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "card 0 y",
+      "pass": true,
+      "expected": 202.53125,
+      "got": 202.53125,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "card 0 width",
+      "pass": true,
+      "expected": 180,
+      "got": 180.0,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "card 0 height",
+      "pass": true,
+      "expected": 120,
+      "got": 120.0,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "card 1 x",
+      "pass": true,
+      "expected": 212,
+      "got": 212.0,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "card 1 y",
+      "pass": true,
+      "expected": 202.53125,
+      "got": 202.53125,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "card 1 width",
+      "pass": true,
+      "expected": 180,
+      "got": 180.0,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "card 1 height",
+      "pass": true,
+      "expected": 120,
+      "got": 120.0,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "card 2 x",
+      "pass": true,
+      "expected": 408,
+      "got": 408.0,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "card 2 y",
+      "pass": true,
+      "expected": 202.53125,
+      "got": 202.53125,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "card 2 width",
+      "pass": true,
+      "expected": 180,
+      "got": 180.0,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "card 2 height",
+      "pass": true,
+      "expected": 120,
+      "got": 120.0,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "gap card0-card1",
+      "pass": true,
+      "expected": 16,
+      "got": 16.0,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "gap card1-card2",
+      "pass": true,
+      "expected": 16,
+      "got": 16.0,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "footer height",
+      "pass": true,
+      "expected": 32,
+      "got": 32.0,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "footer bottom",
+      "pass": true,
+      "expected": 480,
+      "got": 480.0,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "footer y",
+      "pass": true,
+      "expected": 448,
+      "got": 448.0,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "footer width",
+      "pass": true,
+      "expected": 640,
+      "got": 640.0,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "hero padding-left (h1 x)",
+      "pass": true,
+      "expected": 32,
+      "got": 32.0,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "hero padding-left (p x)",
+      "pass": true,
+      "expected": 32,
+      "got": 32.0,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "nav padding-left (logo x)",
+      "pass": true,
+      "expected": 16,
+      "got": 16.0,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "nav padding-right (links right)",
+      "pass": true,
+      "expected": 624,
+      "got": 624.0,
+      "detail": "tol=0.01"
+    },
+    {
+      "kind": "geometry",
+      "name": "nav space-between",
+      "pass": true,
+      "expected": "space-between",
+      "got": "space-between",
+      "detail": ""
+    },
+    {
+      "kind": "geometry",
+      "name": "card flex column",
+      "pass": true,
+      "expected": "column",
+      "got": {
+        "direction": "column",
+        "content": {
+          "x": 28.0,
+          "y": 214.53125,
+          "w": 156.0,
+          "h": 96.0
+        },
+        "used": 75.875,
+        "free": 20.125,
+        "start": 0.0,
+        "spacing": 8.0,
+        "justify": "flex-start",
+        "align": "stretch"
+      },
+      "detail": ""
+    },
+    {
+      "kind": "geometry",
+      "name": "3 títulos y 3 cuerpos de card",
+      "pass": true,
+      "expected": "3/3",
+      "got": "3/3",
+      "detail": ""
+    },
+    {
+      "kind": "geometry",
+      "name": "3 badges",
+      "pass": true,
+      "expected": 3,
+      "got": 3,
+      "detail": ""
+    },
+    {
+      "kind": "geometry",
+      "name": "card 0 body hace wrap",
+      "pass": true,
+      "expected": ">=2 líneas",
+      "got": 2,
+      "detail": "Display list sin navegador | web"
+    },
+    {
+      "kind": "geometry",
+      "name": "card 1 body hace wrap",
+      "pass": true,
+      "expected": ">=2 líneas",
+      "got": 2,
+      "detail": "Flex nativo y texto de | HarfBuzz"
+    },
+    {
+      "kind": "geometry",
+      "name": "card 2 body hace wrap",
+      "pass": true,
+      "expected": ">=2 líneas",
+      "got": 2,
+      "detail": "Sin WebView, Skia ni | Electron"
+    },
+    {
+      "kind": "geometry",
+      "name": "hero h1 en una línea",
+      "pass": true,
+      "expected": "1 línea",
+      "got": 1,
+      "detail": ""
+    },
+    {
+      "kind": "geometry",
+      "name": "hero p en una línea a 640px",
+      "pass": true,
+      "expected": "1 línea (cabe)",
+      "got": 1,
+      "detail": ""
+    },
+    {
+      "kind": "text",
+      "name": "run contiene 'webnative'",
+      "pass": true,
+      "expected": "webnative",
+      "got": "presente",
+      "detail": ""
+    },
+    {
+      "kind": "text",
+      "name": "run contiene 'Docs'",
+      "pass": true,
+      "expected": "Docs",
+      "got": "presente",
+      "detail": ""
+    },
+    {
+      "kind": "text",
+      "name": "run contiene 'Demo'",
+      "pass": true,
+      "expected": "Demo",
+      "got": "presente",
+      "detail": ""
+    },
+    {
+      "kind": "text",
+      "name": "run contiene 'About'",
+      "pass": true,
+      "expected": "About",
+      "got": "presente",
+      "detail": ""
+    },
+    {
+      "kind": "text",
+      "name": "run contiene 'Compila la web'",
+      "pass": true,
+      "expected": "Compila la web",
+      "got": "presente",
+      "detail": ""
+    },
+    {
+      "kind": "text",
+      "name": "run contiene 'HTML y CSS a nativo, sin navegador.'",
+      "pass": true,
+      "expected": "HTML y CSS a nativo, sin navegador.",
+      "got": "presente",
+      "detail": ""
+    },
+    {
+      "kind": "text",
+      "name": "run contiene 'IR neutral'",
+      "pass": true,
+      "expected": "IR neutral",
+      "got": "presente",
+      "detail": ""
+    },
+    {
+      "kind": "text",
+      "name": "run contiene 'Texto real'",
+      "pass": true,
+      "expected": "Texto real",
+      "got": "presente",
+      "detail": ""
+    },
+    {
+      "kind": "text",
+      "name": "run contiene 'Cero WebView'",
+      "pass": true,
+      "expected": "Cero WebView",
+      "got": "presente",
+      "detail": ""
+    },
+    {
+      "kind": "text",
+      "name": "run contiene 'sin navegador'",
+      "pass": true,
+      "expected": "sin navegador",
+      "got": "presente",
+      "detail": ""
+    },
+    {
+      "kind": "text",
+      "name": "línea de card: 'Display list sin n'",
+      "pass": true,
+      "expected": "texto",
+      "got": "Display list sin navegador",
+      "detail": ""
+    },
+    {
+      "kind": "text",
+      "name": "línea de card: 'web'",
+      "pass": true,
+      "expected": "texto",
+      "got": "web",
+      "detail": ""
+    },
+    {
+      "kind": "text",
+      "name": "línea de card: 'Flex nativo y text'",
+      "pass": true,
+      "expected": "texto",
+      "got": "Flex nativo y texto de",
+      "detail": ""
+    },
+    {
+      "kind": "text",
+      "name": "línea de card: 'HarfBuzz'",
+      "pass": true,
+      "expected": "texto",
+      "got": "HarfBuzz",
+      "detail": ""
+    },
+    {
+      "kind": "text",
+      "name": "línea de card: 'Sin WebView, Skia '",
+      "pass": true,
+      "expected": "texto",
+      "got": "Sin WebView, Skia ni",
+      "detail": ""
+    },
+    {
+      "kind": "text",
+      "name": "línea de card: 'Electron'",
+      "pass": true,
+      "expected": "texto",
+      "got": "Electron",
+      "detail": ""
+    },
+    {
+      "kind": "pixel",
+      "name": "nav bg (centro)",
+      "pass": true,
+      "expected": "#12121a",
+      "got": "#12121a",
+      "detail": "(320,8) tol=8"
+    },
+    {
+      "kind": "pixel",
+      "name": "nav bg (banda inferior)",
+      "pass": true,
+      "expected": "#12121a",
+      "got": "#12121a",
+      "detail": "(320,50) tol=8"
+    },
+    {
+      "kind": "pixel",
+      "name": "page bg entre main y footer",
+      "pass": true,
+      "expected": "#0f0f14",
+      "got": "#0f0f14",
+      "detail": "(320,400) tol=8"
+    },
+    {
+      "kind": "pixel",
+      "name": "footer bg (derecha)",
+      "pass": true,
+      "expected": "#0b0b0e",
+      "got": "#0b0b0e",
+      "detail": "(630,465) tol=8"
+    },
+    {
+      "kind": "pixel",
+      "name": "gap entre cards",
+      "pass": true,
+      "expected": "#0f0f14",
+      "got": "#0f0f14",
+      "detail": "(204,263) tol=8"
+    },
+    {
+      "kind": "pixel",
+      "name": "card 0 bg",
+      "pass": true,
+      "expected": "#1a1a22",
+      "got": "#1a1a22",
+      "detail": "(186,303) tol=8"
+    },
+    {
+      "kind": "geometry",
+      "name": "badge 0 color CSS",
+      "pass": true,
+      "expected": "#e74c3c",
+      "got": "#e74c3c",
+      "detail": ""
+    },
+    {
+      "kind": "pixel",
+      "name": "badge 0 color",
+      "pass": true,
+      "expected": "#e74c3c",
+      "got": "#e74c3c",
+      "detail": "(68,217) tol=8"
+    },
+    {
+      "kind": "pixel",
+      "name": "card 1 bg",
+      "pass": true,
+      "expected": "#1a1a22",
+      "got": "#1a1a22",
+      "detail": "(382,303) tol=8"
+    },
+    {
+      "kind": "geometry",
+      "name": "badge 1 color CSS",
+      "pass": true,
+      "expected": "#2ecc71",
+      "got": "#2ecc71",
+      "detail": ""
+    },
+    {
+      "kind": "pixel",
+      "name": "badge 1 color",
+      "pass": true,
+      "expected": "#2ecc71",
+      "got": "#2ecc71",
+      "detail": "(264,217) tol=8"
+    },
+    {
+      "kind": "pixel",
+      "name": "card 2 bg",
+      "pass": true,
+      "expected": "#1a1a22",
+      "got": "#1a1a22",
+      "detail": "(578,303) tol=8"
+    },
+    {
+      "kind": "geometry",
+      "name": "badge 2 color CSS",
+      "pass": true,
+      "expected": "#3498db",
+      "got": "#3498db",
+      "detail": ""
+    },
+    {
+      "kind": "pixel",
+      "name": "badge 2 color",
+      "pass": true,
+      "expected": "#3498db",
+      "got": "#3498db",
+      "detail": "(460,217) tol=8"
+    },
+    {
+      "kind": "pixel",
+      "name": "texto logo (px claros)",
+      "pass": true,
+      "expected": ">=30",
+      "got": 516,
+      "detail": ""
+    },
+    {
+      "kind": "pixel",
+      "name": "texto links (px muted)",
+      "pass": true,
+      "expected": ">=60",
+      "got": 266,
+      "detail": ""
+    },
+    {
+      "kind": "pixel",
+      "name": "texto h1 (px claros)",
+      "pass": true,
+      "expected": ">=150",
+      "got": 1730,
+      "detail": ""
+    },
+    {
+      "kind": "pixel",
+      "name": "texto hero p (px muted)",
+      "pass": true,
+      "expected": ">=80",
+      "got": 651,
+      "detail": ""
+    },
+    {
+      "kind": "pixel",
+      "name": "texto título card 0",
+      "pass": true,
+      "expected": ">=20",
+      "got": 398,
+      "detail": ""
+    },
+    {
+      "kind": "pixel",
+      "name": "texto título card 1",
+      "pass": true,
+      "expected": ">=20",
+      "got": 383,
+      "detail": ""
+    },
+    {
+      "kind": "pixel",
+      "name": "texto título card 2",
+      "pass": true,
+      "expected": ">=20",
+      "got": 587,
+      "detail": ""
+    },
+    {
+      "kind": "pixel",
+      "name": "texto cuerpo card 0",
+      "pass": true,
+      "expected": ">=50",
+      "got": 410,
+      "detail": ""
+    },
+    {
+      "kind": "pixel",
+      "name": "texto cuerpo card 1",
+      "pass": true,
+      "expected": ">=50",
+      "got": 402,
+      "detail": ""
+    },
+    {
+      "kind": "pixel",
+      "name": "texto cuerpo card 2",
+      "pass": true,
+      "expected": ">=50",
+      "got": 390,
+      "detail": ""
+    },
+    {
+      "kind": "pixel",
+      "name": "texto footer (px legibles)",
+      "pass": true,
+      "expected": ">=60",
+      "got": 670,
+      "detail": ""
+    },
+    {
+      "kind": "robustness",
+      "name": "features no soportadas se ignoran sin crash",
+      "pass": true,
+      "expected": "sin excepción",
+      "got": "2 líneas; 14 features ignoradas sin excepción",
+      "detail": ""
+    }
+  ],
+  "check_summary": {
+    "total": 88,
+    "passed": 88,
+    "failed": 0
+  },
+  "fonts": {
+    "regular": "C:\\Windows\\Fonts\\segoeui.ttf",
+    "bold": "C:\\Windows\\Fonts\\segoeuib.ttf",
+    "regular_upem": 2048,
+    "bold_upem": 2048,
+    "warnings": []
+  },
+  "layout_warnings": [],
+  "probe": {
+    "pass": true,
+    "ignored": [
+      "display:grid",
+      "grid-template-columns",
+      "gap:1em",
+      "padding:10%",
+      "border-radius",
+      "box-shadow",
+      "transform",
+      "overflow",
+      "width:50%",
+      "min-height",
+      "flex:1 1 auto",
+      "position:absolute",
+      "border",
+      "box-sizing:border-box"
+    ],
+    "lines": 2,
+    "warnings": [],
+    "detail": "2 líneas; 14 features ignoradas sin excepción"
+  },
+  "display_list": ".\\exp11-real-page\\display_list.json",
+  "layout_json": ".\\exp11-real-page\\layout.json",
+  "render_png": ".\\exp11-real-page\\render.png",
+  "versions": {
+    "python": "3.12.10",
+    "html5lib": "1.1",
+    "tinycss2": "1.5.1",
+    "cssselect2": "0.10.1",
+    "uharfbuzz": "0.57.0",
+    "freetype-py": "2.5.1",
+    "wgpu": "0.33.0",
+    "pillow": "13.0.0"
+  }
+}

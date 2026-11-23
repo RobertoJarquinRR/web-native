@@ -1,0 +1,434 @@
+{
+  "scene": "scene.json",
+  "events_file": "events.json",
+  "viewport": {
+    "width": 400,
+    "height": 300
+  },
+  "frames": [
+    {
+      "frame": 0,
+      "png": "frames/frame_000.png",
+      "display_list": "frames/display_list_000.json",
+      "event": null,
+      "hit": null,
+      "state": {
+        "hovered": null,
+        "pressed": null,
+        "clicks": 0
+      },
+      "op_count": 9,
+      "png_sha256": "1d943f6bd513bdbb2ad63f6503384da5d3ce1b0f6dcb11d66f1fe106558e77df",
+      "timing_ms": {
+        "hit_test": 0.0,
+        "build_display_list": 0.072,
+        "render_cpu": 0.631,
+        "save_png": 36.572,
+        "total": 37.276
+      }
+    },
+    {
+      "frame": 1,
+      "png": "frames/frame_001.png",
+      "display_list": "frames/display_list_001.json",
+      "event": {
+        "t_ms": 0,
+        "type": "pointer_move",
+        "x": 190,
+        "y": 70,
+        "note": "centro de btn-b: hover"
+      },
+      "hit": "btn-b",
+      "state": {
+        "hovered": "btn-b",
+        "pressed": null,
+        "clicks": 0
+      },
+      "op_count": 9,
+      "png_sha256": "524a3c1468ebb7cb76c63b7ff1dcf7d5791ac1f07ef0caa670e1ae7f1c4acc67",
+      "timing_ms": {
+        "hit_test": 0.043,
+        "build_display_list": 0.029,
+        "render_cpu": 0.321,
+        "save_png": 4.264,
+        "total": 4.662
+      }
+    },
+    {
+      "frame": 2,
+      "png": "frames/frame_002.png",
+      "display_list": "frames/display_list_002.json",
+      "event": {
+        "t_ms": 16,
+        "type": "pointer_down",
+        "x": 190,
+        "y": 70,
+        "note": "press btn-b"
+      },
+      "hit": "btn-b",
+      "state": {
+        "hovered": "btn-b",
+        "pressed": "btn-b",
+        "clicks": 0
+      },
+      "op_count": 9,
+      "png_sha256": "6ae6296171398aede45197fa22e10d8571c2e7ef65392aa9cdacb3af338c51a9",
+      "timing_ms": {
+        "hit_test": 0.032,
+        "build_display_list": 0.026,
+        "render_cpu": 0.297,
+        "save_png": 3.897,
+        "total": 4.255
+      }
+    },
+    {
+      "frame": 3,
+      "png": "frames/frame_003.png",
+      "display_list": "frames/display_list_003.json",
+      "event": {
+        "t_ms": 32,
+        "type": "pointer_up",
+        "x": 190,
+        "y": 70,
+        "note": "suelta sobre btn-b: click 1"
+      },
+      "hit": "btn-b",
+      "state": {
+        "hovered": "btn-b",
+        "pressed": null,
+        "clicks": 1
+      },
+      "op_count": 9,
+      "png_sha256": "de72dd7fcd205bd43940f8b08adea4d440e276e559f18f94358dd886576b6d8b",
+      "timing_ms": {
+        "hit_test": 0.027,
+        "build_display_list": 0.025,
+        "render_cpu": 0.291,
+        "save_png": 3.324,
+        "total": 3.668
+      }
+    },
+    {
+      "frame": 4,
+      "png": "frames/frame_004.png",
+      "display_list": "frames/display_list_004.json",
+      "event": {
+        "t_ms": 48,
+        "type": "pointer_move",
+        "x": 195,
+        "y": 80,
+        "note": "otro punto dentro de btn-b: el estado no cambia -> frame identico"
+      },
+      "hit": "btn-b",
+      "state": {
+        "hovered": "btn-b",
+        "pressed": null,
+        "clicks": 1
+      },
+      "op_count": 9,
+      "png_sha256": "de72dd7fcd205bd43940f8b08adea4d440e276e559f18f94358dd886576b6d8b",
+      "timing_ms": {
+        "hit_test": 0.025,
+        "build_display_list": 0.025,
+        "render_cpu": 0.376,
+        "save_png": 3.663,
+        "total": 4.09
+      }
+    },
+    {
+      "frame": 5,
+      "png": "frames/frame_005.png",
+      "display_list": "frames/display_list_005.json",
+      "event": {
+        "t_ms": 64,
+        "type": "pointer_move",
+        "x": 200,
+        "y": 150,
+        "note": "espacio vacio: hover None"
+      },
+      "hit": null,
+      "state": {
+        "hovered": null,
+        "pressed": null,
+        "clicks": 1
+      },
+      "op_count": 9,
+      "png_sha256": "0f1d5b95ee6180c5d1a26f6d043c38983d1806ca4a7dc58c061e61fb647b03fa",
+      "timing_ms": {
+        "hit_test": 0.024,
+        "build_display_list": 0.024,
+        "render_cpu": 0.305,
+        "save_png": 2.995,
+        "total": 3.351
+      }
+    },
+    {
+      "frame": 6,
+      "png": "frames/frame_006.png",
+      "display_list": "frames/display_list_006.json",
+      "event": {
+        "t_ms": 80,
+        "type": "pointer_move",
+        "x": 240,
+        "y": 70,
+        "note": "borde derecho de btn-b (x1): half-open -> fuera"
+      },
+      "hit": null,
+      "state": {
+        "hovered": null,
+        "pressed": null,
+        "clicks": 1
+      },
+      "op_count": 9,
+      "png_sha256": "0f1d5b95ee6180c5d1a26f6d043c38983d1806ca4a7dc58c061e61fb647b03fa",
+      "timing_ms": {
+        "hit_test": 0.019,
+        "build_display_list": 0.022,
+        "render_cpu": 0.29,
+        "save_png": 2.826,
+        "total": 3.159
+      }
+    },
+    {
+      "frame": 7,
+      "png": "frames/frame_007.png",
+      "display_list": "frames/display_list_007.json",
+      "event": {
+        "t_ms": 96,
+        "type": "pointer_move",
+        "x": 140,
+        "y": 40,
+        "note": "borde superior-izquierdo de btn-b: half-open -> dentro"
+      },
+      "hit": "btn-b",
+      "state": {
+        "hovered": "btn-b",
+        "pressed": null,
+        "clicks": 1
+      },
+      "op_count": 9,
+      "png_sha256": "de72dd7fcd205bd43940f8b08adea4d440e276e559f18f94358dd886576b6d8b",
+      "timing_ms": {
+        "hit_test": 0.02,
+        "build_display_list": 0.02,
+        "render_cpu": 0.303,
+        "save_png": 2.907,
+        "total": 3.251
+      }
+    },
+    {
+      "frame": 8,
+      "png": "frames/frame_008.png",
+      "display_list": "frames/display_list_008.json",
+      "event": {
+        "t_ms": 112,
+        "type": "pointer_move",
+        "x": 310,
+        "y": 70,
+        "note": "centro de btn-c: hover"
+      },
+      "hit": "btn-c",
+      "state": {
+        "hovered": "btn-c",
+        "pressed": null,
+        "clicks": 1
+      },
+      "op_count": 9,
+      "png_sha256": "52ad769b0e841acc10ac5e89a9bee651d9bfdb8c47269f936c11cd501e317832",
+      "timing_ms": {
+        "hit_test": 0.026,
+        "build_display_list": 0.026,
+        "render_cpu": 0.364,
+        "save_png": 4.149,
+        "total": 4.567
+      }
+    },
+    {
+      "frame": 9,
+      "png": "frames/frame_009.png",
+      "display_list": "frames/display_list_009.json",
+      "event": {
+        "t_ms": 128,
+        "type": "pointer_down",
+        "x": 310,
+        "y": 70,
+        "note": "press btn-c"
+      },
+      "hit": "btn-c",
+      "state": {
+        "hovered": "btn-c",
+        "pressed": "btn-c",
+        "clicks": 1
+      },
+      "op_count": 9,
+      "png_sha256": "73d2a779aa8f416dfa2e0f29fbbb15dea92a406c67ee3a8f90fe1b2593e8d115",
+      "timing_ms": {
+        "hit_test": 0.025,
+        "build_display_list": 0.025,
+        "render_cpu": 0.328,
+        "save_png": 2.935,
+        "total": 3.323
+      }
+    },
+    {
+      "frame": 10,
+      "png": "frames/frame_010.png",
+      "display_list": "frames/display_list_010.json",
+      "event": {
+        "t_ms": 144,
+        "type": "pointer_up",
+        "x": 310,
+        "y": 70,
+        "note": "suelta sobre btn-c: click 2"
+      },
+      "hit": "btn-c",
+      "state": {
+        "hovered": "btn-c",
+        "pressed": null,
+        "clicks": 2
+      },
+      "op_count": 9,
+      "png_sha256": "8e28ce71017eb3861ff91509d4fd0f2bfabf4faadc72a570590e221dacb73122",
+      "timing_ms": {
+        "hit_test": 0.023,
+        "build_display_list": 0.023,
+        "render_cpu": 0.301,
+        "save_png": 2.984,
+        "total": 3.333
+      }
+    },
+    {
+      "frame": 11,
+      "png": "frames/frame_011.png",
+      "display_list": "frames/display_list_011.json",
+      "event": {
+        "t_ms": 160,
+        "type": "pointer_down",
+        "x": 70,
+        "y": 70,
+        "note": "press btn-a"
+      },
+      "hit": "btn-a",
+      "state": {
+        "hovered": "btn-a",
+        "pressed": "btn-a",
+        "clicks": 2
+      },
+      "op_count": 9,
+      "png_sha256": "b28d4646a34379a8dc5fde7548c251c283bbf58e27c4ef84c7b3b7e96da01b90",
+      "timing_ms": {
+        "hit_test": 0.025,
+        "build_display_list": 0.025,
+        "render_cpu": 1.049,
+        "save_png": 3.739,
+        "total": 4.839
+      }
+    },
+    {
+      "frame": 12,
+      "png": "frames/frame_012.png",
+      "display_list": "frames/display_list_012.json",
+      "event": {
+        "t_ms": 176,
+        "type": "pointer_up",
+        "x": 200,
+        "y": 150,
+        "note": "suelta fuera de btn-a: no cuenta como click (drag-out)"
+      },
+      "hit": null,
+      "state": {
+        "hovered": null,
+        "pressed": null,
+        "clicks": 2
+      },
+      "op_count": 9,
+      "png_sha256": "95b410c14c692e7fcba25e03a0fe3426c42a198a518ec26127470560ab604a77",
+      "timing_ms": {
+        "hit_test": 0.023,
+        "build_display_list": 0.022,
+        "render_cpu": 0.653,
+        "save_png": 2.986,
+        "total": 3.686
+      }
+    }
+  ],
+  "summary": {
+    "frame_count": 13,
+    "event_count": 12,
+    "wall_ms": 105.26,
+    "timing_ms": {
+      "hit_test": {
+        "min": 0.0,
+        "median": 0.025,
+        "mean": 0.024,
+        "p95": 0.043,
+        "max": 0.043
+      },
+      "build_display_list": {
+        "min": 0.02,
+        "median": 0.025,
+        "mean": 0.028,
+        "p95": 0.072,
+        "max": 0.072
+      },
+      "render_cpu": {
+        "min": 0.29,
+        "median": 0.321,
+        "mean": 0.424,
+        "p95": 1.049,
+        "max": 1.049
+      },
+      "save_png": {
+        "min": 2.826,
+        "median": 3.324,
+        "mean": 5.942,
+        "p95": 36.572,
+        "max": 36.572
+      },
+      "total": {
+        "min": 3.159,
+        "median": 3.686,
+        "mean": 6.42,
+        "p95": 37.276,
+        "max": 37.276
+      }
+    },
+    "steady_state_timing_ms": {
+      "hit_test": {
+        "min": 0.019,
+        "median": 0.025,
+        "mean": 0.026,
+        "p95": 0.043,
+        "max": 0.043
+      },
+      "build_display_list": {
+        "min": 0.02,
+        "median": 0.025,
+        "mean": 0.024,
+        "p95": 0.029,
+        "max": 0.029
+      },
+      "render_cpu": {
+        "min": 0.29,
+        "median": 0.313,
+        "mean": 0.407,
+        "p95": 1.049,
+        "max": 1.049
+      },
+      "save_png": {
+        "min": 2.826,
+        "median": 3.159,
+        "mean": 3.389,
+        "p95": 4.264,
+        "max": 4.264
+      },
+      "total": {
+        "min": 3.159,
+        "median": 3.677,
+        "mean": 3.849,
+        "p95": 4.839,
+        "max": 4.839
+      }
+    }
+  }
+}

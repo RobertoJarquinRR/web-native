@@ -1,0 +1,26 @@
+﻿{
+    "ir":  "display_list.json",
+    "png":  "scene_cpu.png",
+    "exe":  "scene.exe",
+    "compiler":  "Microsoft (R) C/C++ Optimizing Compiler Version 19.51.36260 for x64",
+    "backend":  "pure C software rasterizer + WIC PNG",
+    "commands":  {
+                     "emit":  ".\\exp08-aot\\.venv\\Scripts\\python.exe  emit_c.py --ir display_list.json --out scene_data.h",
+                     "compile":  "cl /nologo /O2 /W4 /Brepro /TC runtime.c /Fe:scene.exe /link /Brepro windowscodecs.lib ole32.lib uuid.lib",
+                     "run":  ".\\scene.exe scene_cpu.png",
+                     "verify":  ".\\exp08-aot\\.venv\\Scripts\\python.exe  verify.py --png scene_cpu.png --ir display_list.json --report verify_report_cpu.json"
+                 },
+    "timings_ms":  {
+                       "emit_ms":  148.54,
+                       "compile_ms":  565.79,
+                       "run_ms":  75.69,
+                       "verify_ms":  291.93,
+                       "total_ms":  1191.19
+                   },
+    "hashes":  {
+                   "scene_exe_sha256":  "ac01667a8fc5dda8df1882c7b5744aedd76e9beeb872ccdf4a627f814d1962ae",
+                   "png_sha256":  "9e1bf828e0fe87f9cf63b5c3ee127a30e29042ae1b9d954b9406ddf7a838dbb9"
+               },
+    "verify_exit_code":  0,
+    "pass":  true
+}

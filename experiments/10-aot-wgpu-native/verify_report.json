@@ -1,0 +1,64 @@
+{
+  "png": "scene_gpu.png",
+  "size": [
+    400,
+    300
+  ],
+  "expected_size": [
+    400,
+    300
+  ],
+  "size_ok": true,
+  "tolerance": 8,
+  "checks": [
+    {
+      "name": "box-a",
+      "x": 60,
+      "y": 60,
+      "expected": "#e74c3c",
+      "actual": "#e74c3c",
+      "actual_rgba": [
+        231,
+        76,
+        60,
+        255
+      ],
+      "maxdiff": 0,
+      "alpha_255": true,
+      "ok": true
+    },
+    {
+      "name": "box-b",
+      "x": 60,
+      "y": 156,
+      "expected": "#3498db",
+      "actual": "#3498db",
+      "actual_rgba": [
+        52,
+        152,
+        219,
+        255
+      ],
+      "maxdiff": 0,
+      "alpha_255": true,
+      "ok": true
+    },
+    {
+      "name": "root",
+      "x": 200,
+      "y": 250,
+      "expected": "#101014",
+      "actual": "#101014",
+      "actual_rgba": [
+        16,
+        16,
+        20,
+        255
+      ],
+      "maxdiff": 0,
+      "alpha_255": true,
+      "ok": true
+    }
+  ],
+  "passed": true
+}

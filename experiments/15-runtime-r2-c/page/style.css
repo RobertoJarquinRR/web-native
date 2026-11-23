@@ -1,0 +1,122 @@
+/* R2 core fixture. Border-box model, px + % sizes, flex row/column with gap,
+   wrap and data-* interaction colors. No rounded corners, no fonts. */
+
+html {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+.root {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: row;
+  background: #0b0e14;
+}
+
+.sidebar {
+  width: 30%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: #121824;
+}
+
+.brand {
+  font-size: 16px;
+  color: #ffffff;
+}
+
+.nav {
+  width: 120px;
+  height: 32px;
+  color: #ffffff;
+}
+
+.content {
+  width: 70%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  background: #0b0e14;
+}
+
+.header {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  height: 40px;
+}
+
+.title {
+  font-size: 24px;
+  color: #ffffff;
+}
+
+.pill {
+  width: 80px;
+  height: 12px;
+  background: #2a3140;
+}
+
+.cards {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 16px;
+  height: auto;
+}
+
+.card {
+  width: 180px;
+  height: 120px;
+  padding: 12px;
+  background: #1a1f2a;
+}
+
+.accent {
+  width: 96px;
+  height: 6px;
+}
+
+.accent-red {
+  background: #e74c3c;
+}
+
+.accent-green {
+  background: #2ecc71;
+}
+
+.accent-blue {
+  background: #3498db;
+}
+
+.panel {
+  display: block;
+  height: 100px;
+  padding: 16px;
+  background: #10141b;
+}
+
+.line {
+  height: 6px;
+  background: #2a3140;
+}
+
+.line-1 {
+  width: 140px;
+}
+
+.line-2 {
+  width: 100px;
+}
+
+.line-3 {
+  width: 60px;
+}
