@@ -22,10 +22,15 @@ El IR de `text-card` coincide **byte a byte** con
 CRLF). Los 4 glyphs son `[43, 82, 79, 68]` con avances
 `[19.875, 16.40625, 6.78125, 14.25]` px, exactamente los de exp16.
 
+Además del IR de R1, el binario tiene un modo `--emit-ui` que emite el árbol
+de estilos **pre-layout** (`ui.json` + atlas) que consume R2. Ver
+[Modo R2](#modo-r2-árbol-de-estilos-pre-layout---emit-ui): 28/28 nodos y
+estilos idénticos al oráculo Python, 35/35 avances y `x` exactos.
+
 Pipeline interno (mediana de 10 ejecuciones directas, sin PowerShell):
 **1,38 ms** (`contract`), **1,85 ms** (`flex-page`) y **6,72 ms** (`text-card`,
 incluye shaping + raster + atlas + escritura de 256 KB). Binario release:
-**1.625.088 bytes** (~1,55 MiB). RSS pico: **~4,1 / 4,2 / 5,7 MB**.
+**1.683.968 bytes** (~1,61 MiB). RSS pico: **~4,1 / 4,2 / 5,7 MB**.
 
 ## Estructura
 
@@ -47,6 +52,7 @@ src/frontend/rust/
     layout.rs           layout de bloque/flex + line boxes + pintado pre-orden
     text.rs             shaping (rustybuzz), métricas/raster (ab_glyph), atlas R8
     emit.rs             JSON del IR, del atlas y de timings
+    ui_tree.rs          --emit-ui: árbol de estilos pre-layout + texto para R2
     sha256.rs           SHA-256 del atlas (sin dependencias)
     rss.rs              peak working set del proceso (Win32, sin dependencias)
 ```
@@ -63,6 +69,128 @@ Artefactos de la última ejecución en `benchmarks/frontend-parity/results/rust/
 `text-card.timings.json`, `text-card.verify.json`,
 `text-card.python-reference.json`, `direct-benchmark.json` y `benchmark.json`
 (3 fixtures).
+
+## Modo R2: árbol de estilos pre-layout (`--emit-ui`)
+
+El IR normal es un display list **post-layout**: no permite recalcular a otro
+viewport. `--emit-ui` emite, con el mismo parseo HTML/CSS y la misma cascada,
+un árbol **pre-layout** para el runtime R2: sin geometría de cajas, con los
+valores computados y el texto ya shapeado. El pase de layout no se ejecuta.
+
+```powershell
+frontend-rust.exe --html src\runtime\c-r2\page\index.html `
+                  --css  src\runtime\c-r2\page\style.css `
+                  --width 960 --height 640 `
+                  --emit-ui build\ui.json
+# -> build\ui.json + build\atlas.bin + build\atlas.json (si hay texto)
+```
+
+La ruta es opcional (`--emit-ui` sin valor usa `--out` o `ui.json`). Sin
+`--emit-ui` el CLI se comporta exactamente como antes y no escribe `ui.json`.
+
+### Esquema `webnative.ui-tree/1`
+
+JSON plano, pre-orden, sin dependencias de lenguaje. Índices estables dentro
+del documento (el nodo 0 es `body`).
+
+| Campo | Tipo | Semántica |
+|---|---|---|
+| `schema` | string | `"webnative.ui-tree/1"` |
+| `generator` | string | `"frontend-rust"` |
+| `source` | `{html, css}` | Rutas tal como se pasaron al CLI |
+| `viewport` | `{width, height}` | Viewport de compilación (960×640 en R2) |
+| `rule_count` | int | Reglas CSS que casaron (incluye reglas sin nodos) |
+| `node_count` | int | Longitud de `nodes` |
+| `text` | `{glyph_count, text_run_count}` | Conteos globales de texto |
+| `atlas` | objeto o `null` | `file`, `json`, `width`, `height`, `format`, `size_bytes`, `sha256`, `glyph_count`, `pixels_nonzero` |
+| `nodes[]` | array | Nodos en pre-orden |
+
+Cada nodo:
+
+| Campo | Tipo | Semántica |
+|---|---|---|
+| `id` | int | Índice en `nodes` |
+| `parent` | int | Índice del padre (`-1` en la raíz) |
+| `children` | int[] | Hijos en orden de emisión (texto propio primero) |
+| `kind` | `block` \| `flex` \| `text` | Tipo de nodo |
+| `name` | string | `tag#id.clase` con sufijo `[n]` para duplicados |
+| `tag` | string | Tag HTML (`#text` en nodos de texto) |
+| `classes` | string[] | `class` separado por whitespace |
+| `element_id` | string o null | Atributo `id` |
+| `style.display` | string o null | `block`/`flex`; `null` en texto |
+| `style.direction` | 0/1 | 0 row, 1 column (enum de R2) |
+| `style.justify` | 0..3 | start, center, end, space-between |
+| `style.align` | 0..3 | start, center, end, stretch |
+| `style.wrap` | 0/1 | `flex-wrap: wrap`/`wrap-reverse` |
+| `style.flex_direction`, `justify_content`, `align_items`, `flex_wrap` | string | Valores computados originales (además del enum numérico) |
+| `style.gap` | float | px |
+| `style.width_px`, `width_pct` | float | `-1` = auto; `%` conservado (30.0 = 30 %) |
+| `style.height_px`, `height_pct` | float | Igual |
+| `style.margin`, `padding` | float[4] | top, right, bottom, left |
+| `style.background` | string o null | `#rrggbb` normalizado |
+| `style.color` | string | Color de texto heredado (`#rrggbb`) |
+| `style.font_size`, `font_family`, `font_weight` | float/string | Computados y heredados |
+| `data.hover/press/selected/action` | string o null | Atributos `data-*` crudos |
+| `argb.background/text/hover/press/selected` | uint32 | `0xAARRGGBB` precalculado (0 = ninguno) |
+| `text` | objeto o null | Solo nodos `kind=text` |
+
+En nodos de texto el objeto `style` es uniforme pero solo son significativos
+`width_px`/`height_px` (caja medida), `font_size`, `font_family`, `font_weight`
+y `color`; los campos flex quedan en valores neutros y `display` es `null`.
+
+Nodo de texto (`text`):
+
+| Campo | Tipo | Semántica |
+|---|---|---|
+| `content` | string | Texto colapsado (`white-space: normal`) |
+| `baseline` | float | Ascender dentro del line box |
+| `glyphs[].gid` | int | Glyph id del TTF |
+| `glyphs[].advance` | float | Avance HarfBuzz (px; no lo consume R2) |
+| `glyphs[].x`, `y` | float | Esquina superior izquierda relativa al nodo |
+| `glyphs[].w`, `h` | int | Tamaño del bitmap |
+| `glyphs[].u0/v0/u1/v1` | float | UVs del atlas R8 256×256 |
+
+`atlas.bin` es R8 puro (`width*height` bytes, 256×256 para este contrato) y
+`atlas.json` documenta tamaño, sha256, glyphs únicos y píxeles no cero. El
+empaquetado es el shelf packer del oráculo (guarda de 1 px, orden de primera
+aparición).
+
+### Paridad con el oráculo Python
+
+`emit_ui.py --compare` compara dos `ui_data.h`: nodos, estilos, `data-*`,
+glyphs, runs y atlas. Resultado con este fixture (960×640):
+
+| Dimensión | Resultado |
+|---|---|
+| Nodos / padres / hijos / kind | 28 = 28, 0 diferencias |
+| Campos de estilo (incl. `%`, wrap, márgenes, padding, colores) | 0 diferencias |
+| Nombres y `data-*` (`ui_meta.json`) | Idéntico |
+| Glyphs / runs | 35 / 6 = 35 / 6 |
+| Avances y `x` de glyph | 35/35 exactos |
+| UVs | 33/35 exactas; 2 siguen a una caja 1 px distinta |
+| Atlas | 256×256 = 256×256; 1 242/65 536 bytes distintos (AA) |
+
+Única diferencia: el glyph `i` (gid 76) a 24 px. FreeType aplica TrueType
+hinting y deja `bitmap_top=17`, `rows=17`; `ab_glyph` (sin hinting) da
+`top=18`, `rows=18`. Eso desplaza 1 px ese bitmap y, como consecuencia, la
+UV del último glyph de la misma shelf. No afecta a ningún `x`, avance, nodo,
+estilo ni al tamaño del atlas. Es la diferencia esperada entre rasterizadores
+y está reportada por `--compare` como `known`, no como fallo semántico.
+
+```powershell
+# oráculo Python para la misma página
+python src\emitter\python\emit_ui.py --html src\runtime\c-r2\page\index.html `
+  --css src\runtime\c-r2\page\style.css `
+  --out build\oracle\ui_data.h --meta build\oracle\ui_meta.json
+
+# comparación semántica (sale 1 solo con diferencias reales)
+python src\emitter\python\emit_ui.py --compare `
+  build\oracle\ui_data.h build\ui_data.h
+# --strict: también falla por AA/bitmap-box/hinting
+```
+
+El `build.ps1` de R2 ejecuta estos pasos automáticamente (salvo
+`-SkipParityCheck`).
 
 ## Arquitectura
 
@@ -232,6 +360,8 @@ CLI del binario:
 ```
 frontend-rust.exe --html <path> --width <W> --height <H> --out <ir.json>
                   [--timings <timings.json>] [--atlas <atlas.bin>]
+frontend-rust.exe --html <path> --width <W> --height <H> --emit-ui [ui.json]
+                  [--css <path>] [--timings <timings.json>]
 ```
 
 `--atlas` es opcional; por defecto se escribe `atlas.bin` en el directorio del
@@ -406,10 +536,11 @@ el arranque de PowerShell, no el frontend (el harness lanza un proceso nuevo).
 
 ## Tamaño y RSS
 
-- Binario: `target/release/frontend-rust.exe` = **1.625.088 bytes** (~1,55 MiB),
+- Binario: `target/release/frontend-rust.exe` = **1.683.968 bytes** (~1,61 MiB),
   release con LTO, `codegen-units=1`, `panic=abort` y `strip` (ver
   `BUILD_INFO.json`). Antes del texto eran 887.296 bytes; el incremento
-  (~738 KB) es `rustybuzz` + `ttf-parser` + `ab_glyph` + `ab_glyph_rasterizer`.
+  (~796 KB) es `rustybuzz` + `ttf-parser` + `ab_glyph` + `ab_glyph_rasterizer`
+  y el emisor `--emit-ui`.
 - Peak working set: **~4,1 MB** (`contract`), **~4,2 MB** (`flex-page`) y
   **~5,7 MB** (`text-card`, incluye el TTF de 955 KB y el atlas de 256 KB).
 - El RSS lo mide el propio binario con `K32GetProcessMemoryInfo` y se escribe en
@@ -489,6 +620,13 @@ el arranque de PowerShell, no el frontend (el harness lanza un proceso nuevo).
 - **Windows**: CRLF, RSS, rutas de fuentes y `%WINDIR%` son específicos de
   Windows (el resto es portable; en otras plataformas se emite `\n` y
   `peak_rss_kb = 0`).
+- **`--emit-ui` y hinting**: `ab_glyph` no aplica el intérprete TrueType de
+  FreeType. En este fixture discrepa 1 px la caja del glyph `i` a 24 px
+  (17→18 px de alto); el resto de glyphs, avances, posiciones y UVs coinciden.
+  El atlas difiere en antialiasing.
+- **`--emit-ui` no implementa layout**: emite estilos y texto pre-shapeado.
+  `%`, `flex-wrap`, `data-*` y tipos de nodo se conservan, pero la geometría es
+  responsabilidad del runtime R2.
 
 ## Reproducir el benchmark
 
@@ -531,8 +669,12 @@ El contrato ya está separado en dos mitades limpias:
    - si R2 usa un target sRGB, decidir gamma explícita y volver a medir; exp16
      usa `RGBA8Unorm` a propósito.
 3. **Presupuesto**: atlas 512² R8 = 256 KB por documento; el binario Rust de
-   build-time pesa 1,55 MiB (frente a 887 KB sin texto). No se distribuye al
+   build-time pesa 1,61 MiB (frente a 887 KB sin texto). No se distribuye al
    runtime: solo el IR y el atlas.
+4. **R2 (layout dinámico)**: no usa `display_list.json`, porque recalcula
+   layout en runtime. Usa `--emit-ui` (árbol pre-layout + atlas 256²) →
+   `emit_ui.py --ui-json` → `ui_data.h`. Es el camino por defecto de
+   `src/runtime/c-r2/build.ps1`; `-UsePythonTree` queda como oráculo/fallback.
 
 Con esto el pipeline AOT puede generar texto sin Python, sin FreeType/HarfBuzz
 y sin ficheros de fuente, con paridad de IR medida contra exp16 y contra el

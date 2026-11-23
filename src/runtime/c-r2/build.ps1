@@ -2,15 +2,20 @@
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build.ps1
 #
-# Build-time Python (src\emitter\python\emit_ui.py, using the canonical
-# src\frontend\python venv) produces build\ui_data.h; runtime_r2.exe contains
-# the layout engine, Win32 loop, hit testing and wgpu-native renderer.
+# Default: the canonical Rust frontend emits the pre-layout style tree
+# (build\ui.json + build\atlas.bin) and emit_ui.py --ui-json turns it into
+# build\ui_data.h. -UsePythonTree keeps the Python frontend as the oracle
+# fallback (emit_ui.py --html/--css, HarfBuzz/FreeType text).
 #
-# Everything generated stays under src\runtime\c-r2\build\.
+# runtime_r2.exe contains the layout engine, Win32 loop, hit testing and
+# wgpu-native renderer. Everything generated stays under src\runtime\c-r2\build\.
 [CmdletBinding()]
 param(
     [switch]$SkipEmit,
-    [switch]$SkipRun
+    [switch]$SkipRun,
+    [switch]$UsePythonTree,
+    [switch]$SkipRustBuild,
+    [switch]$SkipParityCheck
 )
 
 $ErrorActionPreference = 'Stop'
@@ -27,9 +32,12 @@ $runtimeC = Join-Path $root 'runtime_r2.c'
 $verifyPy = Join-Path $root 'verify.py'
 $emitter = Join-Path $repo 'src\emitter\python\emit_ui.py'
 $py = Join-Path $repo 'src\frontend\python\.venv\Scripts\python.exe'
+$rustDir = Join-Path $repo 'src\frontend\rust'
+$rustExe = Join-Path $rustDir 'target\release\frontend-rust.exe'
 $wgpu = Join-Path $repo 'third_party\wgpu-native'
 $report = [ordered]@{
     runtime    = 'c-r2'
+    tree       = if ($UsePythonTree) { 'python' } else { 'rust' }
     started    = (Get-Date).ToString('o')
     timings_ms = [ordered]@{}
     steps      = [ordered]@{}
@@ -121,13 +129,70 @@ try {
     }
 
     if (-not $SkipEmit) {
-        Write-Host 'emit: page/index.html + page/style.css -> build\ui_data.h + build\ui_meta.json' -ForegroundColor Cyan
-        $sw = [System.Diagnostics.Stopwatch]::StartNew()
-        & $py $emitter --html $fixtureHtml --css $fixtureCss `
-            --out (Join-Path $out 'ui_data.h') --meta (Join-Path $out 'ui_meta.json')
-        $sw.Stop()
-        if ($LASTEXITCODE -ne 0) { Stop-Fail 'emit_ui.py failed' }
-        $report.timings_ms['emit'] = [math]::Round($sw.Elapsed.TotalMilliseconds, 2)
+        $uiJson = Join-Path $out 'ui.json'
+        if ($UsePythonTree) {
+            Write-Host 'emit (python oracle): page/index.html + page/style.css -> build\ui_data.h' -ForegroundColor Cyan
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            & $py $emitter --html $fixtureHtml --css $fixtureCss `
+                --out (Join-Path $out 'ui_data.h') --meta (Join-Path $out 'ui_meta.json')
+            $sw.Stop()
+            if ($LASTEXITCODE -ne 0) { Stop-Fail 'emit_ui.py (python tree) failed' }
+            $report.timings_ms['emit'] = [math]::Round($sw.Elapsed.TotalMilliseconds, 2)
+        }
+        else {
+            if (-not $SkipRustBuild) {
+                Write-Host 'rust: cargo build --release (src\frontend\rust)' -ForegroundColor Cyan
+                $cargo = Get-Command cargo -ErrorAction SilentlyContinue
+                if (-not $cargo) {
+                    Stop-Fail 'cargo not found; install Rust or pass -UsePythonTree'
+                }
+                $sw = [System.Diagnostics.Stopwatch]::StartNew()
+                & cargo build --release --manifest-path (Join-Path $rustDir 'Cargo.toml')
+                $sw.Stop()
+                if ($LASTEXITCODE -ne 0) { Stop-Fail 'cargo build failed' }
+                $report.timings_ms['rust_build'] = [math]::Round($sw.Elapsed.TotalMilliseconds, 2)
+            }
+            if (-not (Test-Path -LiteralPath $rustExe)) {
+                Stop-Fail "missing $rustExe (run cargo build --release or -UsePythonTree)"
+            }
+
+            Write-Host 'emit (rust tree): page/index.html -> build\ui.json + atlas' -ForegroundColor Cyan
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            & $rustExe --html $fixtureHtml --css $fixtureCss --width 960 --height 640 --emit-ui $uiJson
+            $sw.Stop()
+            if ($LASTEXITCODE -ne 0) { Stop-Fail 'frontend-rust --emit-ui failed' }
+            $report.timings_ms['rust_emit'] = [math]::Round($sw.Elapsed.TotalMilliseconds, 2)
+
+            Write-Host 'emit_ui.py --ui-json: build\ui.json -> build\ui_data.h' -ForegroundColor Cyan
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            & $py $emitter --ui-json $uiJson `
+                --out (Join-Path $out 'ui_data.h') --meta (Join-Path $out 'ui_meta.json')
+            $sw.Stop()
+            if ($LASTEXITCODE -ne 0) { Stop-Fail 'emit_ui.py --ui-json failed' }
+            $report.timings_ms['emit'] = [math]::Round($sw.Elapsed.TotalMilliseconds, 2)
+
+            if (-not $SkipParityCheck) {
+                $oracleDir = Join-Path $out 'oracle'
+                New-Item -ItemType Directory -Force -Path $oracleDir | Out-Null
+                Write-Host 'parity: python oracle tree vs rust tree -> build\oracle\ui_data.h' -ForegroundColor Cyan
+                $sw = [System.Diagnostics.Stopwatch]::StartNew()
+                & $py $emitter --html $fixtureHtml --css $fixtureCss `
+                    --out (Join-Path $oracleDir 'ui_data.h') --meta (Join-Path $oracleDir 'ui_meta.json')
+                if ($LASTEXITCODE -ne 0) { Stop-Fail 'emit_ui.py (oracle) failed' }
+                & $py $emitter --compare (Join-Path $oracleDir 'ui_data.h') (Join-Path $out 'ui_data.h') `
+                    | Tee-Object -FilePath (Join-Path $out 'parity_report.txt') | Write-Host
+                $sw.Stop()
+                if ($LASTEXITCODE -ne 0) { Stop-Fail 'Rust/Python ui_data.h semantic parity failed' }
+                $report.timings_ms['parity'] = [math]::Round($sw.Elapsed.TotalMilliseconds, 2)
+                $report['parity'] = [ordered]@{
+                    oracle  = 'build/oracle/ui_data.h'
+                    rust    = 'build/ui_data.h'
+                    ui_json = 'build/ui.json'
+                    report  = 'build/parity_report.txt'
+                    mode    = 'semantic (bitmap-box/AA differences reported)'
+                }
+            }
+        }
     }
 
     if (-not (Test-Path -LiteralPath (Join-Path $out 'ui_data.h'))) {

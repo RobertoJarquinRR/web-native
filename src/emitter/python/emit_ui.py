@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """Build-time emitter for the R2 style-tree runtime (`src/runtime/c-r2`).
 
-Parses an HTML + CSS fixture with the canonical Python frontend
-(`src/frontend/python/webnative`, the oracle), computes styles with
-cssselect2, then flattens the styled tree to a pre-order UiNode array in
-ui_data.h plus a debug ui_meta.json. The generated header is consumed by
-runtime_r2.c, which computes layout, handles input and renders with
-wgpu-native.
+Two input modes, one output contract:
 
-The Python package is imported from `src/frontend/python` by adding that
-directory to sys.path; it is never copied into the runtime.
+1. **Python tree (oracle)** — `--html/--css`: parses HTML+CSS with the
+   canonical Python frontend (`src/frontend/python/webnative`), computes
+   styles with cssselect2 and flattens the styled tree to a pre-order UiNode
+   array. HarfBuzz/FreeType shape and raster the text and pack the atlas.
+2. **Rust tree** — `--ui-json <ui.json>`: consumes the pre-layout style tree
+   emitted by `src/frontend/rust --emit-ui` (plus its `atlas.bin`) and emits
+   the same `ui_data.h` / `ui_meta.json`. This mode does not import
+   `webnative`; only the color parser (tinycss2) is shared.
+
+`--compare A.h B.h` parses two generated headers and reports semantic
+differences (nodes, styles, glyphs, runs, atlas dimensions/bytes).
 
 R2-specific data merged here (the oracle's ComputedStyle deliberately drops
 it from its display-list IR):
@@ -19,14 +23,13 @@ it from its display-list IR):
   - text line boxes measured with HarfBuzz (build-time only; the runtime never
     links a font engine)
 
-NOTE: R2 uses the Python frontend because the canonical Rust frontend emits a
-post-layout display list, not a pre-layout style tree. Extending Rust to emit
-the style tree is the pending step (see docs/architecture.md).
-
 Usage:
   .venv\\Scripts\\python.exe emit_ui.py
   .venv\\Scripts\\python.exe emit_ui.py --html page/index.html --css page/style.css \
       --out ui_data.h --meta ui_meta.json
+  .venv\\Scripts\\python.exe emit_ui.py --ui-json build/ui.json \
+      --out build/ui_data.h --meta build/ui_meta.json
+  .venv\\Scripts\\python.exe emit_ui.py --compare oracle/ui_data.h build/ui_data.h
 """
 from __future__ import annotations
 
@@ -44,11 +47,6 @@ if str(FRONTEND_PYTHON) not in sys.path:
     sys.path.insert(0, str(FRONTEND_PYTHON))
 
 from tinycss2.color3 import parse_color as css_color
-
-from webnative.cascade import compute_styles
-from webnative.css_parse import parse_stylesheets
-from webnative.html_parse import parse_html_file, stylesheet_texts
-from webnative.tree import Node
 
 DEFAULT_HTML = SRC_ROOT / "runtime" / "c-r2" / "page" / "index.html"
 DEFAULT_CSS = SRC_ROOT / "runtime" / "c-r2" / "page" / "style.css"
@@ -488,6 +486,459 @@ def write_header(nodes: list[dict], meta: list[dict], out: Path,
     out.write_text("\n".join(lines), encoding="utf-8", newline="\n")
 
 
+# ----------------------------------------------------------- Rust ui.json
+
+class AtlasShim:
+    """`GlyphPacker`-compatible view over the Rust `atlas.bin` bytes."""
+
+    def __init__(self, size: int, data: bytes) -> None:
+        self.size = int(size)
+        self.data = bytearray(data)
+
+
+class UiJsonMetrics:
+    def __init__(self, size: int, data: bytes, glyphs: list[dict], runs: list[dict]) -> None:
+        self.packer = AtlasShim(size, data)
+        self.glyphs = glyphs
+        self.runs = runs
+
+
+def load_ui_json(path: Path) -> tuple[dict, bytes | None, int]:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    atlas = data.get("atlas")
+    if not atlas:
+        return data, None, 0
+    wide = int(atlas.get("width", 256))
+    high = int(atlas.get("height", wide))
+    name = atlas.get("file") or "atlas.bin"
+    atlas_path = Path(name)
+    if not atlas_path.is_absolute():
+        atlas_path = path.parent / atlas_path
+    payload = atlas_path.read_bytes()
+    if wide != high:
+        raise SystemExit(
+            f"atlas {atlas_path}: {wide}x{high} is not square (R2 contract)")
+    if len(payload) != wide * high:
+        raise SystemExit(
+            f"atlas {atlas_path}: {len(payload)} bytes, expected {wide * high}")
+    return data, payload, wide
+
+
+def validate_ui_tree(data: dict) -> list[str]:
+    """Estructura pre-orden: ids secuenciales y parent/children consistentes."""
+    nodes = data.get("nodes") or []
+    errors: list[str] = []
+    declared = int(data.get("node_count", len(nodes)))
+    if declared != len(nodes):
+        errors.append(f"node_count={declared} but nodes has {len(nodes)} entries")
+    for index, node in enumerate(nodes):
+        if int(node.get("id", index)) != index:
+            errors.append(f"nodes[{index}].id is {node.get('id')!r}")
+        parent = int(node.get("parent", -1))
+        children = [int(child) for child in (node.get("children") or [])]
+        if index == 0:
+            if parent != -1:
+                errors.append("root parent must be -1")
+        else:
+            if not 0 <= parent < index:
+                errors.append(f"nodes[{index}].parent={parent} is not a previous node")
+            elif index not in [int(child) for child in (nodes[parent].get("children") or [])]:
+                errors.append(f"nodes[{index}] is missing from nodes[{parent}].children")
+        for child in children:
+            if not 0 <= child < len(nodes):
+                errors.append(f"nodes[{index}].children has out-of-range {child}")
+            elif child <= index:
+                errors.append(f"nodes[{index}].children has non-forward {child}")
+            elif int(nodes[child].get("parent", -1)) != index:
+                errors.append(f"nodes[{child}].parent does not point back at {index}")
+    return errors
+
+
+def emit_from_ui_json(ui_path: Path, out_path: Path, meta_path: Path) -> int:
+    data, payload, atlas_size = load_ui_json(ui_path)
+    errors = validate_ui_tree(data)
+    if errors:
+        for item in errors[:20]:
+            print(f"error: {item}")
+        raise SystemExit(f"{ui_path}: invalid ui.json ({len(errors)} errors)")
+    print(f"ui.json: structure ok ({len(data['nodes'])} pre-order nodes, "
+          f"parents/children consistent)")
+    nodes: list[dict] = []
+    meta: list[dict] = []
+    glyphs: list[dict] = []
+    runs: list[dict] = []
+    for item in data.get("nodes", []):
+        style = item.get("style") or {}
+        kind_name = item.get("kind", "block")
+        if kind_name == "text":
+            kind = KIND_TEXT
+        elif kind_name == "flex":
+            kind = KIND_FLEX
+        else:
+            kind = KIND_BLOCK
+        attributes = item.get("data") or {}
+        action_raw = (attributes.get("action") or "").strip().lower()
+        text = item.get("text")
+        content = text["content"] if text else None
+        nodes.append({
+            "parent": int(item.get("parent", -1)),
+            "kind": kind,
+            "direction": int(style.get("direction", 0)),
+            "justify": int(style.get("justify", 0)),
+            "align": int(style.get("align", 3)),
+            "wrap": int(style.get("wrap", 0)),
+            "width": float(style.get("width_px", -1.0)),
+            "height": float(style.get("height_px", -1.0)),
+            "width_pct": float(style.get("width_pct", 0.0)),
+            "height_pct": float(style.get("height_pct", 0.0)),
+            "margin": [float(v) for v in style.get("margin", [0, 0, 0, 0])],
+            "padding": [float(v) for v in style.get("padding", [0, 0, 0, 0])],
+            "background": argb(style.get("background")),
+            "text": content,
+            "hover_bg": argb(attributes.get("hover")),
+            "press_bg": argb(attributes.get("press")),
+            "selected_bg": argb(attributes.get("selected")),
+            "action": ACTION.get(action_raw, 0),
+            "gap": float(style.get("gap", 0.0)),
+            "font_size": float(style.get("font_size", DEFAULT_SIZE)),
+            "text_color": argb(style.get("color")) or 0xFF000000,
+        })
+        meta.append({
+            "id": item.get("id", len(meta)),
+            "name": item.get("name", ""),
+            "tag": item.get("tag", ""),
+            "classes": list(item.get("classes") or []),
+            "element_id": item.get("element_id"),
+            "kind": kind_name,
+            "direction": None if kind == KIND_TEXT else ("column" if int(style.get("direction", 0)) else "row"),
+            "wrap": False if kind == KIND_TEXT else bool(int(style.get("wrap", 0))),
+            "background": None if kind == KIND_TEXT else style.get("background"),
+            "interactive": False if kind == KIND_TEXT else bool(action_raw),
+            "text": content,
+        })
+        if text:
+            first = len(glyphs)
+            for glyph in text.get("glyphs", []):
+                glyphs.append({
+                    "x": float(glyph["x"]),
+                    "y": float(glyph["y"]),
+                    "w": float(glyph["w"]),
+                    "h": float(glyph["h"]),
+                    "u0": float(glyph["u0"]),
+                    "v0": float(glyph["v0"]),
+                    "u1": float(glyph["u1"]),
+                    "v1": float(glyph["v1"]),
+                })
+            runs.append({
+                "node": int(item.get("id", len(nodes) - 1)),
+                "first": first,
+                "count": len(text.get("glyphs", [])),
+                "baseline": float(text.get("baseline", 0.0)),
+            })
+
+    metrics = None
+    if payload is not None:
+        metrics = UiJsonMetrics(atlas_size, payload, glyphs, runs)
+    elif glyphs:
+        raise SystemExit("ui.json has glyphs but no atlas")
+    if glyphs and len(glyphs) != int((data.get("text") or {}).get("glyph_count", len(glyphs))):
+        print("warning: ui.json glyph_count does not match the node glyphs")
+
+    viewport = data.get("viewport") or {}
+    width = int(viewport.get("width", 960))
+    height = int(viewport.get("height", 640))
+    write_header(nodes, meta, out_path, width, height, metrics)
+
+    source = data.get("source") or {}
+    html_path = Path(source.get("html") or "")
+    css_path = Path(source.get("css") or "")
+    meta_out = {
+        "source": {
+            "html": display_path(html_path) if str(html_path) else "",
+            "css": display_path(css_path) if str(css_path) else "",
+        },
+        "default_viewport": [width, height],
+        "node_count": len(nodes),
+        "rule_count": int(data.get("rule_count", 0)),
+        "text": {
+            "atlas_size": metrics.packer.size if metrics is not None else 0,
+            "glyph_count": len(glyphs),
+            "text_run_count": len(runs),
+        },
+        "nodes": meta,
+    }
+    meta_path.write_text(json.dumps(meta_out, indent=2, ensure_ascii=False) + "\n",
+                         encoding="utf-8")
+    print(f"emit_ui(ui-json): {len(nodes)} nodes, {len(glyphs)} glyphs, "
+          f"{len(runs)} runs -> {out_path}, {meta_path}")
+    for item, node in zip(meta, nodes):
+        print("  [%2d] %-42s kind=%-5s size=%sx%s%s"
+              % (item["id"], item["name"], item["kind"], node["width"], node["height"],
+                 (" text=" + repr(node["text"])) if node["text"] else ""))
+    return 0
+
+
+# --------------------------------------------------------------- comparison
+
+NODE_FIELDS = ("parent", "kind", "direction", "justify", "align", "wrap",
+               "width", "height", "width_pct", "height_pct",
+               "margin", "padding", "background", "text",
+               "hover_bg", "press_bg", "selected_bg", "action",
+               "gap", "font_size", "text_color")
+
+GLYPH_FIELDS = ("x", "y", "w", "h", "u0", "v0", "u1", "v1")
+RUN_FIELDS = ("node", "first", "count", "baseline")
+
+_NODE_RE = re.compile(
+    r"^\s*\{\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*"
+    r"(-?[\d.]+)f,\s*(-?[\d.]+)f,\s*(-?[\d.]+)f,\s*(-?[\d.]+)f,\s*"
+    r"\{\s*([^}]*)\}\s*,\s*\{\s*([^}]*)\}\s*,\s*(0x[0-9A-Fa-f]+)u,\s*"
+    r'(NULL|"(?:[^"\\]|\\.)*"),\s*'
+    r"(0x[0-9A-Fa-f]+)u,\s*(0x[0-9A-Fa-f]+)u,\s*(0x[0-9A-Fa-f]+)u,\s*"
+    r"(-?\d+),\s*(-?[\d.]+)f,\s*(-?[\d.]+)f,\s*(0x[0-9A-Fa-f]+)u\s*\}"
+)
+
+_NUM_RE = re.compile(r"-?\d+\.?\d*(?:[eE][-+]?\d+)?")
+
+
+def _block(text: str, marker: str) -> str:
+    if marker not in text:
+        raise SystemExit(f"missing {marker!r} in header")
+    return text.split(marker, 1)[1].split("};", 1)[0]
+
+
+def _c_string(token: str) -> str | None:
+    if token == "NULL":
+        return None
+    body = token[1:-1]
+    out = []
+    index = 0
+    while index < len(body):
+        char = body[index]
+        if char != "\\":
+            out.append(char)
+            index += 1
+            continue
+        index += 1
+        if index >= len(body):
+            break
+        escape = body[index]
+        if escape == "n":
+            out.append("\n")
+            index += 1
+        elif escape == "x":
+            out.append(chr(int(body[index + 1:index + 3], 16)))
+            index += 3
+        else:
+            out.append(escape)
+            index += 1
+    return "".join(out)
+
+
+def parse_header(path: Path) -> dict:
+    text = path.read_text(encoding="utf-8")
+
+    def define(name: str) -> int:
+        match = re.search(rf"#define {name} (\d+)", text)
+        return int(match.group(1)) if match else 0
+
+    nodes = []
+    for line in _block(text, "static const UiNode kUiNodes").splitlines():
+        match = _NODE_RE.match(line)
+        if not match:
+            continue
+        values = match.groups()
+        nodes.append({
+            "parent": int(values[0]), "kind": int(values[1]),
+            "direction": int(values[2]), "justify": int(values[3]),
+            "align": int(values[4]), "wrap": int(values[5]),
+            "width": float(values[6]), "height": float(values[7]),
+            "width_pct": float(values[8]), "height_pct": float(values[9]),
+            "margin": [float(v) for v in _NUM_RE.findall(values[10])],
+            "padding": [float(v) for v in _NUM_RE.findall(values[11])],
+            "background": int(values[12], 16),
+            "text": _c_string(values[13]),
+            "hover_bg": int(values[14], 16), "press_bg": int(values[15], 16),
+            "selected_bg": int(values[16], 16), "action": int(values[17]),
+            "gap": float(values[18]), "font_size": float(values[19]),
+            "text_color": int(values[20], 16),
+        })
+
+    glyphs = []
+    for line in _block(text, "static const UiGlyph kUiGlyphs").splitlines():
+        numbers = [float(v) for v in _NUM_RE.findall(line)]
+        if len(numbers) == len(GLYPH_FIELDS):
+            glyphs.append(dict(zip(GLYPH_FIELDS, numbers)))
+
+    runs = []
+    for line in _block(text, "static const UiTextRun kUiTextRuns").splitlines():
+        numbers = [float(v) for v in _NUM_RE.findall(line)]
+        if len(numbers) == len(RUN_FIELDS):
+            run = dict(zip(RUN_FIELDS, numbers))
+            run["node"] = int(run["node"])
+            run["first"] = int(run["first"])
+            run["count"] = int(run["count"])
+            runs.append(run)
+
+    names = []
+    name_re = re.compile(r'^\s*("(?:[^"\\]|\\.)*")\s*,\s*$')
+    for line in _block(text, "static const char *const kUiNodeNames").splitlines():
+        match = name_re.match(line)
+        if match:
+            names.append(_c_string(match.group(1)))
+
+    atlas = []
+    atlas_block = _block(text, "static const unsigned char kUiAtlas")
+    initializer = atlas_block.split("=", 1)[1] if "=" in atlas_block else ""
+    atlas = [int(v) for v in re.findall(r"\d+", initializer)]
+    return {
+        "node_count": define("UI_NODE_COUNT"),
+        "glyph_count": define("UI_GLYPH_COUNT"),
+        "run_count": define("UI_TEXT_RUN_COUNT"),
+        "atlas_size": define("UI_ATLAS_SIZE"),
+        "viewport": (define("UI_VIEWPORT_WIDTH"), define("UI_VIEWPORT_HEIGHT")),
+        "nodes": nodes,
+        "glyphs": glyphs,
+        "runs": runs,
+        "names": names,
+        "atlas": atlas,
+    }
+
+
+def _same(a, b, eps: float = 1e-6) -> bool:
+    if isinstance(a, float) or isinstance(b, float):
+        return abs(float(a) - float(b)) <= eps
+    return a == b
+
+
+def _values_differ(name: str, left, right) -> bool:
+    if name in ("margin", "padding"):
+        return len(left) != len(right) or any(not _same(a, b) for a, b in zip(left, right))
+    return not _same(left, right)
+
+
+def compare_headers(left_path: Path, right_path: Path, strict: bool) -> int:
+    left = parse_header(left_path)
+    right = parse_header(right_path)
+    failures: list[str] = []
+    differences: list[str] = []
+    bitmap_differences: list[str] = []
+    uv_shifted: list[str] = []
+
+    def check(label: str, a, b) -> None:
+        if _values_differ(label, a, b):
+            differences.append(f"{label}: {a!r} != {b!r}")
+
+    for key in ("node_count", "glyph_count", "run_count", "atlas_size", "viewport"):
+        if left[key] != right[key]:
+            failures.append(f"{key}: {left[key]!r} != {right[key]!r}")
+
+    if left["node_count"] != len(left["nodes"]) or right["node_count"] != len(right["nodes"]):
+        failures.append("node_count does not match the number of parsed nodes")
+
+    for index in range(min(len(left["nodes"]), len(right["nodes"]))):
+        for field in NODE_FIELDS:
+            check(f"node[{index}].{field}", left["nodes"][index][field],
+                  right["nodes"][index][field])
+
+    for index in range(min(len(left["names"]), len(right["names"]))):
+        if left["names"][index] != right["names"][index]:
+            differences.append(
+                f"name[{index}]: {left['names'][index]!r} != {right['names'][index]!r}")
+    if len(left["names"]) != len(right["names"]):
+        failures.append(f"names: {len(left['names'])} != {len(right['names'])}")
+    node_differences = len(differences)
+
+    # El header no lleva gid: la unica evidencia de un bitmap distinto es que
+    # cambie w/h. Si un glyph tiene la misma caja pero otras UVs, es
+    # consecuencia de que el shelf se desplazo por una caja anterior.
+    box_changed = False
+    x_exact = 0
+    y_exact = 0
+    uv_exact = 0
+    for index in range(min(len(left["glyphs"]), len(right["glyphs"]))):
+        a = left["glyphs"][index]
+        b = right["glyphs"][index]
+        if abs(a["x"] - b["x"]) > 0.51:
+            differences.append(f"glyph[{index}].x: {a['x']} != {b['x']}")
+        else:
+            x_exact += 1
+        width_height_same = (
+            abs(a["w"] - b["w"]) <= 1e-6 and abs(a["h"] - b["h"]) <= 1e-6
+        )
+        if width_height_same and abs(a["y"] - b["y"]) <= 0.51:
+            y_exact += 1
+        if not width_height_same:
+            bitmap_differences.append(
+                f"glyph[{index}] bitmap box: y/h {a['y']}/{a['h']} -> "
+                f"{b['y']}/{b['h']} (rasterizer hinting)")
+            box_changed = True
+        elif abs(a["y"] - b["y"]) > 0.51:
+            differences.append(
+                f"glyph[{index}].y: {a['y']} != {b['y']} (same bitmap box)")
+        uv_same = all(abs(a[field] - b[field]) <= 1e-6
+                      for field in ("u0", "v0", "u1", "v1"))
+        if uv_same:
+            uv_exact += 1
+        elif (not width_height_same) or box_changed:
+            uv_shifted.append(
+                f"glyph[{index}]: UV follows a bitmap-box change "
+                f"({a['u0']},{a['v0']},{a['u1']},{a['v1']} -> "
+                f"{b['u0']},{b['v0']},{b['u1']},{b['v1']})")
+        else:
+            differences.append(
+                f"glyph[{index}].uv: ({a['u0']},{a['v0']},{a['u1']},{a['v1']}) != "
+                f"({b['u0']},{b['v0']},{b['u1']},{b['v1']})")
+
+    for index in range(min(len(left["runs"]), len(right["runs"]))):
+        for field in RUN_FIELDS:
+            check(f"run[{index}].{field}", left["runs"][index][field],
+                  right["runs"][index][field])
+
+    atlas_diffs = 0
+    if len(left["atlas"]) == len(right["atlas"]):
+        atlas_diffs = sum(1 for a, b in zip(left["atlas"], right["atlas"]) if a != b)
+    else:
+        failures.append(f"atlas bytes: {len(left['atlas'])} != {len(right['atlas'])}")
+
+    glyph_count = len(left["glyphs"])
+    print(f"compare: {left_path} vs {right_path}")
+    print(f"  nodes  : {left['node_count']} vs {right['node_count']} "
+          f"({node_differences} node/style/name diffs)")
+    print(f"  glyphs : {left['glyph_count']} vs {right['glyph_count']} "
+          f"(x {x_exact}/{glyph_count} exact, y {y_exact}/{glyph_count} within 0.5 px, "
+          f"UV {uv_exact}/{glyph_count} exact)")
+    print(f"  runs   : {left['run_count']} vs {right['run_count']}")
+    print(f"  atlas  : {left['atlas_size']}x{left['atlas_size']} vs "
+          f"{right['atlas_size']}x{right['atlas_size']}, "
+          f"{atlas_diffs}/{len(left['atlas'])} bytes differ (AA)")
+    for item in bitmap_differences:
+        print(f"  known  : {item}")
+    for item in uv_shifted:
+        print(f"  known  : {item}")
+    for item in failures:
+        print(f"  FAIL {item}")
+    if differences:
+        print(f"  semantic differences: {len(differences)}")
+        for item in differences[:40]:
+            print(f"    {item}")
+        if len(differences) > 40:
+            print(f"    ... {len(differences) - 40} more")
+    else:
+        print("  semantic differences: 0")
+    if strict:
+        if atlas_diffs:
+            failures.append(f"atlas bytes differ ({atlas_diffs})")
+        failures.extend(bitmap_differences)
+        failures.extend(uv_shifted)
+    ok = not failures and not differences
+    print("compare:", "PASS" if ok else "FAIL",
+          "(strict)" if strict else "(semantic; bitmap-box/AA differences allowed)")
+    return 0 if ok else 1
+
+
+# --------------------------------------------------------------------- main
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--html", default=str(DEFAULT_HTML))
@@ -498,7 +949,22 @@ def main() -> int:
     parser.add_argument("--height", type=int, default=640)
     parser.add_argument("--no-text-metrics", action="store_true",
                         help="skip HarfBuzz, use a fixed 0.55em estimate")
+    parser.add_argument("--ui-json", default=None,
+                        help="consume the Rust pre-layout style tree instead of HTML+CSS")
+    parser.add_argument("--compare", nargs=2, metavar=("PYTHON_H", "RUST_H"),
+                        default=None, help="compare two generated ui_data.h files")
+    parser.add_argument("--strict", action="store_true",
+                        help="with --compare, fail on bitmap-box, UV-shift or AA differences")
     args = parser.parse_args()
+
+    if args.compare:
+        return compare_headers(Path(args.compare[0]), Path(args.compare[1]), args.strict)
+    if args.ui_json:
+        return emit_from_ui_json(Path(args.ui_json), Path(args.out), Path(args.meta))
+
+    from webnative.cascade import compute_styles
+    from webnative.css_parse import parse_stylesheets
+    from webnative.html_parse import parse_html_file, stylesheet_texts
 
     html_path = Path(args.html)
     css_path = Path(args.css)

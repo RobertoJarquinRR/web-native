@@ -3,15 +3,17 @@
 **Estado: PASS (69/69 checks).** Layout calculado en C en runtime, ventana
 Win32 redimensionable, reflow real en `WM_SIZE`, hit testing y estados
 hover/pressed/selected, texto pre-shapeado en un atlas R8 y render con
-wgpu-native / D3D12. Sin navegador, sin WebView, sin Skia, sin Electron. Python
-solo existe en build time.
+wgpu-native / D3D12. Sin navegador, sin WebView, sin Skia, sin Electron. El
+árbol de estilos pre-layout lo emite **el frontend Rust canónico**
+(`--emit-ui`); `emit_ui.py` solo lo traduce a `ui_data.h`. Python sigue siendo
+build-time y el frontend Python queda como oráculo/fallback.
 
-Este directorio es la promoción canónica de `experiments/15-runtime-r2-c`. El
-`ui_data.h` generado es **byte-idéntico** al de exp15 (mismos 28 nodos, mismos
-estilos, mismos 35 glyphs, mismas 6 text runs y mismo atlas), así que el
-comportamiento es el mismo; lo que cambia es la ubicación, el emisor
-(`src/emitter/python/emit_ui.py`) y que el frontend Python se importa desde
-`src/frontend/python` en vez de estar copiado.
+Este directorio es la promoción canónica de `experiments/15-runtime-r2-c`. Con
+el árbol Python (`-UsePythonTree`) el `ui_data.h` generado sigue siendo
+**byte-idéntico** al de exp15. Con el árbol Rust (por defecto) los 28 nodos,
+todos los estilos, nombres, `data-*`, runs y posiciones/avances de glyph son
+idénticos; el atlas difiere solo en antialiasing y en la caja de 1 glyph
+(hinting de FreeType vs `ab_glyph`, ver §9.6).
 
 ---
 
@@ -43,15 +45,18 @@ allá de Esc.
 ```
 page/index.html + page/style.css
         │
-        │  build time (Python 3.12, solo build)
-        │  src/frontend/python/webnative (oráculo)
-        │  html5lib → tree · tinycss2/cssselect2 → cascade
-        │  HarfBuzz/FreeType → posiciones + bitmaps de glyphs
+        │  build time: frontend Rust canónico
+        │  src/frontend/rust --emit-ui  (html5ever · cssparser · rustybuzz)
+        │  árbol de estilos pre-layout, sin layout, con texto shapeado
         ▼
-src/emitter/python/emit_ui.py
-        ├── build/ui_data.h      UiNode[28] + kUiNodeNames + kUiGlyphs[35]
-        │                        + kUiTextRuns[6] + atlas R8 256×256
-        └── build/ui_meta.json   nombres, kind, dirección, colores (debug)
+build/ui.json + build/atlas.bin + build/atlas.json
+        │
+        │  build time: src/emitter/python/emit_ui.py --ui-json
+        │  (traduce el árbol; no re-parsea HTML/CSS)
+        ▼
+build/ui_data.h      UiNode[28] + kUiNodeNames + kUiGlyphs[35]
+                     + kUiTextRuns[6] + atlas R8 256×256
+build/ui_meta.json   nombres, kind, dirección, colores (debug)
         │
         │  runtime (C17, /TC, sin Python)
         ▼
@@ -73,19 +78,43 @@ build/runtime_r2.exe
 No hay dependencia de Python en el ejecutable. `wgpu_native.dll` se copia al
 directorio de build; el resto es Win32 + VC runtime.
 
-### Por qué R2 usa el frontend Python (y no el Rust)
+### De dónde sale el árbol de estilos
 
-R2 necesita un **árbol de estilos pre-layout**. El frontend Rust canónico
-emite un **display list post-layout** (rects y text runs ya posicionados), que
-es el contrato de R1/AOT pero no contiene el árbol ni las reglas para
-recalcular a otro viewport.
+R2 necesita un **árbol de estilos pre-layout**; el IR de R1 es un display list
+post-layout y no sirve para recalcular a otro viewport. Desde esta ronda:
 
-Por eso `emit_ui.py` añade `src/frontend/python` a `sys.path` e importa
-`webnative.cascade`, `webnative.html_parse`, `webnative.css_parse`,
-`webnative.tree` y `webnative.text` (HarfBuzz/FreeType). No copia el paquete.
-**Paso pendiente:** extender el frontend Rust para que emita el mismo árbol de
-estilos (o un contrato equivalente); entonces `emit_ui.py` podrá consumir Rust
-y R2 dejará de depender del oráculo Python en build time.
+1. `frontend-rust --emit-ui build/ui.json` parsea HTML/CSS, ejecuta la misma
+   cascada que R1 y serializa el árbol **sin ejecutar layout**: `parent`,
+   `children`, `kind`, estilos computados (incl. `%`, `flex-wrap`, gap,
+   justify/align), `data-*`, y por nodo de texto el contenido + glyphs
+   pre-shapeados (gid, avance, x/y, w/h, UVs) + referencia al atlas.
+2. `emit_ui.py --ui-json build/ui.json` aplana ese árbol al mismo `ui_data.h`
+   que producía el oráculo Python, sin importar `webnative` (solo usa
+   `tinycss2` para normalizar colores).
+3. `build.ps1` usa ese camino por defecto. `-UsePythonTree` mantiene el
+   camino antiguo (`emit_ui.py --html/--css` con HarfBuzz/FreeType) como
+   oráculo y fallback. `-SkipParityCheck` desactiva la comparación automática.
+
+Los dos caminos generan el mismo contrato; el runtime C no sabe cuál se usó.
+
+### `ui.json` en una tabla
+
+Esquema `webnative.ui-tree/1`; el detalle completo está en
+`src/frontend/rust/README.md` (§ Modo R2). Lo esencial:
+
+| Campo | Contenido |
+|---|---|
+| `nodes[].parent` / `children[]` | Índices planos; raíz `parent=-1` |
+| `nodes[].kind` | `block` \| `flex` \| `text` |
+| `nodes[].style` | `display`, `direction`, `justify`, `align`, `wrap`, `gap`, `width_px/pct`, `height_px/pct`, `margin[4]`, `padding[4]`, `background`, `color`, `font_size`, `font_family`, `font_weight` |
+| `nodes[].data` | `hover`, `press`, `selected`, `action` (atributos `data-*` crudos) |
+| `nodes[].argb` | Los mismos colores como `0xAARRGGBB` |
+| `nodes[].text` | `content`, `baseline`, `glyphs[] {gid, advance, x, y, w, h, u0..v1}` |
+| `atlas` | `file`, `width`, `height`, `format`, `sha256`, `glyph_count`, `pixels_nonzero` |
+
+`emit_ui.py --ui-json` no re-parsea HTML/CSS: solo traduce `ui.json` +
+`atlas.bin` al `UiNode[]` de C. La única propiedad CSS que reinterpreta son los
+colores (tinycss2), para no duplicar la tabla de nombres CSS en Rust.
 
 ---
 
@@ -95,15 +124,20 @@ y R2 dejará de depender del oráculo Python en build time.
 |---|---|
 | `page/index.html` | Fixture: sidebar 30 %, content 70 %, header, 3 cards, panel. |
 | `page/style.css` | Colores y layout del fixture. |
-| `src/emitter/python/emit_ui.py` | Aplana el árbol con estilos a `UiNode[]`, resuelve `%`, `flex-wrap`, `data-*`; mide/shapea texto y empaqueta el atlas. Importa el frontend Python de `src/frontend/python`. |
+| `src/frontend/rust/src/ui_tree.rs` | `--emit-ui`: aplana el árbol con estilos a JSON pre-layout, mide/shapea texto y empaqueta el atlas R8 256×256. |
+| `src/emitter/python/emit_ui.py` | Dos modos de entrada: `--ui-json` (árbol Rust, por defecto) y `--html/--css` (oráculo Python). Genera `ui_data.h` + `ui_meta.json`. `--compare` verifica paridad. |
 | `runtime_r2.c` | **Todo el runtime**: layout, Win32, input, wgpu, offscreen, CLI. |
-| `build.ps1` | Emit → compile (`cl /O2 /TC`) → report → render → states → ventana → verify. |
+| `build.ps1` | Rust build + emit-ui → `--ui-json` → compile (`cl /O2 /TC`) → report → render → states → ventana → verify. |
 | `verify.py` | Aceptación: asserts de layout, píxeles, texto, estados y timings. |
-| `build/ui_data.h` | Generado. Tabla de nodos, nombres, glyphs, runs y atlas R8. |
+| `build/ui.json` | Generado por Rust. Árbol de estilos pre-layout documentado (§2). |
+| `build/atlas.bin` / `build/atlas.json` | Generados por Rust. Atlas R8 256×256 y sus metadatos. |
+| `build/ui_data.h` | Generado por `emit_ui.py`. Tabla de nodos, nombres, glyphs, runs y atlas R8. |
 | `build/ui_meta.json` | Generado. Metadatos legibles para depurar y para `verify.py`. |
+| `build/oracle/ui_data.h` | Generado en la comprobación de paridad (`emit_ui.py --html`). |
+| `build/parity_report.txt` | Salida de `emit_ui.py --compare` (nodos, glyphs, atlas). |
 | `build/layout_report.json` | x,y,w,h de los 28 nodos a 960/720/560. |
 | `build/verify_report.json` | 69 checks con detalle. |
-| `build/build_report.json` / `build/build_log.txt` | Evidencia de build, adapter, timings, reflow, input. |
+| `build/build_report.json` / `build/build_log.txt` | Evidencia de build, árbol usado, adapter, timings, reflow, input. |
 | `build/out_960.png`, `out_720.png`, `out_560.png` | Renders offscreen. |
 | `build/states/state_{normal,hover,press,selected}.png` | Estados del nodo interactivo. |
 
@@ -156,9 +190,11 @@ Reglas implementadas (portadas de `exp09/webnative/layout.py` y ampliadas):
 
 ## 5. Texto
 
-- `emit_ui.py` usa `webnative.text.TextEngine` (HarfBuzz + FreeType) para
-  shapear cada texto y rasterizar sus glyphs a 8 bits.
-- Se empaquetan en un atlas **R8 256×256** con guarda de 1 px (`GlyphPacker`).
+- `frontend-rust --emit-ui` usa `rustybuzz` (shaping, mismo HarfBuzz que el
+  oráculo) y `ab_glyph` (raster) para hornear cada texto. `-UsePythonTree` usa
+  HarfBuzz/FreeType vía `webnative.text`.
+- Se empaquetan en un atlas **R8 256×256** con guarda de 1 px (mismo shelf
+  packer en ambos caminos).
 - `ui_data.h` lleva `kUiGlyphs[35]` (posición relativa al nodo de texto,
   tamaño, UVs) y `kUiTextRuns[6]` (nodo, primer glyph, count, baseline).
 - En runtime se construyen quads redondeados al píxel y se dibujan con
@@ -211,14 +247,39 @@ D3D12; es interno del backend y no afecta al render.
 ## 8. Comandos
 
 ```powershell
-# build + aceptación completa (emit, compile, report, renders, states, ventana, verify)
+# build + aceptación completa (Rust tree por defecto: cargo + --emit-ui + --ui-json)
 powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build.ps1
+
+# fallback: árbol del oráculo Python (HarfBuzz/FreeType)
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build.ps1 -UsePythonTree
 
 # reutilizar ui_data.h ya emitido / solo compilar
 powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build.ps1 -SkipEmit
 
 # solo build (sin ejecutar la aceptación)
 powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build.ps1 -SkipRun
+
+# sin recompilar Rust ni comparar contra el oráculo
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build.ps1 -SkipRustBuild -SkipParityCheck
+```
+
+Emisión manual (misma secuencia que `build.ps1`):
+
+```powershell
+src\frontend\rust\target\release\frontend-rust.exe `
+    --html src\runtime\c-r2\page\index.html --css src\runtime\c-r2\page\style.css `
+    --width 960 --height 640 --emit-ui src\runtime\c-r2\build\ui.json
+
+src\frontend\python\.venv\Scripts\python.exe src\emitter\python\emit_ui.py `
+    --ui-json src\runtime\c-r2\build\ui.json `
+    --out src\runtime\c-r2\build\ui_data.h --meta src\runtime\c-r2\build\ui_meta.json
+
+# paridad semántica contra el oráculo Python
+src\frontend\python\.venv\Scripts\python.exe src\emitter\python\emit_ui.py `
+    --html src\runtime\c-r2\page\index.html --css src\runtime\c-r2\page\style.css `
+    --out src\runtime\c-r2\build\oracle\ui_data.h --meta src\runtime\c-r2\build\oracle\ui_meta.json
+src\frontend\python\.venv\Scripts\python.exe src\emitter\python\emit_ui.py `
+    --compare src\runtime\c-r2\build\oracle\ui_data.h src\runtime\c-r2\build\ui_data.h
 ```
 
 CLI del ejecutable (desde `src/runtime/c-r2/build`):
@@ -235,15 +296,18 @@ CLI del ejecutable (desde `src/runtime/c-r2/build`):
 .\runtime_r2.exe                     # ventana interactiva hasta cerrar/Esc
 ```
 
-`build.ps1` usa el venv canónico `src/frontend/python/.venv`,
-`src/emitter/python/emit_ui.py`, MSVC (`vcvars64`) y
-`third_party/wgpu-native` (include/lib/bin). No referencia `experiments/`.
+`build.ps1` usa el binario `src/frontend/rust/target/release/frontend-rust.exe`,
+el venv canónico `src/frontend/python/.venv`, `src/emitter/python/emit_ui.py`,
+MSVC (`vcvars64`) y `third_party/wgpu-native` (include/lib/bin). No referencia
+`experiments/`.
 
 ---
 
 ## 9. Evidencia de aceptación (última ejecución)
 
-`build.ps1` terminó con **exit 0** y `verify.py` con **69/69 checks PASS**.
+`build.ps1` (árbol Rust por defecto) terminó con **exit 0**, la comprobación de
+paridad con **PASS** y `verify.py` con **69/69 checks PASS**. `-UsePythonTree`
+también termina con **69/69 PASS**.
 
 ### 9.1 Layout medido
 
@@ -277,7 +341,7 @@ Sobre `out_960.png` y `out_560.png`:
 - normal: fondo transparente → se ve `#121824` del sidebar.
 - hover: `#2a3140`; press: `#3a4a5c`; selected: `#3498db`.
 - El diff contra normal cae **exactamente** dentro del rect:
-  bbox `(16,51,135,82)`, 3812/3813/3824 píxeles cambiados (área 3840; el
+  bbox `(16,51,135,82)`, 3819/3821/3826 píxeles cambiados (área 3840; el
   texto blanco tapa el resto).
 - press ≠ hover ≠ selected (comparaciones por píxel).
 
@@ -291,7 +355,7 @@ Sobre `out_960.png` y `out_560.png`:
 - `surface: formats=6 chosenFormat=27`; el swapchain se reconfigura en cada
   resize.
 - Determinismo: dos `--render 960 640` consecutivos producen el mismo
-  SHA-256 (`9d7db10b17329ae99c725bb002603892edf47e1da4ab90dacc56c11e049d9fc1`).
+  SHA-256 (`5ed6b6c02f690cac71346cc051674e12b3fb3b47f3685ed6862708356df26054`).
 
 ### 9.5 Timings (VM, Basic Render Driver)
 
@@ -308,17 +372,58 @@ Sobre `out_960.png` y `out_560.png`:
 - Ventana (FIFO, vsync): init 133.33 ms; **15.99 ms/frame** de pared
   (≈63 Hz, limitado por present); **0.508 ms/frame** de CPU en
   encode+submit, excluyendo present/vsync. Layout del resize: 0.005–0.014 ms.
-- Build completo: `emit_ui.py` 635 ms; `cl /O2` 3 501 ms; `verify.py` 1 970 ms.
+- Build completo (árbol Rust): `cargo build` incremental 0.25 s (frío 35.6 s);
+  `--emit-ui` 0.02–0.12 s; `emit_ui.py --ui-json` **~0.20 s**; paridad vs
+  oráculo **~0.83 s**; `cl /O2` 3.5 s; `verify.py` 2.0 s.
   `runtime_r2.exe` = 299 008 B; `ui_data.h` = 351 767 B (65 536 B de atlas).
+- Con `-UsePythonTree`, `emit_ui.py` (HarfBuzz/FreeType) tarda **~0.56 s**:
+  es la diferencia principal entre ambos caminos en build time.
 
-### 9.6 Contra la promoción
+### 9.6 Paridad semántica Rust vs Python
 
-- `build/ui_data.h` es **byte-idéntico** al `ui_data.h` de exp15 (mismo hash):
-  mismos nodos, mismos estilos, mismos glyphs, mismo atlas.
-- `ui_meta.json` coincide nodo a nodo; solo cambia la ruta `source`, que ahora
-  es relativa al repo.
+`build.ps1` (árbol Rust) genera además `build/oracle/ui_data.h` con el oráculo
+Python y ejecuta `emit_ui.py --compare`; el build falla si hay diferencias
+semánticas. Resultado con el fixture 960×640:
+
+| Dimensión | Resultado |
+|---|---|
+| Nodos / `parent` / `children` / `kind` | 28 = 28; 0 diferencias |
+| Estilos (display, direction, justify, align, wrap, gap, px/%, margin, padding, background, color, font-size/family/weight) | 0 diferencias |
+| `data-hover` / `data-press` / `data-selected` / `data-action` | Idénticos (también en `ui_meta.json`) |
+| Nombres (`kUiNodeNames` / `ui_meta.json`) | Idénticos, incluidos `[n]` |
+| Glyphs / text runs | 35 / 6 = 35 / 6 |
+| Avances y `x` de glyph | 35/35 exactos |
+| UVs | 33/35 exactas; 2 siguen a una caja 1 px distinta |
+| Atlas | 256×256 = 256×256; 1 242/65 536 bytes distintos (AA) |
+| `ui_data.h` | Idéntico línea a línea salvo 2 líneas de glyph y el bloque del atlas |
+
+**Única diferencia de glyph**: `i` (gid 76) a 24 px. FreeType aplica TrueType
+hinting (`bitmap_top=17`, `rows=17`); `ab_glyph` no (`top=18`, `rows=18`). Ese
+píxel extra desplaza el bitmap 1 px y la UV del último glyph de la misma shelf.
+No cambia ningún `x`, avance, nodo, estilo ni el tamaño del atlas; el render
+verificado (69/69, texto incluido) es correcto. `emit_ui.py --compare` lo
+reporta como `known` y solo falla con `--strict`.
+
+### 9.7 Contra la promoción
+
+- Con `-UsePythonTree`, `build/ui_data.h` es **byte-idéntico** al `ui_data.h`
+  de exp15 (mismo hash): mismos nodos, estilos, glyphs y atlas.
+- `ui_meta.json` coincide nodo a nodo en ambos caminos; solo cambia la ruta
+  `source`, que ahora es relativa al repo.
 - `layout_report.json` coincide en geometría nodo a nodo; solo difieren los
   timings, como es esperable.
+
+### 9.8 Regresión R1 (frontend Rust)
+
+El modo `--emit-ui` no toca el camino R1. Verificado tras los cambios:
+
+| Comprobación | Resultado |
+|---|---|
+| `cargo build --release` | OK |
+| `bench.py --runs 3 --only rust` | `contract` **PASS**, `flex-page` **PASS** |
+| IR `contract` / `flex-page` | **byte-idéntico** al golden |
+| IR `text-card` | **byte-idéntico** al artefacto previo |
+| `verify_text.py` (text-card) | **18/18 PASS** (jsonschema no instalado: check omitido) |
 
 ---
 
@@ -330,16 +435,20 @@ Sobre `out_960.png` y `out_560.png`:
 - `verify.py` — 69 checks.
 - `page/index.html`, `page/style.css` — fixture.
 - `emit_ui.py` — lógica de aplanado, medición/shaping y atlas; ahora en
-  `src/emitter/python` e importando el frontend Python canónico.
+  `src/emitter/python`. El modo `--html/--css` (oráculo) importa el frontend
+  Python canónico; el modo `--ui-json` consume el árbol Rust.
 
 **Nuevo en la promoción:**
 
 - `src/runtime/c-r2/build.ps1` — build autocontenido (sin `experiments/`),
-  con `-SkipEmit`/`-SkipRun`, reporte JSON y salida no-cero en fallo.
-- `src/runtime/c-r2/build/` — todos los artefactos generados.
-- `src/runtime/README.md` — mapa R1 vs R2.
-- `src/emitter/python/emit_ui.py` — `sys.path` a `src/frontend/python`,
-  defaults al fixture de c-r2 y `source` relativo en `ui_meta.json`.
+  árbol Rust por defecto, `-UsePythonTree`/`-SkipEmit`/`-SkipRun`/
+  `-SkipRustBuild`/`-SkipParityCheck`, reporte JSON y salida no-cero en fallo.
+- `src/frontend/rust/src/ui_tree.rs` — `--emit-ui`: árbol pre-layout + atlas.
+- `src/emitter/python/emit_ui.py` — modos `--ui-json` y `--compare`; imports
+  de `webnative` diferidos al modo oráculo; `source` relativo en
+  `ui_meta.json`.
+- `src/runtime/c-r2/build/` — todos los artefactos generados, incluidos
+  `ui.json`, `atlas.bin`, `atlas.json` y `oracle/ui_data.h`.
 
 **Decisiones de compatibilidad C (heredadas):**
 
@@ -386,20 +495,26 @@ Sobre `out_960.png` y `out_560.png`:
 
 ---
 
-## 12. Paso pendiente: árbol de estilos en Rust
+## 12. Acoplamiento a Python: estado y gap restante
 
-El único acoplamiento a Python en R2 es el **build**. Para eliminarlo:
+El árbol de estilos ya lo emite Rust (`--emit-ui`) y `emit_ui.py --ui-json` lo
+traduce sin importar `webnative`. Lo que queda:
 
-1. Extender `src/frontend/rust` para emitir un **árbol de estilos pre-layout**
-   (por nodo: tag/id/clases, `display`, `flex-direction`, `justify`, `align`,
-   `flex-wrap`, `gap`, width/height px/%, márgenes, padding, background,
-   color, fuente y `data-*`), o un contrato intermedio equivalente.
-2. Hacer que `emit_ui.py` consuma ese JSON en vez de importar
-   `webnative.cascade` (el aplanado a `UiNode[]`, el atlas y la verificación se
-   quedan igual).
-3. Comparar el `ui_data.h` resultante con el del oráculo Python; debe ser
-   byte-idéntico o justificar cada diferencia.
-4. Solo entonces R2 podrá construirse sin `src/frontend/python/.venv`.
+1. **`emit_ui.py` sigue siendo un script Python** para traducir JSON → C. Es
+   ~200 ms y no vuelve a parsear HTML/CSS, pero requiere el intérprete. Para
+   eliminar Python del build de R2 habría que portar ese traductor a Rust (o
+   hacer que Rust emita directamente `ui_data.h`), incluido el formato
+   `c_float` a 4 decimales y el volcado del atlas.
+2. **tinycss2 en `--ui-json`**: el consumidor reinterpreta `background`,
+   `color` y `data-*` con la tabla CSS completa. Rust ya emite
+   `argb.*` con hex/rgb()/nombres básicos; si se acepta esa tabla (o se
+   completa), `--ui-json` puede ser stdlib puro.
+3. **Hinting vertical**: `ab_glyph` no aplica TrueType hinting. 1 glyph de 35
+   (`i`, gid 76, 24 px) tiene 1 px más de alto que FreeType; el resto es
+   idéntico. Si se exige byte-identidad de atlas habría que rasterizar con
+   FreeType (o portar el intérprete de hinting).
+4. **El modo oráculo (`--html/--css`) sigue importando `src/frontend/python`**
+   para HarfBuzz/FreeType. Es el fallback y la referencia de paridad, no el
+   camino por defecto.
 
-Mientras eso no exista, el frontend Python es el oráculo correcto para R2 y el
-runtime C sigue siendo independiente de Python.
+El runtime C sigue siendo independiente de Python: solo el build lo usa.

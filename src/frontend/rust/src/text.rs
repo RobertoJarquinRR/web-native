@@ -386,6 +386,9 @@ impl Atlas {
     }
 
     fn add(&mut self, key: (String, u16, i32), bitmap: &GlyphBitmap) -> Result<(), String> {
+        if self.rects.contains_key(&key) {
+            return Ok(());
+        }
         if bitmap.w <= 0 || bitmap.h <= 0 {
             self.rects.insert(key, None);
             return Ok(());
@@ -559,4 +562,104 @@ pub fn build_text_ops(runs: &[TextRun], engine: &TextEngine) -> Result<BuildText
     }
 
     Ok((ops, Some(atlas)))
+}
+
+// ------------------------------------------------- R2 pre-layout style tree
+//
+// `emit_ui.py` del oraculo Python mide y hornea el texto de otra forma que el
+// IR de R1: el atlas es 256x256, las posiciones son relativas a la caja del
+// nodo de texto (sin redondear a 3 decimales) y cada run guarda el ascender
+// como baseline. Esta API reproduce esa semantica sin tocar `build_text_ops`.
+
+/// Tamano del atlas del contrato R2 (`emit_ui.py` usa 256).
+pub const UI_ATLAS_SIZE: u32 = 256;
+
+/// Glyph ya posicionado relativo a la esquina superior izquierda del texto.
+pub struct UiGlyphOut {
+    pub gid: u16,
+    /// Avance HarfBuzz del glyph (no lo consume R2, si la verificacion).
+    pub advance: f64,
+    pub x: f64,
+    pub y: f64,
+    pub w: i32,
+    pub h: i32,
+    pub u0: f64,
+    pub v0: f64,
+    pub u1: f64,
+    pub v1: f64,
+}
+
+/// Resultado de hornear un texto: glyphs + metricas de la linea.
+pub struct BakedUiText {
+    pub glyphs: Vec<UiGlyphOut>,
+    /// Suma de avances (lo que `emit_ui.TextMetrics.measure` llama width).
+    pub width: f64,
+    pub ascender: f64,
+    pub descender: f64,
+}
+
+/// Atlas R8 incremental para el arbol de estilos (mismo shelf packer que
+/// `GlyphPacker` del oraculo: 256x256, guarda de 1 px, orden de aparicion).
+pub struct UiTextBaker {
+    atlas: Atlas,
+}
+
+impl UiTextBaker {
+    pub fn new() -> Self {
+        UiTextBaker {
+            atlas: Atlas::new(UI_ATLAS_SIZE),
+        }
+    }
+
+    pub fn atlas(&self) -> &Atlas {
+        &self.atlas
+    }
+
+    /// Shape + raster + empaquetado de un texto, en el orden exacto del
+    /// oraculo: se avanza el pen con todos los glyphs y solo se registra el
+    /// glyph cuando su bitmap tiene area.
+    pub fn bake(
+        &mut self,
+        engine: &TextEngine,
+        text: &str,
+        font_family: &str,
+        size: f64,
+    ) -> Result<BakedUiText, String> {
+        let face = engine.face_for_family(font_family)?;
+        let (ascender, descender) = face.metrics(size);
+        let shaped = face.shape(text, size);
+        let path = face.path_string();
+        let key_size = size_key(size);
+        let mut glyphs: Vec<UiGlyphOut> = Vec::with_capacity(shaped.len());
+        let mut pen = 0.0f64;
+        let mut width = 0.0f64;
+        for item in &shaped {
+            width += item.adv;
+            let bitmap = face.raster(item.gid, size);
+            if bitmap.w > 0 && bitmap.h > 0 {
+                let key = (path.clone(), item.gid, key_size);
+                self.atlas.add(key.clone(), &bitmap)?;
+                let (u0, v0, u1, v1) = self.atlas.uv(&key);
+                glyphs.push(UiGlyphOut {
+                    gid: item.gid,
+                    advance: item.adv,
+                    x: pen + item.dx + f64::from(bitmap.left),
+                    y: ascender - item.dy - f64::from(bitmap.top),
+                    w: bitmap.w,
+                    h: bitmap.h,
+                    u0,
+                    v0,
+                    u1,
+                    v1,
+                });
+            }
+            pen += item.adv;
+        }
+        Ok(BakedUiText {
+            glyphs,
+            width,
+            ascender,
+            descender,
+        })
+    }
 }

@@ -48,6 +48,24 @@ fn is_css_number(text: &str) -> bool {
     }
 }
 
+/// Porcentaje CSS (`30%`) -> `30.0`; cualquier otra cosa -> `0.0`.
+///
+/// Misma semantica que `_PCT` de `emit_ui.py`: sin signo `+`, sin exponentes y
+/// con `%` obligatorio al final.
+pub fn percentage(value: Option<&str>) -> f64 {
+    let Some(raw) = value else { return 0.0 };
+    let text = raw.trim().to_ascii_lowercase();
+    let Some(number) = text.strip_suffix('%') else {
+        return 0.0;
+    };
+    let number = number.trim_end();
+    if is_css_number(number) {
+        number.parse::<f64>().unwrap_or(0.0)
+    } else {
+        0.0
+    }
+}
+
 /// `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()` y una tabla corta
 /// de nombres. Alfa 0 -> sin fondo (`None`), como el Python.
 pub fn parse_color(value: Option<&str>) -> Option<String> {

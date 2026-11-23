@@ -15,6 +15,7 @@ mod layout;
 mod rss;
 mod sha256;
 mod text;
+mod ui_tree;
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -25,68 +26,109 @@ struct Args {
     html: PathBuf,
     width: u32,
     height: u32,
-    out: PathBuf,
+    out: Option<PathBuf>,
     timings: Option<PathBuf>,
     atlas: Option<PathBuf>,
+    css: Option<PathBuf>,
+    /// `--emit-ui [path]`: escribe el arbol de estilos pre-layout para R2.
+    emit_ui: Option<PathBuf>,
 }
 
 fn usage() -> &'static str {
-    "uso: frontend-rust --html <path> --width <W> --height <H> --out <ir.json> [--timings <timings.json>] [--atlas <atlas.bin>]"
+    "uso: frontend-rust --html <path> --width <W> --height <H> --out <ir.json> [--timings <timings.json>] [--atlas <atlas.bin>]\n     frontend-rust --html <path> --width <W> --height <H> --emit-ui [ui.json] [--css <path>] [--timings <timings.json>]"
+}
+
+fn take_value(
+    argv: &[String],
+    index: &mut usize,
+    inline: &Option<String>,
+    name: &str,
+) -> Result<String, String> {
+    if let Some(value) = inline {
+        return Ok(value.clone());
+    }
+    *index += 1;
+    argv.get(*index)
+        .cloned()
+        .ok_or_else(|| format!("falta el valor de {name}"))
 }
 
 fn parse_args() -> Result<Args, String> {
+    let argv: Vec<String> = std::env::args().skip(1).collect();
     let mut html: Option<PathBuf> = None;
     let mut width: Option<u32> = None;
     let mut height: Option<u32> = None;
     let mut out: Option<PathBuf> = None;
     let mut timings: Option<PathBuf> = None;
     let mut atlas: Option<PathBuf> = None;
+    let mut css: Option<PathBuf> = None;
+    let mut emit_ui: Option<PathBuf> = None;
+    let mut emit_ui_requested = false;
 
-    let mut args = std::env::args().skip(1);
-    while let Some(arg) = args.next() {
+    let mut index = 0usize;
+    while index < argv.len() {
+        let arg = &argv[index];
         let (flag, inline_value) = match arg.split_once('=') {
             Some((flag, value)) => (flag.to_string(), Some(value.to_string())),
             None => (arg.clone(), None),
         };
-        let mut take = |name: &str| -> Result<String, String> {
-            match &inline_value {
-                Some(value) => Ok(value.clone()),
-                None => args
-                    .next()
-                    .ok_or_else(|| format!("falta el valor de {name}")),
-            }
-        };
         match flag.as_str() {
-            "--html" => html = Some(PathBuf::from(take("--html")?)),
+            "--html" => html = Some(PathBuf::from(take_value(&argv, &mut index, &inline_value, "--html")?)),
+            "--css" => css = Some(PathBuf::from(take_value(&argv, &mut index, &inline_value, "--css")?)),
             "--width" => {
                 width = Some(
-                    take("--width")?
+                    take_value(&argv, &mut index, &inline_value, "--width")?
                         .parse::<u32>()
                         .map_err(|_| "--width debe ser un entero".to_string())?,
                 )
             }
             "--height" => {
                 height = Some(
-                    take("--height")?
+                    take_value(&argv, &mut index, &inline_value, "--height")?
                         .parse::<u32>()
                         .map_err(|_| "--height debe ser un entero".to_string())?,
                 )
             }
-            "--out" => out = Some(PathBuf::from(take("--out")?)),
-            "--timings" => timings = Some(PathBuf::from(take("--timings")?)),
-            "--atlas" => atlas = Some(PathBuf::from(take("--atlas")?)),
+            "--out" => out = Some(PathBuf::from(take_value(&argv, &mut index, &inline_value, "--out")?)),
+            "--timings" => {
+                timings = Some(PathBuf::from(take_value(&argv, &mut index, &inline_value, "--timings")?))
+            }
+            "--atlas" => {
+                atlas = Some(PathBuf::from(take_value(&argv, &mut index, &inline_value, "--atlas")?))
+            }
+            "--emit-ui" => {
+                emit_ui_requested = true;
+                if let Some(value) = inline_value.clone() {
+                    emit_ui = Some(PathBuf::from(value));
+                } else if let Some(next) = argv.get(index + 1) {
+                    if !next.starts_with("--") {
+                        emit_ui = Some(PathBuf::from(next.clone()));
+                        index += 1;
+                    }
+                }
+            }
             "--help" | "-h" => return Err(usage().to_string()),
             other => return Err(format!("argumento desconocido: {other}\n{}", usage())),
         }
+        index += 1;
+    }
+
+    if emit_ui_requested && emit_ui.is_none() {
+        emit_ui = Some(out.clone().unwrap_or_else(|| PathBuf::from("ui.json")));
+    }
+    if emit_ui.is_none() && out.is_none() {
+        return Err(format!("falta --out\n{}", usage()));
     }
 
     Ok(Args {
         html: html.ok_or_else(|| format!("falta --html\n{}", usage()))?,
         width: width.ok_or_else(|| format!("falta --width\n{}", usage()))?,
         height: height.ok_or_else(|| format!("falta --height\n{}", usage()))?,
-        out: out.ok_or_else(|| format!("falta --out\n{}", usage()))?,
+        out,
         timings,
         atlas,
+        css,
+        emit_ui,
     })
 }
 
@@ -159,6 +201,56 @@ fn run() -> Result<(), String> {
     let metrics = |family: &str, size: f64| engine.metrics(family, size);
     let fonts_ms = ms(since);
 
+    if let Some(ui_path) = &args.emit_ui {
+        let since = Instant::now();
+        let source_html = args.html.to_string_lossy().to_string();
+        let source_css = args.css.as_ref().map(|path| path.to_string_lossy().to_string());
+        let summary = ui_tree::emit_ui_tree(
+            &document,
+            &styles,
+            &engine,
+            (args.width, args.height),
+            &source_html,
+            source_css.as_deref(),
+            Path::new(ui_path),
+            rules.len(),
+        )?;
+        let text_ms = ms(since);
+        let atlas = summary
+            .atlas
+            .map(|(width, height)| format!(", atlas {width}x{height}"))
+            .unwrap_or_default();
+        println!(
+            "emit-ui: {} nodes, {} glyphs, {} runs{} -> {}{}",
+            summary.nodes,
+            summary.glyphs,
+            summary.runs,
+            atlas,
+            ui_path.display(),
+            summary
+                .atlas_path
+                .as_ref()
+                .map(|path| format!(", {}", path.display()))
+                .unwrap_or_default()
+        );
+        if let Some(path) = &args.timings {
+            let timings = emit::Timings {
+                html: round3(html_ms),
+                css: round3(css_ms),
+                cascade: round3(cascade_ms),
+                fonts: round3(fonts_ms),
+                layout: 0.0,
+                text: round3(text_ms),
+                emit: 0.0,
+                pipeline: round3(ms(started)),
+                ops: summary.nodes,
+                peak_rss_kb: rss::peak_rss_kb(),
+            };
+            write_file(path, &emit::timings_json(&timings))?;
+        }
+        return Ok(());
+    }
+
     let since = Instant::now();
     let layout_root = layout::layout_tree(&document, &styles, f64::from(args.width), &metrics)?;
     let mut paint_ops = Vec::new();
@@ -191,10 +283,15 @@ fn run() -> Result<(), String> {
 
     let since = Instant::now();
     let ir = emit::ir_json(args.width, args.height, &ops);
-    write_file(&args.out, &ir)?;
+    let out_path = args
+        .out
+        .as_ref()
+        .ok_or_else(|| "falta --out".to_string())?
+        .clone();
+    write_file(&out_path, &ir)?;
     if let Some(atlas) = &atlas {
         let atlas_path = args.atlas.clone().unwrap_or_else(|| {
-            args.out
+            out_path
                 .parent()
                 .map(|parent| parent.join("atlas.bin"))
                 .unwrap_or_else(|| PathBuf::from("atlas.bin"))

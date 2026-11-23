@@ -38,7 +38,7 @@ fn py_float_round(value: f64, digits: i32) -> String {
     py_float(round_digits(value, digits))
 }
 
-fn push_json_string(out: &mut String, value: &str) {
+pub(crate) fn push_json_string(out: &mut String, value: &str) {
     out.push('"');
     for ch in value.chars() {
         match ch {

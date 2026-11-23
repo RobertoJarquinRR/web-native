@@ -5,9 +5,9 @@
 
 use std::collections::HashMap;
 
-use crate::color::{length, parse_color};
+use crate::color::{length, parse_color, percentage};
 use crate::css::{parse_declarations, Rule};
-use crate::dom::{ua_display, Dom};
+use crate::dom::{ua_display, Dom, NodeId};
 
 const SIDES: [&str; 4] = ["top", "right", "bottom", "left"];
 
@@ -34,14 +34,26 @@ pub struct ComputedStyle {
     pub padding: [f64; 4],
     pub width: Option<f64>,
     pub height: Option<f64>,
+    /// `width: 30%` -> 30.0; 0.0 si no hay porcentaje (contrato de `UiNode`).
+    pub width_pct: f64,
+    pub height_pct: f64,
     pub background: Option<String>,
     pub color: String,
     pub font_size: f64,
     pub font_family: String,
+    pub font_weight: String,
     pub flex_direction: String,
     pub justify_content: String,
     pub align_items: String,
+    pub flex_wrap: String,
     pub gap: f64,
+    /// `data-hover` / `data-press` / `data-selected` / `data-action` crudos.
+    /// La cascada los transporta porque el runtime R2 los necesita por nodo y
+    /// el IR de R1 los ignora deliberadamente.
+    pub data_hover: Option<String>,
+    pub data_press: Option<String>,
+    pub data_selected: Option<String>,
+    pub data_action: Option<String>,
 }
 
 pub fn compute_styles(dom: &Dom, rules: &[Rule]) -> Vec<Option<ComputedStyle>> {
@@ -94,7 +106,7 @@ pub fn compute_styles(dom: &Dom, rules: &[Rule]) -> Vec<Option<ComputedStyle>> {
         for (name, (_, value)) in winners {
             raw.insert(name, value);
         }
-        styles[id] = Some(resolve(&dom.nodes[id].tag, raw));
+        styles[id] = Some(resolve(dom, id, raw));
     }
     styles
 }
@@ -108,7 +120,8 @@ fn offer(map: &mut HashMap<String, (Key, String)>, name: &str, value: &str, key:
     }
 }
 
-fn resolve(tag: &str, raw: HashMap<String, String>) -> ComputedStyle {
+fn resolve(dom: &Dom, id: NodeId, raw: HashMap<String, String>) -> ComputedStyle {
+    let tag = dom.nodes[id].tag.as_str();
     let mut margin = [0.0f64; 4];
     let mut padding = [0.0f64; 4];
     for (index, side) in SIDES.iter().enumerate() {
@@ -119,6 +132,8 @@ fn resolve(tag: &str, raw: HashMap<String, String>) -> ComputedStyle {
 
     let width = length(raw.get("width").map(String::as_str));
     let height = length(raw.get("height").map(String::as_str));
+    let width_pct = percentage(raw.get("width").map(String::as_str));
+    let height_pct = percentage(raw.get("height").map(String::as_str));
     let font_size = length(raw.get("font-size").map(String::as_str)).unwrap_or(16.0);
 
     // `gap` con el mismo cortocircuito "truthy" que el Python (0.0 es falsy).
@@ -149,17 +164,29 @@ fn resolve(tag: &str, raw: HashMap<String, String>) -> ComputedStyle {
             .get("font-family")
             .cloned()
             .unwrap_or_else(|| "sans-serif".to_string()),
+        font_weight: raw
+            .get("font-weight")
+            .filter(|value| !value.trim().is_empty())
+            .cloned()
+            .unwrap_or_else(|| "400".to_string()),
         flex_direction: keyword(&raw, "flex-direction", "row"),
         justify_content: keyword(&raw, "justify-content", "flex-start"),
         align_items: keyword(&raw, "align-items", "stretch"),
+        flex_wrap: keyword(&raw, "flex-wrap", "nowrap"),
         display,
         margin,
         padding,
         width,
         height,
+        width_pct,
+        height_pct,
         background,
         font_size,
         gap,
+        data_hover: dom.attr(id, "data-hover").map(str::to_string),
+        data_press: dom.attr(id, "data-press").map(str::to_string),
+        data_selected: dom.attr(id, "data-selected").map(str::to_string),
+        data_action: dom.attr(id, "data-action").map(str::to_string),
         raw,
     }
 }

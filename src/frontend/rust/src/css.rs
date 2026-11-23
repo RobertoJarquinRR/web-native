@@ -186,7 +186,8 @@ fn push_rule(prelude: &str, block: &str, rules: &mut Vec<Rule>) {
     if declarations.is_empty() {
         return;
     }
-    for selector_text in split_top_level_commas(prelude) {
+    let prelude = strip_comments(prelude);
+    for selector_text in split_top_level_commas(&prelude) {
         if let Some(selector) = parse_selector(selector_text) {
             rules.push(Rule {
                 selector,
@@ -196,9 +197,51 @@ fn push_rule(prelude: &str, block: &str, rules: &mut Vec<Rule>) {
     }
 }
 
+/// Elimina comentarios `/* ... */` fuera de cadenas. El oraculo (tinycss2) no
+/// los incluye en el preludio; `cssparser` los conserva al cortar por offsets.
+fn strip_comments(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    let mut quote: Option<char> = None;
+    while let Some(character) = chars.next() {
+        match quote {
+            Some(active) => {
+                out.push(character);
+                if character == '\\' {
+                    if let Some(next) = chars.next() {
+                        out.push(next);
+                    }
+                } else if character == active {
+                    quote = None;
+                }
+            }
+            None => {
+                if character == '"' || character == '\'' {
+                    quote = Some(character);
+                    out.push(character);
+                } else if character == '/' && chars.peek() == Some(&'*') {
+                    chars.next();
+                    let mut previous = '\0';
+                    for next in chars.by_ref() {
+                        if previous == '*' && next == '/' {
+                            break;
+                        }
+                        previous = next;
+                    }
+                } else {
+                    out.push(character);
+                }
+            }
+        }
+    }
+    out
+}
+
 // -------------------------------------------------------------- declarations
 
 pub fn parse_declarations(text: &str) -> Vec<Declaration> {
+    let cleaned = strip_comments(text);
+    let text = cleaned.as_str();
     let mut out = Vec::new();
     let mut input = ParserInput::new(text);
     let mut parser = Parser::new(&mut input);
