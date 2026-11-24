@@ -80,7 +80,7 @@ typedef struct wn_event {
 
 static void on_event(void *ud, const wn_event *ev) {
     wn_app *app = (wn_app *)ud;
-    if (ev->type == WN_EVENT_CLICK && ev->target_id &&
+    if (ev->type == WN_EVENT_POINTER_UP && ev->target_id &&
         strcmp(ev->target_id, "btn") == 0) {
         wn_app_set_text(app, "label", "Hola");
     }
@@ -97,6 +97,24 @@ int main(void) {
     return rc;
 }
 ```
+
+> **v0 no tiene `WN_EVENT_CLICK`.** Un click es `WN_EVENT_POINTER_DOWN` +
+> `WN_EVENT_POINTER_UP` sobre el mismo nodo con `data-action`. Un evento
+> `CLICK` explícito sería una adición compatible de la ABI (v1).
+
+## Limitaciones de v0 (importante)
+
+- `wn_app_load` / `wn_view_load` **copian** HTML/CSS, pero v0 renderiza el
+  árbol compilado `ui_data.h`. **No hay parser HTML/CSS en runtime**; cambiar
+  la página requiere recompilar el árbol.
+- `set_text` solo reutiliza glifos pre-shapeados al tamaño del nodo. Texto
+  arbitrario puede devolver `WN_ERR_UNSUPPORTED`; el shaping en runtime es
+  posterior.
+- Sin scroll, imágenes, listas dinámicas/virtualización, clipboard, IME,
+  accesibilidad, selección de texto, wrapping ni bidi.
+- Sin path offscreen en la ABI (sigue en `runtime_r2.exe --render/--states`).
+- Sin bindings C#/WPF/WinForms todavía.
+- `wn_app_run`/`wn_view_render` son single-thread; no reentrar.
 
 ## Binding C# (fase 2)
 
