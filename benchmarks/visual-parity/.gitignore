@@ -1,0 +1,14 @@
+# Harness venv (dev-only, never part of the runtime).
+.venv/
+
+# Generated captures, reports, builds and Chromium caches.
+out/
+reports/
+.cache/
+
+# Python bytecode.
+__pycache__/
+*.py[cod]
+
+# The repo-wide .gitignore already ignores *.png; this keeps the intent local.
+*.png

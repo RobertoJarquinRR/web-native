@@ -1,0 +1,17 @@
+{
+  "schema": "visual-parity/chromium/1",
+  "purpose": "Pinned dev-only Chromium reference for benchmarks/visual-parity. Never shipped or linked by the engine.",
+  "browser": "chromium-headless-shell",
+  "playwright": "1.56.0",
+  "version": "141.0.7390.37",
+  "playwright_browser_build": "1194",
+  "platform": "win64",
+  "executable": "headless_shell.exe",
+  "executable_size": 181659136,
+  "executable_sha256": "ed19d88b4486c39c0265b0c07cbf1d6835d06069e600bede1adb09db0df46c8e",
+  "install_command": "benchmarks\\visual-parity\\.venv\\Scripts\\python.exe -m playwright install chromium-headless-shell",
+  "notes": [
+    "The harness resolves the headless shell from Playwright's browser cache and records the same SHA-256 in every report.",
+    "Do not substitute Edge, WebView2 or a system Chrome: they are not the pinned reference."
+  ]
+}

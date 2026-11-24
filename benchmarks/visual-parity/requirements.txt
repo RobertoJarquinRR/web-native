@@ -1,0 +1,12 @@
+# Dev-only harness dependencies.
+#
+# These packages belong to benchmarks/visual-parity/.venv and are NEVER
+# installed into the runtime venv (src/frontend/python/.venv) or linked by
+# the engine. The engine must keep working without Python, Playwright or a
+# browser installed.
+#
+# Playwright 1.56.0 pins Chromium 141.0.7390.37 (build 1194). The harness
+# records the exact version and executable SHA-256 in every report.
+Pillow==13.0.0
+numpy==2.5.5
+playwright==1.56.0

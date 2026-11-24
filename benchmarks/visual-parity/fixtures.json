@@ -1,0 +1,163 @@
+{
+  "schema": "visual-parity/1",
+  "description": "Fixtures for the Chromium-vs-native visual parity harness. Reuses existing benchmark fixtures; it never copies them.",
+  "defaults": {
+    "dpr": 1,
+    "dpi": 96,
+    "color_profile": "srgb",
+    "pixel_diff_threshold": 8,
+    "global": {
+      "min_ssim": 0.98,
+      "max_diff_pct": 1.0
+    },
+    "tolerances": {
+      "strict": {
+        "min_ssim": 0.995,
+        "max_diff_pct": 0.2
+      },
+      "text": {
+        "min_ssim": 0.95,
+        "max_diff_pct": 2.0
+      }
+    }
+  },
+  "fixtures": [
+    {
+      "name": "flex-page",
+      "description": "Flex anidado, gap, space-between y align. Rect-only, sin texto ni imagenes.",
+      "html": "benchmarks/frontend-parity/fixtures/flex-page/index.html",
+      "style": "benchmarks/frontend-parity/fixtures/flex-page/style.css",
+      "viewport": {
+        "width": 480,
+        "height": 320
+      },
+      "gate": true,
+      "fonts": [],
+      "native": {
+        "mode": "r1"
+      },
+      "tolerances": {
+        "strict": {
+          "min_ssim": 0.995,
+          "max_diff_pct": 0.2
+        }
+      },
+      "regions": [
+        {
+          "name": "topbar",
+          "rect": [24, 24, 456, 12],
+          "mode": "strict"
+        },
+        {
+          "name": "cards",
+          "rect": [24, 60, 456, 148],
+          "mode": "strict"
+        },
+        {
+          "name": "footer",
+          "rect": [24, 232, 456, 76],
+          "mode": "strict"
+        }
+      ],
+      "exclude": [],
+      "notes": [
+        "Gate rect-only segun docs/visual-parity.md.",
+        "El viewport es 480x320; #root suma padding 24, asi que el contenido desborda a proposito."
+      ]
+    },
+    {
+      "name": "contract",
+      "description": "Block flow, padding, margin y colores planos. Rect-only.",
+      "html": "benchmarks/frontend-parity/fixtures/contract/input.html",
+      "style": "benchmarks/frontend-parity/fixtures/contract/input.css",
+      "viewport": {
+        "width": 400,
+        "height": 300
+      },
+      "gate": true,
+      "fonts": [],
+      "native": {
+        "mode": "r1"
+      },
+      "tolerances": {
+        "strict": {
+          "min_ssim": 0.995,
+          "max_diff_pct": 0.2
+        }
+      },
+      "regions": [
+        {
+          "name": "box-a",
+          "rect": [20, 20, 120, 80],
+          "mode": "strict"
+        },
+        {
+          "name": "box-b",
+          "rect": [20, 116, 120, 80],
+          "mode": "strict"
+        }
+      ],
+      "exclude": [],
+      "notes": [
+        "Gate rect-only segun docs/visual-parity.md."
+      ]
+    },
+    {
+      "name": "media-library",
+      "description": "Piloto 1280x800: sidebar, grid, panel de detalle, imagenes locales y texto. Informativo primero.",
+      "html": "benchmarks/pilot-media-library/page/index.html",
+      "style": "benchmarks/pilot-media-library/page/style.css",
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "gate": false,
+      "fonts": [
+        "Segoe UI"
+      ],
+      "native": {
+        "mode": "r2",
+        "exe": "src/runtime/c-r2/build_pilot/runtime_r2.exe",
+        "cwd": "benchmarks/pilot-media-library/page"
+      },
+      "tolerances": {
+        "strict": {
+          "min_ssim": 0.98,
+          "max_diff_pct": 0.5
+        },
+        "text": {
+          "min_ssim": 0.95,
+          "max_diff_pct": 2.0
+        }
+      },
+      "regions": [
+        {
+          "name": "sidebar",
+          "rect": [0, 0, 280, 800],
+          "mode": "strict"
+        },
+        {
+          "name": "grid",
+          "rect": [280, 24, 976, 752],
+          "mode": "strict"
+        },
+        {
+          "name": "detail",
+          "rect": [20, 313, 216, 248],
+          "mode": "strict"
+        },
+        {
+          "name": "text",
+          "rect": [0, 0, 1280, 800],
+          "mode": "text"
+        }
+      ],
+      "exclude": [],
+      "notes": [
+        "Informativo (gate=false) hasta calibrar la baseline.",
+        "Los posters son PNG 180x240 usados a 180x240; no hay escalado de imagen.",
+        "El grid arranca en scroll 0 y el scrollbar esta oculto en Chromium."
+      ]
+    }
+  ]
+}
