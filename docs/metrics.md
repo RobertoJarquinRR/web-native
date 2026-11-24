@@ -15,7 +15,8 @@
 
 ## Metodología
 
-- Windows 11 x64, WARP/D3D12 (sin GPU hardware en esta máquina).
+- Windows 11 x64, Intel HD Graphics (D3D11 hardware; **sin** D3D12, por eso
+  wgpu cae a WARP en esta máquina).
 - Cada métrica: 10 runs, mediana y min/max.
 - Reportar siempre el backend y si es hardware o WARP.
 - Los números de WARP **no** son representativos de GPU real; se marcan.
@@ -23,16 +24,19 @@
 
 ## Presupuesto fase 1
 
-| Métrica | Objetivo | Baseline actual |
+| Métrica | Objetivo | Baseline actual (D3D11 hardware) |
 |---|---:|---:|
-| Install size (wgpu) | ≤ 15 MB | ~9.6 MB (9.1 DLL + 0.15–0.3 exe + atlas) |
-| Engine size | ≤ 1 MB | 154–299 KB |
-| Startup | ≤ 150 ms | 128–133 ms (R2) / ~100–150 ms (R1) |
-| RSS | ≤ 30 MB en hardware (WARP informativo) | 53.47 MB (WARP) |
-| CPU frame | ≤ 2 ms | 0.46–0.70 ms |
+| Install size (con wgpu DLL) | ≤ 15 MB | ~9.6 MB (9.1 DLL + 0.35 exe + atlas) |
+| Engine size | ≤ 1 MB | 347 KB standalone / 348 KB embedded |
+| Startup | ≤ 150 ms | 51 ms standalone / 110 ms app C# |
+| RSS | ≤ 30 MB en hardware | 23.4 MB standalone |
+| CPU frame | ≤ 2 ms | 0.15 ms standalone / 1.0 ms app C# |
 | Layout 28 nodos | ≤ 0.5 ms | ~0.001 ms |
 | Layout 100 nodos | ≤ 0.5 ms | por medir |
 | Offscreen frame | informativo | 48–64 ms (readback+PNG) |
+
+Referencia WARP (misma máquina, `WN_RENDERER=wgpu`): RSS 61.8 MB, CPU frame
+~2.0 ms en la app C# y hover ~0.73 núcleos. D3D11 baja eso a ~0.02 núcleos.
 
 ## Reglas de aceptación
 
@@ -41,10 +45,11 @@
 3. WARP vs hardware se reporta por separado.
 4. El harness debe ser reproducible con un comando.
 5. Los resultados se guardan con fecha, commit y backend.
-6. **RSS no es gate en WARP**: el baseline (~53 MB) está dominado por wgpu/D3D12/WARP.
-   El objetivo de ≤30 MB se evalúa en hardware; el número de WARP es informativo.
-   Si en hardware tampoco se cumple, se decide entre aceptar el footprint o priorizar
-   un backend D2D/D3D11.
+6. **RSS se mide por backend.** El baseline de D3D11 hardware (23.4 MB) cumple
+   el objetivo; WARP (~62 MB) es informativo y está dominado por la capa
+   software de wgpu.
+7. El paquete todavía incluye `wgpu_native.dll` porque `renderer_wgpu.c` sigue
+   enlazado. El objetivo de ≤ 5 MB exige retirar ese backend del enlace.
 
 ## Harness
 

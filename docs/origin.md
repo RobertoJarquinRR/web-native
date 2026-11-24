@@ -42,8 +42,8 @@ dinámico y ABI.
 - **HTML/CSS en build time**, sin parser en runtime.
 - **IR y UI tree como contratos** entre lenguajes.
 - **ABI C** con handles opacos para que el host sea C#, C, C++ o Rust.
-- **wgpu-native detrás de una vtable**: hoy D3D12; mañana D2D/D3D11, Metal o
-  Vulkan sin tocar el core.
+- **Renderer detrás de una vtable**: D3D11 en Windows y wgpu-native
+  (D3D12/Vulkan/Metal) como alternativa, sin tocar el core.
 - **Sin JS, sin iframes, sin red** en el core.
 - **Paridad medible**: mismo input, mismo IR, mismos píxeles.
 

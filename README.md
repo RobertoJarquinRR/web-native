@@ -5,9 +5,10 @@ WebView, sin Skia y sin Electron.
 
 El contrato central de **R1** es un **display list IR** en JSON: el frontend lo
 produce, el emitter lo hornea en datos C + WGSL, y `cl.exe` genera un `.exe`
-que renderiza con **wgpu-native** (D3D12 / Vulkan / Metal). **R2** usa un
-**árbol de estilos pre-layout** (`ui_data.h`) y calcula el layout en C en
-runtime.
+que renderiza sobre una vtable de backend: **D3D11** en Windows y
+**wgpu-native** (D3D12 / Vulkan / Metal) como alternativa y fallback. **R2**
+usa un **árbol de estilos pre-layout** (`ui_data.h`) y calcula el layout en C
+en runtime.
 
 > **Origen:** nació como un experimento personal para usar HTML/CSS como
 > lenguaje de vista de apps desktop nativas, sin el peso de Electron/WebView y
@@ -99,6 +100,7 @@ Resumen de lo que hay hoy:
 | Área | Estado |
 |---|---|
 | Layout | block, flex, grid, scroll vertical, resize |
+| Renderer | D3D11 hardware (Windows, por defecto); wgpu-native (D3D12/Vulkan/Metal) |
 | Contenido | texto pre-shapeado, imágenes locales (WIC) |
 | Interacción | hover/press/selected, wheel, input de una línea |
 | Dinamismo | visibilidad, `set_image`, clone/append/remove |
@@ -122,6 +124,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File src\build.ps1 `
 
 # R2: build + aceptación del runtime dinámico (layout, reflow, estados, texto)
 powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build.ps1
+
+# El runtime usa D3D11 hardware en Windows. Para comparar con wgpu:
+#   $env:WN_RENDERER='wgpu'; ...\build_abi.ps1 ; Remove-Item Env:\WN_RENDERER
 
 # Frontend Python: HTML/CSS -> IR + PNG
 cd src\frontend\python

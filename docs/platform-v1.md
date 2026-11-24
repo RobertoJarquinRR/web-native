@@ -46,7 +46,8 @@ función).
 ## Cross-platform
 
 La frontera ya existe: **`wn_host`** (ventana, input, superficie, tiempo) y
-**`wn_renderer`** (wgpu). El core C no debe ganar `#ifdef` de plataforma.
+**`wn_renderer`** (D3D11 en Windows, wgpu en el resto). El core C no debe ganar
+`#ifdef` de plataforma.
 
 | Portable (core C) | Adaptador `wn_host` por OS | Fuera del engine |
 |---|---|---|

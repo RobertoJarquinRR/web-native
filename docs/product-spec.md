@@ -38,9 +38,11 @@ Sin navegador, sin WebView, sin motor JS en el core.
 
 ## Plataformas
 
-- **Windows 10/11 x64** primero (Win32 + wgpu-native/D3D12).
+- **Windows 10/11 x64** primero (Win32 + D3D11 hardware, con wgpu-native como
+  fallback y alternativa).
 - macOS/Linux después (winit/SDL + wgpu Metal/Vulkan).
-- Backend GPU alternativo (D2D/D3D11) futuro para footprint mínimo.
+- wgpu sigue enlazado para A/B y fallback; retirarlo es un paso aparte
+  (implica dejar de enlazar `renderer_wgpu.c` y `wgpu_native.dll`).
 
 ## Presupuesto (fase 1)
 
@@ -53,7 +55,8 @@ Sin navegador, sin WebView, sin motor JS en el core.
 | Layout, 100 nodos | ≤ 0.5 ms |
 | Binario del engine (sin wgpu DLL) | ≤ 1 MB |
 
-Futuro Windows-only con D2D/D3D11: ≤ 5 MB total.
+Windows-only sin `wgpu_native.dll` (solo D3D11): ≤ 5 MB total, pendiente de
+retirar el backend wgpu del enlace.
 
 ## Criterios de éxito (fase 1)
 

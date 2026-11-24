@@ -4,7 +4,7 @@
 
 1. **C ABI pura**: `extern "C"`, sin name mangling, sin tipos de C++/Rust/.NET.
 2. **Handles opacos**: `wn_app*`, `wn_view*`, `wn_node_id`; el host no ve structs internos.
-3. **Sin GPU en la ABI**: no se expone wgpu, D3D12, Vulkan ni Metal.
+3. **Sin GPU en la ABI**: no se expone D3D11, wgpu, D3D12, Vulkan ni Metal.
 4. **UTF-8** en todas las strings.
 5. **Single-threaded UI**: todas las llamadas y callbacks en el hilo de UI.
 6. **Strings copiadas** por el engine; el caller conserva ownership.

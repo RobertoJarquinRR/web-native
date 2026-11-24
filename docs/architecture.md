@@ -18,7 +18,7 @@
 │    tree · styles · layout · state · hit test · display list  │
 ├──────────────────────────────────────────────────────────────┤
 │ 5. Renderer backend (vtable)                                 │
-│    wgpu-native (D3D12/Vulkan/Metal/GL) · futuro D2D/D3D11    │
+│    D3D11 (Windows) · wgpu-native (D3D12/Vulkan/Metal/GL)     │
 ├──────────────────────────────────────────────────────────────┤
 │ 6. Platform host                                             │
 │    Win32 standalone · host-provided embedded (HWND)          │
@@ -48,7 +48,7 @@
 | HTML/CSS → UI tree R2 | `ui.json` | frontend | `emit_ui` |
 | IR → datos C | `scene_data.h` / `ui_data.h` | emitters | runtime |
 | App ↔ engine | `include/webnative.h` | engine | host (C/C++/Rust/C#/Python) |
-| Engine ↔ GPU | vtable `wn_renderer` | core | wgpu backend |
+| Engine ↔ GPU | vtable `wn_renderer` | core | D3D11 o wgpu |
 | Engine ↔ OS | vtable `wn_host` | core | Win32 host |
 
 ## Flujos
@@ -57,7 +57,7 @@
 
 ```
 HTML/CSS → frontend Rust → display_list.json → emit_c(_text)
-         → scene_data.h → cl.exe → app.exe → wgpu → ventana/PNG
+         → scene_data.h → cl.exe → app.exe → renderer → ventana/PNG
 ```
 
 ### R2 dinámico
@@ -65,9 +65,13 @@ HTML/CSS → frontend Rust → display_list.json → emit_c(_text)
 ```
 HTML/CSS → frontend Rust --emit-ui → ui.json (+atlas)
          → emit_ui.py → ui_data.h → cl.exe → app.exe
-runtime: eventos → estado → layout C → display list → wgpu → ventana
+runtime: eventos → estado → layout C → display list → renderer → ventana
 host: ABI v4 → set_visible/set_image/set_text/clone (v3) + input (v4)
 ```
+
+`renderer` es la vtable `wn_renderer`. En Windows el backend por defecto es
+**D3D11 hardware** (`renderer_d3d11.c`) con fallback a **wgpu-native**; en otras
+plataformas solo wgpu. `WN_RENDERER=d3d11|wgpu` fuerza uno para A/B.
 
 ## Repo
 
