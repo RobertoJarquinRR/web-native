@@ -199,10 +199,22 @@ def main() -> int:
           log_1280.get("image_vertices") == 108,
           f"{log_1280.get('image_vertices')} vertices")
 
-    for width, base_name, wheel_name, clip_rect in (
-        (1280, "render_1280.png", "wheel_1280.png", (40, 80, 1200, 468)),
-        (800, "render_800.png", "wheel_800.png", (40, 80, 612, 468)),
+    # The scroll container paints a scrollbar on its right edge (E1), so the
+    # change bbox may legitimately reach it. Derive the clip from the layout
+    # report and leave the bar strip out instead of hardcoding old widths.
+    scrollbar_strip = 14
+    content_pad = 16
+
+    def clip_for(width):
+        node = sizes[width]["nodes"][2]
+        return (node["x"] + content_pad, node["y"] + content_pad,
+                node["x"] + node["w"] - scrollbar_strip, node["y"] + node["h"])
+
+    for width, base_name, wheel_name in (
+        (1280, "render_1280.png", "wheel_1280.png"),
+        (800, "render_800.png", "wheel_800.png"),
     ):
+        clip_rect = clip_for(width)
         group = f"wheel@{width}"
         normal = Image.open(root / base_name)
         scrolled = Image.open(root / wheel_name)
@@ -222,9 +234,11 @@ def main() -> int:
     normal = Image.open(root / "render_800.png")
     clamped = Image.open(root / "wheel_max.png")
     changed, bbox = diff(normal, clamped)
+    clip_800 = clip_for(800)
     check(group, "max scroll changes content", changed > 10000, f"{changed} px")
     check(group, "max scroll stays inside the clip",
-          bbox is not None and bbox[1] >= 79 and bbox[2] <= 613 and bbox[3] <= 469,
+          bbox is not None and bbox[1] >= clip_800[1] - 1 and
+          bbox[2] <= clip_800[2] + 1 and bbox[3] <= clip_800[3] + 1,
           f"bbox={bbox}")
     check(group, "footer untouched at max scroll",
           rgb(clamped, 400, 510) == CARD, f"{rgb(clamped, 400, 510)}")
