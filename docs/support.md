@@ -80,9 +80,9 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 
 | Propiedad | Frontend | R1 | R2 | Notas |
 |---|---|---|---|---|
-| `border`, `border-width`, `border-style`, `border-color` | Pilot v3 | warning | En curso | render sólido por lado uniforme; per-side v1 no |
-| `border-radius` | Pilot v3 | warning | En curso | uniforme; per-corner v1 no |
-| `box-shadow` | Pilot v3 | warning | En curso | primera sombra no-inset; blur aproximado |
+| `border`, `border-width`, `border-style`, `border-color` | Pilot v3 | warning | Sí (v1) | uniforme; per-side v1 no |
+| `border-radius` | Pilot v3 | warning | Sí (v1) | uniforme; per-corner v1 no |
+| `box-shadow` | Pilot v3 | warning | Sí (v1) | primera sombra no-inset; blur aproximado |
 | `em`, `rem`, `vh`, `vw` | Pilot v3 | warning | Parcial | el frontend resuelve px en build; el runtime no re-resuelve al resize |
 | `@media`, `@font-face` | No | No | No | fuera del subset |
 
@@ -98,6 +98,7 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | Wheel | ✅ | `WN_EVENT_WHEEL` |
 | UI dinámica v3 | ✅ | visibilidad, `set_image`, clone/append/remove |
 | Input v4 | ✅ | ASCII, caret, selección, clipboard Win32 |
+| Bordes / radius / sombras v1 | ✅ | radio/borde uniforme; primera sombra; sin per-side/inset |
 | Virtualización / culling | ❌ | pendiente |
 | Text shaping runtime | ❌ | glifos pre-shapeados en build |
 | Bidi, CJK, emoji, IME | ❌ | pendiente |

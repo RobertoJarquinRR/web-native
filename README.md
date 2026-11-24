@@ -77,8 +77,9 @@ paridad.
 | ABI C v4 | ✅ standalone/embedded; v3 dinámica + v4 input |
 | Dynamic UI (v3) | ✅ `set_visible`, `set_image`, `set_text`, clone/append/remove (53/53) |
 | Text input (v4) | ✅ ASCII single-line, caret/selección/clipboard, `WN_EVENT_INPUT` (111/111) |
-| CSS v3 (frontend) | ✅ bordes/radius/sombras/unidades; render en core en curso |
-| Host C# (piloto) | ✅ 30 cards, detalle, filtros, open-with-system (65/65) |
+| CSS v3 (frontend) | ✅ bordes/radius/sombras/unidades |
+| CSS core v1 | ✅ radius/borde uniforme + primera sombra (41/41) |
+| Host C# (piloto) | ✅ 30 cards, búsqueda real, detalle, filtros, open (108/108) |
 | AOT HTML → `.exe` | ✅ rects; texto vía `c-static/build_text.ps1` |
 | Interactividad | ✅ R2 (`src/runtime/c-r2`); prototipo histórico en `archive/experiments/12` |
 
@@ -100,7 +101,7 @@ Resumen de lo que hay hoy:
 | Contenido | texto pre-shapeado, imágenes locales (WIC) |
 | Interacción | hover/press/selected, wheel, input de una línea |
 | Dinamismo | visibilidad, `set_image`, clone/append/remove |
-| CSS visual | radius/bordes/sombras en curso en el core |
+| CSS visual | radius/bordes/sombras v1; per-side/per-corner/inset pendiente |
 | Fuera | JS, iframes, red, parser runtime, formularios web, UIA/IME |
 
 La matriz completa —frontend, R1, R2 y limitaciones— está en

@@ -63,8 +63,9 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 - `border-radius` (px).
 - `overflow: hidden` (sin scroll en v1).
 
-> **Runtime actual:** el frontend emite bordes/radius, pero el render en R2 está
-> en curso (v1 sólido, radio uniforme). `box-shadow` es una extensión pilot v3.
+> **Runtime actual:** CSS core v1 ya pinta radio y borde uniformes y la primera
+> sombra no-inset. Per-side, per-corner e inset siguen pendientes.
+> `box-shadow` es una extensión pilot v3.
 
 ### Estados
 
