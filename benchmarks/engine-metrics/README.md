@@ -1,9 +1,11 @@
 # Engine metrics — harness de métricas de webnative
 
-Medición reproducible de tamaño, arranque, memoria y frame de los dos runtimes C:
+Medición reproducible de tamaño, arranque, memoria y frame del runtime C:
 
-- **R2** (`src/runtime/c-r2`): layout en runtime, Win32, wgpu-native/D3D12.
-- **R1** (`src/runtime/c-static`): display list horneado en build time, mismo backend.
+- **Runtime** (`src/runtime/c-r2`): layout en runtime, Win32, D3D11/wgpu.
+
+R1 (`src/runtime/c-static`) está archivado; si `src/build.ps1` no existe, el
+harness avisa y omite las filas de R1.
 
 El resultado es `baseline.json` (todas las muestras crudas) + `BASELINE.md` (tabla
 legible y metodología). **Ningún número está inventado**: cada valor sale de una
@@ -26,7 +28,8 @@ El script:
 2. **congela** el build actual de R2 (`runtime_r2.exe` + `wgpu_native.dll` +
    atlas) en `snapshot/` y escribe `snapshot.json` con commit y SHA-256. Si el
    build no existe, lo compila una vez con `src/runtime/c-r2/build.ps1`;
-3. compila R1 una vez con `src/build.ps1` en `work/r1-build` (desechable);
+3. (opcional) compila R1 con `src/build.ps1` en `work/r1-build` si el script
+   todavía existe; si no, omite las filas de R1 y sigue;
 4. compila una variante de R2 con **100 nodos** en `work/layout100` (mismo
    `runtime_r2.c`, `ui_data.h` distinto) para medir el layout del presupuesto;
 5. mide 10 runs por métrica y escribe `baseline.json` + `BASELINE.md`.
@@ -37,7 +40,7 @@ Opciones:
 |---|---|
 | `-Runs N` | runs medidos por métrica (por defecto 10; siempre 1 warm-up extra) |
 | `-ForceSnapshot` | vuelve a copiar el build actual de R2 al snapshot |
-| `-RebuildR1` | recompila R1 con `src/build.ps1` |
+| `-RebuildR1` | recompila R1 con `src/build.ps1` (solo si el script existe; archivado) |
 | `-SkipR1` | no mide R1 |
 | `-SkipLayout100` | no compila/mide la variante de 100 nodos |
 | `-NoWarmup` | sin ejecución de calentamiento |
@@ -223,5 +226,5 @@ evidencia.
 - `docs/metrics.md` — definiciones y presupuesto fase 1.
 - `docs/product-spec.md` — presupuesto de producto.
 - `src/runtime/c-r2/README.md` — CLI `--render`, `--report`, `--frames`, `--states`.
-- `src/runtime/c-static/README.md` — R1 y `build_text.ps1`.
+- `archive/r1-static/README.md` — R1 archivado y `build_text.ps1`.
 - `BASELINE.md` — resultados de la última ejecución.

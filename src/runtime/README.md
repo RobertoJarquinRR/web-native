@@ -1,31 +1,26 @@
-# Runtimes nativos (`src/runtime`)
+# Runtime nativo (`src/runtime`)
 
-Dos runtimes C comparten `third_party/wgpu-native` y **no comparten código**:
-son dos etapas distintas del mismo proyecto, no dos backends intercambiables.
+Queda **un** runtime: `c-r2`. R1 vivía en `c-static` y se archivó
+([`../../archive/r1-static/`](../../archive/r1-static/README.md)) porque
+duplicaba layout y renderer.
 
-| | **R1 — `c-static`** | **R2 — `c-r2`** |
-|---|---|---|
-| Qué consume | `scene_data.h` (escena ya horneada: vértices + WGSL) | `ui_data.h` (árbol de estilos plano: `UiNode[]`) |
-| Dónde se calcula el layout | Build time (frontend Rust → IR) | **Runtime, en C** |
-| Reflow al redimensionar | No (geometría fija; solo se reescala el swapchain) | **Sí** (`WM_SIZE` → re-layout completo) |
-| Eventos / hit testing | No | **Sí** (hover / pressed / selected) |
-| Texto | Horneado en el display list (glyphs + atlas) | Horneado en `ui_data.h` (HarfBuzz/FreeType en build time) |
-| Entrada del build | `src/build.ps1 -Html <fixture>` | `src/runtime/c-r2/build.ps1` |
-| Emisor | `src/emitter/python/emit_c.py` (o `emit_c_text.py`) | `src/emitter/python/emit_ui.py` |
-| Frontend | Rust canónico (u oráculo Python) | **Python (oráculo)** — ver nota |
-| Artefactos | `build/<OutDir>/` | `src/runtime/c-r2/build/` |
-| Estado | ✅ PASS (rects; texto vía `build_text.ps1`) | ✅ PASS (69/69 checks) |
+| | **`c-r2`** |
+|---|---|
+| Qué consume | `ui_data.h` (árbol de estilos plano: `UiNode[]`) |
+| Dónde se calcula el layout | **Runtime, en C** |
+| Reflow al redimensionar | **Sí** (`WM_SIZE` → re-layout completo) |
+| Eventos / hit testing | **Sí** (hover / pressed / selected) |
+| Texto | Horneado en `ui_data.h` (HarfBuzz/FreeType en build time) |
+| Entrada del build | `src/runtime/c-r2/build.ps1` |
+| Emisor | `src/emitter/python/emit_ui.py` |
+| Frontend | Rust canónico (oráculo Python en `--emit-ui` alternativo) |
+| Artefactos | `src/runtime/c-r2/build/` |
+| Estado | ✅ PASS (69/69 checks); piloto 48/48 |
 
-## R1 — `src/runtime/c-static`
+## Histórico: R1 — `archive/r1-static`
 
-Runtime estático: el `.exe` reproduce una escena ya resuelta. Es el camino
-canónico de producción actual y el que usa `src/build.ps1`.
-
-- `runtime_gpu.c` — offscreen PNG (WIC).
-- `runtime_window.c` — ventana Win32 + swapchain (rects; texto opcional).
-- `runtime_gpu_text.c` — offscreen con texto.
-- `build_text.ps1` — build + verificación completa de texto (no sustituye a
-  `src/build.ps1`).
+Runtime estático (escena horneada, sin layout en runtime). Ya no se compila ni
+se testea; se conserva como referencia. Detalles en su README.
 
 ## R2 — `src/runtime/c-r2`
 

@@ -68,10 +68,8 @@ Construir y conservar (nombres reales del repo):
 
 | Artefacto | Origen | Qué es |
 |---|---|---|
-| `build/<OutDir>/render_png.exe` | `src/build.ps1` | R1 offscreen: HTML/CSS → PNG (p. ej. `build/rect/`) |
-| `build/<OutDir>/webnative-rust.exe` | `src/build.ps1` | R1 ventana, escena horneada |
 | `build/<OutDir>/wgpu_native.dll` | `tools/fetch-wgpu.ps1` | Runtime GPU (obligatorio) |
-| `src/runtime/c-r2/build/runtime_r2.exe` | `src/runtime/c-r2/build.ps1` | R2: layout runtime, eventos, `--render`, `--frames` |
+| `src/runtime/c-r2/build/runtime_r2.exe` | `src/runtime/c-r2/build.ps1` | Layout runtime, eventos, `--render`, `--frames` |
 | `src/runtime/c-r2/build/wgpu_native.dll` | idem | Copia de la DLL para R2 |
 | `build_abi/standalone.exe` | `build_abi.ps1` | Demo standalone (ABI v4) |
 | `build_abi/embedded.exe` | `build_abi.ps1` | Demo embedded (ABI v4) |

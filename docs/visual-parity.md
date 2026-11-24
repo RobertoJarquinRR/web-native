@@ -76,14 +76,17 @@ chrome-headless-shell.exe `
 ### 3.2 Nativo
 
 ```powershell
-# R1
-powershell -NoProfile -ExecutionPolicy Bypass -File src\build.ps1 `
-  -Html benchmarks\visual-parity\fixtures\<name>\index.html `
-  -OutDir build\visual\<name> -Width 1280 -Height 800
-
-# R2 (tras build.ps1 del runtime)
-.\runtime_r2.exe --render 1280 800 out_1280.png
+# Compila el fixture y renderiza offscreen con el motor (ya implementado)
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build.ps1 `
+  -Html benchmarks\frontend-parity\fixtures\<name>\index.html `
+  -Css  benchmarks\frontend-parity\fixtures\<name>\style.css `
+  -Width 1280 -Height 800 -OutDir build\visual\<name> -SkipRustBuild
+.\build\visual\<name>\runtime_r2.exe --render 1280 800 out.png
 ```
+
+> R1 quedó archivado (`archive/r1-static/`); el harness ya no compila escenas
+> horneadas. La ruta offscreen sigue siendo la de `runtime_r2.c` (wgpu directo),
+> no la vtable D3D11; ese es el siguiente paso de consolidación del renderer.
 
 - R1 y R2 deben producir la misma imagen para fixtures sin texto ni estados
   dinámicos; si divergen, se reporta como hallazgo, no se promedia.
