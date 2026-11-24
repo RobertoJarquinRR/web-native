@@ -1,4 +1,4 @@
-# ABI C v0
+# ABI C v2
 
 ## Principios
 
@@ -11,7 +11,7 @@
 7. **Sin excepciones**: todo devuelve `wn_status`; error legible en `wn_last_error`.
 8. **Versionado**: `WN_ABI_VERSION` + `wn_version()`; breaking bump de major.
 
-## Superficie v0
+## Superficie v2
 
 ### Común
 
@@ -26,7 +26,7 @@
 | Función | Uso |
 |---|---|
 | `wn_app_create(config)` | crea la app (ventana + loop propios) |
-| `wn_app_load(html, base_url, css)` | carga el documento |
+| `wn_app_load(html, base_url, css)` | copia HTML/CSS; renderiza el árbol compilado (sin parser runtime) |
 | `wn_app_set_text(id, text)` | cambia el texto de un nodo |
 | `wn_app_set_class(id, class, on)` | añade/quita una clase |
 | `wn_app_on_event(cb, userdata)` | registra callback |
@@ -56,12 +56,15 @@ typedef struct wn_event {
     uint32_t codepoint;      // UTF-32 para WN_EVENT_CHAR
     int32_t width, height;   // resize
     uint32_t modifiers;      // WN_MOD_*
+    float delta_x, delta_y;  // wheel (v2)
 } wn_event;
 ```
 
 - `target_id` solo es válido durante el callback.
 - El host embedded decide cuándo llamar `wn_view_event` (su loop).
 - El app standalone traduce Win32 → `wn_event` internamente.
+- v2 añade `WN_EVENT_WHEEL` con `delta_x`/`delta_y`; el wheel-forward es
+  `delta_y < 0` (convención DOM).
 
 ## Ownership y threading
 
@@ -102,18 +105,20 @@ int main(void) {
 > `WN_EVENT_POINTER_UP` sobre el mismo nodo con `data-action`. Un evento
 > `CLICK` explícito sería una adición compatible de la ABI (v1).
 
-## Limitaciones de v0 (importante)
+## Limitaciones de v2 (importante)
 
-- `wn_app_load` / `wn_view_load` **copian** HTML/CSS, pero v0 renderiza el
+- `wn_app_load` / `wn_view_load` **copian** HTML/CSS, pero v2 renderiza el
   árbol compilado `ui_data.h`. **No hay parser HTML/CSS en runtime**; cambiar
   la página requiere recompilar el árbol.
 - `set_text` solo reutiliza glifos pre-shapeados al tamaño del nodo. Texto
   arbitrario puede devolver `WN_ERR_UNSUPPORTED`; el shaping en runtime es
   posterior.
-- Sin scroll, imágenes, listas dinámicas/virtualización, clipboard, IME,
-  accesibilidad, selección de texto, wrapping ni bidi.
+- El runtime v2 soporta grid/scroll/imágenes desde el árbol compilado; la ABI
+  aún no expone funciones para mutarlos (Dynamic UI API v3 en curso).
+- Sin listas dinámicas/virtualización, clipboard, IME, accesibilidad,
+  selección de texto, wrapping ni bidi.
 - Sin path offscreen en la ABI (sigue en `runtime_r2.exe --render/--states`).
-- Sin bindings C#/WPF/WinForms todavía.
+- Sin bindings C#/WPF/WinForms todavía (host C# en curso).
 - `wn_app_run`/`wn_view_render` son single-thread; no reentrar.
 
 ## Binding C# (fase 2)
@@ -131,13 +136,14 @@ private static void OnEvent(nint userdata, nint ev) { /* ... */ }
   `Marshal.GetFunctionPointerForDelegate` (JIT).
 - Sin tipos de UI de .NET expuestos a la ABI.
 
-## Fuera de v0
+## Fuera de v2
 
-- Múltiples documentos/ventanas por handle (v1).
-- Modelo de componentes/templates.
+- Dynamic UI API (v3 en curso): crear/clonar/eliminar nodos, visibilidad,
+  set_image, set_text arbitrario.
+- Text input completo (v3).
+- Modelo de componentes/templates (v3).
 - Scripting/JS.
 - Accesibilidad/IME declarativos.
-- Text input completo (v1).
 - Networking.
 
 ## Archivo
