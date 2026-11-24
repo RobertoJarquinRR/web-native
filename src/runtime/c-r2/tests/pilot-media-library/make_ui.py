@@ -35,6 +35,7 @@ def style(**values) -> dict:
         "padding": [0, 0, 0, 0],
         "gap": 0.0,
         "font_size": 16.0,
+        "box_sizing": "border-box",
     }
     base.update(values)
     return base

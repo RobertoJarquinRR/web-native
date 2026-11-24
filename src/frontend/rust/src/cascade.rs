@@ -55,6 +55,8 @@ pub struct ComputedStyle {
     pub line_height: f64,
     /// `margin-*: auto` por lado (top, right, bottom, left). E1.
     pub margin_auto: [bool; 4],
+    /// `box-sizing: border-box` (E8/A). false = content-box, el default de CSS.
+    pub box_sizing_border: bool,
     pub flex_direction: String,
     pub justify_content: String,
     pub align_items: String,
@@ -207,6 +209,9 @@ fn resolve(
 
     let (width, width_pct, width_rel) = resolve_box_length(raw.get("width"), &ctx);
     let (height, height_pct, height_rel) = resolve_box_length(raw.get("height"), &ctx);
+    let box_sizing_border = raw
+        .get("box-sizing")
+        .is_some_and(|value| value.trim().eq_ignore_ascii_case("border-box"));
     let (min_width, min_width_pct, min_width_rel) = resolve_box_length(raw.get("min-width"), &ctx);
     let (max_width, max_width_pct, max_width_rel) = resolve_box_length(raw.get("max-width"), &ctx);
     let (min_height, min_height_pct, min_height_rel) =
@@ -305,6 +310,7 @@ fn resolve(
         text_align,
         line_height,
         margin_auto,
+        box_sizing_border,
         flex_direction: keyword(&raw, "flex-direction", "row"),
         justify_content: keyword(&raw, "justify-content", "flex-start"),
         align_items: keyword(&raw, "align-items", "stretch"),

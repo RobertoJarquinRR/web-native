@@ -1,3 +1,4 @@
+* { box-sizing: border-box; }
 /* Media-library pilot, A0 visual fixture.
  *
  * Contract subset: docs/subset-v1.md. The grid, scroll and local-image bits

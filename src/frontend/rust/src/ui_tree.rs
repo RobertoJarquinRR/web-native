@@ -194,6 +194,8 @@ struct StyleOut {
     text_align: String,
     line_height: f64,
     margin_auto: [bool; 4],
+    /// `box-sizing: border-box` (A). false = content-box (CSS default).
+    box_sizing_border: bool,
     /// v3: bordes, radio, sombras y unidades relativas (solo schema `/2`).
     css3: StyleV3,
 }
@@ -493,6 +495,7 @@ impl<'a> Builder<'a> {
                 text_align: style.text_align.clone(),
                 line_height: style.line_height,
                 margin_auto: style.margin_auto,
+                box_sizing_border: style.box_sizing_border,
                 css3: style.css3.clone(),
             },
             data: DataOut {
@@ -649,6 +652,7 @@ impl<'a> Builder<'a> {
                 text_align: style.text_align.clone(),
                 line_height: style.line_height,
                 margin_auto: [false; 4],
+                box_sizing_border: style.box_sizing_border,
                 css3: StyleV3::default(),
             },
             data: DataOut {
@@ -950,6 +954,15 @@ fn push_style(out: &mut String, style: &StyleOut, detailed: bool, extras: bool) 
             out.push_str(if *value { "1" } else { "0" });
         }
         out.push(']');
+        out.push_str(",\n        \"box_sizing\": ");
+        push_json_string(
+            out,
+            if style.box_sizing_border {
+                "border-box"
+            } else {
+                "content-box"
+            },
+        );
     }
     if detailed {
         push_style_v3(out, &style.css3);
@@ -1238,6 +1251,7 @@ pub fn emit_ui_tree(
         node.style.text_align != "left"
             || node.style.line_height != 0.0
             || node.style.margin_auto.iter().any(|value| *value)
+            || node.style.box_sizing_border
     });
     let schema = if v3 {
         SCHEMA_V3

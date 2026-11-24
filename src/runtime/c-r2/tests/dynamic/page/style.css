@@ -1,3 +1,4 @@
+* { box-sizing: border-box; }
 /* Dynamic UI v0 fixture: 400x300, one flex row of cards with image + text. */
 
 html {

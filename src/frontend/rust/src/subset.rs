@@ -972,7 +972,13 @@ fn check_property(
             "nowrap | wrap",
             &mut report,
         ),
-        "box-sizing" => check_keyword(name, &lowered, &["border-box"], "border-box", &mut report),
+        "box-sizing" => check_keyword(
+            name,
+            &lowered,
+            &["border-box", "content-box"],
+            "border-box",
+            &mut report,
+        ),
         "border-style" => check_keyword(
             name,
             &lowered,

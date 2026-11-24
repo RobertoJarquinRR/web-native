@@ -1,3 +1,4 @@
+* { box-sizing: border-box; }
 /* R2 core fixture. Border-box model, px + % sizes, flex row/column with gap,
    wrap and data-* interaction colors. No rounded corners, no fonts. */
 

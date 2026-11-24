@@ -46,6 +46,7 @@
         ],
         "gap": 0.0,
         "font_size": 16.0,
+        "box_sizing": "border-box",
         "background": "#0b0e14"
       }
     },
@@ -79,6 +80,7 @@
         ],
         "gap": 0.0,
         "font_size": 16.0,
+        "box_sizing": "border-box",
         "background": "#121824"
       },
       "id": 1
@@ -115,6 +117,7 @@
         ],
         "gap": 0.0,
         "font_size": 16.0,
+        "box_sizing": "border-box",
         "overflow": "scroll",
         "background": "#10141b"
       },
@@ -150,6 +153,7 @@
         ],
         "gap": 0.0,
         "font_size": 16.0,
+        "box_sizing": "border-box",
         "background": "#1a1f2a"
       },
       "id": 3
@@ -203,6 +207,7 @@
         ],
         "gap": 16.0,
         "font_size": 16.0,
+        "box_sizing": "border-box",
         "grid_template_columns": {
           "mode": "auto_fill",
           "size_px": 180
@@ -243,6 +248,7 @@
         ],
         "gap": 0.0,
         "font_size": 16.0,
+        "box_sizing": "border-box",
         "background": "#1a1f2a"
       },
       "image": {
@@ -282,6 +288,7 @@
         ],
         "gap": 0.0,
         "font_size": 16.0,
+        "box_sizing": "border-box",
         "background": "#1a1f2a"
       },
       "image": {
@@ -321,6 +328,7 @@
         ],
         "gap": 0.0,
         "font_size": 16.0,
+        "box_sizing": "border-box",
         "background": "#1a1f2a"
       },
       "image": {
@@ -360,6 +368,7 @@
         ],
         "gap": 0.0,
         "font_size": 16.0,
+        "box_sizing": "border-box",
         "background": "#1a1f2a"
       },
       "image": {
@@ -399,6 +408,7 @@
         ],
         "gap": 0.0,
         "font_size": 16.0,
+        "box_sizing": "border-box",
         "background": "#1a1f2a"
       },
       "image": {
@@ -438,6 +448,7 @@
         ],
         "gap": 0.0,
         "font_size": 16.0,
+        "box_sizing": "border-box",
         "background": "#1a1f2a"
       },
       "image": {
@@ -477,6 +488,7 @@
         ],
         "gap": 0.0,
         "font_size": 16.0,
+        "box_sizing": "border-box",
         "background": "#1a1f2a"
       },
       "image": {
@@ -516,6 +528,7 @@
         ],
         "gap": 0.0,
         "font_size": 16.0,
+        "box_sizing": "border-box",
         "background": "#1a1f2a"
       },
       "image": {
@@ -555,6 +568,7 @@
         ],
         "gap": 0.0,
         "font_size": 16.0,
+        "box_sizing": "border-box",
         "background": "#1a1f2a"
       },
       "image": {
@@ -594,6 +608,7 @@
         ],
         "gap": 0.0,
         "font_size": 16.0,
+        "box_sizing": "border-box",
         "background": "#1a1f2a"
       },
       "image": {
@@ -633,6 +648,7 @@
         ],
         "gap": 0.0,
         "font_size": 16.0,
+        "box_sizing": "border-box",
         "background": "#1a1f2a"
       },
       "image": {
@@ -672,6 +688,7 @@
         ],
         "gap": 0.0,
         "font_size": 16.0,
+        "box_sizing": "border-box",
         "background": "#1a1f2a"
       },
       "image": {
@@ -711,6 +728,7 @@
         ],
         "gap": 0.0,
         "font_size": 16.0,
+        "box_sizing": "border-box",
         "background": "#1a1f2a"
       },
       "image": {
@@ -750,6 +768,7 @@
         ],
         "gap": 0.0,
         "font_size": 16.0,
+        "box_sizing": "border-box",
         "background": "#1a1f2a"
       },
       "image": {
@@ -789,6 +808,7 @@
         ],
         "gap": 0.0,
         "font_size": 16.0,
+        "box_sizing": "border-box",
         "background": "#1a1f2a"
       },
       "image": {
@@ -828,6 +848,7 @@
         ],
         "gap": 0.0,
         "font_size": 16.0,
+        "box_sizing": "border-box",
         "background": "#1a1f2a"
       },
       "image": {
@@ -867,6 +888,7 @@
         ],
         "gap": 0.0,
         "font_size": 16.0,
+        "box_sizing": "border-box",
         "background": "#1a1f2a"
       },
       "image": {
@@ -906,6 +928,7 @@
         ],
         "gap": 0.0,
         "font_size": 16.0,
+        "box_sizing": "border-box",
         "background": "#1a1f2a"
       },
       "image": {

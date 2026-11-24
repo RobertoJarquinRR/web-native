@@ -1,3 +1,4 @@
+* { box-sizing: border-box; }
 /* Text input fixture (ui-tree/3). Block layout, one search field with a
    pre-typed value and one empty field with a placeholder. */
 

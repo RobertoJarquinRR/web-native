@@ -118,10 +118,18 @@ typedef struct {
 #if defined(UI_STYLE_EXTRAS)
 #define WN_TEXT_ALIGN(n) ((n)->text_align)
 #define WN_MARGIN_AUTO(n, bit) ((((n)->margin_auto) >> (bit)) & 1)
+/* 1 = border-box (width/height include padding); 0/absent = content-box (CSS
+ * default). Pages that don't declare box-sizing keep the browser behaviour. */
+#define WN_BOX_SIZING(n) ((n)->box_sizing)
 #else
 #define WN_TEXT_ALIGN(n) 0
 #define WN_MARGIN_AUTO(n, bit) 0
+#define WN_BOX_SIZING(n) 0
 #endif
+
+/* Outer (border-box) width/height of the declared size. */
+#define WN_DECL_W(n) ((WN_BOX_SIZING(n)) ? 0.0f : ((n)->padding[1] + (n)->padding[3]))
+#define WN_DECL_H(n) ((WN_BOX_SIZING(n)) ? 0.0f : ((n)->padding[0] + (n)->padding[2]))
 
 #ifndef R2_NODE_INPUT
 #define R2_NODE_INPUT 5
@@ -574,10 +582,10 @@ static float intrinsic_width(wn_core *c, int node, float available)
 {
     const UiNode *n = &c->nodes[node];
     if (n->width >= 0.0f) {
-        return n->width;
+        return n->width + WN_DECL_W(n);
     }
     if (n->width_pct > 0.0f) {
-        return available * n->width_pct * 0.01f;
+        return available * n->width_pct * 0.01f + WN_DECL_W(n);
     }
     if (n->kind == R2_NODE_TEXT) {
         return n->width > 0.0f ? n->width : 0.0f;
@@ -1044,9 +1052,9 @@ static float layout_grid_children(wn_core *c, int parent, float content_x,
         const UiNode *n = &c->nodes[items[k]];
         float forced = track;
         if (n->width >= 0.0f) {
-            forced = n->width;
+            forced = n->width + WN_DECL_W(n);
         } else if (n->width_pct > 0.0f) {
-            forced = content_w * n->width_pct * 0.01f;
+            forced = content_w * n->width_pct * 0.01f + WN_DECL_W(n);
         }
         forced = fmaxf(forced - n->margin[1] - n->margin[3], 0.0f);
         layout_node(c, items[k], 0.0f, 0.0f, content_w, content_h, 0, forced);
@@ -1107,11 +1115,11 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
     }
     c->visible_eff[node] = 1;
     if (forced_w >= 0.0f) {
-        w = forced_w;
+        w = forced_w;   /* already a border-box width (grid/flex added padding) */
     } else if (n->width >= 0.0f) {
-        w = n->width;
+        w = n->width + WN_DECL_W(n);
     } else if (n->width_pct > 0.0f) {
-        w = available_w * n->width_pct * 0.01f;
+        w = available_w * n->width_pct * 0.01f + WN_DECL_W(n);
     } else if (n->kind == R2_NODE_IMAGE && n->image_width > 0.0f) {
         w = n->image_width;
     } else {
@@ -1131,10 +1139,11 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
     float content_h = -1.0f;
     int definite_h = 0;
     if (n->height >= 0.0f) {
-        content_h = fmaxf(n->height - pad_t - pad_b, 0.0f);
+        content_h = fmaxf(n->height - (WN_BOX_SIZING(n) ? pad_t + pad_b : 0.0f), 0.0f);
         definite_h = 1;
     } else if (n->height_pct > 0.0f && parent_content_h >= 0.0f) {
-        content_h = fmaxf(parent_content_h * n->height_pct * 0.01f - pad_t - pad_b, 0.0f);
+        content_h = fmaxf(parent_content_h * n->height_pct * 0.01f -
+                              (WN_BOX_SIZING(n) ? pad_t + pad_b : 0.0f), 0.0f);
         definite_h = 1;
     }
 
@@ -1142,7 +1151,7 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
     const float content_y = y + pad_t;
 
     if (n->kind == R2_NODE_TEXT) {
-        float h = n->height >= 0.0f ? n->height : (content_h >= 0.0f ? content_h : 0.0f);
+        float h = n->height >= 0.0f ? n->height + WN_DECL_H(n) : (content_h >= 0.0f ? content_h : 0.0f);
         c->rects[node].x = x;
         c->rects[node].y = y;
         c->rects[node].w = w;
@@ -1152,9 +1161,9 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
     if (n->kind == R2_NODE_IMAGE) {
         float h;
         if (n->height >= 0.0f) {
-            h = n->height;
+            h = n->height + WN_DECL_H(n);
         } else if (n->height_pct > 0.0f && parent_content_h >= 0.0f) {
-            h = parent_content_h * n->height_pct * 0.01f;
+            h = parent_content_h * n->height_pct * 0.01f + WN_DECL_H(n);
         } else if (n->image_height > 0.0f && n->image_width > 0.0f) {
             h = w * (n->image_height / n->image_width);
         } else {
@@ -1171,9 +1180,9 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
          * de la fuente (ascender + descender) mas el padding. */
         float h;
         if (n->height >= 0.0f) {
-            h = n->height;
+            h = n->height + WN_DECL_H(n);
         } else if (n->height_pct > 0.0f && parent_content_h >= 0.0f) {
-            h = parent_content_h * n->height_pct * 0.01f;
+            h = parent_content_h * n->height_pct * 0.01f + WN_DECL_H(n);
         } else {
             h = pad_t + pad_b + fmaxf(input_line_height(c, node), 1.0f);
         }
@@ -1227,9 +1236,9 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
 
     float h;
     if (n->height >= 0.0f) {
-        h = n->height;
+        h = n->height + WN_DECL_H(n);
     } else if (n->height_pct > 0.0f && parent_content_h >= 0.0f) {
-        h = parent_content_h * n->height_pct * 0.01f;
+        h = parent_content_h * n->height_pct * 0.01f + WN_DECL_H(n);
     } else {
         h = content_used + pad_t + pad_b;
     }
