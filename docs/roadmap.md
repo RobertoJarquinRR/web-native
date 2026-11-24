@@ -30,6 +30,7 @@ subset rechaza features fuera de v1; R1 sin regresión.
 - Bindings C# (`LibraryImport`, `UnmanagedCallersOnly`, `PublishAot`).
 - Demo standalone en consola.
 - Demo embedded en WinForms/WPF (después de estabilizar la ABI).
+- **Piloto A: biblioteca de video sin playback** (`docs/pilot-media-library.md`).
 - Conformance de la ABI: strings, errores, callbacks, resize, destroy.
 - Medir footprint del host C#; decidir si el host de producción va en C/C++/Rust.
 
