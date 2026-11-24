@@ -1,9 +1,9 @@
-# Pilot tests (ui-tree/2)
+# R2 engine fixtures (ui-tree/2, ui-tree/3 and CSS core v1)
 
-These are engine-side fixtures for grid, vertical scroll/clip, images and the
-wheel event. They are independent of `benchmarks/pilot-media-library` (the
-canonical 30-item pilot lives there and is exercised by
-`build.ps1 -Pilot`).
+These are engine-side fixtures for grid, vertical scroll/clip, images, text
+input and the CSS core (radius/border/shadow). They are independent of
+`benchmarks/pilot-media-library` (the canonical 30-item pilot lives there and is
+exercised by `build.ps1 -Pilot`).
 
 ## `pilot-media-library/`
 
@@ -80,3 +80,22 @@ Evidence: `out/stage_00.png` ... `out/stage_09.png`, `out/stage_report.json`,
 `out/core_events.jsonl`, `out/input_verify_report.json`, `out/runtime_input.log`,
 `out/window_input.log`, `out/abi_input.log` and `out/run_report.json`
 (generated, gitignored).
+
+## `css/`
+
+CSS core v1 (`ui-tree/2`/`/3` style fields): rounded solid backgrounds,
+uniform borders, the first non-inset shadow, and rounded textured images.
+`page/*.json` are hand-authored emitters fixtures; `fixture/legacy_ui_data.h`
+is the old rectangular control; `expected/control_legacy.png` is the tracked
+golden of the pre-CSS renderer (`.gitignore` has an explicit exception for it).
+`run_css.ps1` re-emits `ui_data.h`, compiles the runtime with `/W4 /WX`, renders
+400x240, and `verify_css.py` checks 41 geometry/pixel invariants, including a
+byte-identical control comparison.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\css\run_css.ps1
+```
+
+Evidence: `out/render_card.png`, `out/render_control.png`,
+`out/layout_card.json`, `out/css_verify_report.json`, `out/run_report.json`
+(generated, gitignored). Result: **41/41 PASS**.

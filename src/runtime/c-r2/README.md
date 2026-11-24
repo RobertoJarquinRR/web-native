@@ -1382,3 +1382,83 @@ Resultado de la última ejecución: **111/111 checks PASS**, 0 fallos.
     el runtime es anterior.
 
 ---
+
+## 17. CSS core v1 (bordes, radius y sombras)
+
+Consume los campos CSS v3 que el frontend Rust ya emitía en `ui.json`
+(`border_width_px`, `border_color`, `border_style`, `border_radius_px`,
+`box_shadow`) y los pinta con el pipeline sólido existente, sin pipeline GPU
+nuevo. `opacity` se ignora en v1.
+
+### 17.1 Campos horneados
+
+`emit_ui.py --ui-json` añade al final de `UiNode`:
+
+```c
+float border_width;        /* px, 0 none */
+unsigned int border_color; /* 0xAARRGGBB */
+float border_radius;       /* px, uniforme (border_radius_px) */
+float shadow_x, shadow_y;  /* primer box-shadow no-inset */
+float shadow_blur, shadow_spread;
+unsigned int shadow_color;
+```
+
+`border_style:"none"` fuerza `border_width = 0`. Los campos ausentes quedan a 0,
+así que las páginas sin CSS v3 conservan el render rectangular anterior.
+`--compare` acepta cabeceras antiguas (sin la cola CSS) y las compara con los
+campos nuevos a 0.
+
+### 17.2 Cómo se dibuja
+
+- **Fondos**: `push_box_shape()` usa el quad exacto de 6 vértices si el radio es
+  0; si hay radio, tesela un triangle fan con 8 segmentos por esquina
+  (`push_rounded_quad()`).
+- **Bordes**: si `border_width > 0`, `border_color` tiene alfa y el fondo
+  efectivo es opaco, se pinta el rect redondeado exterior en color de borde y
+  el interior (inset por `border_width`, radio reducido) con el fondo. Sin
+  fondo opaco el borde se omite en v1 (no hay anillo transparente).
+- **Sombras**: la primera sombra no-inset se pinta detrás del nodo con 3 capas
+  translúcidas rellenas, expandidas por `spread + blur * {1, 0.5, 0}` y
+  desplazadas por `shadow_x/y`; no hay blur gaussiano exacto.
+- **Imágenes**: un `image` con radio se tesela con UVs interpoladas (el
+  `object-fit` se conserva y el batch pasa a tener un número variable de
+  vértices). Si el padre tiene `overflow:hidden` y radio, la imagen usa ese
+  radio menos el borde del padre (caso de las cards del piloto).
+- **Layout**: no cambia; el borde se pinta sobre el border box y los hijos
+  pueden solaparlo por el ancho del borde. Es una limitación de v1.
+
+### 17.3 Tests
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\css\run_css.ps1
+```
+
+Emite tres cabeceras (`card`, `control`, `none`), compila el runtime con
+`/W4 /WX`, renderiza 400x240 por `runtime_r2.exe --render` y comprueba:
+
+- esquinas fuera del radio = fondo de página, centro = fondo de la card,
+- los 4 lados del borde en blanco, fondo interior tras el borde,
+- sombra visible y con 3 niveles de opacidad decrecientes hacia fuera,
+- imagen redondeada por el radio del padre con las 4 UVs correctas,
+- borde omitido con fondo transparente y `border_style:none` a 0,
+- el control sin campos CSS es **byte-idéntico** al renderer anterior
+  (`expected/control_legacy.png`, generado con el código pre-CSS).
+
+Resultado: **41/41 PASS**. `build.ps1` (69/69), `-Pilot` (48/48),
+`dynamic` (53/53), `input` (111/111) y `build_abi.ps1` (PASS) siguen igual.
+
+### 17.4 Limitaciones
+
+1. Radio uniforme; sin `border-radius` por esquina (el frontend lo emite, el
+   core usa el valor uniforme).
+2. Borde uniforme; sin `border_sides` por lado (los estilos `dashed`/`dotted`
+   se pintan como sólidos).
+3. Solo la primera sombra no-inset; sin `inset`, sin blur gaussiano exacto.
+   Las capas son rectángulos rellenos detrás del nodo: con fondo
+   semi-transparente la parte interior de la sombra puede verse.
+4. Sin `opacity` compuesta.
+5. Sin anillo de borde si el fondo es transparente.
+6. Sin clipping redondeado general de hijos; solo el caso imagen/padre
+   `overflow:hidden`. Un hijo sólido puede tapar las esquinas del padre.
+7. Sin scrollbar, `text-align`, `font-weight`, `line-height` ni `margin:auto`;
+   siguen siendo gaps de layout/texto.

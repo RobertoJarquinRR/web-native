@@ -36,6 +36,10 @@
 **/.mesa/
 *.png
 
+# CSS core golden reference (pre-CSS renderer control)
+!src/runtime/c-r2/tests/css/expected/
+!src/runtime/c-r2/tests/css/expected/*.png
+
 # Editors / OS
 .vscode/
 .idea/

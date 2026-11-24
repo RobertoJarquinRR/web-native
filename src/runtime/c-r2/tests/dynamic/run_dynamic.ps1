@@ -138,12 +138,17 @@ try {
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         & $py (Join-Path $here 'make_images.py') $page | Write-Host
         if ($LASTEXITCODE -ne 0) { Stop-Fail 'make_images.py failed' }
-        & $rustExe --html (Join-Path $page 'index.html') --css (Join-Path $page 'style.css') `
-            --width 400 --height 300 --emit-ui (Join-Path $page 'ui.json') | Write-Host
-        if ($LASTEXITCODE -ne 0) { Stop-Fail 'frontend-rust --emit-ui failed' }
-        & $py $emitter --ui-json (Join-Path $page 'ui.json') `
-            --out $header --meta (Join-Path $fixture 'ui_meta.json') | Write-Host
-        if ($LASTEXITCODE -ne 0) { Stop-Fail 'emit_ui.py --ui-json failed' }
+        Push-Location $here
+        try {
+            & $rustExe --html 'page\index.html' --css 'page\style.css' `
+                --width 400 --height 300 --emit-ui 'page\ui.json' | Write-Host
+            if ($LASTEXITCODE -ne 0) { Stop-Fail 'frontend-rust --emit-ui failed' }
+            & $py $emitter --ui-json 'page\ui.json' `
+                --out $header --meta (Join-Path $fixture 'ui_meta.json') | Write-Host
+            if ($LASTEXITCODE -ne 0) { Stop-Fail 'emit_ui.py --ui-json failed' }
+        } finally {
+            Pop-Location
+        }
         $sw.Stop()
         $report.timings_ms['fixture'] = [math]::Round($sw.Elapsed.TotalMilliseconds, 2)
     }

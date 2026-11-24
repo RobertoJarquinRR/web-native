@@ -206,6 +206,53 @@ def object_fit_value(value) -> int:
     return OBJECT_FIT.get(str(value).strip().lower(), 0)
 
 
+def border_width_value(style: dict) -> float:
+    """Uniform border width in px. `border_style:"none"` forces 0.
+
+    Relative units (em/rem/vh/vw) live in their own Rust fields; v1 only
+    consumes the resolved px value, so those declarations emit 0.
+    """
+    if str(style.get("border_style") or "").strip().lower() == "none":
+        return 0.0
+    width = _as_float(style.get("border_width_px"))
+    return 0.0 if width is None else max(0.0, float(width))
+
+
+def first_box_shadow(style: dict) -> dict:
+    """First non-inset `box-shadow`, or {} when the node has none."""
+    for shadow in style.get("box_shadow") or []:
+        if isinstance(shadow, dict) and not shadow.get("inset"):
+            return shadow
+    return {}
+
+
+def css_node_fields(style: dict) -> dict:
+    """CSS core v1 fields consumed by R2 (rounded bg, border, first shadow)."""
+    shadow = first_box_shadow(style)
+    return {
+        "border_width": border_width_value(style),
+        "border_color": argb(style.get("border_color")),
+        "border_radius": max(0.0, _as_float(style.get("border_radius_px")) or 0.0),
+        "shadow_x": _as_float(shadow.get("offset_x_px")) or 0.0,
+        "shadow_y": _as_float(shadow.get("offset_y_px")) or 0.0,
+        "shadow_blur": max(0.0, _as_float(shadow.get("blur_px")) or 0.0),
+        "shadow_spread": _as_float(shadow.get("spread_px")) or 0.0,
+        "shadow_color": argb(shadow.get("color")),
+    }
+
+
+ZERO_CSS_FIELDS = {
+    "border_width": 0.0,
+    "border_color": 0,
+    "border_radius": 0.0,
+    "shadow_x": 0.0,
+    "shadow_y": 0.0,
+    "shadow_blur": 0.0,
+    "shadow_spread": 0.0,
+    "shadow_color": 0,
+}
+
+
 def _png_size(data: bytes) -> tuple[int, int] | None:
     if len(data) >= 24 and data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR":
         width = int.from_bytes(data[16:20], "big")
@@ -469,6 +516,9 @@ class Emitter:
             "image_src": image_src,
             "image_alt": image_alt,
             "object_fit": object_fit,
+            # El oraculo Python no modela CSS v3 (bordes/sombras): el arbol
+            # Rust (--ui-json) es la unica fuente de estos campos en v1.
+            **ZERO_CSS_FIELDS,
         })
         self.meta.append({
             "id": index, "name": name, "tag": node.tag,
@@ -552,6 +602,7 @@ class Emitter:
             "image_src": None,
             "image_alt": None,
             "object_fit": 0,
+            **ZERO_CSS_FIELDS,
         })
         if self.metrics is not None:
             self.metrics.bake(index, text, family, size)
@@ -615,6 +666,13 @@ def write_header(nodes: list[dict], meta: list[dict], out: Path,
     lines.append("    const char *image_src;      /* local path, NODE_IMAGE only */")
     lines.append("    const char *image_alt;")
     lines.append("    int object_fit;             /* R2_OBJECT_FIT_* */")
+    lines.append("    /* CSS core v1: rounded background, uniform border, first shadow. */")
+    lines.append("    float border_width;         /* px, 0 none */")
+    lines.append("    unsigned int border_color;  /* 0xAARRGGBB, 0 none */")
+    lines.append("    float border_radius;        /* uniform px, 0 square */")
+    lines.append("    float shadow_x, shadow_y;   /* first non-inset shadow offset, px */")
+    lines.append("    float shadow_blur, shadow_spread;")
+    lines.append("    unsigned int shadow_color;  /* 0xAARRGGBB, 0 none */")
     lines.append("} UiNode;")
     lines.append("")
     lines.append(f"#define UI_NODE_COUNT {len(nodes)}")
@@ -628,7 +686,8 @@ def write_header(nodes: list[dict], meta: list[dict], out: Path,
         lines.append(
             "    { %d, %d, %d, %d, %d, %d, %s, %s, %s, %s, "
             "{ %s }, { %s }, 0x%08Xu, %s, 0x%08Xu, 0x%08Xu, 0x%08Xu, %d, %s, %s, 0x%08Xu, "
-            "%d, %s, %s, %s, %s, %d, %s, %s, %s, %s, %d },"
+            "%d, %s, %s, %s, %s, %d, %s, %s, %s, %s, %d, "
+            "%s, 0x%08Xu, %s, %s, %s, %s, %s, 0x%08Xu },"
             % (node["parent"], node["kind"], node["direction"], node["justify"],
                node["align"], node["wrap"],
                c_float(node["width"]), c_float(node["height"]),
@@ -642,7 +701,12 @@ def write_header(nodes: list[dict], meta: list[dict], out: Path,
                c_float(node["column_gap"]), node["overflow"],
                c_float(node["image_width"]), c_float(node["image_height"]),
                c_string(node["image_src"]), c_string(node["image_alt"]),
-               node["object_fit"]))
+               node["object_fit"],
+               c_float(node["border_width"]), node["border_color"],
+               c_float(node["border_radius"]),
+               c_float(node["shadow_x"]), c_float(node["shadow_y"]),
+               c_float(node["shadow_blur"]), c_float(node["shadow_spread"]),
+               node["shadow_color"]))
     lines.append("};")
     lines.append("")
     lines.append("static const char *const kUiNodeNames[UI_NODE_COUNT] = {")
@@ -977,6 +1041,8 @@ def emit_from_ui_json(ui_path: Path, out_path: Path, meta_path: Path) -> int:
             "image_src": image_src,
             "image_alt": image_alt,
             "object_fit": object_fit,
+            # CSS core v1: radio uniforme, primer borde y primera sombra.
+            **css_node_fields(style),
         })
         meta.append({
             "id": item.get("id", len(meta)),
@@ -1083,7 +1149,10 @@ NODE_FIELDS = ("parent", "kind", "direction", "justify", "align", "wrap",
                "grid_mode", "grid_column_px", "grid_auto_rows",
                "row_gap", "column_gap", "overflow",
                "image_width", "image_height", "image_src", "image_alt",
-               "object_fit")
+               "object_fit",
+               "border_width", "border_color", "border_radius",
+               "shadow_x", "shadow_y", "shadow_blur", "shadow_spread",
+               "shadow_color")
 
 GLYPH_FIELDS = ("x", "y", "w", "h", "u0", "v0", "u1", "v1")
 RUN_FIELDS = ("node", "first", "count", "baseline")
@@ -1102,7 +1171,13 @@ _NODE_RE = re.compile(
     r"(-?\d+),\s*(-?[\d.]+)f,\s*(-?[\d.]+)f,\s*(0x[0-9A-Fa-f]+)u,\s*"
     r"(-?\d+),\s*(-?[\d.]+)f,\s*(-?[\d.]+)f,\s*(-?[\d.]+)f,\s*(-?[\d.]+)f,\s*"
     r"(-?\d+),\s*(-?[\d.]+)f,\s*(-?[\d.]+)f,\s*"
-    r'(NULL|"(?:[^"\\]|\\.)*"),\s*(NULL|"(?:[^"\\]|\\.)*"),\s*(-?\d+)\s*\}'
+    r'(NULL|"(?:[^"\\]|\\.)*"),\s*(NULL|"(?:[^"\\]|\\.)*"),\s*(-?\d+)'
+    # CSS core v1 tail: optional so headers emitted before the extension
+    # (the Python oracle and old Rust trees) still parse as square/no shadow.
+    r"(?:,\s*(-?[\d.]+)f,\s*(0x[0-9A-Fa-f]+)u,\s*(-?[\d.]+)f,\s*"
+    r"(-?[\d.]+)f,\s*(-?[\d.]+)f,\s*(-?[\d.]+)f,\s*(-?[\d.]+)f,\s*"
+    r"(0x[0-9A-Fa-f]+)u)?"
+    r"\s*\}"
 )
 
 _NUM_RE = re.compile(r"-?\d+\.?\d*(?:[eE][-+]?\d+)?")
@@ -1185,6 +1260,14 @@ def parse_header(path: Path) -> dict:
             "image_width": float(values[27]), "image_height": float(values[28]),
             "image_src": _c_string(values[29]), "image_alt": _c_string(values[30]),
             "object_fit": int(values[31]),
+            "border_width": float(values[32]) if values[32] is not None else 0.0,
+            "border_color": int(values[33], 16) if values[33] is not None else 0,
+            "border_radius": float(values[34]) if values[34] is not None else 0.0,
+            "shadow_x": float(values[35]) if values[35] is not None else 0.0,
+            "shadow_y": float(values[36]) if values[36] is not None else 0.0,
+            "shadow_blur": float(values[37]) if values[37] is not None else 0.0,
+            "shadow_spread": float(values[38]) if values[38] is not None else 0.0,
+            "shadow_color": int(values[39], 16) if values[39] is not None else 0,
         })
 
     glyphs = []

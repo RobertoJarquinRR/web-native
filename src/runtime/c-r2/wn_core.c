@@ -2520,6 +2520,124 @@ static void push_quad(wn_core *c, float x, float y, float w, float h,
     push_vertex(c, x, y1, vw, vh, r, g, b, a);
 }
 
+/* CSS core v1: 8 segments per corner, clockwise from the top-right arc.
+ * A zero/negative radius falls back to the exact 6-vertex push_quad path so
+ * pages without border-radius keep byte-identical geometry. */
+#define WN_CORNER_SEGMENTS 8
+#define WN_ROUND_POINTS (4 * (WN_CORNER_SEGMENTS + 1))
+#define WN_PI_ 3.14159265358979323846f
+
+static void rounded_outline(float x, float y, float w, float h, float radius,
+                            float points[WN_ROUND_POINTS][2])
+{
+    const float half_pi = WN_PI_ * 0.5f;
+    float centers_x[4];
+    float centers_y[4];
+    float start[4];
+    int corner;
+    int step;
+    int count = 0;
+    centers_x[0] = x + w - radius;
+    centers_x[1] = x + w - radius;
+    centers_x[2] = x + radius;
+    centers_x[3] = x + radius;
+    centers_y[0] = y + radius;
+    centers_y[1] = y + h - radius;
+    centers_y[2] = y + h - radius;
+    centers_y[3] = y + radius;
+    start[0] = -half_pi;
+    start[1] = 0.0f;
+    start[2] = half_pi;
+    start[3] = WN_PI_;
+    for (corner = 0; corner < 4; ++corner) {
+        for (step = 0; step <= WN_CORNER_SEGMENTS; ++step) {
+            float angle = start[corner] +
+                          half_pi * ((float)step / (float)WN_CORNER_SEGMENTS);
+            points[count][0] = centers_x[corner] + radius * cosf(angle);
+            points[count][1] = centers_y[corner] + radius * sinf(angle);
+            ++count;
+        }
+    }
+}
+
+static void push_rounded_quad(wn_core *c, float x, float y, float w, float h,
+                              float radius, float vw, float vh,
+                              unsigned int argb)
+{
+    float points[WN_ROUND_POINTS][2];
+    float cx, cy;
+    uint8_t a, r, g, b;
+    float limit;
+    int i;
+    if (w <= 0.0f || h <= 0.0f) {
+        return;
+    }
+    a = (uint8_t)((argb >> 24) & 0xFFu);
+    if (a == 0) {
+        return;
+    }
+    limit = 0.5f * fminf(w, h);
+    if (radius > limit) {
+        radius = limit;
+    }
+    if (radius <= 0.5f) {
+        push_quad(c, x, y, w, h, vw, vh, argb);
+        return;
+    }
+    r = (uint8_t)((argb >> 16) & 0xFFu);
+    g = (uint8_t)((argb >> 8) & 0xFFu);
+    b = (uint8_t)(argb & 0xFFu);
+    rounded_outline(x, y, w, h, radius, points);
+    cx = x + w * 0.5f;
+    cy = y + h * 0.5f;
+    for (i = 0; i < WN_ROUND_POINTS; ++i) {
+        int next = (i + 1) % WN_ROUND_POINTS;
+        push_vertex(c, cx, cy, vw, vh, r, g, b, a);
+        push_vertex(c, points[i][0], points[i][1], vw, vh, r, g, b, a);
+        push_vertex(c, points[next][0], points[next][1], vw, vh, r, g, b, a);
+    }
+}
+
+/* Border box fill: rounded when the node has a radius, exact quad otherwise. */
+static void push_box_shape(wn_core *c, float x, float y, float w, float h,
+                           float radius, unsigned int argb)
+{
+    push_rounded_quad(c, x, y, w, h, radius,
+                      (float)c->width, (float)c->height, argb);
+}
+
+/* Approximate the first non-inset box-shadow with three translucent layers:
+ * the outer one is the blur-cap (lowest alpha), the inner one the spread-only
+ * box. They are painted largest first so overlap accumulates towards the box.
+ * v1 draws filled layers behind the node; an opaque background hides the part
+ * under the border box (documented limitation for semi-transparent fills). */
+static void push_box_shadow(wn_core *c, const UiNode *n, const wn_rect *r)
+{
+    static const float layer_alpha[3] = { 0.50f, 0.35f, 0.25f };
+    static const float layer_expand[3] = { 1.00f, 0.50f, 0.00f };
+    unsigned int color = n->shadow_color;
+    unsigned int a = (color >> 24) & 0xFFu;
+    float blur;
+    int layer;
+    if (a == 0u) {
+        return;
+    }
+    blur = fmaxf(n->shadow_blur, 0.0f);
+    for (layer = 0; layer < 3; ++layer) {
+        float expand = n->shadow_spread + blur * layer_expand[layer];
+        unsigned int alpha = (unsigned int)((float)a * layer_alpha[layer] + 0.5f);
+        unsigned int layer_color = (alpha << 24) | (color & 0x00FFFFFFu);
+        push_box_shape(c,
+                       r->x + n->shadow_x - expand,
+                       r->y + n->shadow_y - expand,
+                       r->w + expand * 2.0f,
+                       r->h + expand * 2.0f,
+                       n->border_radius + expand,
+                       layer_color);
+    }
+}
+
+
 static void push_glyph_vertex(wn_core *c, float x, float y, float u, float v,
                               float vw, float vh,
                               uint8_t r, uint8_t g, uint8_t b, uint8_t a)
@@ -2642,6 +2760,65 @@ static void push_image_vertex(wn_core *c, float x, float y, float u, float v,
     out->v = v;
 }
 
+/* CSS core v1: an image is clipped by its own border-radius, or by the radius
+ * of a parent with overflow:hidden (the media-library pilot cards rely on
+ * this). The parent radius is reduced by its border width, matching the
+ * padding-box clip. Uniform radius only; the same value rounds all corners. */
+static float image_corner_radius(const wn_core *c, int node, float w, float h)
+{
+    const UiNode *n = &c->nodes[node];
+    float radius = n->border_radius;
+    if (radius <= 0.0f && c->parent[node] >= 0) {
+        const UiNode *parent = &c->nodes[c->parent[node]];
+        if (parent->overflow == R2_OVERFLOW_HIDDEN && parent->border_radius > 0.0f) {
+            radius = parent->border_radius - parent->border_width;
+        }
+    }
+    if (radius > 0.0f) {
+        float limit = 0.5f * fminf(w, h);
+        if (radius > limit) {
+            radius = limit;
+        }
+    }
+    return radius > 0.5f ? radius : 0.0f;
+}
+
+static void push_image_textured(wn_core *c, float x, float y, float w, float h,
+                                float u0, float v0, float u1, float v1,
+                                float radius)
+{
+    float vw = (float)c->width;
+    float vh = (float)c->height;
+    float x1 = x + w;
+    float y1 = y + h;
+    if (radius <= 0.5f) {
+        push_image_vertex(c, x, y, u0, v0, vw, vh);
+        push_image_vertex(c, x1, y, u1, v0, vw, vh);
+        push_image_vertex(c, x1, y1, u1, v1, vw, vh);
+        push_image_vertex(c, x, y, u0, v0, vw, vh);
+        push_image_vertex(c, x1, y1, u1, v1, vw, vh);
+        push_image_vertex(c, x, y1, u0, v1, vw, vh);
+    } else {
+        float points[WN_ROUND_POINTS][2];
+        float cx = x + w * 0.5f;
+        float cy = y + h * 0.5f;
+        float cu = (u0 + u1) * 0.5f;
+        float cv = (v0 + v1) * 0.5f;
+        int i;
+        rounded_outline(x, y, w, h, radius, points);
+        for (i = 0; i < WN_ROUND_POINTS; ++i) {
+            int next = (i + 1) % WN_ROUND_POINTS;
+            float u_a = u0 + (points[i][0] - x) / w * (u1 - u0);
+            float v_a = v0 + (points[i][1] - y) / h * (v1 - v0);
+            float u_b = u0 + (points[next][0] - x) / w * (u1 - u0);
+            float v_b = v0 + (points[next][1] - y) / h * (v1 - v0);
+            push_image_vertex(c, cx, cy, cu, cv, vw, vh);
+            push_image_vertex(c, points[i][0], points[i][1], u_a, v_a, vw, vh);
+            push_image_vertex(c, points[next][0], points[next][1], u_b, v_b, vw, vh);
+        }
+    }
+}
+
 /* object-fit fill/cover/contain -> destination quad + source UVs. */
 static void push_image_quad(wn_core *c, int node, const wn_rect *clip)
 {
@@ -2656,7 +2833,8 @@ static void push_image_quad(wn_core *c, int node, const wn_rect *clip)
     float u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f;
     float iw = n->image_width;
     float ih = n->image_height;
-    float x1, y1;
+    float radius;
+    int vertices;
 
     if (src == NULL || w <= 0.0f || h <= 0.0f) {
         return;
@@ -2684,6 +2862,8 @@ static void push_image_quad(wn_core *c, int node, const wn_rect *clip)
             h = draw_h;
         }
     }
+    radius = image_corner_radius(c, node, w, h);
+    vertices = radius > 0.5f ? WN_ROUND_POINTS * 3 : 6;
 
     ensure_image_batch_capacity(c, c->image_batch_count + 1);
     if (c->image_batch_count >= c->image_batch_capacity) {
@@ -2694,14 +2874,14 @@ static void push_image_quad(wn_core *c, int node, const wn_rect *clip)
         if (last->src != NULL && strcmp(last->src, src) == 0 &&
             last->clip_x == clip->x && last->clip_y == clip->y &&
             last->clip_w == clip->w && last->clip_h == clip->h) {
-            last->count += 6;
+            last->count += vertices;
             batch = last;
             goto push_vertices;
         }
     }
     batch = &c->image_batches[c->image_batch_count++];
     batch->first = c->image_vertex_count;
-    batch->count = 6;
+    batch->count = vertices;
     batch->clip_x = clip->x;
     batch->clip_y = clip->y;
     batch->clip_w = clip->w;
@@ -2710,14 +2890,7 @@ static void push_image_quad(wn_core *c, int node, const wn_rect *clip)
 
 push_vertices:
     (void)batch;
-    x1 = x + w;
-    y1 = y + h;
-    push_image_vertex(c, x, y, u0, v0, (float)c->width, (float)c->height);
-    push_image_vertex(c, x1, y, u1, v0, (float)c->width, (float)c->height);
-    push_image_vertex(c, x1, y1, u1, v1, (float)c->width, (float)c->height);
-    push_image_vertex(c, x, y, u0, v0, (float)c->width, (float)c->height);
-    push_image_vertex(c, x1, y1, u1, v1, (float)c->width, (float)c->height);
-    push_image_vertex(c, x, y1, u0, v1, (float)c->width, (float)c->height);
+    push_image_textured(c, x, y, w, h, u0, v0, u1, v1, radius);
 }
 
 static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
@@ -2972,18 +3145,42 @@ void wn_core_build_display_list(wn_core *core)
 
     for (i = 0; i < core->paint_count; ++i) {
         int node = core->paint_order[i];
-        unsigned int color = node_color(core, node);
+        const UiNode *n = &core->nodes[node];
+        unsigned int color;
         const wn_rect *r;
-        if (color == 0) {
+        if (!core->visible_eff[node]) {
             continue;
         }
         if (rect_is_empty(core->clips[node])) {
             continue;
         }
         r = &core->rects[node];
+        if (((n->shadow_color >> 24) & 0xFFu) != 0u) {
+            set_solid_clip(core, &core->clips[node]);
+            push_box_shadow(core, n, r);
+        }
+        color = node_color(core, node);
+        if (color == 0) {
+            continue;
+        }
         set_solid_clip(core, &core->clips[node]);
-        push_quad(core, r->x, r->y, r->w, r->h,
-                  (float)core->width, (float)core->height, color);
+        if (n->border_width > 0.0f && ((n->border_color >> 24) & 0xFFu) != 0u &&
+            ((color >> 24) & 0xFFu) == 0xFFu) {
+            /* Opaque fill: border ring first, then the background inset by the
+             * uniform border width. Children still paint over the border box
+             * (v1 has no layout change). */
+            float bw = n->border_width;
+            float inner_w = r->w - bw * 2.0f;
+            float inner_h = r->h - bw * 2.0f;
+            float inner_r = n->border_radius - bw;
+            push_box_shape(core, r->x, r->y, r->w, r->h,
+                           n->border_radius, n->border_color);
+            push_box_shape(core, r->x + bw, r->y + bw, inner_w, inner_h,
+                           inner_r > 0.0f ? inner_r : 0.0f, color);
+        } else {
+            push_box_shape(core, r->x, r->y, r->w, r->h,
+                           n->border_radius, color);
+        }
     }
     build_input_decorations(core);
     for (i = 0; i < core->paint_count; ++i) {
