@@ -8,9 +8,10 @@
 //!
 //! Modo por defecto: warnings y el pipeline continua (compatibilidad).
 //! `--strict-subset`: errores y exit != 0 si hay cualquier feature fuera del
-//! contrato. `--pilot`: permite las extensiones v2 del piloto (`display: grid`,
-//! `grid-*`, `overflow: auto|scroll`, `object-fit`); sin el flag se avisan como
-//! extensiones y `--strict-subset` las rechaza.
+//! contrato. `--pilot`: permite las extensiones del piloto v2 (`display: grid`,
+//! `grid-*`, `overflow: auto|scroll`, `object-fit`) y las del piloto v3
+//! (`box-shadow`, propiedades por lado, `min/max-*` y unidades `em/rem/vh/vw`);
+//! sin el flag se avisan como extensiones y `--strict-subset` las rechaza.
 
 use std::fs;
 use std::path::Path;
@@ -18,6 +19,7 @@ use std::path::Path;
 use cssparser::{Delimiter, ParseError, Parser, ParserInput, Token};
 
 use crate::grid::{parse_grid_auto_rows, parse_grid_template_columns};
+use crate::style_ext::{box_shadow_is_valid, is_relative_length};
 
 /// Etiquetas del subconjunto v1.
 const SUPPORTED_TAGS: [&str; 19] = [
@@ -104,12 +106,7 @@ pub fn print_diagnostics(diagnostics: &[Diagnostic], strict: bool) {
         } else {
             "solo warnings: se continua"
         };
-        eprintln!(
-            "subset v1: {} {} ({})",
-            diagnostics.len(),
-            what,
-            mode
-        );
+        eprintln!("subset v1: {} {} ({})", diagnostics.len(), what, mode);
     }
 }
 
@@ -367,17 +364,15 @@ impl<'a> HtmlScanner<'a> {
                 ("img", "src") => self.check_local_asset("src de <img>", value, *attr_line),
                 ("link", "href") => {
                     self.check_local_asset("href de <link>", value, *attr_line);
-                    let is_sheet = attrs
-                        .iter()
-                        .find(|(attr, _, _)| attr == "rel")
-                        .map_or(false, |(_, rel, _)| {
+                    let is_sheet = attrs.iter().find(|(attr, _, _)| attr == "rel").map_or(
+                        false,
+                        |(_, rel, _)| {
                             rel.split_whitespace()
                                 .any(|item| item.eq_ignore_ascii_case("stylesheet"))
-                        });
+                        },
+                    );
                     if is_sheet {
-                        if let Some((text, path)) =
-                            read_linked_stylesheet(value, self.base_dir)
-                        {
+                        if let Some((text, path)) = read_linked_stylesheet(value, self.base_dir) {
                             check_stylesheet_pilot(
                                 &text,
                                 &path,
@@ -414,7 +409,9 @@ impl<'a> HtmlScanner<'a> {
             self.push(
                 line,
                 Some(label.to_string()),
-                format!("recurso remoto/embebido no permitido en v1 (solo archivos locales): '{value}'"),
+                format!(
+                    "recurso remoto/embebido no permitido en v1 (solo archivos locales): '{value}'"
+                ),
             );
         }
     }
@@ -503,7 +500,12 @@ fn find_raw_text_end(bytes: &[u8], tag: &str, from: usize) -> Option<usize> {
 /// `<style>` es la linea del HTML donde empieza el contenido.
 /// Variante sin piloto (tests).
 #[allow(dead_code)]
-pub fn check_stylesheet(text: &str, path: &Path, base_line: u32, diagnostics: &mut Vec<Diagnostic>) {
+pub fn check_stylesheet(
+    text: &str,
+    path: &Path,
+    base_line: u32,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
     check_stylesheet_pilot(text, path, base_line, false, diagnostics)
 }
 
@@ -725,7 +727,9 @@ fn check_selector(
                         path,
                         line,
                         Some(format!("selector '{selector}'")),
-                        format!("pseudo-elemento '::{name}' no soportado por subset v1 (fuera de v1)"),
+                        format!(
+                            "pseudo-elemento '::{name}' no soportado por subset v1 (fuera de v1)"
+                        ),
                     ));
                     unsupported = true;
                 } else if !ALLOWED_PSEUDO_CLASSES.contains(&name.as_str()) {
@@ -811,7 +815,9 @@ fn at_rule_name(prelude: &str) -> String {
     let rest = prelude.trim().trim_start_matches('@');
     let name: String = rest
         .chars()
-        .take_while(|character| !character.is_whitespace() && *character != '(' && *character != ';')
+        .take_while(|character| {
+            !character.is_whitespace() && *character != '(' && *character != ';'
+        })
         .collect();
     if name.is_empty() {
         "unknown".to_string()
@@ -843,11 +849,17 @@ fn check_property(
     }
     let lowered = trimmed.to_ascii_lowercase();
     for (needle, message) in [
-        ("calc(", "calc() no soportado (subset v1: px/%/valores simples)"),
+        (
+            "calc(",
+            "calc() no soportado (subset v1: px/%/valores simples)",
+        ),
         ("var(", "var()/custom properties no soportadas"),
         ("env(", "env() no soportado"),
         ("gradient(", "gradientes no soportados (fuera de v1)"),
-        ("url(", "url()/recursos externos no soportados (fuera de v1)"),
+        (
+            "url(",
+            "url()/recursos externos no soportados (fuera de v1)",
+        ),
     ] {
         if lowered.contains(needle) {
             report(format!("{message} en '{name}'"));
@@ -860,6 +872,14 @@ fn check_property(
         if !pilot {
             report(format!(
                 "{feature} es una extension del piloto v2 (R2, fuera de subset v1); usa --pilot para permitirla"
+            ));
+        }
+    };
+    // Extensiones del piloto v3 (capa CSS de bordes/radios/sombras/unidades).
+    let pilot_v3_extension = |feature: &str, report: &mut dyn FnMut(String)| {
+        if !pilot {
+            report(format!(
+                "{feature} es una extension del piloto v3 (estilos CSS, fuera de subset v1); usa --pilot para permitirla"
             ));
         }
     };
@@ -878,7 +898,13 @@ fn check_property(
                 );
             }
         }
-        "flex-direction" => check_keyword(name, &lowered, &["row", "column"], "row | column", &mut report),
+        "flex-direction" => check_keyword(
+            name,
+            &lowered,
+            &["row", "column"],
+            "row | column",
+            &mut report,
+        ),
         "justify-content" => check_keyword(
             name,
             &lowered,
@@ -893,16 +919,25 @@ fn check_property(
             "stretch | flex-start | center | flex-end",
             &mut report,
         ),
-        "flex-wrap" => check_keyword(name, &lowered, &["nowrap", "wrap"], "nowrap | wrap", &mut report),
+        "flex-wrap" => check_keyword(
+            name,
+            &lowered,
+            &["nowrap", "wrap"],
+            "nowrap | wrap",
+            &mut report,
+        ),
         "box-sizing" => check_keyword(name, &lowered, &["border-box"], "border-box", &mut report),
-        "border-style" => check_keyword(name, &lowered, &["solid"], "solid", &mut report),
+        "border-style" => check_keyword(
+            name,
+            &lowered,
+            &["solid", "none"],
+            "solid | none",
+            &mut report,
+        ),
         "overflow" => {
             if matches!(lowered.as_str(), "hidden" | "auto" | "scroll") {
                 if lowered != "hidden" {
-                    pilot_extension(
-                        &format!("'overflow: {lowered}' (scroll R2)"),
-                        &mut report,
-                    );
+                    pilot_extension(&format!("'overflow: {lowered}' (scroll R2)"), &mut report);
                 }
             } else {
                 report(format!(
@@ -941,65 +976,265 @@ fn check_property(
             }
         }
         "font-weight" => check_keyword(name, &lowered, &["400", "700"], "400 | 700", &mut report),
-        "text-align" => check_keyword(name, &lowered, &["left", "center", "right"], "left | center | right", &mut report),
-        "width" | "height" => check_lengths(
+        "text-align" => check_keyword(
             name,
-            trimmed,
-            1,
-            true,
-            false,
-            true,
-            "px | % | auto",
+            &lowered,
+            &["left", "center", "right"],
+            "left | center | right",
             &mut report,
         ),
-        "font-size" => check_lengths(name, trimmed, 1, false, false, false, "px", &mut report),
+        "width" | "height" => {
+            check_lengths(
+                name,
+                trimmed,
+                1,
+                true,
+                false,
+                true,
+                true,
+                pilot,
+                "px | % | auto | em | rem | vh | vw",
+                &mut report,
+            );
+        }
+        "font-size" => {
+            check_lengths(
+                name,
+                trimmed,
+                1,
+                false,
+                false,
+                false,
+                false,
+                pilot,
+                "px",
+                &mut report,
+            );
+        }
         "line-height" => {
             if lowered != "normal" {
-                check_lengths(name, trimmed, 1, false, false, false, "px | normal", &mut report);
+                check_lengths(
+                    name,
+                    trimmed,
+                    1,
+                    false,
+                    false,
+                    false,
+                    false,
+                    pilot,
+                    "px | normal",
+                    &mut report,
+                );
             }
         }
         "gap" | "row-gap" | "column-gap" => {
-            check_lengths(name, trimmed, 1, false, false, false, "px", &mut report)
+            check_lengths(
+                name,
+                trimmed,
+                1,
+                false,
+                false,
+                false,
+                true,
+                pilot,
+                "px | em | rem | vh | vw",
+                &mut report,
+            );
         }
-        "margin" => check_lengths(name, trimmed, 4, false, true, false, "1-4 valores px", &mut report),
-        "padding" => check_lengths(name, trimmed, 4, false, false, false, "1-4 valores px", &mut report),
+        "margin" => {
+            check_lengths(
+                name,
+                trimmed,
+                4,
+                false,
+                true,
+                false,
+                true,
+                pilot,
+                "1-4 valores px | em | rem | vh | vw",
+                &mut report,
+            );
+        }
+        "padding" => {
+            check_lengths(
+                name,
+                trimmed,
+                4,
+                false,
+                false,
+                false,
+                true,
+                pilot,
+                "1-4 valores px | em | rem | vh | vw",
+                &mut report,
+            );
+        }
         "margin-top" | "margin-right" | "margin-bottom" | "margin-left" => {
-            check_lengths(name, trimmed, 1, false, true, false, "px", &mut report)
+            check_lengths(
+                name,
+                trimmed,
+                1,
+                false,
+                true,
+                false,
+                true,
+                pilot,
+                "px | em | rem | vh | vw",
+                &mut report,
+            );
         }
         "padding-top" | "padding-right" | "padding-bottom" | "padding-left" => {
-            check_lengths(name, trimmed, 1, false, false, false, "px", &mut report)
+            check_lengths(
+                name,
+                trimmed,
+                1,
+                false,
+                false,
+                false,
+                true,
+                pilot,
+                "px | em | rem | vh | vw",
+                &mut report,
+            );
         }
-        "border-width" => check_lengths(name, trimmed, 4, false, false, false, "1-4 valores px", &mut report),
-        "border-radius" => check_lengths(name, trimmed, 4, false, false, false, "1-4 valores px", &mut report),
+        "border-width" => {
+            check_lengths(
+                name,
+                trimmed,
+                4,
+                false,
+                false,
+                false,
+                true,
+                pilot,
+                "1-4 valores px | em | rem | vh | vw",
+                &mut report,
+            );
+        }
+        "border-radius" => {
+            check_lengths(
+                name,
+                trimmed,
+                4,
+                false,
+                false,
+                false,
+                true,
+                pilot,
+                "1-4 valores px | em | rem | vh | vw",
+                &mut report,
+            );
+        }
         "border" => {
             let components = split_components(trimmed);
-            if components.is_empty() || components.len() > 3 {
+            if components.is_empty()
+                || components.len() > 3
+                || !components
+                    .iter()
+                    .all(|component| border_component_is_valid(component))
+            {
                 report(format!(
-                    "valor '{trimmed}' no soportado en 'border' (subset v1: ancho px + solid + color)"
+                    "valor '{trimmed}' no soportado en 'border' (subset v1: ancho px + solid|none + color)"
                 ));
-            } else {
-                for component in components {
-                    if component.eq_ignore_ascii_case("solid")
-                        || is_supported_color(component)
-                        || is_length(component, false, false)
-                    {
-                        continue;
-                    }
-                    report(format!(
-                        "valor '{component}' no soportado en 'border' (subset v1: ancho px + solid + color)"
-                    ));
-                    break;
-                }
+            } else if components
+                .iter()
+                .any(|component| is_relative_length(component))
+                && !pilot
+            {
+                report(
+                    "unidad relativa (em/rem/vh/vw) en 'border' es una extension del piloto v3 (estilos CSS, fuera de subset v1); usa --pilot para permitirla"
+                        .to_string(),
+                );
             }
         }
         "border-color" => {
             let components = split_components(trimmed);
             if components.is_empty()
                 || components.len() > 4
-                || !components.iter().all(|component| is_supported_color(component))
+                || !components
+                    .iter()
+                    .all(|component| is_supported_color(component))
             {
                 report(format!(
                     "valor '{trimmed}' no soportado en 'border-color' (subset v1: 1-4 colores)"
+                ));
+            }
+        }
+        "min-width" | "max-width" | "min-height" | "max-height" => {
+            // Propiedad nueva del piloto v3: px/%/auto/unidad relativa.
+            let valid = check_lengths(
+                name,
+                trimmed,
+                1,
+                true,
+                false,
+                true,
+                true,
+                true,
+                "px | % | auto | em | rem | vh | vw",
+                &mut report,
+            );
+            if valid {
+                pilot_v3_extension(&format!("'{name}'"), &mut report);
+            }
+        }
+        "border-top-width" | "border-right-width" | "border-bottom-width" | "border-left-width" => {
+            let valid = check_lengths(
+                name,
+                trimmed,
+                1,
+                false,
+                false,
+                false,
+                true,
+                true,
+                "px | em | rem | vh | vw",
+                &mut report,
+            );
+            if valid {
+                pilot_v3_extension("propiedades de borde por lado", &mut report);
+            }
+        }
+        "border-top-style" | "border-right-style" | "border-bottom-style" | "border-left-style" => {
+            if matches!(lowered.as_str(), "solid" | "none") {
+                pilot_v3_extension("propiedades de borde por lado", &mut report);
+            } else {
+                report(format!(
+                    "valor '{trimmed}' no soportado en '{name}' (v3: solid | none)"
+                ));
+            }
+        }
+        "border-top-color" | "border-right-color" | "border-bottom-color" | "border-left-color" => {
+            let components = split_components(trimmed);
+            if components.len() == 1 && is_supported_color(components[0]) {
+                pilot_v3_extension("propiedades de borde por lado", &mut report);
+            } else {
+                report(format!(
+                    "valor '{trimmed}' no soportado en '{name}' (v3: un color)"
+                ));
+            }
+        }
+        "border-top" | "border-right" | "border-bottom" | "border-left" => {
+            let components = split_components(trimmed);
+            if components.is_empty()
+                || components.len() > 3
+                || !components
+                    .iter()
+                    .all(|component| border_component_is_valid(component))
+            {
+                report(format!(
+                    "valor '{trimmed}' no soportado en '{name}' (v3: ancho + solid|none + color)"
+                ));
+            } else {
+                pilot_v3_extension("propiedades de borde por lado", &mut report);
+            }
+        }
+        "box-shadow" => {
+            if box_shadow_is_valid(trimmed) {
+                pilot_v3_extension("'box-shadow' (sombras R2)", &mut report);
+            } else {
+                report(format!(
+                    "valor '{trimmed}' no soportado en 'box-shadow' (v3: <x> <y> [blur] [spread] [color], lista con comas)"
                 ));
             }
         }
@@ -1013,7 +1248,9 @@ fn check_property(
         }
         "opacity" => match parse_css_number(trimmed) {
             Some(value) if (0.0..=1.0).contains(&value) => {}
-            _ => report(format!("valor '{trimmed}' no soportado en 'opacity' (v1: 0-1)")),
+            _ => report(format!(
+                "valor '{trimmed}' no soportado en 'opacity' (v1: 0-1)"
+            )),
         },
         "font-family" => {}
         _ => report(format!("propiedad CSS '{name}' no soportada por subset v1")),
@@ -1034,6 +1271,17 @@ fn check_keyword(
     }
 }
 
+/// Componente valido de `border`/`border-<side>`: ancho (px o relativo),
+/// estilo (`solid`/`none`) o color.
+fn border_component_is_valid(component: &str) -> bool {
+    component.eq_ignore_ascii_case("solid")
+        || component.eq_ignore_ascii_case("none")
+        || is_relative_length(component)
+        || is_length(component, false, false)
+        || is_supported_color(component)
+}
+
+#[allow(clippy::too_many_arguments)]
 fn check_lengths(
     name: &str,
     value: &str,
@@ -1041,27 +1289,40 @@ fn check_lengths(
     allow_percent: bool,
     allow_negative: bool,
     allow_auto: bool,
+    allow_relative: bool,
+    pilot: bool,
     description: &str,
     report: &mut impl FnMut(String),
-) {
+) -> bool {
     if allow_auto && value.eq_ignore_ascii_case("auto") {
-        return;
+        return true;
     }
     let components = split_components(value);
     if components.is_empty() || components.len() > max_count {
         report(format!(
             "valor '{value}' no soportado en '{name}' (subset v1: {description})"
         ));
-        return;
+        return false;
     }
+    let mut relative_reported = false;
     for component in components {
+        if allow_relative && is_relative_length(component) {
+            if !pilot && !relative_reported {
+                report(format!(
+                    "unidad relativa '{component}' (em/rem/vh/vw) es una extension del piloto v3 (estilos CSS, fuera de subset v1); usa --pilot para permitirla"
+                ));
+                relative_reported = true;
+            }
+            continue;
+        }
         if !is_length(component, allow_percent, allow_negative) {
             report(format!(
                 "unidad o valor '{component}' no soportado en '{name}' (subset v1: {description})"
             ));
-            return;
+            return false;
         }
     }
+    true
 }
 
 fn split_components(value: &str) -> Vec<&str> {
@@ -1194,11 +1455,10 @@ fn is_supported_color(token: &str) -> bool {
                 return false;
             }
             let channels_ok = tokens[..3].iter().all(|channel| {
-                channel
-                    .strip_suffix('%')
-                    .map_or_else(|| parse_css_number(channel).is_some(), |number| {
-                        parse_css_number(number).is_some()
-                    })
+                channel.strip_suffix('%').map_or_else(
+                    || parse_css_number(channel).is_some(),
+                    |number| parse_css_number(number).is_some(),
+                )
             });
             let alpha_ok = tokens.get(3).map_or(true, |alpha| {
                 if let Some(number) = alpha.strip_suffix('%') {
@@ -1239,6 +1499,7 @@ fn is_supported_color(token: &str) -> bool {
             | "lightgrey"
             | "whitesmoke"
             | "transparent"
+            | "currentcolor"
     )
 }
 
@@ -1322,10 +1583,7 @@ fn mask_comments(text: &str) -> String {
                 out[index + 1] = b' ';
                 index += 2;
                 while index < bytes.len() {
-                    if index + 1 < bytes.len()
-                        && bytes[index] == b'*'
-                        && bytes[index + 1] == b'/'
-                    {
+                    if index + 1 < bytes.len() && bytes[index] == b'*' && bytes[index + 1] == b'/' {
                         out[index] = b' ';
                         out[index + 1] = b' ';
                         index += 2;
@@ -1432,7 +1690,8 @@ mod tests {
 
     #[test]
     fn flags_tags_attributes_and_lines() {
-        let html = "<html>\n<body>\n<script>x</script>\n<div onclick=\"x\">y</div>\n</body>\n</html>";
+        let html =
+            "<html>\n<body>\n<script>x</script>\n<div onclick=\"x\">y</div>\n</body>\n</html>";
         let diagnostics = check_document(html, Path::new("page.html"), Path::new("."));
         assert_eq!(diagnostics.len(), 2, "{diagnostics:#?}");
         assert!(diagnostics[0].message.contains("<script>"));
@@ -1459,7 +1718,8 @@ mod tests {
 
     #[test]
     fn style_block_uses_html_line_numbers() {
-        let html = "<html>\n<head>\n<style>\n.a {\n  transition: none;\n}\n</style>\n</head>\n</html>";
+        let html =
+            "<html>\n<head>\n<style>\n.a {\n  transition: none;\n}\n</style>\n</head>\n</html>";
         let diagnostics = check_document(html, Path::new("page.html"), Path::new("."));
         assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
         assert_eq!(diagnostics[0].file, "page.html");
@@ -1492,7 +1752,9 @@ mod tests {
         let mut diagnostics = Vec::new();
         check_stylesheet_pilot(text, Path::new("test.css"), 1, true, &mut diagnostics);
         assert_eq!(diagnostics.len(), 3, "{diagnostics:#?}");
-        assert!(diagnostics.iter().all(|item| !item.message.contains("piloto v2")));
+        assert!(diagnostics
+            .iter()
+            .all(|item| !item.message.contains("piloto v2")));
     }
 
     #[test]

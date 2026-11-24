@@ -6,7 +6,9 @@
 
 use cssparser::{Delimiter, ParseError, Parser, ParserInput, Token};
 
+use crate::color::color_with_alpha;
 use crate::dom::Dom;
+use crate::style_ext::{parse_rel_length, split_components};
 
 #[derive(Debug, Clone)]
 pub struct Declaration {
@@ -27,10 +29,7 @@ enum Simple {
     Universal,
     Class(String),
     Id(String),
-    Attr {
-        name: String,
-        value: Option<String>,
-    },
+    Attr { name: String, value: Option<String> },
     Pseudo(String),
     Never,
 }
@@ -166,7 +165,9 @@ pub fn parse_stylesheet(text: &str, rules: &mut Vec<Rule>) {
             consume_all,
         );
         let end = parser.position();
-        let prelude = text[start.byte_index()..end.byte_index()].trim().to_string();
+        let prelude = text[start.byte_index()..end.byte_index()]
+            .trim()
+            .to_string();
 
         match parser.next_including_whitespace_and_comments() {
             Ok(Token::CurlyBracketBlock) => {
@@ -293,24 +294,103 @@ fn split_declaration(raw: &str) -> Option<(String, String, bool)> {
     Some((name, value, important))
 }
 
-/// Expande `margin`/`padding` a longhands, igual que `css_parse._expand`.
+/// Expande shorthands a longhands, igual que `css_parse._expand` mas las
+/// extensiones v3 (bordes por lado). Las propiedades v3 que no son shorthand
+/// (`border-radius`, `box-shadow`, ...) pasan tal cual.
 fn expand_shorthand(name: &str, value: &str) -> Vec<(String, String)> {
-    if name != "margin" && name != "padding" {
+    match name {
+        "margin" | "padding" => {
+            let parts = split_components(value);
+            let Some(expanded) = expand_four(&parts) else {
+                return Vec::new();
+            };
+            ["top", "right", "bottom", "left"]
+                .iter()
+                .zip(expanded)
+                .map(|(side, item)| (format!("{name}-{side}"), item))
+                .collect()
+        }
+        "border-width" | "border-style" | "border-color" => {
+            let parts = split_components(value);
+            let Some(expanded) = expand_four(&parts) else {
+                return Vec::new();
+            };
+            let property = &name["border-".len()..];
+            ["top", "right", "bottom", "left"]
+                .iter()
+                .zip(expanded)
+                .map(|(side, item)| (format!("border-{side}-{property}"), item))
+                .collect()
+        }
+        "border" => expand_border(name, value, None),
+        "border-top" | "border-right" | "border-bottom" | "border-left" => {
+            let side = &name["border-".len()..];
+            expand_border(name, value, Some(side))
+        }
+        _ => vec![(name.to_string(), value.to_string())],
+    }
+}
+
+/// 1-4 valores con la semantica CSS (top, right, bottom, left).
+fn expand_four(parts: &[String]) -> Option<[String; 4]> {
+    let first = parts.first()?.clone();
+    if parts.len() > 4 {
+        return None;
+    }
+    let second = parts.get(1).cloned().unwrap_or_else(|| first.clone());
+    let third = parts.get(2).cloned().unwrap_or_else(|| first.clone());
+    let fourth = parts.get(3).cloned().unwrap_or_else(|| second.clone());
+    Some([first, second, third, fourth])
+}
+
+/// `border`/`border-<side>`: ancho + estilo + color con los valores iniciales
+/// de CSS (`medium none currentcolor`). Una declaracion invalida se devuelve
+/// sin expandir para que la cascada la ignore entera, como haria el navegador.
+fn expand_border(name: &str, value: &str, side: Option<&str>) -> Vec<(String, String)> {
+    let components = split_components(value);
+    if components.is_empty() || components.len() > 3 {
         return vec![(name.to_string(), value.to_string())];
     }
-    let parts: Vec<&str> = value.split_whitespace().collect();
-    if parts.is_empty() || parts.len() > 4 {
-        return Vec::new();
+    let mut width: Option<String> = None;
+    let mut style: Option<String> = None;
+    let mut color: Option<String> = None;
+    for component in &components {
+        let lowered = component.trim().to_ascii_lowercase();
+        if lowered == "solid" || lowered == "none" {
+            if style.is_some() {
+                return vec![(name.to_string(), value.to_string())];
+            }
+            style = Some(component.clone());
+        } else if matches!(lowered.as_str(), "thin" | "medium" | "thick")
+            || parse_rel_length(component).is_some()
+        {
+            if width.is_some() {
+                return vec![(name.to_string(), value.to_string())];
+            }
+            width = Some(component.clone());
+        } else if lowered == "currentcolor" || color_with_alpha(Some(component)).is_some() {
+            if color.is_some() {
+                return vec![(name.to_string(), value.to_string())];
+            }
+            color = Some(component.clone());
+        } else {
+            return vec![(name.to_string(), value.to_string())];
+        }
     }
-    let top = parts[0];
-    let right = parts.get(1).copied().unwrap_or(top);
-    let bottom = parts.get(2).copied().unwrap_or(top);
-    let left = parts.get(3).copied().unwrap_or(right);
-    ["top", "right", "bottom", "left"]
-        .iter()
-        .zip([top, right, bottom, left])
-        .map(|(side, item)| (format!("{name}-{side}"), item.to_string()))
-        .collect()
+    let width = width.unwrap_or_else(|| "medium".to_string());
+    let style = style.unwrap_or_else(|| "none".to_string());
+    let color = color.unwrap_or_else(|| "currentcolor".to_string());
+    let sides: Vec<&str> = match side {
+        Some(side) => vec![side],
+        None => vec!["top", "right", "bottom", "left"],
+    };
+    let mut out = Vec::with_capacity(sides.len() * 3);
+    for side in sides {
+        out.push((format!("border-{side}-width"), width.clone()));
+        out.push((format!("border-{side}-style"), style.clone()));
+        out.push((format!("border-{side}-color"), color.clone()));
+    }
+    out
 }
 
 fn split_top_level_commas(text: &str) -> Vec<&str> {
@@ -509,10 +589,12 @@ fn parse_compound(chars: &[char], mut index: usize) -> Option<(Compound, usize)>
                 if index < chars.len() && chars[index] == '(' {
                     index = skip_balanced(chars, index)?;
                     simples.push(Simple::Never);
-                } else if doubled || !matches!(
-                    name.as_str(),
-                    "root" | "first-child" | "last-child" | "only-child"
-                ) {
+                } else if doubled
+                    || !matches!(
+                        name.as_str(),
+                        "root" | "first-child" | "last-child" | "only-child"
+                    )
+                {
                     simples.push(Simple::Never);
                 } else {
                     simples.push(Simple::Pseudo(name));

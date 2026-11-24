@@ -20,6 +20,7 @@ mod layout;
 mod r1;
 mod rss;
 mod sha256;
+mod style_ext;
 mod subset;
 mod text;
 mod ui_tree;
@@ -218,7 +219,11 @@ fn run() -> Result<bool, String> {
     let subset_ok = !args.strict_subset || diagnostics.is_empty();
 
     let since = Instant::now();
-    let styles = cascade::compute_styles(&document, &rules);
+    let styles = cascade::compute_styles(
+        &document,
+        &rules,
+        (f64::from(args.width), f64::from(args.height)),
+    );
     let cascade_ms = ms(since);
 
     // R1 (IR post-layout): grid/scroll/imagenes no se implementan. Avisar y

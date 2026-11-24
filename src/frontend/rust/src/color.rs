@@ -117,6 +117,93 @@ pub fn parse_color(value: Option<&str>) -> Option<String> {
     named_color(&text).map(str::to_string)
 }
 
+/// Color normalizado conservando el alfa en formato `#rrggbb` / `#rrggbbaa`.
+///
+/// `parse_color` descarta el alfa (y el color entero si es 0) porque el
+/// contrato v1 solo emite `background`/`color` opacos. Las sombras y los bordes
+/// v3 necesitan el alfa (`rgba(0,0,0,0.4)` -> `#00000066`) y `transparent`
+/// (`#00000000`), asi que este helper no colapsa esos casos.
+pub fn color_with_alpha(value: Option<&str>) -> Option<String> {
+    let raw = value?;
+    let text = raw.trim().to_ascii_lowercase();
+    if text.is_empty() {
+        return None;
+    }
+    if text == "transparent" {
+        return Some("#00000000".to_string());
+    }
+    if let Some(hex) = text.strip_prefix('#') {
+        let digits: Vec<char> = hex.chars().collect();
+        let (red, green, blue, alpha) = match digits.len() {
+            3 => (
+                hex_pair(&digits, 0),
+                hex_pair(&digits, 1),
+                hex_pair(&digits, 2),
+                255,
+            ),
+            4 => (
+                hex_pair(&digits, 0),
+                hex_pair(&digits, 1),
+                hex_pair(&digits, 2),
+                hex_pair(&digits, 3),
+            ),
+            6 => (
+                hex_byte(&digits, 0)?,
+                hex_byte(&digits, 2)?,
+                hex_byte(&digits, 4)?,
+                255,
+            ),
+            8 => (
+                hex_byte(&digits, 0)?,
+                hex_byte(&digits, 2)?,
+                hex_byte(&digits, 4)?,
+                hex_byte(&digits, 6)?,
+            ),
+            _ => return None,
+        };
+        return Some(format_rgba(red, green, blue, alpha));
+    }
+    if let Some(inner) = text.strip_prefix("rgb(").and_then(|s| s.strip_suffix(')')) {
+        return rgb_inner_alpha(inner);
+    }
+    if let Some(inner) = text.strip_prefix("rgba(").and_then(|s| s.strip_suffix(')')) {
+        return rgb_inner_alpha(inner);
+    }
+    named_color(&text).map(str::to_string)
+}
+
+fn format_rgba(red: u8, green: u8, blue: u8, alpha: u8) -> String {
+    if alpha == 255 {
+        format!("#{red:02x}{green:02x}{blue:02x}")
+    } else {
+        format!("#{red:02x}{green:02x}{blue:02x}{alpha:02x}")
+    }
+}
+
+fn rgb_inner_alpha(inner: &str) -> Option<String> {
+    let tokens: Vec<&str> = inner
+        .split(|c: char| c == ',' || c == '/' || c.is_whitespace())
+        .filter(|token| !token.is_empty())
+        .collect();
+    if tokens.len() < 3 || tokens.len() > 4 {
+        return None;
+    }
+    let red = channel(tokens[0])?;
+    let green = channel(tokens[1])?;
+    let blue = channel(tokens[2])?;
+    let alpha = match tokens.get(3) {
+        Some(token) => alpha_value(token)?,
+        None => 1.0,
+    };
+    let alpha_byte = round_py(alpha.clamp(0.0, 1.0) * 255.0).clamp(0, 255) as u8;
+    Some(format_rgba(
+        round_py(red).clamp(0, 255) as u8,
+        round_py(green).clamp(0, 255) as u8,
+        round_py(blue).clamp(0, 255) as u8,
+        alpha_byte,
+    ))
+}
+
 /// Cuerpo de `rgb()`/`rgba()`: canales separados por coma o espacios.
 fn rgb_inner(inner: &str) -> Option<String> {
     let tokens: Vec<&str> = inner

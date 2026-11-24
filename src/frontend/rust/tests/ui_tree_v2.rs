@@ -298,6 +298,21 @@ fn style_str<'a>(node: &'a Json, key: &str) -> Option<&'a str> {
         .and_then(Json::as_str)
 }
 
+/// Array de 4 (o N) numeros del style; los `null` se conservan como `None`.
+fn style_array_opt(node: &Json, key: &str) -> Vec<Option<f64>> {
+    node.get("style")
+        .and_then(|style| style.get(key))
+        .and_then(Json::as_array)
+        .unwrap_or_else(|| panic!("style.{key}"))
+        .iter()
+        .map(Json::as_f64)
+        .collect()
+}
+
+fn style_value<'a>(node: &'a Json, key: &str) -> Option<&'a Json> {
+    node.get("style").and_then(|style| style.get(key))
+}
+
 fn node_str<'a>(node: &'a Json, key: &str) -> Option<&'a str> {
     node.get(key).and_then(Json::as_str)
 }
@@ -496,6 +511,14 @@ body { background: #ffffff; }
         "column_gap",
         "\"image\"",
         "\"overflow\"",
+        "border_width_px",
+        "border_radius_px",
+        "border_sides",
+        "box_shadow",
+        "width_em",
+        "min_width_px",
+        "padding_em",
+        "\"opacity\"",
     ] {
         assert!(!text.contains(absent), "/1 no debe contener {absent}");
     }
@@ -590,4 +613,233 @@ fn object_fit_defaults_to_fill_without_css() {
     // Sin tamano: el runtime usa el intrinseco (WIC).
     assert_eq!(style_f64(images[0], "width_px"), -1.0);
     assert_eq!(style_f64(images[0], "height_px"), -1.0);
+}
+
+// ------------------------------------------------------- CSS v3 (bordes/radios/sombras/unidades)
+
+const CSS_V3_PAGE: &str = r##"<!doctype html>
+<html>
+<head>
+<style>
+html { font-size: 16px; }
+body { margin: 0; }
+.card {
+  width: 20em;
+  height: 15rem;
+  min-width: 240px;
+  max-width: 60vw;
+  min-height: 4rem;
+  max-height: 90vh;
+  padding: 1em 2rem;
+  margin: 0.5em;
+  gap: 1vh;
+  border: 2px solid #334155;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4), inset 1px 2px 0 #ff0000;
+  background: #ffffff;
+  font-size: 20px;
+}
+.inner { width: 50%; height: 2vw; }
+.edge { border-top: 3px solid red; border-right: 1em solid blue; }
+.none { border: 5px solid red; border-style: none; }
+.rel { border: 1em solid #123456; border-radius: 0.5rem; }
+</style>
+</head>
+<body>
+  <div id="card" class="card"><div id="inner" class="inner"></div></div>
+  <div id="edge" class="edge"></div>
+  <div id="none" class="none"></div>
+  <div id="rel" class="rel"></div>
+</body>
+</html>
+"##;
+
+#[test]
+fn css_v3_emits_border_radius_shadow_and_relative_units() {
+    let dir = temp_dir("css-v3-card");
+    write(&dir.join("page.html"), CSS_V3_PAGE);
+
+    let output = emit_ui(&dir, "page.html", "ui.json", &["--pilot"]);
+    assert!(
+        output.status.success(),
+        "exit {:?}\n{}",
+        output.status.code(),
+        stderr(&output)
+    );
+    let doc = read_json(&dir.join("ui.json"));
+    assert_eq!(
+        doc.get("schema").and_then(Json::as_str),
+        Some("webnative.ui-tree/2")
+    );
+
+    let card = node_with_id(&doc, "card");
+    assert_eq!(style_f64(card, "border_width_px"), 2.0);
+    assert_eq!(style_str(card, "border_color"), Some("#334155"));
+    assert_eq!(style_str(card, "border_style"), Some("solid"));
+    assert_eq!(style_f64(card, "border_radius_px"), 12.0);
+    assert_eq!(
+        style_array_opt(card, "border_radii_px"),
+        vec![Some(12.0), Some(12.0), Some(12.0), Some(12.0)]
+    );
+
+    let shadows = style_value(card, "box_shadow")
+        .and_then(Json::as_array)
+        .expect("box_shadow[]");
+    assert_eq!(shadows.len(), 2, "{card:#?}");
+    assert_eq!(
+        shadows[0].get("offset_x_px").and_then(Json::as_f64),
+        Some(0.0)
+    );
+    assert_eq!(
+        shadows[0].get("offset_y_px").and_then(Json::as_f64),
+        Some(4.0)
+    );
+    assert_eq!(shadows[0].get("blur_px").and_then(Json::as_f64), Some(12.0));
+    assert_eq!(
+        shadows[0].get("color").and_then(Json::as_str),
+        Some("#00000066")
+    );
+    assert_eq!(shadows[0].get("inset"), Some(&Json::Bool(false)));
+    assert_eq!(shadows[1].get("inset"), Some(&Json::Bool(true)));
+    assert_eq!(
+        shadows[1].get("offset_x_px").and_then(Json::as_f64),
+        Some(1.0)
+    );
+    assert_eq!(
+        shadows[1].get("color").and_then(Json::as_str),
+        Some("#ff0000")
+    );
+
+    // em usa el font-size del nodo (20px); rem el de html (16px).
+    assert_eq!(style_f64(card, "width_px"), 400.0);
+    assert_eq!(style_f64(card, "width_em"), 20.0);
+    assert_eq!(style_value(card, "width_rem"), Some(&Json::Null));
+    assert_eq!(style_f64(card, "height_px"), 240.0);
+    assert_eq!(style_f64(card, "height_rem"), 15.0);
+    assert_eq!(style_value(card, "height_em"), Some(&Json::Null));
+
+    // min/max px/%/relativos.
+    assert_eq!(style_f64(card, "min_width_px"), 240.0);
+    assert_eq!(style_f64(card, "max_width_px"), 288.0);
+    assert_eq!(style_f64(card, "max_width_vw"), 60.0);
+    assert_eq!(style_f64(card, "min_height_px"), 64.0);
+    assert_eq!(style_f64(card, "max_height_px"), 288.0);
+    assert_eq!(style_f64(card, "max_height_vh"), 90.0);
+
+    // padding/margin/gap conservan px resueltos y la unidad declarada.
+    assert_eq!(
+        style_array_opt(card, "padding"),
+        vec![Some(20.0), Some(32.0), Some(20.0), Some(32.0)]
+    );
+    assert_eq!(
+        style_array_opt(card, "padding_em"),
+        vec![Some(1.0), None, Some(1.0), None]
+    );
+    assert_eq!(
+        style_array_opt(card, "padding_rem"),
+        vec![None, Some(2.0), None, Some(2.0)]
+    );
+    assert_eq!(
+        style_array_opt(card, "margin_em"),
+        vec![Some(0.5), Some(0.5), Some(0.5), Some(0.5)]
+    );
+    assert_eq!(style_f64(card, "gap"), 3.2);
+    assert_eq!(style_f64(card, "gap_vh"), 1.0);
+    assert_eq!(style_f64(card, "row_gap_vh"), 1.0);
+    assert_eq!(style_f64(card, "column_gap_vh"), 1.0);
+
+    // Hijo: % se conserva como width_pct y `2vw` resuelve a 9.6 px.
+    let inner = node_with_id(&doc, "inner");
+    assert_eq!(style_f64(inner, "width_px"), -1.0);
+    assert_eq!(style_f64(inner, "width_pct"), 50.0);
+    assert_eq!(style_f64(inner, "height_px"), 9.6);
+    assert_eq!(style_f64(inner, "height_vw"), 2.0);
+
+    // Longhands por lado: gana el longhand posterior al shorthand.
+    let edge = node_with_id(&doc, "edge");
+    assert_eq!(style_f64(edge, "border_width_px"), 16.0);
+    assert_eq!(style_str(edge, "border_style"), Some("solid"));
+    let sides = style_value(edge, "border_sides").expect("border_sides");
+    let top = sides.get("top").expect("border_sides.top");
+    assert_eq!(top.get("width_px").and_then(Json::as_f64), Some(3.0));
+    assert_eq!(top.get("color").and_then(Json::as_str), Some("#ff0000"));
+    assert_eq!(top.get("style").and_then(Json::as_str), Some("solid"));
+    let right = sides.get("right").expect("border_sides.right");
+    assert_eq!(right.get("width_px").and_then(Json::as_f64), Some(16.0));
+    assert_eq!(right.get("color").and_then(Json::as_str), Some("#0000ff"));
+    let bottom = sides.get("bottom").expect("border_sides.bottom");
+    assert_eq!(bottom.get("style").and_then(Json::as_str), Some("none"));
+
+    // `border-style: none` apaga el borde aunque ancho/color sigan declarados.
+    let none = node_with_id(&doc, "none");
+    assert_eq!(style_f64(none, "border_width_px"), 0.0);
+    assert_eq!(style_str(none, "border_style"), Some("none"));
+    assert_eq!(style_value(none, "border_color"), Some(&Json::Null));
+    let none_top = style_value(none, "border_sides")
+        .and_then(|sides| sides.get("top"))
+        .expect("border_sides.top");
+    assert_eq!(none_top.get("width_px").and_then(Json::as_f64), Some(5.0));
+
+    // Borde uniforme con ancho relativo: px resuelto + unidad declarada.
+    let relative = node_with_id(&doc, "rel");
+    assert_eq!(style_f64(relative, "border_width_px"), 16.0);
+    assert_eq!(style_f64(relative, "border_width_em"), 1.0);
+    assert_eq!(style_str(relative, "border_color"), Some("#123456"));
+    assert_eq!(style_f64(relative, "border_radius_px"), 8.0);
+    assert_eq!(style_f64(relative, "border_radius_rem"), 0.5);
+}
+
+#[test]
+fn css_v3_features_are_pilot_extensions() {
+    let dir = temp_dir("css-v3-subset");
+    write(&dir.join("page.html"), CSS_V3_PAGE);
+
+    let default = emit_ui(&dir, "page.html", "default.json", &[]);
+    assert!(default.status.success(), "{}", stderr(&default));
+    let default_err = stderr(&default);
+    assert!(default_err.contains("warning[subset]"), "{default_err}");
+    assert!(default_err.contains("piloto v3"), "{default_err}");
+
+    let strict = emit_ui(&dir, "page.html", "strict.json", &["--strict-subset"]);
+    assert!(!strict.status.success(), "sin --pilot debe fallar");
+    let strict_err = stderr(&strict);
+    assert!(strict_err.contains("error[subset]"), "{strict_err}");
+    assert!(strict_err.contains("piloto v3"), "{strict_err}");
+
+    let allowed = emit_ui(
+        &dir,
+        "page.html",
+        "allowed.json",
+        &["--strict-subset", "--pilot"],
+    );
+    assert!(
+        allowed.status.success(),
+        "con --pilot debe pasar: {}",
+        stderr(&allowed)
+    );
+    assert!(!stderr(&allowed).contains("[subset]"));
+}
+
+#[test]
+fn r1_warns_about_border_radius_and_shadow_without_invalid_rects() {
+    let dir = temp_dir("css-v3-r1");
+    write(&dir.join("page.html"), CSS_V3_PAGE);
+
+    let output = run(&dir, "page.html", &["--out", "page.ir.json"]);
+    assert!(output.status.success(), "{}", stderr(&output));
+    let err = stderr(&output);
+    assert!(err.contains("warning[r1]"), "{err}");
+    assert!(err.contains("'border' solo se renderiza en R2"), "{err}");
+    assert!(err.contains("'border-radius'"), "{err}");
+    assert!(err.contains("'box-shadow'"), "{err}");
+
+    let ir = read_json(&dir.join("page.ir.json"));
+    let ops = ir.get("ops").and_then(Json::as_array).expect("ops");
+    // Solo la caja del card (fondo). Ni bordes, ni radios, ni sombras.
+    assert_eq!(ops.len(), 1, "{ir:#?}");
+    for op in ops {
+        assert_eq!(op.get("type").and_then(Json::as_str), Some("rect"));
+        assert_eq!(op.get("w").and_then(Json::as_f64), Some(400.0));
+        assert_eq!(op.get("h").and_then(Json::as_f64), Some(240.0));
+    }
 }

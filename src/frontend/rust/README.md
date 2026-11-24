@@ -29,9 +29,11 @@ de estilos **pre-layout** (`ui.json` + atlas) que consume R2. Ver
 estilos idénticos al oráculo Python, 35/35 avances y `x` exactos.
 
 El modo `--emit-ui` también emite el contrato **v2** (`webnative.ui-tree/2`)
-para grid, scroll e imágenes, con `--pilot` para habilitar las extensiones en
-el diagnóstico de subset. Ver
-[Grid, scroll e imágenes v2](#grid-scroll-e-imágenes-v2-único-en---emit-ui).
+para grid, scroll e imágenes, y la capa **v3** de bordes, radios, sombras y
+unidades relativas, con `--pilot` para habilitar las extensiones en el
+diagnóstico de subset. Ver
+[Grid, scroll e imágenes v2](#grid-scroll-e-imágenes-v2-único-en---emit-ui) y
+[Bordes, radios, sombras y unidades relativas](#bordes-radios-sombras-y-unidades-relativas-v3).
 
 Pipeline interno (mediana de 10 ejecuciones directas, sin PowerShell):
 **1,38 ms** (`contract`), **1,85 ms** (`flex-page`) y **6,72 ms** (`text-card`,
@@ -102,10 +104,12 @@ La ruta es opcional (`--emit-ui` sin valor usa `--out` o `ui.json`). Sin
 ### Esquema `webnative.ui-tree/1` (y `/2` con features v2)
 
 JSON plano, pre-orden, sin dependencias de lenguaje. Índices estables dentro
-del documento (el nodo 0 es `body`). Una página sin grid/scroll/imágenes emite
-`/1` exactamente como antes; con cualquiera de esas features emite `/2` y añade
-los campos descritos en
-[Grid, scroll e imágenes v2](#grid-scroll-e-imágenes-v2-único-en---emit-ui).
+del documento (el nodo 0 es `body`). Una página sin grid/scroll/imágenes ni la
+capa CSS v3 (bordes/radios/sombras/unidades relativas) emite `/1` exactamente
+como antes; con cualquiera de esas features emite `/2` y añade los campos
+descritos en
+[Grid, scroll e imágenes v2](#grid-scroll-e-imágenes-v2-único-en---emit-ui) y
+[Bordes, radios, sombras y unidades relativas](#bordes-radios-sombras-y-unidades-relativas-v3).
 
 | Campo | Tipo | Semántica |
 |---|---|---|
@@ -194,10 +198,12 @@ un subárbol `display: none` no cuentan):
 - `overflow: auto` o `overflow: scroll` (scroll);
 - un `<img>` (aunque el CSS lo deje `inline`);
 - `grid-template-columns` o `grid-auto-rows` declarados (aunque el nodo no sea
-  grid).
+  grid);
+- cualquier feature de la capa CSS v3: `border*`, `border-radius`,
+  `box-shadow`, `opacity != 1`, `min/max-*` o una unidad `em/rem/vh/vw`.
 
-En caso contrario se emite `/1` y **no se escribe ninguno de los campos v2**, de
-modo que las páginas existentes siguen siendo byte a byte idénticas.
+En caso contrario se emite `/1` y **no se escribe ninguno de los campos v2/v3**,
+de modo que las páginas existentes siguen siendo byte a byte idénticas.
 `overflow: hidden` no fuerza `/2`: ya existía en el subset v1 y el campo v2 solo
 se emite cuando el schema es `/2`.
 
@@ -307,6 +313,175 @@ Campos exactos que debe consumir el runtime: `kind` (`grid`/`image`),
 o `"auto"`), `style.row_gap`, `style.column_gap`, `style.overflow`,
 `style.width_px`/`style.height_px` (`-1` = auto/intrínseco) e
 `image.src`/`image.alt`/`image.object_fit`.
+
+### Bordes, radios, sombras y unidades relativas (v3)
+
+Extensión **solo de frontend** (`--emit-ui`): el binario parsea, cascadea y
+emite los campos; el layout y el pintado (borde, esquinas redondeadas, blur de
+sombra) son responsabilidad del runtime R2. En R1 no se pinta nada de esta capa:
+solo se avisa (ver [R1 vs R2](#r1-vs-r2-avisos-y-paridad)). El frontend **no**
+modifica el display list de R1 ni inventa rects para bordes/sombras.
+
+Se emite `webnative.ui-tree/2` si algún nodo emitido declara la capa v3
+(`border*`, `border-radius`, `box-shadow`, `opacity != 1`, `min/max-*` o
+cualquier unidad relativa). Los campos se añaden al objeto `style` de **todos**
+los nodos cuando el schema es `/2`; los nodos de texto usan valores neutros
+(`0`, `null`, `"none"`, `1.0`). Las páginas que no usan la capa v3 siguen
+emitiendo `/1` **byte a byte idénticas**.
+
+#### Forma exacta de los campos
+
+Bordes (uniformes + detalle por lado):
+
+| Campo | Tipo | Semántica |
+|---|---|---|
+| `border_width_px` | float | Ancho efectivo uniforme: máximo de los lados visibles (`solid` y ancho > 0); `0.0` si no hay borde |
+| `border_width_em`/`_rem`/`_vh`/`_vw` | float o `null` | Unidad declarada si **los cuatro** lados visibles comparten exactamente la misma unidad relativa |
+| `border_color` | string o `null` | Color del primer lado visible (top→left), `#rrggbb` o `#rrggbbaa` (alfa conservado); `null` sin borde visible |
+| `border_style` | `"solid"` \| `"none"` | `solid` si algún lado visible es sólido; `none` si no hay borde efectivo |
+| `border_sides` | objeto | `{ "top" \| "right" \| "bottom" \| "left": { "width_px": float, "width_em" \| "_rem" \| "_vh" \| "_vw": float \| null, "color": string \| null, "style": "solid" \| "none" } }`. El ancho se conserva aunque `style` sea `none` |
+
+`border_sides.top.width_px` etc. solo se resuelven a px en build time; la
+unidad relativa uniforme se expone en `border_width_*`. Si los lados mezclan
+unidades, `border_width_*` queda `null` y el runtime usa `border_sides` (o el
+máximo px como fallback).
+
+Radio y sombras:
+
+| Campo | Tipo | Semántica |
+|---|---|---|
+| `border_radius_px` | float | Radio uniforme; si las esquinas difieren, el máximo (el runtime puede usar `border_radii_px`) |
+| `border_radius_em`/`_rem`/`_vh`/`_vw` | float o `null` | Radio declarado uniforme (las 4 esquinas con la misma unidad) |
+| `border_radii_px` | float[4] | `[top-left, top-right, bottom-right, bottom-left]`, px resueltos |
+| `box_shadow` | array o `null` | Lista de sombras; `null` = sin sombra |
+| `box_shadow[].offset_x_px`/`.offset_y_px` | float | Desplazamiento (px; puede ser negativo) |
+| `box_shadow[].blur_px` | float | Radio de difuminado (≥ 0) |
+| `box_shadow[].spread_px` | float | Expansión (puede ser negativa) |
+| `box_shadow[].color` | string | `#rrggbb` o `#rrggbbaa`; alfa `rgba()` conservado |
+| `box_shadow[].inset` | bool | Sombra interior |
+| `opacity` | float | `0.0`–`1.0` (se emite en `/2`; el valor inicial es `1.0`) |
+
+Unidades relativas y `min/max`:
+
+| Campo | Tipo | Semántica |
+|---|---|---|
+| `width_em`/`_rem`/`_vh`/`_vw` | float o `null` | Unidad declarada de `width`; `width_px` sigue siendo la resolución en build time |
+| `height_em`/`_rem`/`_vh`/`_vw` | float o `null` | Igual para `height` |
+| `min_width_px`/`_pct`, `max_width_px`/`_pct` | float | `min_*_px`/`max_*_px` = `-1.0` si no se declaró; `%` se conserva en `*_pct` |
+| `min_width_em`/`_rem`/`_vh`/`_vw` | float o `null` | Unidad declarada de `min-width` |
+| `max_width_em`/`_rem`/`_vh`/`_vw` | float o `null` | Unidad declarada de `max-width` |
+| `min_height_px`/`_pct`/`_em`/`_rem`/`_vh`/`_vw` | float/`null` | Igual para `min-height` |
+| `max_height_px`/`_pct`/`_em`/`_rem`/`_vh`/`_vw` | float/`null` | Igual para `max-height` |
+| `margin_em`/`_rem`/`_vh`/`_vw` | `(float\|null)[4]` | `[top, right, bottom, left]`; `null` por lado si no usa esa unidad |
+| `padding_em`/`_rem`/`_vh`/`_vw` | `(float\|null)[4]` | Igual para padding |
+| `gap_em`/`_rem`/`_vh`/`_vw` | float o `null` | Unidad declarada de `gap` |
+| `row_gap_em`/`_rem`/`_vh`/`_vw` | float o `null` | Unidad efectiva de `row-gap` (si no se declaró, hereda la de `gap`, igual que el px) |
+| `column_gap_em`/`_rem`/`_vh`/`_vw` | float o `null` | Unidad efectiva de `column-gap` |
+
+Los arrays `margin`/`padding` (px) y `gap`/`row_gap`/`column_gap` (px) siguen
+existiendo con la semántica v1. Para cada propiedad, si el campo `*_em`,
+`*_rem`, `*_vh` o `*_vw` no es `null`, el runtime debe usarlo (y recalcularlo al
+cambiar el viewport); el `*_px` es la resolución de build time y sirve de
+fallback.
+
+Ejemplo (viewport 480×320, `html { font-size: 16px }`, card con
+`font-size: 20px`):
+
+```json
+"style": {
+  "width_px": 400.0,
+  "width_em": 20.0,
+  "height_px": 240.0,
+  "height_rem": 15.0,
+  "max_width_px": 288.0,
+  "max_width_vw": 60.0,
+  "padding": [20.0, 32.0, 20.0, 32.0],
+  "padding_em": [1.0, null, 1.0, null],
+  "padding_rem": [null, 2.0, null, 2.0],
+  "gap": 3.2,
+  "gap_vh": 1.0,
+  "border_width_px": 2.0,
+  "border_color": "#334155",
+  "border_style": "solid",
+  "border_sides": {
+    "top": { "width_px": 2.0, "width_em": null, "width_rem": null, "width_vh": null, "width_vw": null, "color": "#334155", "style": "solid" },
+    "right": { "width_px": 2.0, "width_em": null, "width_rem": null, "width_vh": null, "width_vw": null, "color": "#334155", "style": "solid" },
+    "bottom": { "width_px": 2.0, "width_em": null, "width_rem": null, "width_vh": null, "width_vw": null, "color": "#334155", "style": "solid" },
+    "left": { "width_px": 2.0, "width_em": null, "width_rem": null, "width_vh": null, "width_vw": null, "color": "#334155", "style": "solid" }
+  },
+  "border_radius_px": 12.0,
+  "border_radii_px": [12.0, 12.0, 12.0, 12.0],
+  "box_shadow": [
+    { "offset_x_px": 0.0, "offset_y_px": 4.0, "blur_px": 12.0, "spread_px": 0.0, "color": "#00000066", "inset": false }
+  ],
+  "opacity": 1.0
+}
+```
+
+Reglas de parseo/cascada:
+
+- `border`, `border-<side>` y `border-width`/`border-style`/`border-color`
+  expanden a longhands por lado en `css.rs` (1-4 valores con semántica CSS).
+  El longhand declarado después del shorthand gana; `!important` e inline
+  siguen la cascada normal.
+- Solo `border-style: solid` y `none` son válidos; otros estilos ignoran el
+  borde (el subset los diagnostica). El color inicial es `currentColor`.
+- `border-radius` acepta 1-4 valores (uniforme o por esquina). La sintaxis
+  elíptica `a / b` solo usa la parte horizontal y el subset la rechaza; los
+  longhands `border-top-left-radius` etc. no se parsean (usa el shorthand).
+- `box-shadow` acepta listas separadas por coma, `inset`, 2-4 longitudes
+  (`x y [blur] [spread]`) y color opcional (por defecto `currentColor`).
+  `rgba()` conserva el alfa (`#rrggbbaa`). Una sombra inválida descarta toda la
+  declaración, como CSS.
+- `em` usa el `font-size` computado del nodo; `rem` el de `html` (16 px por
+  defecto); `vh`/`vw` el viewport de compilación (`1vh = height/100`).
+- `min/max-*` aceptan px, `%`, `auto` y unidades relativas. El layout de R1 las
+  ignora; solo se emiten para el runtime.
+
+#### Subset y `--pilot`
+
+El subset v1 mantiene **limpios** `border`/`border-width`/`border-style:
+solid`/`border-color` y `border-radius` en px (contrato congelado, ver
+`docs/subset-v1.md`). Las extensiones nuevas son del **piloto v3**:
+
+| Feature | default | `--strict-subset` sin `--pilot` | `--pilot` |
+|---|---|---|---|
+| `box-shadow` válido | warning | error, exit ≠ 0 | permitida |
+| `border-<side>-*` y `border-<side>` | warning | error, exit ≠ 0 | permitida |
+| `min-width`/`max-width`/`min-height`/`max-height` válidos | warning | error, exit ≠ 0 | permitida |
+| unidades `em/rem/vh/vw` en width/height/padding/margin/gap/border-width/radio | warning | error, exit ≠ 0 | permitida |
+| `border: ...` con ancho relativo | warning | error, exit ≠ 0 | permitida |
+| `border: <px> solid <color>` y `border-radius: <px>` | limpio (v1) | limpio | limpio |
+
+`--pilot` no relaja valores inválidos: `box-shadow: 1px`, `border-style:
+dashed`, `border-radius: 1 / 2` o una unidad desconocida siguen siendo
+diagnóstico.
+
+#### R1: avisos y ningún rect nuevo
+
+En el camino R1 (`--out`) bordes, radios y sombras se ignoran: el display list
+solo pinta fondos y texto. Para que no pase en silencio se emite:
+
+```
+warning[r1] div#card.card: 'border' solo se renderiza en R2 (--emit-ui); el IR de R1 pinta la caja sin borde
+warning[r1] div#card.card: 'border-radius' solo se renderiza en R2 (--emit-ui); R1 no redondea esquinas
+warning[r1] div#card.card: 'box-shadow' solo se renderiza en R2 (--emit-ui); R1 no pinta sombras
+```
+
+No se añaden ops nuevos ni se modifican los rects existentes. Las unidades
+relativas sí se resuelven en la cascada para que el layout R1 sea correcto en el
+viewport de compilación (R1 no reflowea).
+
+#### Campos exactos que debe consumir el runtime
+
+`style.border_width_px`, `style.border_color`, `style.border_style`,
+`style.border_sides` (opcional si solo se pintan bordes uniformes),
+`style.border_radius_px` y `style.border_radii_px`, `style.box_shadow[]`
+(`offset_*_px`, `blur_px`, `spread_px`, `color`, `inset`), `style.opacity`, y
+los campos de unidad `width_*`, `height_*`, `min_width_*`, `max_width_*`,
+`min_height_*`, `max_height_*`, `margin_*`, `padding_*`, `gap_*`, `row_gap_*`
+y `column_gap_*`. Si un campo de unidad es `null`, se usa el px equivalente ya
+resuelto.
 
 ### Paridad con el oráculo Python
 
@@ -546,7 +721,7 @@ frontend-rust.exe --html page.html --width 960 --height 640 `
 | Modo | Salida | Exit |
 |---|---|---|
 | sin flag (default) | `warning[subset] ...` por stderr; el pipeline continúa | 0 |
-| `--pilot` | igual, pero no diagnostica `display: grid`, `grid-*`, `overflow: auto\|scroll` ni `object-fit` | 0 |
+| `--pilot` | igual, pero no diagnostica `display: grid`, `grid-*`, `overflow: auto\|scroll`, `object-fit`, `box-shadow`, los bordes por lado, `min/max-*` ni las unidades `em/rem/vh/vw` (pilotos v2/v3) | 0 |
 | `--strict-subset` | `error[subset] ...` por stderr; IR/atlas se escriben igual | 1 si hay ≥1 diagnóstico |
 | `--strict-subset --pilot` | solo errores reales (valores inválidos, otras propiedades) | 1 si hay ≥1 error |
 
@@ -580,7 +755,9 @@ Qué valida:
   (`display: grid`, `grid-template-*`, `position`, `transform`, `transition`,
   `animation`, `box-shadow`, `float`, `filter`, `clip-path`, `z-index`,
   `columns`, `em/rem/vh/vw`, `calc()`, gradientes, `url()`, `hsl()`,
-  `border: dashed`, `opacity > 1`, etc.).
+  `border: dashed`, `opacity > 1`, etc.). Las extensiones de los pilotos
+  v2/v3 (`grid`, `object-fit`, `box-shadow`, bordes por lado, `min/max-*` y
+  unidades relativas) pasan con `--pilot`.
 - **At-rules y selectores**: `@media`, `@font-face`, `@import` y cualquier otra
   at-rule; pseudo-elementos (`::before`/`::after`), `:not()`/`:has()` y
   combinadores `+`/`~`.
@@ -606,12 +783,14 @@ Las rutas, la lista exacta de los 19 diagnósticos y los comandos sin
 `benchmarks/frontend-parity/fixtures/subset/README.md`.
 
 `cargo test` ejecuta los tests unitarios de `grid.rs` (parseo de
-`repeat(auto-fill, <px>)` y `grid-auto-rows`), los de `subset.rs` (líneas de
-HTML/CSS, comentarios, at-rules, valores y la matriz `--pilot`) y el vector
-conocido de SHA-256. Además, `tests/ui_tree_v2.rs` ejecuta el binario real
-(`--emit-ui` y `--out`) sobre fixtures temporales y verifica schema, kinds,
-estilos grid/scroll, campos de imagen y los avisos/exit codes de R1 y del
-subset. No necesita el runtime C ni el oráculo Python.
+`repeat(auto-fill, <px>)` y `grid-auto-rows`), los de `style_ext.rs` (unidades
+relativas, bordes, radio y sombras), los de `subset.rs` (líneas de HTML/CSS,
+comentarios, at-rules, valores y la matriz `--pilot`) y el vector conocido de
+SHA-256. Además, `tests/ui_tree_v2.rs` ejecuta el binario real (`--emit-ui` y
+`--out`) sobre fixtures temporales y verifica schema, kinds, estilos
+grid/scroll, campos de imagen, la capa v3 (bordes/radios/sombras/unidades) y los
+avisos/exit codes de R1 y del subset. No necesita el runtime C ni el oráculo
+Python.
 
 ### Ambigüedades resueltas y límites del diagnóstico
 
@@ -876,14 +1055,30 @@ el arranque de PowerShell, no el frontend (el harness lanza un proceso nuevo).
 - **Colores**: `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb()`/`rgba()` (coma o
   espacios, porcentajes) y una tabla corta de nombres. Sin `hsl()`, `lab()`,
   `color()` ni nombres exóticos. Alfa 0 → sin fondo.
-- **Unidades**: solo `px` y números sin unidad. `%`, `em`, `rem`, `vw`,
-  `calc()`, `auto`, `none`, `normal` → `auto` (None).
-- **Propiedades de layout**: sin `border`, sin `box-sizing: content-box`, sin
-  margin collapsing, floats, `position`, `overflow` real (R1 no recorta),
-  `flex-wrap`, `flex-grow/shrink`, `order`, `align-self`, `min/max-width/height`.
-  `display: grid`, `grid-template-columns`, `grid-auto-rows`, `overflow:
-  auto|scroll`, `<img>` y `object-fit` se **parsean y emiten** en `--emit-ui`
-  para R2, pero este frontend no calcula su layout, scroll ni decode.
+- **Unidades**: en R1 `px` y números sin unidad; `%` solo en `width`/`height`.
+  La capa v3 (`--emit-ui`) además parsea y emite `em`, `rem`, `vh`, `vw` en
+  width/height/padding/margin/gap/border-width/radio y en `min/max-*`; se
+  resuelven a px con el font-size/viewport de compilación y conservan la unidad
+  declarada para el runtime. `calc()` y unidades desconocidas siguen fuera.
+- **Propiedades de layout**: sin `border` pintado, sin `box-sizing: content-box`,
+  sin margin collapsing, floats, `position`, `overflow` real (R1 no recorta),
+  `flex-wrap`, `flex-grow/shrink`, `order`, `align-self` ni aplicación de
+  `min/max-width/height` al layout. `display: grid`,
+  `grid-template-columns`, `grid-auto-rows`, `overflow: auto|scroll`, `<img>` y
+  `object-fit` se **parsean y emiten** en `--emit-ui` para R2, pero este
+  frontend no calcula su layout, scroll ni decode. Bordes, radios, sombras y
+  `opacity` también se **parsean/cascadean/emiten**; su pintado es del runtime.
+- **Bordes v3**: los campos uniformes (`border_width_px`, `border_color`,
+  `border_style`) cubren el caso de un borde igual en los cuatro lados; el
+  detalle por lado queda en `border_sides`. No se calcula geometría de borde:
+  el runtime decide si pinta por lado o solo el uniforme. Un `border-radius`
+  con porcentajes o sintaxis elíptica (`1px / 2px`) no se emite (el subset lo
+  diagnostica).
+- **Sombras v3**: se emiten offset/blur/spread/color/inset; el blur real
+  (Gaussian/box) lo implementa el runtime. Sin `drop-shadow` ni filtros.
+- **Unidades relativas y reflow**: `width_px`/`height_px`/`margin`/`padding`/
+  `gap` son la resolución en el viewport de compilación. Para reflow real el
+  runtime debe preferir `*_em`/`*_rem`/`*_vh`/`*_vw` cuando no sean `null`.
 - **Profundidad de layout** acotada a 512 niveles para no desbordar la pila.
 - **Una sola pasada**: no hay recálculo ni incrementalidad; el benchmark mide
   una carga en frío por proceso.
@@ -907,9 +1102,9 @@ el arranque de PowerShell, no el frontend (el harness lanza un proceso nuevo).
   Sin `width`/`height` ni CSS, emite `-1.0` para que el runtime use el
   intrínseco. Sin soporte de `srcset`, `loading`, `object-position` ni recorte
   en el frontend.
-- **R1 y features v2**: grid/scroll/imágenes se ignoran en el display list; se
-  emite `warning[r1]` por stderr para que no haya rects silenciosamente
-  incorrectos. `--pilot` no cambia este comportamiento.
+- **R1 y features v2/v3**: grid/scroll/imágenes y bordes/radios/sombras se
+  ignoran en el display list; se emite `warning[r1]` por stderr para que no haya
+  rects silenciosamente incorrectos. `--pilot` no cambia este comportamiento.
 
 ## Reproducir el benchmark
 

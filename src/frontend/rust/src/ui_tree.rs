@@ -30,6 +30,7 @@ use crate::dom::{Dom, NodeId};
 use crate::emit::{push_json_string, py_float};
 use crate::grid::{GridAutoRows, GridTemplateColumns};
 use crate::sha256;
+use crate::style_ext::{BorderOut, BoxShadow, RelLength, StyleV3, Unit};
 use crate::text::{Atlas, BakedUiText, TextEngine, UiGlyphOut, UiTextBaker};
 
 /// Schema sin features v2 (grid/scroll/imagenes). Identico al contrato previo.
@@ -88,7 +89,9 @@ fn kind_name(kind: u32) -> &'static str {
 /// `argb()` del oraculo para un color ya normalizado a `#rrggbb`.
 fn argb_from_hex(value: Option<&str>) -> u32 {
     let Some(text) = value else { return 0 };
-    let Some(hex) = text.strip_prefix('#') else { return 0 };
+    let Some(hex) = text.strip_prefix('#') else {
+        return 0;
+    };
     if hex.len() != 6 {
         return 0;
     }
@@ -135,6 +138,8 @@ struct StyleOut {
     font_size: f64,
     font_family: String,
     font_weight: String,
+    /// v3: bordes, radio, sombras y unidades relativas (solo schema `/2`).
+    css3: StyleV3,
 }
 
 struct DataOut {
@@ -323,14 +328,15 @@ impl<'a> Builder<'a> {
             kind,
             name: name.to_string(),
             tag: self.dom.nodes[id].tag.clone(),
-            classes: self.dom.nodes[id]
-                .classes()
-                .map(str::to_string)
-                .collect(),
+            classes: self.dom.nodes[id].classes().map(str::to_string).collect(),
             element_id: self.dom.nodes[id].attr("id").map(str::to_string),
             style: StyleOut {
                 display: Some(style.display.clone()),
-                direction: if style.flex_direction == "column" { 1 } else { 0 },
+                direction: if style.flex_direction == "column" {
+                    1
+                } else {
+                    0
+                },
                 justify: justify_code(&style.justify_content),
                 align: align_code(&style.align_items),
                 wrap: wrap_code(&style.flex_wrap),
@@ -355,6 +361,7 @@ impl<'a> Builder<'a> {
                 font_size: style.font_size,
                 font_family: style.font_family.clone(),
                 font_weight: style.font_weight.clone(),
+                css3: style.css3.clone(),
             },
             data: DataOut {
                 hover: style.data_hover.clone(),
@@ -479,6 +486,7 @@ impl<'a> Builder<'a> {
                 font_size: size,
                 font_family: family,
                 font_weight: style.font_weight.clone(),
+                css3: StyleV3::default(),
             },
             data: DataOut {
                 hover: None,
@@ -541,6 +549,150 @@ fn push_opt_string(out: &mut String, value: Option<&str>) {
         Some(text) => push_json_string(out, text),
         None => out.push_str("null"),
     }
+}
+
+/// Escribe `"<prefix>_em"`, `"<prefix>_rem"`, `"<prefix>_vh"` y
+/// `"<prefix>_vw"` (float o null) para una longitud declarada.
+fn push_unit_fields(out: &mut String, prefix: &str, rel: Option<RelLength>) {
+    for unit in [Unit::Em, Unit::Rem, Unit::Vh, Unit::Vw] {
+        let _ = write!(out, ",\n        \"{prefix}_{}\": ", unit.suffix());
+        match rel.and_then(|value| value.in_unit(unit)) {
+            Some(value) => push_float(out, value),
+            None => out.push_str("null"),
+        }
+    }
+}
+
+/// Cuatro arrays (`<name>_em`, `<name>_rem`, `<name>_vh`, `<name>_vw`) con la
+/// unidad declarada por lado; `null` en los lados que no usan esa unidad.
+fn push_unit_arrays4(out: &mut String, name: &str, values: &[Option<RelLength>; 4]) {
+    for unit in [Unit::Em, Unit::Rem, Unit::Vh, Unit::Vw] {
+        let _ = write!(out, ",\n        \"{name}_{}\": [", unit.suffix());
+        for (index, rel) in values.iter().enumerate() {
+            if index > 0 {
+                out.push_str(", ");
+            }
+            match rel.and_then(|value| value.in_unit(unit)) {
+                Some(value) => push_float(out, value),
+                None => out.push_str("null"),
+            }
+        }
+        out.push(']');
+    }
+}
+
+fn push_border(out: &mut String, border: &BorderOut) {
+    let (width, width_rel) = border.uniform_width();
+    out.push_str(",\n        \"border_width_px\": ");
+    push_float(out, width);
+    push_unit_fields(out, "border_width", width_rel);
+    out.push_str(",\n        \"border_color\": ");
+    push_opt_string(out, border.visible_color());
+    out.push_str(",\n        \"border_style\": ");
+    push_json_string(out, border.style_name());
+    out.push_str(",\n        \"border_sides\": {");
+    for (index, (name, side)) in border.sides().into_iter().enumerate() {
+        if index > 0 {
+            out.push(',');
+        }
+        let _ = write!(out, "\n          \"{name}\": {{ \"width_px\": ");
+        push_float(out, side.width_px);
+        for unit in [Unit::Em, Unit::Rem, Unit::Vh, Unit::Vw] {
+            let _ = write!(out, ", \"width_{}\": ", unit.suffix());
+            match side.width_rel.and_then(|value| value.in_unit(unit)) {
+                Some(value) => push_float(out, value),
+                None => out.push_str("null"),
+            }
+        }
+        out.push_str(", \"color\": ");
+        push_opt_string(out, side.color.as_deref());
+        out.push_str(", \"style\": ");
+        push_json_string(out, &side.style);
+        out.push_str(" }");
+    }
+    out.push_str("\n        }");
+}
+
+fn push_border_radius(out: &mut String, radius: &[f64; 4], rel: Option<RelLength>) {
+    let uniform = radius.iter().copied().fold(0.0f64, f64::max);
+    out.push_str(",\n        \"border_radius_px\": ");
+    push_float(out, uniform);
+    push_unit_fields(out, "border_radius", rel);
+    out.push_str(",\n        \"border_radii_px\": [");
+    for (index, value) in radius.iter().enumerate() {
+        if index > 0 {
+            out.push_str(", ");
+        }
+        push_float(out, *value);
+    }
+    out.push(']');
+}
+
+fn push_box_shadow(out: &mut String, shadows: &[BoxShadow]) {
+    out.push_str(",\n        \"box_shadow\": ");
+    if shadows.is_empty() {
+        out.push_str("null");
+        return;
+    }
+    out.push('[');
+    for (index, shadow) in shadows.iter().enumerate() {
+        if index > 0 {
+            out.push(',');
+        }
+        out.push_str("\n          { \"offset_x_px\": ");
+        push_float(out, shadow.offset_x_px);
+        out.push_str(", \"offset_y_px\": ");
+        push_float(out, shadow.offset_y_px);
+        out.push_str(", \"blur_px\": ");
+        push_float(out, shadow.blur_px);
+        out.push_str(", \"spread_px\": ");
+        push_float(out, shadow.spread_px);
+        out.push_str(", \"color\": ");
+        push_json_string(out, &shadow.color);
+        out.push_str(", \"inset\": ");
+        out.push_str(if shadow.inset { "true" } else { "false" });
+        out.push_str(" }");
+    }
+    out.push_str("\n        ]");
+}
+
+fn push_style_v3(out: &mut String, css3: &StyleV3) {
+    out.push_str(",\n        \"opacity\": ");
+    push_float(out, css3.opacity);
+
+    push_unit_fields(out, "width", css3.width_rel);
+    push_unit_fields(out, "height", css3.height_rel);
+
+    out.push_str(",\n        \"min_width_px\": ");
+    push_float(out, css3.min_width.unwrap_or(-1.0));
+    out.push_str(",\n        \"min_width_pct\": ");
+    push_float(out, css3.min_width_pct);
+    push_unit_fields(out, "min_width", css3.min_width_rel);
+    out.push_str(",\n        \"max_width_px\": ");
+    push_float(out, css3.max_width.unwrap_or(-1.0));
+    out.push_str(",\n        \"max_width_pct\": ");
+    push_float(out, css3.max_width_pct);
+    push_unit_fields(out, "max_width", css3.max_width_rel);
+    out.push_str(",\n        \"min_height_px\": ");
+    push_float(out, css3.min_height.unwrap_or(-1.0));
+    out.push_str(",\n        \"min_height_pct\": ");
+    push_float(out, css3.min_height_pct);
+    push_unit_fields(out, "min_height", css3.min_height_rel);
+    out.push_str(",\n        \"max_height_px\": ");
+    push_float(out, css3.max_height.unwrap_or(-1.0));
+    out.push_str(",\n        \"max_height_pct\": ");
+    push_float(out, css3.max_height_pct);
+    push_unit_fields(out, "max_height", css3.max_height_rel);
+
+    push_unit_arrays4(out, "margin", &css3.margin_rel);
+    push_unit_arrays4(out, "padding", &css3.padding_rel);
+    push_unit_fields(out, "gap", css3.gap_rel);
+    push_unit_fields(out, "row_gap", css3.row_gap_rel);
+    push_unit_fields(out, "column_gap", css3.column_gap_rel);
+
+    push_border(out, &css3.border);
+    push_border_radius(out, &css3.border_radius, css3.border_radius_rel);
+    push_box_shadow(out, &css3.box_shadow);
 }
 
 fn push_style(out: &mut String, style: &StyleOut, v2: bool) {
@@ -618,6 +770,9 @@ fn push_style(out: &mut String, style: &StyleOut, v2: bool) {
     push_json_string(out, &style.font_family);
     out.push_str(",\n        \"font_weight\": ");
     push_json_string(out, &style.font_weight);
+    if v2 {
+        push_style_v3(out, &style.css3);
+    }
     out.push_str("\n      }");
 }
 
@@ -776,9 +931,13 @@ fn nodes_use_v2(nodes: &[NodeOut]) -> bool {
     nodes.iter().any(|node| {
         node.kind == KIND_GRID
             || node.kind == KIND_IMAGE
-            || matches!(node.style.overflow.as_deref(), Some("auto") | Some("scroll"))
+            || matches!(
+                node.style.overflow.as_deref(),
+                Some("auto") | Some("scroll")
+            )
             || node.style.grid_template_columns.is_some()
             || node.style.grid_auto_rows.is_some()
+            || node.style.css3.declares_style()
     })
 }
 
@@ -879,7 +1038,9 @@ pub fn emit_ui_tree(
         nodes: nodes.len(),
         glyphs: glyph_count,
         runs: run_count,
-        atlas: atlas.as_ref().map(|item| (item.atlas.width(), item.atlas.height())),
+        atlas: atlas
+            .as_ref()
+            .map(|item| (item.atlas.width(), item.atlas.height())),
         atlas_path,
     })
 }

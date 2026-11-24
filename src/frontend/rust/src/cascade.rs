@@ -11,6 +11,10 @@ use crate::dom::{ua_display, Dom, NodeId};
 use crate::grid::{
     parse_grid_auto_rows, parse_grid_template_columns, GridAutoRows, GridTemplateColumns,
 };
+use crate::style_ext::{
+    parse_box_shadows, parse_number, parse_rel_length, resolve_border_radius, resolve_border_side,
+    BorderOut, LengthCtx, RelLength, StyleV3,
+};
 
 const SIDES: [&str; 4] = ["top", "right", "bottom", "left"];
 
@@ -68,17 +72,34 @@ pub struct ComputedStyle {
     pub data_press: Option<String>,
     pub data_selected: Option<String>,
     pub data_action: Option<String>,
+    /// Extensiones CSS v3 (bordes, radio, sombras, unidades relativas).
+    pub css3: StyleV3,
 }
 
-pub fn compute_styles(dom: &Dom, rules: &[Rule]) -> Vec<Option<ComputedStyle>> {
+pub fn compute_styles(
+    dom: &Dom,
+    rules: &[Rule],
+    viewport: (f64, f64),
+) -> Vec<Option<ComputedStyle>> {
     let mut styles: Vec<Option<ComputedStyle>> = Vec::with_capacity(dom.nodes.len());
     styles.resize_with(dom.nodes.len(), || None);
+    // `rem` se resuelve contra el font-size computado de `html`. El preorden
+    // garantiza que la raiz se calcula antes que body y sus descendientes.
+    let mut root_font_size = 16.0f64;
 
     for id in dom.preorder() {
         let mut raw: HashMap<String, String> = HashMap::new();
+        let mut parent_font_size = 16.0f64;
         if let Some(parent) = dom.nodes[id].parent {
             if let Some(parent_style) = styles[parent].as_ref() {
+                parent_font_size = parent_style.font_size;
                 for name in INHERITED {
+                    // `font-size` se hereda como valor computado, no como token:
+                    // un hijo sin font-size propio no debe re-resolver el `em`
+                    // del padre contra si mismo.
+                    if name == "font-size" {
+                        continue;
+                    }
                     if let Some(value) = parent_style.raw.get(name) {
                         raw.insert(name.to_string(), value.clone());
                     }
@@ -120,7 +141,11 @@ pub fn compute_styles(dom: &Dom, rules: &[Rule]) -> Vec<Option<ComputedStyle>> {
         for (name, (_, value)) in winners {
             raw.insert(name, value);
         }
-        styles[id] = Some(resolve(dom, id, raw));
+        let style = resolve(dom, id, raw, parent_font_size, root_font_size, viewport);
+        if dom.nodes[id].tag == "html" {
+            root_font_size = style.font_size;
+        }
+        styles[id] = Some(style);
     }
     styles
 }
@@ -134,28 +159,57 @@ fn offer(map: &mut HashMap<String, (Key, String)>, name: &str, value: &str, key:
     }
 }
 
-fn resolve(dom: &Dom, id: NodeId, raw: HashMap<String, String>) -> ComputedStyle {
+fn resolve(
+    dom: &Dom,
+    id: NodeId,
+    raw: HashMap<String, String>,
+    parent_font_size: f64,
+    root_font_size: f64,
+    viewport: (f64, f64),
+) -> ComputedStyle {
     let tag = dom.nodes[id].tag.as_str();
+    let font_size = raw
+        .get("font-size")
+        .and_then(|value| resolve_font_size(value, parent_font_size, root_font_size))
+        .unwrap_or(parent_font_size);
+    // Contexto de resolucion de `em`/`rem`/`vh`/`vw` a px en build time.
+    let ctx = LengthCtx {
+        font_size,
+        root_font_size,
+        viewport_width: viewport.0,
+        viewport_height: viewport.1,
+    };
+
     let mut margin = [0.0f64; 4];
     let mut padding = [0.0f64; 4];
+    let mut margin_rel = [None; 4];
+    let mut padding_rel = [None; 4];
     for (index, side) in SIDES.iter().enumerate() {
-        margin[index] = length(raw.get(&format!("margin-{side}")).map(String::as_str)).unwrap_or(0.0);
-        padding[index] =
-            length(raw.get(&format!("padding-{side}")).map(String::as_str)).unwrap_or(0.0);
+        let (margin_px, _, margin_unit) =
+            resolve_box_length(raw.get(&format!("margin-{side}")), &ctx);
+        let (padding_px, _, padding_unit) =
+            resolve_box_length(raw.get(&format!("padding-{side}")), &ctx);
+        margin[index] = margin_px.unwrap_or(0.0);
+        padding[index] = padding_px.unwrap_or(0.0);
+        margin_rel[index] = margin_unit;
+        padding_rel[index] = padding_unit;
     }
 
-    let width = length(raw.get("width").map(String::as_str));
-    let height = length(raw.get("height").map(String::as_str));
-    let width_pct = percentage(raw.get("width").map(String::as_str));
-    let height_pct = percentage(raw.get("height").map(String::as_str));
-    let font_size = length(raw.get("font-size").map(String::as_str)).unwrap_or(16.0);
+    let (width, width_pct, width_rel) = resolve_box_length(raw.get("width"), &ctx);
+    let (height, height_pct, height_rel) = resolve_box_length(raw.get("height"), &ctx);
+    let (min_width, min_width_pct, min_width_rel) = resolve_box_length(raw.get("min-width"), &ctx);
+    let (max_width, max_width_pct, max_width_rel) = resolve_box_length(raw.get("max-width"), &ctx);
+    let (min_height, min_height_pct, min_height_rel) =
+        resolve_box_length(raw.get("min-height"), &ctx);
+    let (max_height, max_height_pct, max_height_rel) =
+        resolve_box_length(raw.get("max-height"), &ctx);
 
     // `gap` con el mismo cortocircuito "truthy" que el Python (0.0 es falsy).
     // `row_gap`/`column_gap` son los valores efectivos por eje: el longhand
     // gana al shorthand (CSS), y `gap` sigue calculandose igual que en v1.
-    let gap_direct = length(raw.get("gap").map(String::as_str));
-    let row_gap_decl = length(raw.get("row-gap").map(String::as_str));
-    let column_gap_decl = length(raw.get("column-gap").map(String::as_str));
+    let (gap_direct, _, gap_rel) = resolve_box_length(raw.get("gap"), &ctx);
+    let (row_gap_decl, _, row_gap_rel_decl) = resolve_box_length(raw.get("row-gap"), &ctx);
+    let (column_gap_decl, _, column_gap_rel_decl) = resolve_box_length(raw.get("column-gap"), &ctx);
     let gap = match gap_direct {
         Some(value) => value,
         None => {
@@ -166,6 +220,17 @@ fn resolve(dom: &Dom, id: NodeId, raw: HashMap<String, String>) -> ComputedStyle
     };
     let row_gap = row_gap_decl.or(gap_direct).unwrap_or(0.0);
     let column_gap = column_gap_decl.or(gap_direct).unwrap_or(0.0);
+    // La unidad relativa efectiva sigue la misma precedencia que el px.
+    let row_gap_rel = if row_gap_decl.is_some() {
+        row_gap_rel_decl
+    } else {
+        gap_rel
+    };
+    let column_gap_rel = if column_gap_decl.is_some() {
+        column_gap_rel_decl
+    } else {
+        gap_rel
+    };
 
     let overflow = keyword_value(raw.get("overflow"), &["hidden", "auto", "scroll"]);
     let object_fit = keyword_value(raw.get("object-fit"), &["fill", "cover", "contain"]);
@@ -187,9 +252,31 @@ fn resolve(dom: &Dom, id: NodeId, raw: HashMap<String, String>) -> ComputedStyle
     };
     let background = parse_color(background_value);
 
+    let color =
+        parse_color(raw.get("color").map(String::as_str)).unwrap_or_else(|| "#000000".to_string());
+
+    let side = |name: &str| resolve_side(&raw, name, &ctx, &color);
+    let border = BorderOut {
+        top: side("top"),
+        right: side("right"),
+        bottom: side("bottom"),
+        left: side("left"),
+    };
+
+    let (border_radius, border_radius_rel) =
+        resolve_border_radius(raw.get("border-radius").map(String::as_str), &ctx);
+    let box_shadow = raw
+        .get("box-shadow")
+        .and_then(|value| parse_box_shadows(value, &ctx, &color))
+        .unwrap_or_default();
+    let opacity = raw
+        .get("opacity")
+        .and_then(|value| parse_number(value))
+        .map(|value| value.clamp(0.0, 1.0))
+        .unwrap_or(1.0);
+
     ComputedStyle {
-        color: parse_color(raw.get("color").map(String::as_str))
-            .unwrap_or_else(|| "#000000".to_string()),
+        color,
         font_family: raw
             .get("font-family")
             .cloned()
@@ -223,8 +310,99 @@ fn resolve(dom: &Dom, id: NodeId, raw: HashMap<String, String>) -> ComputedStyle
         data_press: dom.attr(id, "data-press").map(str::to_string),
         data_selected: dom.attr(id, "data-selected").map(str::to_string),
         data_action: dom.attr(id, "data-action").map(str::to_string),
+        css3: StyleV3 {
+            width_rel,
+            height_rel,
+            min_width,
+            min_width_pct,
+            min_width_rel,
+            max_width,
+            max_width_pct,
+            max_width_rel,
+            min_height,
+            min_height_pct,
+            min_height_rel,
+            max_height,
+            max_height_pct,
+            max_height_rel,
+            margin_rel,
+            padding_rel,
+            gap_rel,
+            row_gap_rel,
+            column_gap_rel,
+            border,
+            border_radius,
+            border_radius_rel,
+            box_shadow,
+            opacity,
+        },
         raw,
     }
+}
+
+fn resolve_side(
+    raw: &HashMap<String, String>,
+    side: &str,
+    ctx: &LengthCtx,
+    color: &str,
+) -> crate::style_ext::BorderSide {
+    resolve_border_side(
+        raw.get(&format!("border-{side}-width")),
+        raw.get(&format!("border-{side}-style")),
+        raw.get(&format!("border-{side}-color")),
+        ctx,
+        color,
+    )
+}
+
+/// Resuelve una propiedad de caja a `(px, pct, unidad declarada)`.
+///
+/// - `30%` -> `(None, 30.0, None)` (el contrato v1 conserva el porcentaje).
+/// - `2em` -> `(px resuelto, 0.0, Some(2em))`.
+/// - `12px`/`12` -> `(Some(12.0), 0.0, None)`.
+/// - `auto`/`none`/desconocido -> `(None, 0.0, None)`.
+fn resolve_box_length(
+    value: Option<&String>,
+    ctx: &LengthCtx,
+) -> (Option<f64>, f64, Option<RelLength>) {
+    let Some(raw) = value else {
+        return (None, 0.0, None);
+    };
+    let text = raw.trim();
+    if text.is_empty() || text.eq_ignore_ascii_case("auto") || text.eq_ignore_ascii_case("none") {
+        return (None, 0.0, None);
+    }
+    if text.ends_with('%') {
+        return (None, percentage(Some(text)), None);
+    }
+    if let Some(px) = length(Some(text)) {
+        return (Some(px), 0.0, None);
+    }
+    if let Some(rel) = parse_rel_length(text) {
+        return (Some(ctx.resolve(rel)), 0.0, Some(rel));
+    }
+    (None, 0.0, None)
+}
+
+/// `font-size` computado: px/numero, `em` (padre), `rem` (raiz) o `%` (padre).
+fn resolve_font_size(value: &str, parent: f64, root: f64) -> Option<f64> {
+    let text = value.trim().to_ascii_lowercase();
+    if text.is_empty() {
+        return None;
+    }
+    if let Some(px) = length(Some(&text)) {
+        return Some(px);
+    }
+    if let Some(number) = text.strip_suffix('%') {
+        return parse_number(number).map(|value| parent * value / 100.0);
+    }
+    if let Some(number) = text.strip_suffix("rem") {
+        return parse_number(number).map(|value| root * value);
+    }
+    if let Some(number) = text.strip_suffix("em") {
+        return parse_number(number).map(|value| parent * value);
+    }
+    None
 }
 
 fn keyword(raw: &HashMap<String, String>, name: &str, default: &str) -> String {

@@ -54,6 +54,28 @@ pub fn collect(dom: &Dom, styles: &[Option<ComputedStyle>]) -> Vec<Warning> {
                 });
             }
         }
+        if style.css3.border.any_visible() {
+            out.push(Warning {
+                context: name.clone(),
+                message: "'border' solo se renderiza en R2 (--emit-ui); el IR de R1 pinta la caja sin borde"
+                    .to_string(),
+            });
+        }
+        if style.css3.border_radius.iter().any(|value| *value > 0.0) {
+            out.push(Warning {
+                context: name.clone(),
+                message:
+                    "'border-radius' solo se renderiza en R2 (--emit-ui); R1 no redondea esquinas"
+                        .to_string(),
+            });
+        }
+        if !style.css3.box_shadow.is_empty() {
+            out.push(Warning {
+                context: name.clone(),
+                message: "'box-shadow' solo se renderiza en R2 (--emit-ui); R1 no pinta sombras"
+                    .to_string(),
+            });
+        }
         if node.tag == "img" {
             out.push(Warning {
                 context: name,
