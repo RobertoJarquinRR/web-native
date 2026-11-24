@@ -1,0 +1,12 @@
+# Local harness state: not part of the committed baseline.
+.venv/
+work/
+results/
+__pycache__/
+
+# Frozen binaries are reproducible: run.ps1 copies them from
+# src/runtime/c-r2/build (or builds R2 from the committed sources).
+snapshot/runtime_r2.exe
+snapshot/wgpu_native.dll
+snapshot/assets/
+snapshot/source_build_report.json

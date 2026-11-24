@@ -1,0 +1,29 @@
+{
+  "captured_at_utc": "2026-11-23T23:54:41Z",
+  "commit": "522499e",
+  "source": "src/runtime/c-r2/build",
+  "exe_bytes": 299008,
+  "exe_sha256": "4ba2e269232779dce7e8d1455c145612b3a6edf60e9cc03cd98a752ae42ec38f",
+  "dll_bytes": 9117696,
+  "dll_sha256": "5e26249c40dcdac43f5adca3195fcf40e4ec6c67472b38510165f411fcc198e7",
+  "atlas_bytes": 65536,
+  "atlas_sha256": "8cfdb14e94a017588eaf80eb31b5bf7ca86a38bcc9e2826446fcecbd19c740c1",
+  "provenance": {
+    "source_commit": "522499e",
+    "tree_clean_at_capture": true,
+    "source_build_report": "snapshot/source_build_report.json",
+    "source_build_started": "2026-11-23T17:35:11.8322739-06:00",
+    "runtime_r2_c_git_blob": "1068d315cecb95b1837012503ad73bcf01f43ceb",
+    "runtime_r2_c_worktree_matches_head": true,
+    "ui_data_h_sha256": "008b8171247ea57b38595559946164fae59d90e93ddc99122c59a520f9348ac1",
+    "concurrent_tree_changes": "other stream added src/runtime/c-r2/wn_*.c, host_win32.c and edited include/webnative.h after this build (17:50-17:57); runtime_r2.c stayed unmodified, so the frozen exe still corresponds to 522499e",
+    "rebuild_command": "cl /nologo /O2 /W3 /std:c17 /TC /D_CRT_SECURE_NO_WARNINGS src/runtime/c-r2/runtime_r2.c /I third_party/wgpu-native/include /I build /link wgpu_native.dll.lib windowscodecs.lib ole32.lib user32.lib gdi32.lib",
+    "rebuild_exe_bytes": 299008,
+    "rebuild_exe_sha256": "f93aac8852742f6044d07ad212a34ef7a9084710e73d3c6684da2feb7eda108f",
+    "rebuild_hash_note": "same size and identical render output; the whole-file hash differs only because MSVC embeds a PE timestamp",
+    "render_960_sha256": "5ed6b6c02f690cac71346cc051674e12b3fb3b47f3685ed6862708356df26054",
+    "rebuild_render_960_sha256": "5ed6b6c02f690cac71346cc051674e12b3fb3b47f3685ed6862708356df26054",
+    "render_matches": true,
+    "verified_at_utc": "2026-11-23T23:56:05Z"
+  }
+}

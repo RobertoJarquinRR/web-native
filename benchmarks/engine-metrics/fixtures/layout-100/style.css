@@ -1,0 +1,54 @@
+body {
+  margin: 0;
+  background: #0f1115;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+  background: #0f1115;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.grid {
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cell {
+  width: 180px;
+  height: 80px;
+  background: #1a1f2a;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bar {
+  width: 164px;
+  height: 8px;
+  background: #2a3140;
+}
+
+.bar-short {
+  width: 120px;
+}
+
+.dot {
+  width: 16px;
+  height: 16px;
+  background: #3498db;
+}
+
+.footer {
+  width: 100%;
+  height: 60px;
+  background: #161a22;
+}
