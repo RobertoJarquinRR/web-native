@@ -58,9 +58,8 @@ Por eso el contrato es border-box y la página debe declararlo explícitamente.
 
 - Chromium `141.0.7390.37` vía Playwright `1.56.0`, headless shell build 1194,
   DPR 1, 96 DPI, sRGB 8 bits.
-- Nativo: `runtime_r2.exe` con su ruta offscreen wgpu (D3D12/WARP en esta
-  máquina). La ruta offscreen es independiente del backend D3D11 del motor;
-  ver la limitación correspondiente en el README.
+- Nativo: `runtime_r2.exe --render` a través de la vtable, **D3D11 hardware**
+  (`Intel(R) HD Graphics`) en esta máquina; wgpu/WARP con `WN_RENDERER=wgpu`.
 - Commit del repo al medir: `4f07d1a`.
 
 ## Cómo se regeneran

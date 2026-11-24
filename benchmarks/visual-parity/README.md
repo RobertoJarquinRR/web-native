@@ -226,11 +226,12 @@ Umbrales iniciales (se calibran con la baseline, no son un gate definitivo):
   Se comprueban los archivos de `C:\Windows\Fonts`; si falta una, el harness
   falla en vez de comparar un fallback.
 - El reporte registra el SHA-256 del ejecutable de Chromium y del nativo, el
-  backend/adaptador y si es software (en esta máquina: D3D12 sobre
-  **Microsoft Basic Render Driver**, WARP, `type=cpu`).
-- El render nativo es la ruta offscreen del motor (`runtime_r2.exe --render`),
-  que hoy habla wgpu directamente; no usa todavía la vtable D3D11. El layout
-  comparado es el mismo; el pintado se compara contra WARP.
+  backend/adaptador y si es software. En esta máquina el nativo sale en
+  **D3D11 hardware** (`Intel(R) HD Graphics`); con `WN_RENDERER=wgpu` cae a
+  `Microsoft Basic Render Driver` (WARP, `type=cpu`).
+- El render nativo usa la ruta offscreen del motor a través de la vtable
+  (`WN_SURFACE_OFFSCREEN` + `readback`): **D3D11 hardware** por defecto y wgpu
+  con `WN_RENDERER=wgpu`. Cada reporte declara el backend y el dispositivo.
 
 ---
 

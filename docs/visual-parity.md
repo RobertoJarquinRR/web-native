@@ -85,8 +85,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build.ps1 `
 ```
 
 > R1 quedó archivado (`archive/r1-static/`); el harness ya no compila escenas
-> horneadas. La ruta offscreen sigue siendo la de `runtime_r2.c` (wgpu directo),
-> no la vtable D3D11; ese es el siguiente paso de consolidación del renderer.
+> horneadas. La ruta offscreen usa la vtable `wn_renderer` con
+> `WN_SURFACE_OFFSCREEN`: **D3D11 hardware** por defecto, wgpu con
+> `WN_RENDERER=wgpu`.
 
 - R1 y R2 deben producir la misma imagen para fixtures sin texto ni estados
   dinámicos; si divergen, se reporta como hallazgo, no se promedia.

@@ -27,7 +27,7 @@ se testea; se conserva como referencia. Detalles en su README.
 Runtime dinámico: el `.exe` recibe un **árbol de estilos pre-layout** y hace
 layout, hit testing, estados y reflow en C, con una ventana Win32 real.
 
-- `runtime_r2.c` — motor de layout + host Win32 + wgpu-native + offscreen/CLI.
+- `runtime_r2.c` — motor de layout + host Win32 + offscreen/CLI por la vtable.
 - `page/` — fixture (sidebar 30 %, content 70 %, header, 3 cards, panel).
 - `build.ps1` — emite `ui_data.h`, compila con MSVC, copia `wgpu_native.dll`,
   ejecuta report/render/states/ventana y corre `verify.py`.

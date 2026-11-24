@@ -142,7 +142,7 @@ colores (tinycss2), para no duplicar la tabla de nombres CSS en Rust.
 | `page/style.css` | Colores y layout del fixture. |
 | `src/frontend/rust/src/ui_tree.rs` | `--emit-ui`: aplana el árbol con estilos a JSON pre-layout, mide/shapea texto y empaqueta el atlas R8 256×256. |
 | `src/emitter/python/emit_ui.py` | Dos modos de entrada: `--ui-json` (árbol Rust, por defecto) y `--html/--css` (oráculo Python). Genera `ui_data.h` + `ui_meta.json`. `--compare` verifica paridad. |
-| `runtime_r2.c` | **Todo el runtime**: layout, Win32, input, wgpu, offscreen, CLI. |
+| `runtime_r2.c` | Layout, Win32, input, CLI y modos offscreen; **renderiza por la vtable** (sin wgpu propio). |
 | `build.ps1` | Rust build + emit-ui → `--ui-json` → compile (`cl /O2 /TC`) → report → render → states → ventana → verify. |
 | `verify.py` | Aceptación: asserts de layout, píxeles, texto, estados y timings. |
 | `build/ui.json` | Generado por Rust. Árbol de estilos pre-layout documentado (§2). |
@@ -500,7 +500,7 @@ El modo `--emit-ui` no toca el camino R1. Verificado tras los cambios:
 
 **Portado de exp15 (sin cambios de comportamiento):**
 
-- `runtime_r2.c` — motor de layout, Win32, input, wgpu, offscreen y CLI.
+- `runtime_r2.c` — motor de layout, Win32, input, CLI y offscreen por la vtable.
 - `verify.py` — 69 checks.
 - `page/index.html`, `page/style.css` — fixture.
 - `emit_ui.py` — lógica de aplanado, medición/shaping y atlas; ahora en
@@ -786,7 +786,8 @@ press > hover > selected > background.
 
 - No se tocó `src/runtime/c-static`, `src/build.ps1`, `benchmarks/**`,
   `docs/**` ni `src/frontend/rust/**`.
-- `runtime_r2.c` quedó reducido a CLI, reporting, Win32 y wgpu; el motor vive
+- `runtime_r2.c` quedó reducido a CLI, reporting y Win32 (más tarde también
+  perdió su renderer: hoy pinta por la vtable); el motor vive
   en `wn_core.c` y se compila desde `build.ps1` (que ahora añade `wn_core.c` y
   `wn_common.c` al binario R2). La aceptación se re-ejecutó con
   `-SkipRustBuild` y sigue en **69/69**.
@@ -832,7 +833,7 @@ ambigüedad de `\xNN` seguido de un dígito hex.
 - `image_vertices[]` (`vec2 pos + vec2 uv`, 16 B) e `image_batches[]`
   (`{first, count, clip, src}`); una imagen = 6 vértices.
 
-Ambos renderers (`renderer_wgpu.c` y el de `runtime_r2.c`) aplican
+Los dos backends (`renderer_wgpu.c` y `renderer_d3d11.c`) aplican
 `SetScissorRect` por batch antes de cada draw, en este orden: sólidos →
 imágenes → glyphs. El atlas de texto y las imágenes comparten el bind group
 layout `texture_2d<f32> + sampler`; cada imagen tiene su textura RGBA8 y bind
