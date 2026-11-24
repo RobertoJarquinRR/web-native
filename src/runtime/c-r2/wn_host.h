@@ -34,6 +34,8 @@ typedef struct wn_host_ops {
     void *(*native_window)(void *context);
     void *(*surface_handle)(void *context); /* native surface provider (HWND) */
     void (*set_client_size)(void *context, int width, int height);
+    /* Test/demo mode: render every loop even without messages (--frames). */
+    void (*set_continuous)(void *context, int enabled);
     void (*destroy)(void *context);
 } wn_host_ops;
 

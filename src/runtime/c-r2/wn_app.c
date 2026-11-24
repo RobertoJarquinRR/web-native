@@ -408,6 +408,10 @@ void wn_app_set_max_frames(wn_app *app, int max_frames)
 {
     if (app != NULL) {
         app->max_frames = max_frames > 0 ? max_frames : 0;
+        if (app->host_ops != NULL && app->host != NULL &&
+            app->host_ops->set_continuous != NULL) {
+            app->host_ops->set_continuous(app->host, app->max_frames > 0);
+        }
     }
 }
 

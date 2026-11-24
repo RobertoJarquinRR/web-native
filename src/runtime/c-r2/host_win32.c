@@ -24,6 +24,7 @@ typedef struct {
     int width;
     int height;
     int running;
+    int continuous;
     int mouse_tracking;
     char *title;
     wn_host_event_fn on_event;
@@ -274,24 +275,38 @@ static int host_run(void *context)
         return 1;
     }
     host->running = 1;
-    while (host->running) {
-        MSG msg;
-        BOOL got = PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE);
-        if (got) {
-            if (msg.message == WM_QUIT) {
-                host->running = 0;
+    {
+        int first = 1;
+        while (host->running) {
+            MSG msg;
+            BOOL got = PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE);
+            if (got) {
+                if (msg.message == WM_QUIT) {
+                    host->running = 0;
+                    break;
+                }
+                TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+            if (!host->running) {
                 break;
             }
-            TranslateMessage(&msg);
-            DispatchMessageW(&msg);
-        }
-        if (!host->running) {
-            break;
-        }
-        if (host->on_frame != NULL) {
-            host->on_frame(host->userdata);
-        } else if (!got) {
-            Sleep(1);
+            /* Idle UIs render once at startup and after each message. Tests and
+             * demos that need a fixed number of frames opt into continuous mode
+             * through wn_app_set_max_frames(). */
+            if (host->continuous || got || first) {
+                if (host->on_frame != NULL) {
+                    host->on_frame(host->userdata);
+                }
+                first = 0;
+                if (host->continuous && !got) {
+                    Sleep(1);
+                }
+            } else if (host->on_frame != NULL) {
+                WaitMessage();
+            } else {
+                Sleep(1);
+            }
         }
     }
     return 0;
@@ -351,6 +366,14 @@ static void host_set_client_size(void *context, int width, int height)
                  rect.bottom - rect.top, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
+static void host_set_continuous(void *context, int enabled)
+{
+    WnHostWin32 *host = (WnHostWin32 *)context;
+    if (host != NULL) {
+        host->continuous = enabled != 0;
+    }
+}
+
 static void host_destroy(void *context)
 {
     WnHostWin32 *host = (WnHostWin32 *)context;
@@ -374,6 +397,7 @@ static const wn_host_ops g_host_win32_ops = {
     host_native_window,
     host_surface_handle,
     host_set_client_size,
+    host_set_continuous,
     host_destroy
 };
 
