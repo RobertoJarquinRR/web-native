@@ -65,14 +65,26 @@ Futuro Windows-only con D2D/D3D11: ≤ 5 MB total.
 6. Subset v1 documentado + diagnósticos estrictos.
 7. Renderer detrás de vtable; la ABI no expone wgpu.
 
-## No-goals v1
+## No-goals (permanentes)
 
 - Navegador, pestañas, devtools, extensiones.
-- Motor JS.
-- Web completa: iframes, `@media`, animaciones, web fonts, `grid`.
+- **Motor JS** en el core.
+- **Parser HTML/CSS en runtime** en el core.
+- Plataforma web completa: iframes, `@media`, animaciones, web fonts,
+  formularios web.
 - Red/HTTP.
 - Accesibilidad/IME completos (fase 4; debe planificarse).
 - macOS/Linux (fase 5).
+
+## Guardrails de alcance
+
+- webnative es una **plataforma de UI nativa**, no un navegador.
+- La lógica vive en el **host** (C#, C, C++, Rust) y entra por la ABI.
+- El **dinamismo** se hace con una API de mutación de árbol/templates desde el
+  host, no con scripting.
+- Si algún día se quiere parser en runtime o JS, será un **plugin/proyecto
+  separado** con decisión explícita; no forma parte del core.
+- El subset HTML/CSS es el contrato; no se persigue la web completa.
 
 ## Riesgos
 

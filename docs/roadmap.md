@@ -39,13 +39,16 @@ subset rechaza features fuera de v1; R1 sin regresión.
 - Invalidación incremental / dirty rects.
 - Clipping y scroll.
 - Flex fiel: grow/shrink/basis/min-content, margin collapse.
+- **API de UI dinámica: crear/actualizar/eliminar nodos, templates/listas.**
+- **Virtualización de listas/grids.**
+- **Texto dinámico** (shaping runtime o pre-shape por variantes).
+- **Input de texto single-line + foco/teclado.**
 - Texto: wrapping, line breaking, DPI/zoom.
-- Focus/keyboard navigation.
 - Animaciones/transiciones (futuro cercano).
 
 ## Fase 4 — CSS y OS integration
 
-- Bordes/radios/sombras, imágenes, `grid`, unidades relativas, `@media`.
+- Bordes/radios/sombras, unidades relativas, `@media`.
 - IME, clipboard, drag & drop, diálogos, accesibilidad (UIA/ARIA).
 - Controles de texto (input/select) si el target lo exige.
 
@@ -62,6 +65,12 @@ subset rechaza features fuera de v1; R1 sin regresión.
 - Benchmark de escalado 1k–10k nodos.
 - Presupuestos de memoria/perf en CI.
 - Documentación de usuario y ejemplos.
+
+## Non-goals permanentes
+
+- Motor JS, parser HTML/CSS en runtime, plataforma web completa, devtools, red.
+- Cualquier parser/JS futuro será un plugin/proyecto separado con decisión
+  explícita; no entra al core.
 
 ## Reglas de paralelización
 
