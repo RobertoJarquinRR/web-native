@@ -20,6 +20,11 @@
 //! imagenes (`docs/ui-tree-v2.md`). `webnative.ui-tree/3` es aditivo: la pagina
 //! usa un `<input type="text">` y anade `kind:"input"` + `input{}` con la
 //! piscina ASCII imprimible horneada en el atlas.
+//!
+//! E1 (fidelidad visual) es tambien aditivo y por pagina: si algun nodo usa
+//! `text-align`, `line-height` o `margin: auto`, cada nodo emite ademas
+//! `text_align`, `line_height` y `margin_auto`. Las paginas que no los usan no
+//! cambian ni un byte (y `UI_STYLE_EXTRAS` solo se define en esos headers).
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -34,8 +39,8 @@ use crate::grid::{GridAutoRows, GridTemplateColumns};
 use crate::sha256;
 use crate::style_ext::{BorderOut, BoxShadow, RelLength, StyleV3, Unit};
 use crate::text::{
-    Atlas, BakedInputPool, BakedUiText, TextEngine, UiGlyphOut, UiInputGlyphOut, UiTextBaker,
-    UI_INPUT_ATLAS_SIZE,
+    parse_font_weight, Atlas, BakedInputPool, BakedUiText, TextEngine, UiGlyphOut, UiInputGlyphOut,
+    UiTextBaker, UI_INPUT_ATLAS_SIZE,
 };
 
 /// Schema sin features v2 (grid/scroll/imagenes). Identico al contrato previo.
@@ -184,6 +189,11 @@ struct StyleOut {
     font_size: f64,
     font_family: String,
     font_weight: String,
+    /// E1: alineacion horizontal del texto y caja de linea (solo se
+    /// serializan cuando la pagina usa la feature).
+    text_align: String,
+    line_height: f64,
+    margin_auto: [bool; 4],
     /// v3: bordes, radio, sombras y unidades relativas (solo schema `/2`).
     css3: StyleV3,
 }
@@ -260,8 +270,8 @@ struct Builder<'a> {
     baker: UiTextBaker,
     nodes: Vec<NodeOut>,
     name_counts: HashMap<String, usize>,
-    /// Piscina ASCII cacheada por (familia, tamano redondeado).
-    input_pools: HashMap<(String, i32), BakedInputPool>,
+    /// Piscina ASCII cacheada por (familia, tamano redondeado, peso).
+    input_pools: HashMap<(String, i32, u16), BakedInputPool>,
     glyph_count: usize,
     input_glyph_count: usize,
     run_count: usize,
@@ -407,14 +417,15 @@ impl<'a> Builder<'a> {
             } else {
                 DEFAULT_SIZE
             };
+            let weight = parse_font_weight(&style.font_weight);
             let key_size = (size.round_ties_even() as i32).max(1);
-            let key = (family.clone(), key_size);
+            let key = (family.clone(), key_size, weight);
             let pool = if let Some(pool) = self.input_pools.get(&key) {
                 pool.clone()
             } else {
                 let baked = self
                     .baker
-                    .bake_input_pool(self.engine, &family, size)?;
+                    .bake_input_pool(self.engine, &family, size, weight)?;
                 self.input_pools.insert(key, baked.clone());
                 baked
             };
@@ -479,6 +490,9 @@ impl<'a> Builder<'a> {
                 font_size: style.font_size,
                 font_family: style.font_family.clone(),
                 font_weight: style.font_weight.clone(),
+                text_align: style.text_align.clone(),
+                line_height: style.line_height,
+                margin_auto: style.margin_auto,
                 css3: style.css3.clone(),
             },
             data: DataOut {
@@ -567,15 +581,34 @@ impl<'a> Builder<'a> {
         } else {
             DEFAULT_SIZE
         };
-        let baked = self.baker.bake(self.engine, text, &family, size)?;
+        let weight = parse_font_weight(&style.font_weight);
+        let baked = self
+            .baker
+            .bake(self.engine, text, &family, size, weight)?;
         let BakedUiText {
-            glyphs,
+            mut glyphs,
             width,
             ascender,
             descender,
         } = baked;
+        // E1: `line-height` define la caja de linea. El texto se centra en ella
+        // repartiendo el leading (half-leading de CSS) por arriba y por abajo;
+        // los glyphs y el baseline se desplazan con el leading superior.
+        let natural = ascender + descender;
+        let line_height = if style.line_height > 0.0 {
+            style.line_height
+        } else {
+            natural
+        };
+        let leading = (line_height - natural) * 0.5;
+        if leading != 0.0 {
+            for glyph in &mut glyphs {
+                glyph.y += leading;
+            }
+        }
         let node_width = width.ceil();
-        let node_height = (ascender + descender).ceil();
+        let node_height = line_height.ceil();
+        let baseline = ascender + leading;
         let text_name = self.unique_name("text");
         let index = self.nodes.len();
         self.nodes.push(NodeOut {
@@ -613,6 +646,9 @@ impl<'a> Builder<'a> {
                 font_size: size,
                 font_family: family,
                 font_weight: style.font_weight.clone(),
+                text_align: style.text_align.clone(),
+                line_height: style.line_height,
+                margin_auto: [false; 4],
                 css3: StyleV3::default(),
             },
             data: DataOut {
@@ -630,7 +666,7 @@ impl<'a> Builder<'a> {
             },
             text: Some(TextOut {
                 content: text.to_string(),
-                baseline: ascender,
+                baseline,
                 glyphs,
             }),
             image: None,
@@ -823,7 +859,7 @@ fn push_style_v3(out: &mut String, css3: &StyleV3) {
     push_box_shadow(out, &css3.box_shadow);
 }
 
-fn push_style(out: &mut String, style: &StyleOut, detailed: bool) {
+fn push_style(out: &mut String, style: &StyleOut, detailed: bool, extras: bool) {
     out.push_str("      \"style\": {\n");
     out.push_str("        \"display\": ");
     push_opt_string(out, style.display.as_deref());
@@ -899,13 +935,29 @@ fn push_style(out: &mut String, style: &StyleOut, detailed: bool) {
     push_json_string(out, &style.font_family);
     out.push_str(",\n        \"font_weight\": ");
     push_json_string(out, &style.font_weight);
+    if extras {
+        // E1 (`text-align`, `line-height`, `margin:auto`). Solo se escriben si
+        // la pagina usa alguna: las paginas existentes siguen byte a byte.
+        out.push_str(",\n        \"text_align\": ");
+        push_json_string(out, &style.text_align);
+        out.push_str(",\n        \"line_height\": ");
+        push_float(out, style.line_height);
+        out.push_str(",\n        \"margin_auto\": [");
+        for (index, value) in style.margin_auto.iter().enumerate() {
+            if index > 0 {
+                out.push_str(", ");
+            }
+            out.push_str(if *value { "1" } else { "0" });
+        }
+        out.push(']');
+    }
     if detailed {
         push_style_v3(out, &style.css3);
     }
     out.push_str("\n      }");
 }
 
-fn push_nodes_json(out: &mut String, nodes: &[NodeOut], detailed: bool) {
+fn push_nodes_json(out: &mut String, nodes: &[NodeOut], detailed: bool, extras: bool) {
     for (index, node) in nodes.iter().enumerate() {
         if index > 0 {
             out.push(',');
@@ -938,7 +990,7 @@ fn push_nodes_json(out: &mut String, nodes: &[NodeOut], detailed: bool) {
         out.push_str("],\n      \"element_id\": ");
         push_opt_string(out, node.element_id.as_deref());
         out.push_str(",\n");
-        push_style(out, &node.style, detailed);
+        push_style(out, &node.style, detailed, extras);
         out.push_str(",\n      \"data\": {\n        \"hover\": ");
         push_opt_string(out, node.data.hover.as_deref());
         out.push_str(",\n        \"press\": ");
@@ -1179,6 +1231,14 @@ pub fn emit_ui_tree(
     let v3 = nodes_have_input(&nodes);
     let v2 = nodes_use_v2(&nodes);
     let detailed = v2 || v3;
+    // E1: la pagina usa text-align/line-height/margin:auto en algun nodo. Solo
+    // entonces se serializan los campos nuevos (las paginas existentes no
+    // cambian ni un byte).
+    let extras = nodes.iter().any(|node| {
+        node.style.text_align != "left"
+            || node.style.line_height != 0.0
+            || node.style.margin_auto.iter().any(|value| *value)
+    });
     let schema = if v3 {
         SCHEMA_V3
     } else if v2 {
@@ -1212,7 +1272,7 @@ pub fn emit_ui_tree(
     );
     push_atlas_json(&mut out, atlas.as_ref());
     out.push_str(",\n  \"nodes\": [");
-    push_nodes_json(&mut out, &nodes, detailed);
+    push_nodes_json(&mut out, &nodes, detailed, extras);
     out.push_str("\n  ]\n}\n");
 
     if let Some(parent) = ui_path.parent() {

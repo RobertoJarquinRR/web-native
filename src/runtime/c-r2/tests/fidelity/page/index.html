@@ -1,0 +1,55 @@
+<!doctype html>
+<html>
+<head>
+<style>
+  html, body { margin: 0; padding: 0; }
+  body { width: 480px; height: 560px; background: #f5f5f5; display: block; color: #101010; }
+  .row { display: block; width: 440px; margin-left: 20px; margin-top: 12px; font-size: 18px; }
+  .bold { font-weight: 700; }
+  .center { text-align: center; }
+  .right { text-align: right; }
+  .tall { line-height: 40px; }
+  .pin { display: flex; flex-direction: column; width: 200px; height: 120px;
+         margin-left: 20px; margin-top: 12px; background: #d8d8d8; }
+  .pinhead { width: 200px; height: 20px; background: #aaaaaa; }
+  .pinmid { width: 40px; height: 20px; margin-left: auto; margin-right: auto;
+            background: #888888; }
+  .pinfoot { width: 200px; height: 20px; margin-top: auto; background: #666666; }
+  .rbar { display: flex; flex-direction: row; width: 200px; height: 20px;
+          margin-left: 20px; margin-top: 12px; background: #d0d0d0; }
+  .rchild { width: 40px; height: 20px; margin-left: auto; background: #444444; }
+  .autobox { display: block; width: 440px; margin-left: 20px; margin-top: 12px; }
+  .autochild { width: 100px; height: 20px; margin-left: auto; margin-right: auto;
+               background: #333333; }
+  .scrollbox { overflow: auto; width: 200px; height: 80px; margin-left: 20px;
+               margin-top: 12px; background: #eeeeee; }
+  .scrollcontent { width: 200px; height: 300px; background: #cfcfcf; }
+  .field { width: 200px; height: 32px; margin-left: 20px; margin-top: 12px;
+           background: #ffffff; border: 1px solid #cccccc; border-radius: 8px;
+           font-size: 14px; }
+</style>
+</head>
+<body>
+  <div id="regular" class="row">Media Bold</div>
+  <div id="bold" class="row bold">Media Bold</div>
+  <div id="left" class="row">Align</div>
+  <div id="center" class="row center">Align</div>
+  <div id="right" class="row right">Align</div>
+  <div id="line" class="row tall">Tall</div>
+  <div id="pin" class="pin">
+    <div id="pinhead" class="pinhead"></div>
+    <div id="pinmid" class="pinmid"></div>
+    <div id="pinfoot" class="pinfoot"></div>
+  </div>
+  <div id="rbar" class="rbar">
+    <div id="rchild" class="rchild"></div>
+  </div>
+  <div id="autobox" class="autobox">
+    <div id="autochild" class="autochild"></div>
+  </div>
+  <div id="scroll" class="scrollbox">
+    <div id="scrollcontent" class="scrollcontent"></div>
+  </div>
+  <input id="search" class="field" type="text" value="ab" maxlength="12">
+</body>
+</html>

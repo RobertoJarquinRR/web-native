@@ -111,6 +111,18 @@ typedef struct {
 #define WN_INPUT_PLACEHOLDER_COLOR 0xFF6B7785u
 #define WN_INPUT_CARET_WIDTH 2.0f
 
+/* E1 style extras are emitted only for pages that use them (the generated
+ * header defines UI_STYLE_EXTRAS). Source pages without text-align,
+ * line-height or margin:auto compile with the zero defaults, so their
+ * geometry stays byte-identical. */
+#if defined(UI_STYLE_EXTRAS)
+#define WN_TEXT_ALIGN(n) ((n)->text_align)
+#define WN_MARGIN_AUTO(n, bit) ((((n)->margin_auto) >> (bit)) & 1)
+#else
+#define WN_TEXT_ALIGN(n) 0
+#define WN_MARGIN_AUTO(n, bit) 0
+#endif
+
 #ifndef R2_NODE_INPUT
 #define R2_NODE_INPUT 5
 #endif
@@ -864,9 +876,31 @@ static float layout_flex_children(wn_core *c, int parent, float content_x,
         if (free < 0.0f) {
             free = 0.0f;
         }
+        /* E1: main-axis auto margins absorb the free space before
+         * justify-content (CSS). `margin-top:auto` in a column pins the item
+         * to the bottom; `margin-left/right:auto` centres/splits in a row. */
+        float auto_unit = 0.0f;
+        {
+            int auto_sides = 0;
+            int scan;
+            for (scan = start; scan < start + take; ++scan) {
+                const UiNode *an = &c->nodes[items[scan]];
+                (void)an;
+                if (row) {
+                    auto_sides += WN_MARGIN_AUTO(an, 3) + WN_MARGIN_AUTO(an, 1);
+                } else {
+                    auto_sides += WN_MARGIN_AUTO(an, 0) + WN_MARGIN_AUTO(an, 2);
+                }
+            }
+            if (auto_sides > 0) {
+                auto_unit = free / (float)auto_sides;
+                free = 0.0f;
+            }
+        }
         float start_off, spacing;
         justify_offsets(p->justify, free, take, gap, &start_off, &spacing);
         float cursor = start_off;
+        float auto_used = 0.0f;
         int j;
         for (j = start; j < start + take; ++j) {
             int id = items[j];
@@ -875,23 +909,51 @@ static float layout_flex_children(wn_core *c, int parent, float content_x,
             float h = item_h[j];
             float cross_extent = line_cross[l];
             if (row) {
+                if (WN_MARGIN_AUTO(n, 3)) {
+                    auto_used += auto_unit;
+                }
                 if (p->align == ALIGN_STRETCH && n->height < 0.0f && n->height_pct == 0.0f) {
                     h = cross_extent;
                 }
                 float off = align_offset(p->align, cross_extent, h);
+                if (WN_MARGIN_AUTO(n, 0) && WN_MARGIN_AUTO(n, 2)) {
+                    off = (cross_extent - h) * 0.5f;
+                } else if (WN_MARGIN_AUTO(n, 0)) {
+                    off = cross_extent - h;
+                } else if (WN_MARGIN_AUTO(n, 2)) {
+                    off = 0.0f;
+                }
                 c->rects[id].w = w;
                 c->rects[id].h = h;
-                translate_subtree(c, id, content_x + cursor, content_y + cross_origin + off);
+                translate_subtree(c, id, content_x + cursor + auto_used,
+                                  content_y + cross_origin + off);
                 cursor += w + spacing;
+                if (WN_MARGIN_AUTO(n, 1)) {
+                    auto_used += auto_unit;
+                }
             } else {
+                if (WN_MARGIN_AUTO(n, 0)) {
+                    auto_used += auto_unit;
+                }
                 if (p->align == ALIGN_STRETCH && n->width < 0.0f && n->width_pct == 0.0f) {
                     w = cross_extent;
                 }
                 float off = align_offset(p->align, cross_extent, w);
+                if (WN_MARGIN_AUTO(n, 3) && WN_MARGIN_AUTO(n, 1)) {
+                    off = (cross_extent - w) * 0.5f;
+                } else if (WN_MARGIN_AUTO(n, 3)) {
+                    off = cross_extent - w;
+                } else if (WN_MARGIN_AUTO(n, 1)) {
+                    off = 0.0f;
+                }
                 c->rects[id].w = w;
                 c->rects[id].h = h;
-                translate_subtree(c, id, content_x + cross_origin + off, content_y + cursor);
+                translate_subtree(c, id, content_x + cross_origin + off,
+                                  content_y + cursor + auto_used);
                 cursor += h + spacing;
+                if (WN_MARGIN_AUTO(n, 2)) {
+                    auto_used += auto_unit;
+                }
             }
         }
         cross_origin += line_cross[l] + gap;
@@ -1132,11 +1194,33 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
     } else {
         int child;
         for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
+            float used;
             if (!c->alive[child] || !c->visible[child]) {
                 mark_subtree_hidden(c, child);
                 continue;
             }
-            cursor += layout_node(c, child, content_x, cursor, content_w, content_h, 0, -1.0f);
+            used = layout_node(c, child, content_x, cursor, content_w, content_h, 0, -1.0f);
+            /* E1: `margin-left/right:auto` in a block container. Both auto
+             * margins centre the box; only left pushes it to the right. */
+            {
+                int auto_left = WN_MARGIN_AUTO(&c->nodes[child], 3);
+                int auto_right = WN_MARGIN_AUTO(&c->nodes[child], 1);
+                if (auto_left || auto_right) {
+                    float dx = 0.0f;
+                    float room = content_w - c->rects[child].w;
+                    if (room > 0.0f) {
+                        if (auto_left && auto_right) {
+                            dx = room * 0.5f;
+                        } else if (auto_left) {
+                            dx = room;
+                        }
+                    }
+                    if (dx > 0.0f) {
+                        translate_subtree(c, child, dx, 0.0f);
+                    }
+                }
+            }
+            cursor += used;
         }
     }
     const float content_used = cursor - content_y;
@@ -2606,6 +2690,73 @@ static void push_box_shape(wn_core *c, float x, float y, float w, float h,
                       (float)c->width, (float)c->height, argb);
 }
 
+/* Hollow rounded ring (E1 focus ring): band between the outer rounded rect and
+ * the same rect inset by `ring`. A square box keeps the exact 4-quad path so
+ * inputs without border-radius stay byte-identical. */
+static void push_rounded_ring(wn_core *c, float x, float y, float w, float h,
+                              float radius, float ring, unsigned int argb)
+{
+    float outer[WN_ROUND_POINTS][2];
+    float inner[WN_ROUND_POINTS][2];
+    uint8_t a, r, g, b;
+    int i;
+    if (w <= 0.0f || h <= 0.0f || ring <= 0.0f) {
+        return;
+    }
+    a = (uint8_t)((argb >> 24) & 0xFFu);
+    if (a == 0u) {
+        return;
+    }
+    if (radius <= 0.5f) {
+        const float vw = (float)c->width;
+        const float vh = (float)c->height;
+        push_quad(c, x, y, w, ring, vw, vh, argb);
+        push_quad(c, x, y + h - ring, w, ring, vw, vh, argb);
+        push_quad(c, x, y, ring, h, vw, vh, argb);
+        push_quad(c, x + w - ring, y, ring, h, vw, vh, argb);
+        return;
+    }
+    {
+        float inner_w = w - ring * 2.0f;
+        float inner_h = h - ring * 2.0f;
+        float inner_radius = radius - ring;
+        float limit = 0.5f * fminf(w, h);
+        if (radius > limit) {
+            radius = limit;
+        }
+        if (inner_w <= 0.0f || inner_h <= 0.0f) {
+            return;
+        }
+        if (inner_radius < 0.0f) {
+            inner_radius = 0.0f;
+        }
+        limit = 0.5f * fminf(inner_w, inner_h);
+        if (inner_radius > limit) {
+            inner_radius = limit;
+        }
+        rounded_outline(x, y, w, h, radius, outer);
+        rounded_outline(x + ring, y + ring, inner_w, inner_h, inner_radius, inner);
+    }
+    r = (uint8_t)((argb >> 16) & 0xFFu);
+    g = (uint8_t)((argb >> 8) & 0xFFu);
+    b = (uint8_t)(argb & 0xFFu);
+    for (i = 0; i < WN_ROUND_POINTS; ++i) {
+        int next = (i + 1) % WN_ROUND_POINTS;
+        push_vertex(c, outer[i][0], outer[i][1], (float)c->width,
+                    (float)c->height, r, g, b, a);
+        push_vertex(c, outer[next][0], outer[next][1], (float)c->width,
+                    (float)c->height, r, g, b, a);
+        push_vertex(c, inner[i][0], inner[i][1], (float)c->width,
+                    (float)c->height, r, g, b, a);
+        push_vertex(c, inner[next][0], inner[next][1], (float)c->width,
+                    (float)c->height, r, g, b, a);
+        push_vertex(c, outer[next][0], outer[next][1], (float)c->width,
+                    (float)c->height, r, g, b, a);
+        push_vertex(c, inner[i][0], inner[i][1], (float)c->width,
+                    (float)c->height, r, g, b, a);
+    }
+}
+
 /* Approximate the first non-inset box-shadow with three translucent layers:
  * the outer one is the blur-cap (lowest alpha), the inner one the spread-only
  * box. They are painted largest first so overlap accumulates towards the box.
@@ -2902,6 +3053,7 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
         const wn_rect *r;
         unsigned int color;
         uint8_t a, cr, cg, cb;
+        float align_dx = 0.0f;
         int j;
         if (!c->visible_eff[node] || n->kind != R2_NODE_TEXT) {
             continue;
@@ -2910,6 +3062,20 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
             continue;
         }
         r = &c->rects[node];
+        /* E1 `text-align`: a text node is the inline content of a block
+         * container, so shift the run inside the parent content box. Flex and
+         * grid parents already position the text item (justify/align), so the
+         * shift would double-apply there. */
+        if (WN_TEXT_ALIGN(n) != 0 && c->parent[node] >= 0) {
+            const UiNode *p = &c->nodes[c->parent[node]];
+            if (p->kind == R2_NODE_BLOCK) {
+                float avail = c->rects[c->parent[node]].w - p->padding[1] - p->padding[3];
+                float room = avail - r->w;
+                if (room > 0.0f) {
+                    align_dx = WN_TEXT_ALIGN(n) == 1 ? room * 0.5f : room;
+                }
+            }
+        }
         color = n->text_color;
         a = (uint8_t)((color >> 24) & 0xFFu);
         if (a == 0) {
@@ -2951,7 +3117,7 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
                 if (!entry->valid) {
                     break;
                 }
-                float x = floorf(r->x + pen + entry->off_x + 0.5f);
+                float x = floorf(r->x + align_dx + pen + entry->off_x + 0.5f);
                 float y = floorf(r->y + entry->off_y + 0.5f);
                 push_glyph_quad(c, x, y, entry->w, entry->h,
                                 entry->u0, entry->v0, entry->u1, entry->v1,
@@ -2967,7 +3133,7 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
             if (g->w <= 0.0f || g->h <= 0.0f) {
                 continue;
             }
-            x = floorf(r->x + g->x + 0.5f);
+            x = floorf(r->x + align_dx + g->x + 0.5f);
             y = floorf(r->y + g->y + 0.5f);
             push_glyph_quad(c, x, y, g->w, g->h, g->u0, g->v0, g->u1, g->v1,
                             viewport_w, viewport_h, cr, cg, cb, a);
@@ -3067,14 +3233,8 @@ static void build_input_decorations(wn_core *c)
             const wn_rect *r = &c->rects[node];
             const float ring = 2.0f;
             set_solid_clip(c, &c->clips[node]);
-            push_quad(c, r->x, r->y, r->w, ring,
-                      (float)c->width, (float)c->height, WN_INPUT_FOCUS_COLOR);
-            push_quad(c, r->x, r->y + r->h - ring, r->w, ring,
-                      (float)c->width, (float)c->height, WN_INPUT_FOCUS_COLOR);
-            push_quad(c, r->x, r->y, ring, r->h,
-                      (float)c->width, (float)c->height, WN_INPUT_FOCUS_COLOR);
-            push_quad(c, r->x + r->w - ring, r->y, ring, r->h,
-                      (float)c->width, (float)c->height, WN_INPUT_FOCUS_COLOR);
+            push_rounded_ring(c, r->x, r->y, r->w, r->h, n->border_radius, ring,
+                              WN_INPUT_FOCUS_COLOR);
         }
 
         clip = rect_intersection(c->clips[node], content);
@@ -3121,6 +3281,62 @@ static void build_input_decorations(wn_core *c)
                           n->text_color);
             }
         }
+    }
+}
+
+/* E1: visible vertical scrollbar for `overflow:auto|scroll` boxes that really
+ * overflow. Subtle track + rounded thumb; painted inside the node clip before
+ * images/text. Wheel scrolling needs no hit test on the bar. */
+static void build_scrollbars(wn_core *c)
+{
+    const float track_w = 8.0f;
+    const float edge = 2.0f;
+    int order;
+    for (order = 0; order < c->paint_count; ++order) {
+        int node = c->paint_order[order];
+        const UiNode *n = &c->nodes[node];
+        const wn_rect *r;
+        float view_h;
+        float content_h;
+        float track_x, track_y, track_h;
+        float thumb_h, thumb_y, travel;
+        if (!c->visible_eff[node] || n->overflow != R2_OVERFLOW_SCROLL) {
+            continue;
+        }
+        if (c->scroll_max[node] <= 0.5f || rect_is_empty(c->clips[node])) {
+            continue;
+        }
+        r = &c->rects[node];
+        view_h = r->h - n->padding[0] - n->padding[2];
+        if (view_h <= track_w * 2.0f) {
+            continue;
+        }
+        content_h = view_h + c->scroll_max[node];
+        track_x = r->x + r->w - n->padding[1] - track_w - edge;
+        track_y = r->y + n->padding[0] + edge;
+        track_h = view_h - edge * 2.0f;
+        if (track_h <= 0.0f) {
+            continue;
+        }
+        thumb_h = track_h * view_h / content_h;
+        if (thumb_h < 24.0f) {
+            thumb_h = 24.0f;
+        }
+        if (thumb_h > track_h) {
+            thumb_h = track_h;
+        }
+        travel = track_h - thumb_h;
+        thumb_y = track_y;
+        if (c->scroll_max[node] > 0.0f && travel > 0.0f) {
+            thumb_y += travel * (c->scroll[node] / c->scroll_max[node]);
+        }
+        set_solid_clip(c, &c->clips[node]);
+        push_rounded_quad(c, track_x, track_y, track_w, track_h,
+                          track_w * 0.5f, (float)c->width, (float)c->height,
+                          0x33000000u);
+        push_rounded_quad(c, track_x, thumb_y, track_w, thumb_h,
+                          track_w * 0.5f, (float)c->width, (float)c->height,
+                          0x665A667Au);
     }
 }
 
@@ -3183,6 +3399,7 @@ void wn_core_build_display_list(wn_core *core)
         }
     }
     build_input_decorations(core);
+    build_scrollbars(core);
     for (i = 0; i < core->paint_count; ++i) {
         int node = core->paint_order[i];
         if (core->nodes[node].kind == R2_NODE_IMAGE &&

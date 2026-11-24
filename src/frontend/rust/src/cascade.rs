@@ -49,6 +49,12 @@ pub struct ComputedStyle {
     pub font_size: f64,
     pub font_family: String,
     pub font_weight: String,
+    /// `left | center | right` (E1). Heredado.
+    pub text_align: String,
+    /// `line-height` resuelto a px; 0.0 = `normal` (metricas de la fuente).
+    pub line_height: f64,
+    /// `margin-*: auto` por lado (top, right, bottom, left). E1.
+    pub margin_auto: [bool; 4],
     pub flex_direction: String,
     pub justify_content: String,
     pub align_items: String,
@@ -184,6 +190,7 @@ fn resolve(
     let mut padding = [0.0f64; 4];
     let mut margin_rel = [None; 4];
     let mut padding_rel = [None; 4];
+    let mut margin_auto = [false; 4];
     for (index, side) in SIDES.iter().enumerate() {
         let (margin_px, _, margin_unit) =
             resolve_box_length(raw.get(&format!("margin-{side}")), &ctx);
@@ -193,6 +200,9 @@ fn resolve(
         padding[index] = padding_px.unwrap_or(0.0);
         margin_rel[index] = margin_unit;
         padding_rel[index] = padding_unit;
+        margin_auto[index] = raw
+            .get(&format!("margin-{side}"))
+            .is_some_and(|value| value.trim().eq_ignore_ascii_case("auto"));
     }
 
     let (width, width_pct, width_rel) = resolve_box_length(raw.get("width"), &ctx);
@@ -275,6 +285,12 @@ fn resolve(
         .map(|value| value.clamp(0.0, 1.0))
         .unwrap_or(1.0);
 
+    // E1: text-align es discreto y heredado; line-height se resuelve a px
+    // (`normal` -> 0.0 para que el runtime use ascender + descender).
+    let text_align = keyword_value(raw.get("text-align"), &["left", "center", "right"])
+        .unwrap_or_else(|| "left".to_string());
+    let line_height = resolve_line_height(raw.get("line-height"), font_size, root_font_size);
+
     ComputedStyle {
         color,
         font_family: raw
@@ -286,6 +302,9 @@ fn resolve(
             .filter(|value| !value.trim().is_empty())
             .cloned()
             .unwrap_or_else(|| "400".to_string()),
+        text_align,
+        line_height,
+        margin_auto,
         flex_direction: keyword(&raw, "flex-direction", "row"),
         justify_content: keyword(&raw, "justify-content", "flex-start"),
         align_items: keyword(&raw, "align-items", "stretch"),
@@ -410,6 +429,81 @@ fn keyword(raw: &HashMap<String, String>, name: &str, default: &str) -> String {
         Some(value) if !value.is_empty() => value.trim().to_ascii_lowercase(),
         _ => default.to_string(),
     }
+}
+
+/// `line-height: normal | <px> | <numero> | <porcentaje>` -> px.
+///
+/// `normal` (o un valor no reconocido) devuelve 0.0: el runtime usa entonces
+/// `ascender + descender` de la fuente. Un numero sin unidad es un multiplo del
+/// `font-size` computado (CSS), aunque el subset solo acepte px|normal.
+fn resolve_line_height(value: Option<&String>, font_size: f64, root_font_size: f64) -> f64 {
+    let Some(raw) = value else { return 0.0 };
+    let text = raw.trim().to_ascii_lowercase();
+    if text.is_empty() || text == "normal" {
+        return 0.0;
+    }
+    // `24px` es px absoluto; un numero suelto es multiplicador del font-size.
+    if text.ends_with("px") {
+        return match length(Some(&text)) {
+            Some(px) if px > 0.0 => px,
+            _ => 0.0,
+        };
+    }
+    if let Some(number) = text.strip_suffix('%') {
+        return parse_number(number)
+            .map(|value| (font_size * value / 100.0).max(0.0))
+            .unwrap_or(0.0);
+    }
+    if let Some((number, rest)) = parse_number_unitless(&text) {
+        if rest.is_empty() {
+            return (font_size * number).max(0.0);
+        }
+    }
+    if let Some(px) = length(Some(&text)) {
+        // Cualquier otra longitud absoluta que `length` acepte.
+        return if px > 0.0 { px } else { 0.0 };
+    }
+    // `1.5em`/`2rem`: longitud relativa al font-size computado del nodo.
+    if let Some(rel) = parse_rel_length(&text) {
+        let ctx = LengthCtx {
+            font_size,
+            root_font_size,
+            viewport_width: 0.0,
+            viewport_height: 0.0,
+        };
+        return ctx.resolve(rel).max(0.0);
+    }
+    0.0
+}
+
+/// Numero CSS sin unidad (admite signo y decimales).
+fn parse_number_unitless(text: &str) -> Option<(f64, &str)> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let mut end = 0usize;
+    let bytes = trimmed.as_bytes();
+    if bytes[0] == b'+' || bytes[0] == b'-' {
+        end = 1;
+    }
+    let mut digits = 0usize;
+    while end < bytes.len() && bytes[end].is_ascii_digit() {
+        end += 1;
+        digits += 1;
+    }
+    if end < bytes.len() && bytes[end] == b'.' {
+        end += 1;
+        while end < bytes.len() && bytes[end].is_ascii_digit() {
+            end += 1;
+            digits += 1;
+        }
+    }
+    if digits == 0 {
+        return None;
+    }
+    let value = trimmed[..end].parse::<f64>().ok()?;
+    Some((value, &trimmed[end..]))
 }
 
 /// Palabra clave normalizada si pertenece a `allowed`; si no, `None`.

@@ -1094,10 +1094,10 @@ fn check_property(
                 4,
                 false,
                 true,
-                false,
+                true,
                 true,
                 pilot,
-                "1-4 valores px | em | rem | vh | vw",
+                "1-4 valores px | em | rem | vh | vw | auto",
                 &mut report,
             );
         }
@@ -1122,10 +1122,10 @@ fn check_property(
                 1,
                 false,
                 true,
-                false,
+                true,
                 true,
                 pilot,
-                "px | em | rem | vh | vw",
+                "px | em | rem | vh | vw | auto",
                 &mut report,
             );
         }
@@ -1352,6 +1352,9 @@ fn check_lengths(
     }
     let mut relative_reported = false;
     for component in components {
+        if allow_auto && component.eq_ignore_ascii_case("auto") {
+            continue;
+        }
         if allow_relative && is_relative_length(component) {
             if !pilot && !relative_reported {
                 report(format!(

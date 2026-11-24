@@ -53,6 +53,35 @@ const FONT_FAMILIES: [(&str, &str); 14] = [
 
 const DEFAULT_FAMILY: &str = "segoe ui";
 
+/// Variantes reales en negrita por familia base (E1). Un `font-weight >= 600`
+/// usa estos TTF; si el sistema no los tiene se cae al regular con diagnostico.
+const BOLD_FILES: [(&str, &str); 14] = [
+    ("segoe ui", "segoeuib.ttf"),
+    ("segoe ui light", "segoeuib.ttf"),
+    ("segoe ui semilight", "segoeuib.ttf"),
+    ("segoe ui semibold", "segoeuib.ttf"),
+    ("arial", "arialbd.ttf"),
+    ("helvetica", "arialbd.ttf"),
+    ("helvetica neue", "arialbd.ttf"),
+    ("tahoma", "tahomabd.ttf"),
+    ("verdana", "verdanab.ttf"),
+    ("calibri", "calibrib.ttf"),
+    ("times new roman", "timesbd.ttf"),
+    ("georgia", "georgiab.ttf"),
+    ("courier new", "courbd.ttf"),
+    ("consolas", "consolab.ttf"),
+];
+
+/// `font-weight` CSS -> 100..900. `bold`/`normal` se aceptan como alias.
+pub fn parse_font_weight(value: &str) -> u16 {
+    let text = value.trim().to_ascii_lowercase();
+    match text.as_str() {
+        "bold" | "bolder" => 700,
+        "normal" | "lighter" => 400,
+        _ => text.parse::<u16>().unwrap_or(400).clamp(100, 900),
+    }
+}
+
 fn windows_fonts() -> PathBuf {
     let windir = std::env::var("WINDIR").unwrap_or_else(|_| "C:\\Windows".to_string());
     PathBuf::from(windir).join("Fonts")
@@ -75,6 +104,39 @@ pub fn first_family(font_family: &str) -> String {
 
 /// `font-family` CSS -> TTF existente, con el mismo mapa y fallback que Python.
 pub fn resolve_font_file(font_family: &str) -> Result<PathBuf, String> {
+    Ok(resolve_font_file_weighted(font_family, 400)?.0)
+}
+
+/// `font-family` + `font-weight` -> TTF existente.
+///
+/// Devuelve `(ruta, fallback)`; `fallback` es `true` cuando se pidio negrita
+/// pero la variante no existe y se usa el regular (el llamador avisa una vez).
+pub fn resolve_font_file_weighted(
+    font_family: &str,
+    weight: u16,
+) -> Result<(PathBuf, bool), String> {
+    let family = first_family(font_family).to_ascii_lowercase();
+    let family = GENERIC
+        .iter()
+        .find(|(name, _)| *name == family)
+        .map(|(_, mapped)| *mapped)
+        .unwrap_or(family.as_str());
+    let fonts = windows_fonts();
+
+    if weight >= 600 {
+        if let Some((_, filename)) = BOLD_FILES.iter().find(|(name, _)| *name == family) {
+            let path = fonts.join(filename);
+            if path.is_file() {
+                return Ok((path, false));
+            }
+        }
+    }
+
+    let regular = resolve_font_file_regular(font_family)?;
+    Ok((regular, weight >= 600))
+}
+
+fn resolve_font_file_regular(font_family: &str) -> Result<PathBuf, String> {
     let family = first_family(font_family).to_ascii_lowercase();
     let family = GENERIC
         .iter()
@@ -328,12 +390,15 @@ fn scale_26_6(units: i32, scale: i64, upem: i64) -> f64 {
 
 pub struct TextEngine {
     faces: RefCell<HashMap<String, Rc<FontFace>>>,
+    /// Diagnosticos ya emitidos (una linea por familia/peso sin variante).
+    warned: RefCell<std::collections::HashSet<String>>,
 }
 
 impl TextEngine {
     pub fn new() -> Self {
         TextEngine {
             faces: RefCell::new(HashMap::new()),
+            warned: RefCell::new(std::collections::HashSet::new()),
         }
     }
 
@@ -349,6 +414,27 @@ impl TextEngine {
 
     fn face_for_family(&self, font_family: &str) -> Result<Rc<FontFace>, String> {
         self.face(&resolve_font_file(font_family)?)
+    }
+
+    /// Igual que `face_for_family`, eligiendo la variante real de `font-weight`.
+    /// Si la negrita no existe se usa el regular y se emite un diagnostico una
+    /// sola vez por familia/peso (no altera la salida ni el contrato del IR).
+    fn face_for_family_weighted(
+        &self,
+        font_family: &str,
+        weight: u16,
+    ) -> Result<Rc<FontFace>, String> {
+        let (path, fallback) = resolve_font_file_weighted(font_family, weight)?;
+        if fallback {
+            let message = format!(
+                "font-weight {weight} sin variante real para {font_family:?}; se usa {}",
+                path.display()
+            );
+            if self.warned.borrow_mut().insert(message.clone()) {
+                eprintln!("frontend-rust: {message}");
+            }
+        }
+        self.face(&path)
     }
 
     pub fn metrics(&self, font_family: &str, size: f64) -> Result<(f64, f64), String> {
@@ -639,8 +725,9 @@ impl UiTextBaker {
         text: &str,
         font_family: &str,
         size: f64,
+        weight: u16,
     ) -> Result<BakedUiText, String> {
-        let face = engine.face_for_family(font_family)?;
+        let face = engine.face_for_family_weighted(font_family, weight)?;
         let (ascender, descender) = face.metrics(size);
         let shaped = face.shape(text, size);
         let path = face.path_string();
@@ -688,8 +775,9 @@ impl UiTextBaker {
         engine: &TextEngine,
         font_family: &str,
         size: f64,
+        weight: u16,
     ) -> Result<BakedInputPool, String> {
-        let face = engine.face_for_family(font_family)?;
+        let face = engine.face_for_family_weighted(font_family, weight)?;
         let (ascender, descender) = face.metrics(size);
         let path = face.path_string();
         let key_size = size_key(size);

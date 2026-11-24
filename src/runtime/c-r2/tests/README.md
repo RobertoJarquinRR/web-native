@@ -129,3 +129,27 @@ and `out/cpu_measure.json` (generated, gitignored). Last run on this machine:
 base fixture max channel diff **3**, 99.83 % exact; pilot image page max **1**,
 99.76 % exact; hover CPU **0.011–0.033 cores (D3D11)** vs **0.725–0.756 cores
 (wgpu/WARP)**.
+
+## `fidelity/`
+
+E1 visual/layout fidelity (`font-weight`, `text-align`, `line-height`,
+`margin: auto` and the scrollbar/focus-ring paint paths) checked at the core
+level, without a window:
+
+- `fidelity_core_test.c` loads the compiled fixture, runs the core layout,
+  asserts the new geometry/paint invariants and also proves the guarded header:
+  `ui_data.h` for a page that does not use the new properties stays
+  byte-identical (checked against `tests/input/fixture/ui_data.h`).
+- `page/index.html` exercises bold weights, centered/right text, explicit
+  line-heights, a flex column with `margin-top: auto` and an overflowing
+  scroll region.
+- `run_fidelity.ps1` emits the page, compiles the test with `/W4 /WX`, runs it
+  and writes the render evidence.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\fidelity\run_fidelity.ps1
+```
+
+Evidence: `out/render.png`, `out/render_wheel.png`, `out/ui.json`,
+`out/emit/ui_data.h`, `out/fidelity_core_test.exe` (generated, gitignored).
+Last run: **23/23 checks PASS**, old fixture headers byte-identical.

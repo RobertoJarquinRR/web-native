@@ -145,6 +145,10 @@ fn layout_box(
 
     let text = normalize_text(&dom.nodes[id].text);
     if !text.is_empty() {
+        // R1 (display list post-layout) no modela E1: `font-weight` real,
+        // `text-align`, `line-height` ni `margin: auto` cambian este run. Se
+        // aplican solo en el arbol pre-layout / runtime R2 (`ui_tree.rs`), de
+        // modo que el IR de R1 sigue siendo byte a byte compatible.
         let (ascender, descender) = metrics(&style.font_family, style.font_size)?;
         result.text_runs.push(TextRun {
             text,
