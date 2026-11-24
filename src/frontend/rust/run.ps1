@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory = $true)][int]$Height,
     [Parameter(Mandatory = $true)][string]$Out,
     [string]$Timings,
-    [string]$Atlas
+    [string]$Atlas,
+    [switch]$StrictSubset
 )
 
 $ErrorActionPreference = 'Stop'
@@ -28,6 +29,9 @@ if ($Timings) {
 if ($Atlas) {
     $atlasPath = if ([System.IO.Path]::IsPathRooted($Atlas)) { $Atlas } else { Join-Path (Get-Location).Path $Atlas }
     $argv += @('--atlas', $atlasPath)
+}
+if ($StrictSubset) {
+    $argv += '--strict-subset'
 }
 
 & $exe @argv

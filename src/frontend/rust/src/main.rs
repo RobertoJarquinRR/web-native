@@ -3,8 +3,11 @@
 //! Uso:
 //!   frontend-rust.exe --html <path> --width <W> --height <H> --out <ir.json>
 //!                     [--timings <timings.json>] [--atlas <atlas.bin>]
+//!                     [--strict-subset]
 //!
 //! Mismas etapas y semantica que `src/frontend/python` (incluido texto).
+//! `--strict-subset` valida el contrato `docs/subset-v1.md` y devuelve exit
+//! != 0 si encuentra cualquier feature fuera del subset.
 
 mod cascade;
 mod color;
@@ -14,6 +17,7 @@ mod emit;
 mod layout;
 mod rss;
 mod sha256;
+mod subset;
 mod text;
 mod ui_tree;
 
@@ -32,10 +36,12 @@ struct Args {
     css: Option<PathBuf>,
     /// `--emit-ui [path]`: escribe el arbol de estilos pre-layout para R2.
     emit_ui: Option<PathBuf>,
+    /// `--strict-subset`: diagnosticos de subset v1 como errores (exit != 0).
+    strict_subset: bool,
 }
 
 fn usage() -> &'static str {
-    "uso: frontend-rust --html <path> --width <W> --height <H> --out <ir.json> [--timings <timings.json>] [--atlas <atlas.bin>]\n     frontend-rust --html <path> --width <W> --height <H> --emit-ui [ui.json] [--css <path>] [--timings <timings.json>]"
+    "uso: frontend-rust --html <path> --width <W> --height <H> --out <ir.json> [--timings <timings.json>] [--atlas <atlas.bin>] [--strict-subset]\n     frontend-rust --html <path> --width <W> --height <H> --emit-ui [ui.json] [--css <path>] [--timings <timings.json>] [--strict-subset]"
 }
 
 fn take_value(
@@ -64,6 +70,7 @@ fn parse_args() -> Result<Args, String> {
     let mut css: Option<PathBuf> = None;
     let mut emit_ui: Option<PathBuf> = None;
     let mut emit_ui_requested = false;
+    let mut strict_subset = false;
 
     let mut index = 0usize;
     while index < argv.len() {
@@ -107,6 +114,7 @@ fn parse_args() -> Result<Args, String> {
                     }
                 }
             }
+            "--strict-subset" => strict_subset = true,
             "--help" | "-h" => return Err(usage().to_string()),
             other => return Err(format!("argumento desconocido: {other}\n{}", usage())),
         }
@@ -129,6 +137,7 @@ fn parse_args() -> Result<Args, String> {
         atlas,
         css,
         emit_ui,
+        strict_subset,
     })
 }
 
@@ -164,7 +173,8 @@ fn write_bytes(path: &Path, contents: &[u8]) -> Result<(), String> {
 
 fn main() -> ExitCode {
     match run() {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(true) => ExitCode::SUCCESS,
+        Ok(false) => ExitCode::FAILURE,
         Err(message) => {
             eprintln!("ERROR: {message}");
             ExitCode::FAILURE
@@ -172,7 +182,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run() -> Result<(), String> {
+fn run() -> Result<bool, String> {
     let args = parse_args()?;
     let started = Instant::now();
 
@@ -191,6 +201,12 @@ fn run() -> Result<(), String> {
     let since = Instant::now();
     let rules = css::parse_stylesheets(&stylesheets);
     let css_ms = ms(since);
+
+    // `subset v1`: inspeccion del HTML/CSS de entrada. No toca la cascada, el
+    // layout ni la emision; sin `--strict-subset` solo imprime warnings.
+    let diagnostics = subset::check_document(&html, &args.html, &base_dir);
+    subset::print_diagnostics(&diagnostics, args.strict_subset);
+    let subset_ok = !args.strict_subset || diagnostics.is_empty();
 
     let since = Instant::now();
     let styles = cascade::compute_styles(&document, &rules);
@@ -248,7 +264,7 @@ fn run() -> Result<(), String> {
             };
             write_file(path, &emit::timings_json(&timings))?;
         }
-        return Ok(());
+        return Ok(subset_ok);
     }
 
     let since = Instant::now();
@@ -319,7 +335,7 @@ fn run() -> Result<(), String> {
         write_file(path, &emit::timings_json(&timings))?;
     }
     println!("{}", emit::timings_inline(&timings));
-    Ok(())
+    Ok(subset_ok)
 }
 
 fn round3(value: f64) -> f64 {

@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+  <head>
+    <link rel="stylesheet" href="style.css">
+    <script src="app.js"></script>
+    <style>
+      .inline {
+        color: hsl(210, 40%, 98%);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root" onclick="alert('no')">
+      <iframe class="frame" src="widget.html"></iframe>
+      <div class="grid" style="transform: translateX(4px)">
+        <div class="cell">A</div>
+        <div class="cell">B</div>
+      </div>
+      <div class="fade">Fade</div>
+    </div>
+  </body>
+</html>

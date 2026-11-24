@@ -1,0 +1,30 @@
+body {
+  margin: 0;
+  background: linear-gradient(#0f1115, #1a1f2a);
+}
+
+#root {
+  width: 400px;
+  height: 300px;
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.grid {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  transition: opacity 120ms ease;
+}
+
+.cell {
+  width: 10em;
+  height: calc(100% - 8px);
+  border: 2px dashed #ff0000;
+}
+
+.fade {
+  animation: fade 1s infinite;
+  opacity: 1.5;
+  background: #fff url(bg.png);
+}

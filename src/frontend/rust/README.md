@@ -5,8 +5,9 @@ subconjunto que `benchmarks/frontend-parity/SPEC.md` y salida **idéntica** a la
 del frontend de referencia (`src/frontend/python`). Incluye layout de
 bloque/flex, rectángulos y **texto de una línea**: shaping con `rustybuzz`,
 raster con `ab_glyph`, atlas R8 512×512 y ops `text_run` en el formato de
-exp16. Sin navegador, sin WebView, sin Skia, sin Electron y sin FreeType ni
-HarfBuzz en el binario.
+exp16. Además valida el contrato cerrado `docs/subset-v1.md` con
+`--strict-subset` (warnings por defecto). Sin navegador, sin WebView, sin Skia,
+sin Electron y sin FreeType ni HarfBuzz en el binario.
 
 ## Resultado
 
@@ -30,7 +31,7 @@ estilos idénticos al oráculo Python, 35/35 avances y `x` exactos.
 Pipeline interno (mediana de 10 ejecuciones directas, sin PowerShell):
 **1,38 ms** (`contract`), **1,85 ms** (`flex-page`) y **6,72 ms** (`text-card`,
 incluye shaping + raster + atlas + escritura de 256 KB). Binario release:
-**1.683.968 bytes** (~1,61 MiB). RSS pico: **~4,1 / 4,2 / 5,7 MB**.
+**1.722.368 bytes** (~1,64 MiB). RSS pico: **~4,1 / 4,2 / 5,7 MB**.
 
 ## Estructura
 
@@ -55,6 +56,7 @@ src/frontend/rust/
     ui_tree.rs          --emit-ui: árbol de estilos pre-layout + texto para R2
     sha256.rs           SHA-256 del atlas (sin dependencias)
     rss.rs              peak working set del proceso (Win32, sin dependencias)
+    subset.rs           diagnóstico del contrato subset v1 (--strict-subset)
 ```
 
 Fixture nueva (copia del demo de exp09, sin tocar las fixtures rect):
@@ -360,8 +362,10 @@ CLI del binario:
 ```
 frontend-rust.exe --html <path> --width <W> --height <H> --out <ir.json>
                   [--timings <timings.json>] [--atlas <atlas.bin>]
+                  [--strict-subset]
 frontend-rust.exe --html <path> --width <W> --height <H> --emit-ui [ui.json]
                   [--css <path>] [--timings <timings.json>]
+                  [--strict-subset]
 ```
 
 `--atlas` es opcional; por defecto se escribe `atlas.bin` en el directorio del
@@ -372,7 +376,111 @@ dejando exactamente los mismos artefactos que antes.
 `run.ps1` resuelve el ejecutable respecto a sí mismo y las rutas relativas
 respecto al directorio actual (igual que el `run.ps1` de Python). Sale con 0 en
 éxito y distinto de 0 ante cualquier error (HTML/CSS ilegible, hoja de estilos
-no encontrada, fuente no disponible, atlas desbordado, argumentos inválidos).
+no encontrada, fuente no disponible, atlas desbordado, argumentos inválidos) o
+ante cualquier diagnóstico con `--strict-subset`. Acepta `-StrictSubset` y lo
+reenvía al binario.
+
+## Diagnóstico de subset v1 (`--strict-subset`)
+
+El binario valida el contrato cerrado de `docs/subset-v1.md` **sin tocar el
+IR**: solo inspecciona el HTML de entrada, los bloques `<style>` embebidos, las
+hojas `<link rel="stylesheet">` locales y los `style="..."` inline. Se ejecuta
+tanto en el modo IR normal como con `--emit-ui`.
+
+```powershell
+frontend-rust.exe --html page.html --width 960 --height 640 `
+                  --out page.ir.json --strict-subset
+```
+
+| Modo | Salida | Exit |
+|---|---|---|
+| sin flag (default) | `warning[subset] ...` por stderr; el pipeline continúa | 0 |
+| `--strict-subset` | `error[subset] ...` por stderr; IR/atlas se escriben igual | 1 si hay ≥1 diagnóstico |
+
+Formato de cada línea (archivo y línea siempre que el parser los da; si no, el
+contexto entre corchetes es el selector, la propiedad o la etiqueta):
+
+```
+error[subset] <archivo>:<línea>: <mensaje> [<contexto>]
+```
+
+Ejemplos reales de `fixtures/subset/unsupported`:
+
+```
+error[subset] benchmarks\frontend-parity\fixtures\subset\unsupported\style.css:10: valor 'grid' no soportado en 'display' (subset v1: block | flex | none) [selector '#root', propiedad 'display']
+error[subset] benchmarks\frontend-parity\fixtures\subset\unsupported\index.html:14: atributo 'onclick' no soportado por subset v1 [<div>]
+error[subset] benchmarks\frontend-parity\fixtures\subset\unsupported\index.html:16: propiedad CSS 'transform' no soportada por subset v1 [style inline en <div>, propiedad 'transform']
+```
+
+Qué valida:
+
+- **Etiquetas**: lista cerrada de v1 (`html`, `head`, `body`, `div`, `span`,
+  `p`, `h1`–`h6`, `button`, `img`, `ul`, `ol`, `li`, `link`, `style`).
+  `script`, `iframe`, `form`, `input`, `select`, `table`, `canvas`, `video`,
+  `audio`, `svg`, `template`, `slot`, `object` y `embed` se marcan como fuera
+  de v1.
+- **Atributos**: `id`, `class`, `style`, `data-hover`, `data-press`,
+  `data-selected`, `data-action` y `title` globales; `src` en `img`,
+  `href`/`rel` en `link` y `disabled` en `button`. `src`/`href` remotos
+  (`http:`, `https:`, `//`, `data:`) también se rechazan.
+- **CSS**: allowlist de propiedades y valores obvios fuera del subset
+  (`display: grid`, `grid-template-*`, `position`, `transform`, `transition`,
+  `animation`, `box-shadow`, `float`, `filter`, `clip-path`, `z-index`,
+  `columns`, `em/rem/vh/vw`, `calc()`, gradientes, `url()`, `hsl()`,
+  `border: dashed`, `opacity > 1`, etc.).
+- **At-rules y selectores**: `@media`, `@font-face`, `@import` y cualquier otra
+  at-rule; pseudo-elementos (`::before`/`::after`), `:not()`/`:has()` y
+  combinadores `+`/`~`.
+
+La validación es previa al layout y no modifica la cascada ni la emisión. Las
+fixtures `contract`, `flex-page` y `text-card` siguen produciendo el mismo IR
+byte a byte y `bench.py` sigue en PASS.
+
+### Comprobar las fixtures de subset
+
+```powershell
+# supported: sin diagnósticos, exit 0
+frontend-rust.exe --html benchmarks\frontend-parity\fixtures\subset\supported\index.html `
+                  --width 400 --height 300 --out build\supported.ir.json --strict-subset
+
+# unsupported: 19 features fuera de v1, exit 1
+frontend-rust.exe --html benchmarks\frontend-parity\fixtures\subset\unsupported\index.html `
+                  --width 400 --height 300 --out build\unsupported.ir.json --strict-subset
+```
+
+Las rutas, la lista exacta de los 19 diagnósticos y los comandos sin
+`--strict-subset` están en
+`benchmarks/frontend-parity/fixtures/subset/README.md`.
+
+`cargo test` ejecuta los tests unitarios de `subset.rs` (lineas de HTML/CSS,
+comentarios, at-rules y valores) además del vector conocido de SHA-256.
+
+### Ambigüedades resueltas y límites del diagnóstico
+
+- `rel` en `<link>` se acepta aunque `docs/subset-v1.md` solo nombre `href`: es
+  necesario para reconocer la hoja de estilos.
+- `display: none` y `width`/`height: auto` se aceptan como valores prácticos
+  (el motor ya los soporta); el contrato solo nombra `block | flex` y `px | %`.
+- `:root`, `:first-child`, `:last-child` y `:only-child` se aceptan porque el
+  motor de selectores ya las resuelve. Las pseudo-clases no listadas, los
+  pseudo-elementos y los combinadores `+`/`~` se diagnostican; el combinador
+  hijo `>` y los selectores de atributo no se diagnostican.
+- `font-family` no se valida contra la lista de fuentes del sistema; solo se
+  rechazan `url()` y `@font-face`. `img src` tampoco comprueba que el archivo
+  exista (eso es responsabilidad del runtime).
+- Las posiciones HTML vienen de un escáner de etiquetas ligero (no de
+  `html5ever`, que no expone offsets). Los atributos de una etiqueta ya
+  rechazada no se inspeccionan por separado; el contenido de `script`, `style`,
+  `title`, `textarea`, `iframe`, `xmp`, `noembed`, `noframes` y `plaintext` no
+  se interpreta como HTML.
+- La comprobación de selectores es heurística, no un parser completo. Los
+  comentarios CSS se enmascaran conservando líneas para que no generen falsos
+  positivos.
+- `--strict-subset` no impide escribir IR/atlas/`ui.json`: solo cambia el exit
+  code. CI debe mirar el código de salida.
+- La página interna de R2 (`src/runtime/c-r2/page/`) emite tres warnings
+  esperados (`lang`, `meta`, `title`): no es una página v1. Con
+  `--strict-subset` fallaría, por diseño.
 
 ## Verificación de paridad
 
@@ -536,11 +644,12 @@ el arranque de PowerShell, no el frontend (el harness lanza un proceso nuevo).
 
 ## Tamaño y RSS
 
-- Binario: `target/release/frontend-rust.exe` = **1.683.968 bytes** (~1,61 MiB),
+- Binario: `target/release/frontend-rust.exe` = **1.722.368 bytes** (~1,64 MiB),
   release con LTO, `codegen-units=1`, `panic=abort` y `strip` (ver
   `BUILD_INFO.json`). Antes del texto eran 887.296 bytes; el incremento
   (~796 KB) es `rustybuzz` + `ttf-parser` + `ab_glyph` + `ab_glyph_rasterizer`
-  y el emisor `--emit-ui`.
+  y el emisor `--emit-ui`. El diagnóstico de subset v1 añade ~37,5 KB respecto
+  a la versión anterior (1.683.968 bytes).
 - Peak working set: **~4,1 MB** (`contract`), **~4,2 MB** (`flex-page`) y
   **~5,7 MB** (`text-card`, incluye el TTF de 955 KB y el atlas de 256 KB).
 - El RSS lo mide el propio binario con `K32GetProcessMemoryInfo` y se escribe en
@@ -669,7 +778,7 @@ El contrato ya está separado en dos mitades limpias:
    - si R2 usa un target sRGB, decidir gamma explícita y volver a medir; exp16
      usa `RGBA8Unorm` a propósito.
 3. **Presupuesto**: atlas 512² R8 = 256 KB por documento; el binario Rust de
-   build-time pesa 1,61 MiB (frente a 887 KB sin texto). No se distribuye al
+   build-time pesa ~1,64 MiB (frente a 887 KB sin texto). No se distribuye al
    runtime: solo el IR y el atlas.
 4. **R2 (layout dinámico)**: no usa `display_list.json`, porque recalcula
    layout en runtime. Usa `--emit-ui` (árbol pre-layout + atlas 256²) →
