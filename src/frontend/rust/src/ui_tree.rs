@@ -196,6 +196,10 @@ struct StyleOut {
     margin_auto: [bool; 4],
     /// `box-sizing: border-box` (A). false = content-box (CSS default).
     box_sizing_border: bool,
+    /// Flex growth (E8): grow, shrink, basis px (-1 = auto).
+    flex_grow: f64,
+    flex_shrink: f64,
+    flex_basis: f64,
     /// v3: bordes, radio, sombras y unidades relativas (solo schema `/2`).
     css3: StyleV3,
 }
@@ -496,6 +500,9 @@ impl<'a> Builder<'a> {
                 line_height: style.line_height,
                 margin_auto: style.margin_auto,
                 box_sizing_border: style.box_sizing_border,
+                flex_grow: style.flex_grow,
+                flex_shrink: style.flex_shrink,
+                flex_basis: style.flex_basis,
                 css3: style.css3.clone(),
             },
             data: DataOut {
@@ -653,6 +660,9 @@ impl<'a> Builder<'a> {
                 line_height: style.line_height,
                 margin_auto: [false; 4],
                 box_sizing_border: style.box_sizing_border,
+                flex_grow: style.flex_grow,
+                flex_shrink: style.flex_shrink,
+                flex_basis: style.flex_basis,
                 css3: StyleV3::default(),
             },
             data: DataOut {
@@ -963,6 +973,12 @@ fn push_style(out: &mut String, style: &StyleOut, detailed: bool, extras: bool) 
                 "content-box"
             },
         );
+        out.push_str(",\n        \"flex_grow\": ");
+        push_float(out, style.flex_grow);
+        out.push_str(",\n        \"flex_shrink\": ");
+        push_float(out, style.flex_shrink);
+        out.push_str(",\n        \"flex_basis\": ");
+        push_float(out, style.flex_basis);
     }
     if detailed {
         push_style_v3(out, &style.css3);
@@ -1252,6 +1268,9 @@ pub fn emit_ui_tree(
             || node.style.line_height != 0.0
             || node.style.margin_auto.iter().any(|value| *value)
             || node.style.box_sizing_border
+            || node.style.flex_grow != 0.0
+            || node.style.flex_shrink != 1.0
+            || node.style.flex_basis >= 0.0
     });
     let schema = if v3 {
         SCHEMA_V3

@@ -979,6 +979,13 @@ fn check_property(
             "border-box",
             &mut report,
         ),
+        /* Flex growth: numbers, or a px/auto/0 basis. Values are validated by
+         * the cascade; the subset only rejects empty/unknown keywords. */
+        "flex-grow" | "flex-shrink" | "flex-basis" | "flex" => {
+            if trimmed.is_empty() {
+                report(format!("propiedad CSS '{name}' sin valor"));
+            }
+        }
         "border-style" => check_keyword(
             name,
             &lowered,

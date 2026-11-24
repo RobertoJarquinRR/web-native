@@ -365,8 +365,13 @@ def validate_css_and_math(expected: dict, items: list[dict]) -> dict | None:
         problems.append("poster-grid display != grid")
     if grid_overflow.strip() not in ("auto", "scroll"):
         problems.append("poster-grid overflow must be auto|scroll")
-    if grid_height.strip() != "100%" or grid_width.strip() != "100%":
-        problems.append("poster-grid must be width/height 100%")
+    if grid_width.strip() != "100%":
+        problems.append("poster-grid must be width 100%")
+    # The grid may fill its parent either with height:100% (v2 contract) or with
+    # flex:1 inside a column flex main (resize-proof, E8 flex-grow).
+    grid_flex = decls[".poster-grid"].get("flex", "").strip()
+    if grid_height.strip() != "100%" and not grid_flex.startswith("1"):
+        problems.append("poster-grid must be height 100% or flex: 1")
     if object_fit.strip() != "cover":
         problems.append("poster object-fit != cover")
     if cols_re is None:

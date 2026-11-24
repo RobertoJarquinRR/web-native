@@ -57,6 +57,10 @@ pub struct ComputedStyle {
     pub margin_auto: [bool; 4],
     /// `box-sizing: border-box` (E8/A). false = content-box, el default de CSS.
     pub box_sizing_border: bool,
+    /// `flex-grow` / `flex-shrink` / `flex-basis` (px, -1 = auto). E8.
+    pub flex_grow: f64,
+    pub flex_shrink: f64,
+    pub flex_basis: f64,
     pub flex_direction: String,
     pub justify_content: String,
     pub align_items: String,
@@ -212,6 +216,7 @@ fn resolve(
     let box_sizing_border = raw
         .get("box-sizing")
         .is_some_and(|value| value.trim().eq_ignore_ascii_case("border-box"));
+    let (flex_grow, flex_shrink, flex_basis) = resolve_flex(&raw);
     let (min_width, min_width_pct, min_width_rel) = resolve_box_length(raw.get("min-width"), &ctx);
     let (max_width, max_width_pct, max_width_rel) = resolve_box_length(raw.get("max-width"), &ctx);
     let (min_height, min_height_pct, min_height_rel) =
@@ -311,6 +316,9 @@ fn resolve(
         line_height,
         margin_auto,
         box_sizing_border,
+        flex_grow,
+        flex_shrink,
+        flex_basis,
         flex_direction: keyword(&raw, "flex-direction", "row"),
         justify_content: keyword(&raw, "justify-content", "flex-start"),
         align_items: keyword(&raw, "align-items", "stretch"),
@@ -510,6 +518,61 @@ fn parse_number_unitless(text: &str) -> Option<(f64, &str)> {
     }
     let value = trimmed[..end].parse::<f64>().ok()?;
     Some((value, &trimmed[end..]))
+}
+
+/// `flex-grow`, `flex-shrink` y `flex-basis` (px; -1 = auto), incluido el
+/// shorthand `flex: <grow> [<shrink>] [<basis>]`.
+fn resolve_flex(raw: &HashMap<String, String>) -> (f64, f64, f64) {
+    let mut grow = raw
+        .get("flex-grow")
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .unwrap_or(0.0);
+    let mut shrink = raw
+        .get("flex-shrink")
+        .and_then(|v| v.trim().parse::<f64>().ok())
+        .unwrap_or(1.0);
+    let mut basis = flex_basis_px(raw.get("flex-basis")).unwrap_or(-1.0);
+
+    if let Some(value) = raw.get("flex") {
+        let text = value.trim();
+        if !text.is_empty() && !text.eq_ignore_ascii_case("none") {
+            let mut parts = text.split_whitespace();
+            if let Some(first) = parts.next() {
+                if let Some(number) = first.parse::<f64>().ok() {
+                    grow = number;
+                    // `flex: <grow>` alone means basis 0 (CSS one-value form).
+                    basis = 0.0;
+                    if let Some(second) = parts.next() {
+                        if let Some(number) = second.parse::<f64>().ok() {
+                            shrink = number;
+                            if let Some(third) = parts.next() {
+                                basis = flex_basis_px(Some(&third.to_string())).unwrap_or(basis);
+                            }
+                        } else {
+                            basis = flex_basis_px(Some(&second.to_string())).unwrap_or(basis);
+                        }
+                    }
+                } else {
+                    basis = flex_basis_px(Some(&first.to_string())).unwrap_or(basis);
+                }
+            }
+        }
+    }
+    (grow.max(0.0), shrink.max(0.0), basis)
+}
+
+fn flex_basis_px(value: Option<&String>) -> Option<f64> {
+    let text = value?.trim();
+    if text.is_empty() || text.eq_ignore_ascii_case("auto") {
+        return None;
+    }
+    let (number, unit) = parse_number_unitless(text)?;
+    let unit = unit.trim().to_ascii_lowercase();
+    if unit.is_empty() || unit == "px" {
+        Some(number)
+    } else {
+        None
+    }
 }
 
 /// Palabra clave normalizada si pertenece a `allowed`; si no, `None`.

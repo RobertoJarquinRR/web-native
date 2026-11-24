@@ -121,10 +121,16 @@ typedef struct {
 /* 1 = border-box (width/height include padding); 0/absent = content-box (CSS
  * default). Pages that don't declare box-sizing keep the browser behaviour. */
 #define WN_BOX_SIZING(n) ((n)->box_sizing)
+#define WN_FLEX_GROW(n) ((n)->flex_grow)
+#define WN_FLEX_SHRINK(n) ((n)->flex_shrink)
+#define WN_FLEX_BASIS(n) ((n)->flex_basis)
 #else
 #define WN_TEXT_ALIGN(n) 0
 #define WN_MARGIN_AUTO(n, bit) 0
 #define WN_BOX_SIZING(n) 0
+#define WN_FLEX_GROW(n) 0.0f
+#define WN_FLEX_SHRINK(n) 1.0f
+#define WN_FLEX_BASIS(n) (-1.0f)
 #endif
 
 /* Outer (border-box) width/height of the declared size. */
@@ -733,6 +739,7 @@ static float layout_flex_children(wn_core *c, int parent, float content_x,
         int id = items[k];
         const UiNode *n = &c->nodes[id];
         float forced = -1.0f;
+        float basis = WN_FLEX_BASIS(n);
         if (n->width < 0.0f && n->width_pct == 0.0f) {
             float margins = n->margin[1] + n->margin[3];
             float limit = fmaxf(content_w - margins, 0.0f);
@@ -740,6 +747,19 @@ static float layout_flex_children(wn_core *c, int parent, float content_x,
                 forced = fminf(limit, intrinsic_width(c, id, content_w));
             } else if (p->align != ALIGN_STRETCH) {
                 forced = fminf(limit, intrinsic_width(c, id, content_w));
+            }
+        }
+        if (basis >= 0.0f) {
+            if (row) {
+                forced = basis + WN_DECL_W(n);
+            } else {
+                float saved = c->nodes[id].height;
+                c->nodes[id].height = basis - WN_DECL_H(n);
+                layout_node(c, id, 0.0f, 0.0f, content_w, content_h, 0, forced);
+                c->nodes[id].height = saved;
+                item_w[k] = c->rects[id].w;
+                item_h[k] = c->rects[id].h;
+                continue;
             }
         }
         layout_node(c, id, 0.0f, 0.0f, content_w, content_h, 0, forced);
@@ -858,6 +878,63 @@ static float layout_flex_children(wn_core *c, int parent, float content_x,
                     }
                 }
                 line_main[0] = limit;
+            }
+        }
+    }
+
+    /* 2b. Grow: distribute free main-axis space among flex-grow items and
+     * re-layout them so their children reflow. */
+    {
+        int li;
+        for (li = 0; li < lines; ++li) {
+            int start = line_start[li];
+            int take = line_count[li];
+            float limit = row ? content_w : content_h;
+            float free;
+            float grow_sum = 0.0f;
+            int j;
+            if (limit < 0.0f || take <= 0) {
+                continue;
+            }
+            free = limit - line_main[li];
+            if (free <= 0.01f) {
+                continue;
+            }
+            for (j = start; j < start + take; ++j) {
+                grow_sum += WN_FLEX_GROW(&c->nodes[items[j]]);
+            }
+            if (grow_sum <= 0.0f) {
+                continue;
+            }
+            for (j = start; j < start + take; ++j) {
+                int id = items[j];
+                const UiNode *n = &c->nodes[id];
+                float g = WN_FLEX_GROW(n);
+                float extra;
+                if (g <= 0.0f) {
+                    continue;
+                }
+                extra = free * g / grow_sum;
+                if (row) {
+                    item_w[j] += extra;
+                    layout_node(c, id, 0.0f, 0.0f, content_w, content_h, 0, item_w[j]);
+                    item_h[j] = c->rects[id].h;
+                } else {
+                    float outer = item_h[j] + extra;
+                    float saved = c->nodes[id].height;
+                    c->nodes[id].height = outer - WN_DECL_H(n);
+                    layout_node(c, id, 0.0f, 0.0f, content_w, content_h, 0, -1.0f);
+                    c->nodes[id].height = saved;
+                    item_h[j] = outer;
+                    item_w[j] = c->rects[id].w;
+                }
+            }
+            line_main[li] = limit;
+            for (j = start; j < start + take; ++j) {
+                float value = row ? item_h[j] : item_w[j];
+                if (value > line_cross[li]) {
+                    line_cross[li] = value;
+                }
             }
         }
     }
