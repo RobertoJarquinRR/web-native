@@ -6,7 +6,7 @@
  * Rules:
  *  - Plain C ABI; no C++/Rust/.NET types.
  *  - Opaque handles; no internal structs are exposed.
- *  - No GPU types (wgpu/D3D12/Vulkan/Metal) in this header.
+ *  - No GPU API types in this header.
  *  - All strings are UTF-8 and copied by the engine.
  *  - Single-threaded UI: call everything on the UI thread.
  *  - No exceptions: every call returns wn_status; details in wn_last_error().
@@ -23,7 +23,7 @@
 extern "C" {
 #endif
 
-#if defined(_WIN32)
+#if defined(_MSC_VER)
 #  if defined(WN_STATIC)
 #    define WN_API
 #  elif defined(WN_BUILD_DLL)
@@ -124,7 +124,8 @@ WN_API void wn_app_destroy(wn_app *app);
 
 /* ----------------------------------------------------------- embedded view */
 
-/* native_window_handle is an HWND on Windows (future: NSView* / X11 window).
+/* native_window_handle is the OS window handle on Windows (future: native
+ * view/window pointers on other platforms).
  * width/height are the initial client size. flags is reserved (must be 0). */
 WN_API wn_view *wn_view_create(void *native_window_handle,
                                int32_t width,

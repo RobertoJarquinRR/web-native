@@ -29,6 +29,8 @@ New-Item -ItemType Directory -Force -Path $out | Out-Null
 $fixtureHtml = Join-Path $root 'page\index.html'
 $fixtureCss = Join-Path $root 'page\style.css'
 $runtimeC = Join-Path $root 'runtime_r2.c'
+$coreC = Join-Path $root 'wn_core.c'
+$commonC = Join-Path $root 'wn_common.c'
 $verifyPy = Join-Path $root 'verify.py'
 $emitter = Join-Path $repo 'src\emitter\python\emit_ui.py'
 $py = Join-Path $repo 'src\frontend\python\.venv\Scripts\python.exe'
@@ -118,7 +120,7 @@ function Invoke-Runtime([string]$title, [string[]]$arguments) {
 try {
     $vcvars = Find-VcVars
     if (-not $vcvars) { Stop-Fail 'vcvars64.bat not found (install the MSVC C++ workload)' }
-    foreach ($required in @($py, $emitter, $runtimeC, $verifyPy, $fixtureHtml, $fixtureCss)) {
+    foreach ($required in @($py, $emitter, $runtimeC, $coreC, $commonC, $verifyPy, $fixtureHtml, $fixtureCss)) {
         if (-not (Test-Path -LiteralPath $required)) { Stop-Fail "missing required path: $required" }
     }
     if (-not (Test-Path -LiteralPath (Join-Path $wgpu 'include\wgpu.h'))) {
@@ -200,8 +202,10 @@ try {
     }
 
     Write-Host 'compile: cl /O2 /TC -> build\runtime_r2.exe' -ForegroundColor Cyan
-    $compile = "cl /nologo /O2 /W3 /std:c17 /TC /D_CRT_SECURE_NO_WARNINGS `"$runtimeC`" " +
-               "/I`"$wgpu\include`" /I`"$out`" /Fo:`"$out\runtime_r2.obj`" /Fe:`"$out\runtime_r2.exe`" " +
+    $compile = "cl /nologo /O2 /W3 /std:c17 /TC /D_CRT_SECURE_NO_WARNINGS /DWN_STATIC " +
+               "`"$runtimeC`" `"$coreC`" `"$commonC`" " +
+               "/I`"$repo\include`" /I`"$root`" /I`"$wgpu\include`" /I`"$out`" " +
+               "/Fo:`"$out\\`" /Fe:`"$out\runtime_r2.exe`" " +
                "/link `"$wgpu\lib\wgpu_native.dll.lib`" windowscodecs.lib ole32.lib user32.lib gdi32.lib"
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     Invoke-Native 'compile' "call `"$vcvars`" >nul && cd /d `"$out`" && $compile"

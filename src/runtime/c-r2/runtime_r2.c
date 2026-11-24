@@ -33,6 +33,7 @@
 #include <wgpu.h>
 
 #include "ui_data.h"
+#include "wn_core.h"
 
 #define ARRAY_LEN(a) ((size_t)(sizeof(a) / sizeof((a)[0])))
 #define MAX_FLEX_ITEMS UI_NODE_COUNT
@@ -206,618 +207,53 @@ static void on_log(WGPULogLevel level, WGPUStringView message, void *userdata)
     }
 }
 
-/* ------------------------------------------------------------- layout engine */
-
-typedef struct { float x, y, w, h; } Rect;
-
-static Rect g_rects[UI_NODE_COUNT];
-static int g_first_child[UI_NODE_COUNT];
-static int g_next_sibling[UI_NODE_COUNT];
-static int g_subtree_end[UI_NODE_COUNT];
-
-static void build_hierarchy(void)
-{
-    int last_child[UI_NODE_COUNT];
-    for (int i = 0; i < UI_NODE_COUNT; ++i) {
-        g_first_child[i] = -1;
-        g_next_sibling[i] = -1;
-        last_child[i] = -1;
-        g_subtree_end[i] = i + 1;
-    }
-    for (int i = 0; i < UI_NODE_COUNT; ++i) {
-        int parent = kUiNodes[i].parent;
-        if (parent < 0 || parent >= UI_NODE_COUNT) {
-            continue;
-        }
-        if (g_first_child[parent] < 0) {
-            g_first_child[parent] = i;
-        } else {
-            g_next_sibling[last_child[parent]] = i;
-        }
-        last_child[parent] = i;
-    }
-    for (int i = UI_NODE_COUNT - 1; i >= 0; --i) {
-        int end = i + 1;
-        for (int child = g_first_child[i]; child >= 0; child = g_next_sibling[child]) {
-            if (g_subtree_end[child] > end) {
-                end = g_subtree_end[child];
-            }
-        }
-        g_subtree_end[i] = end;
-    }
-}
-
-static void translate_subtree(int node, float dx, float dy)
-{
-    int end = g_subtree_end[node];
-    for (int i = node; i < end; ++i) {
-        g_rects[i].x += dx;
-        g_rects[i].y += dy;
-    }
-}
-
-/* Max-content width. Needed because a flex item's auto main size is its
- * content width, not the container width (exp09 filled the container; that
- * would push the header pill out of the row). */
-static float intrinsic_width(int node, float available)
-{
-    const UiNode *n = &kUiNodes[node];
-    if (n->width >= 0.0f) {
-        return n->width;
-    }
-    if (n->width_pct > 0.0f) {
-        return available * n->width_pct * 0.01f;
-    }
-    if (n->kind == R2_NODE_TEXT) {
-        return n->width > 0.0f ? n->width : 0.0f;
-    }
-    float content = 0.0f;
-    if (n->kind == R2_NODE_FLEX && n->direction == 0) {
-        float sum = 0.0f;
-        int count = 0;
-        for (int c = g_first_child[node]; c >= 0; c = g_next_sibling[c]) {
-            sum += intrinsic_width(c, available);
-            ++count;
-        }
-        if (count > 0) {
-            sum += (n->gap > 0.0f ? n->gap : 0.0f) * (float)(count - 1);
-        }
-        content = sum;
-    } else {
-        float maxw = 0.0f;
-        for (int c = g_first_child[node]; c >= 0; c = g_next_sibling[c]) {
-            float w = intrinsic_width(c, available);
-            if (w > maxw) {
-                maxw = w;
-            }
-        }
-        content = maxw;
-    }
-    return content + n->padding[1] + n->padding[3];
-}
-
-static float layout_node(int node, float origin_x, float origin_y,
-                         float available_w, float parent_content_h,
-                         int is_root, float forced_w);
-
-typedef struct {
-    int id;
-    float w, h;
-} FlexItem;
-
-static float align_offset(int align, float extent, float size)
-{
-    if (align == ALIGN_CENTER) {
-        return (extent - size) * 0.5f;
-    }
-    if (align == ALIGN_END) {
-        return extent - size;
-    }
-    return 0.0f; /* start, stretch */
-}
-
-static void justify_offsets(int justify, float free, int count, float gap,
-                            float *start, float *spacing)
-{
-    if (count <= 1) {
-        *start = (justify == JUSTIFY_CENTER) ? free * 0.5f
-               : (justify == JUSTIFY_END) ? free : 0.0f;
-        *spacing = gap;
-        return;
-    }
-    if (justify == JUSTIFY_CENTER) {
-        *start = free * 0.5f;
-        *spacing = gap;
-    } else if (justify == JUSTIFY_END) {
-        *start = free;
-        *spacing = gap;
-    } else if (justify == JUSTIFY_SPACE_BETWEEN) {
-        *start = 0.0f;
-        *spacing = gap + free / (float)(count - 1);
-    } else {
-        *start = 0.0f;
-        *spacing = gap;
-    }
-}
+/* ------------------------------------------------------- core bridge (R2) */
 
 /*
- * Flex layout. Ported from exp09 webnative/layout.py, with three R2 needs:
- *   - wrap (exp09 had none),
- *   - proportional shrink capped at 20% so a wrap decision can keep two
- *     180px cards on one line inside 344px of content (fixture at 560px),
- *   - stretch is applied after measuring (box only, descendants keep the
- *     measured positions; documented limitation).
- *
- * Items are measured at (0,0) and then translated, exactly like exp09.
+ * The layout, state machine, hit testing and display-list generation live in
+ * wn_core.c. runtime_r2.c keeps only the CLI, reporting, Win32 and wgpu code,
+ * so the reference executable and the ABI layer share one engine.
  */
-static float layout_flex_children(int parent, float content_x, float content_y,
-                                  float content_w, float content_h)
-{
-    const UiNode *p = &kUiNodes[parent];
-    FlexItem items[MAX_FLEX_ITEMS];
-    int count = 0;
 
-    for (int child = g_first_child[parent]; child >= 0; child = g_next_sibling[child]) {
-        items[count].id = child;
-        ++count;
-    }
-    if (count == 0) {
-        return 0.0f;
-    }
+typedef wn_rect Rect;
+typedef wn_vertex Vertex;
+typedef wn_glyph_vertex GlyphVertex;
 
-    const int row = (p->direction == 0);
-    const int wrap = (p->wrap != 0);
-    const float gap = p->gap > 0.0f ? p->gap : 0.0f;
+static wn_core *g_core;
 
-    /* 1. Measure every item. */
-    for (int k = 0; k < count; ++k) {
-        int id = items[k].id;
-        const UiNode *n = &kUiNodes[id];
-        float forced = -1.0f;
-        if (n->width < 0.0f && n->width_pct == 0.0f) {
-            float margins = n->margin[1] + n->margin[3];
-            float limit = fmaxf(content_w - margins, 0.0f);
-            if (row) {
-                forced = fminf(limit, intrinsic_width(id, content_w));
-            } else if (p->align != ALIGN_STRETCH) {
-                forced = fminf(limit, intrinsic_width(id, content_w));
-            }
-        }
-        layout_node(id, 0.0f, 0.0f, content_w, content_h, 0, forced);
-        items[k].w = g_rects[id].w;
-        items[k].h = g_rects[id].h;
-    }
+#define g_rects (wn_core_rects(g_core, NULL))
+#define g_hover (wn_core_hover(g_core))
+#define g_press (wn_core_press(g_core))
+#define g_selected (wn_core_selected(g_core))
+#define g_vertices (wn_core_display_list(g_core)->vertices)
+#define g_glyph_vertices (wn_core_display_list(g_core)->glyph_vertices)
 
-    /* 2. Break into lines. Only when flex-wrap is set; non-wrap is one line
-     *    (with optional proportional shrink if it overflows). */
-    int line_start[MAX_FLEX_ITEMS];
-    int line_count[MAX_FLEX_ITEMS];
-    float line_cross[MAX_FLEX_ITEMS];
-    float line_main[MAX_FLEX_ITEMS];
-    int lines = 0;
-
-    if (wrap) {
-        int start = 0;
-        while (start < count) {
-            int remaining = count - start;
-            int take = 1;
-            int used_shrink = 0;
-            float shrink_scale = 1.0f;
-            if (remaining == 1) {
-                take = 1;
-                float base = row ? items[start].w : items[start].h;
-                float limit = row ? content_w : content_h;
-                if (limit < 0.0f) {
-                    limit = base;
-                }
-                if (base > limit) {
-                    shrink_scale = limit / base;
-                    used_shrink = 1;
-                }
-            } else {
-                for (int k = remaining; k >= 2; --k) {
-                    float sum = 0.0f;
-                    for (int j = start; j < start + k; ++j) {
-                        sum += row ? items[j].w : items[j].h;
-                    }
-                    float need = sum + gap * (float)(k - 1);
-                    float limit = row ? content_w : content_h;
-                    if (limit < 0.0f) {
-                        continue;
-                    }
-                    if (need <= limit + 0.01f) {
-                        take = k;
-                        break;
-                    }
-                    float scale = (limit - gap * (float)(k - 1)) / sum;
-                    if (scale >= 0.80f) {
-                        take = k;
-                        shrink_scale = scale;
-                        used_shrink = 1;
-                        break;
-                    }
-                }
-                if (take == 1 && remaining > 1) {
-                    /* One item per line. Still guarantee it fits. */
-                    float base = row ? items[start].w : items[start].h;
-                    float limit = row ? content_w : content_h;
-                    if (limit >= 0.0f && base > limit) {
-                        shrink_scale = limit / base;
-                        used_shrink = 1;
-                    }
-                }
-            }
-            if (used_shrink) {
-                for (int j = start; j < start + take; ++j) {
-                    if (row) {
-                        items[j].w *= shrink_scale;
-                    } else {
-                        items[j].h *= shrink_scale;
-                    }
-                }
-            }
-            line_start[lines] = start;
-            line_count[lines] = take;
-            line_main[lines] = 0.0f;
-            float cross = 0.0f;
-            for (int j = start; j < start + take; ++j) {
-                line_main[lines] += row ? items[j].w : items[j].h;
-                float c = row ? items[j].h : items[j].w;
-                if (c > cross) {
-                    cross = c;
-                }
-            }
-            line_main[lines] += gap * (float)(take - 1);
-            line_cross[lines] = cross;
-            ++lines;
-            start += take;
-        }
-    } else {
-        line_start[0] = 0;
-        line_count[0] = count;
-        line_main[0] = 0.0f;
-        line_cross[0] = 0.0f;
-        for (int j = 0; j < count; ++j) {
-            line_main[0] += row ? items[j].w : items[j].h;
-            float c = row ? items[j].h : items[j].w;
-            if (c > line_cross[0]) {
-                line_cross[0] = c;
-            }
-        }
-        line_main[0] += gap * (float)(count - 1);
-        lines = 1;
-        /* No-wrap overflow: shrink up to 20%, else let it overflow. */
-        float limit = row ? content_w : content_h;
-        if (limit >= 0.0f && line_main[0] > limit + 0.01f && count > 0) {
-            float base_sum = 0.0f;
-            for (int j = 0; j < count; ++j) {
-                base_sum += row ? items[j].w : items[j].h;
-            }
-            float scale = (limit - gap * (float)(count - 1)) / base_sum;
-            if (scale < 1.0f && scale >= 0.80f) {
-                for (int j = 0; j < count; ++j) {
-                    if (row) {
-                        items[j].w *= scale;
-                    } else {
-                        items[j].h *= scale;
-                    }
-                }
-                line_main[0] = limit;
-            }
-        }
-    }
-
-    /* Single line: the line's cross size is the container's inner cross size
-     * when that is definite (CSS single-line flex container). */
-    if (lines == 1) {
-        if (row && content_h >= 0.0f) {
-            line_cross[0] = content_h;
-        } else if (!row && content_w >= 0.0f) {
-            line_cross[0] = content_w;
-        }
-    }
-
-    /* 3. Place the lines and translate the measured subtrees. */
-    float cross_origin = 0.0f;
-    float return_main = 0.0f;
-    for (int l = 0; l < lines; ++l) {
-        int start = line_start[l];
-        int take = line_count[l];
-        float limit = row ? content_w : (content_h >= 0.0f ? content_h : line_main[l]);
-        float free = limit - line_main[l];
-        if (free < 0.0f) {
-            free = 0.0f;
-        }
-        float start_off, spacing;
-        justify_offsets(p->justify, free, take, gap, &start_off, &spacing);
-        float cursor = start_off;
-        for (int j = start; j < start + take; ++j) {
-            int id = items[j].id;
-            const UiNode *n = &kUiNodes[id];
-            float w = items[j].w;
-            float h = items[j].h;
-            float cross_extent = line_cross[l];
-            if (row) {
-                if (p->align == ALIGN_STRETCH && n->height < 0.0f && n->height_pct == 0.0f) {
-                    h = cross_extent;
-                }
-                float off = align_offset(p->align, cross_extent, h);
-                g_rects[id].w = w;
-                g_rects[id].h = h;
-                translate_subtree(id, content_x + cursor, content_y + cross_origin + off);
-                cursor += w + spacing;
-            } else {
-                if (p->align == ALIGN_STRETCH && n->width < 0.0f && n->width_pct == 0.0f) {
-                    w = cross_extent;
-                }
-                float off = align_offset(p->align, cross_extent, w);
-                g_rects[id].w = w;
-                g_rects[id].h = h;
-                translate_subtree(id, content_x + cross_origin + off, content_y + cursor);
-                cursor += h + spacing;
-            }
-        }
-        cross_origin += line_cross[l] + gap;
-        if (row) {
-            return_main += line_cross[l];
-            if (l + 1 < lines) {
-                return_main += gap;
-            }
-        } else if (line_main[l] > return_main) {
-            return_main = line_main[l];
-        }
-    }
-
-    return return_main;
-}
-
-static float layout_node(int node, float origin_x, float origin_y,
-                         float available_w, float parent_content_h,
-                         int is_root, float forced_w)
-{
-    const UiNode *n = &kUiNodes[node];
-    float w;
-    if (forced_w >= 0.0f) {
-        w = forced_w;
-    } else if (n->width >= 0.0f) {
-        w = n->width;
-    } else if (n->width_pct > 0.0f) {
-        w = available_w * n->width_pct * 0.01f;
-    } else {
-        w = fmaxf(available_w - n->margin[1] - n->margin[3], 0.0f);
-    }
-
-    float x = origin_x + n->margin[3];
-    float y = origin_y + n->margin[0];
-    if (is_root) {
-        x = 0.0f;
-        y = 0.0f;
-    }
-
-    const float pad_l = n->padding[3], pad_r = n->padding[1];
-    const float pad_t = n->padding[0], pad_b = n->padding[2];
-    const float content_w = fmaxf(w - pad_l - pad_r, 0.0f);
-    float content_h = -1.0f;
-    if (n->height >= 0.0f) {
-        content_h = fmaxf(n->height - pad_t - pad_b, 0.0f);
-    } else if (n->height_pct > 0.0f && parent_content_h >= 0.0f) {
-        content_h = fmaxf(parent_content_h * n->height_pct * 0.01f - pad_t - pad_b, 0.0f);
-    }
-
-    const float content_x = x + pad_l;
-    const float content_y = y + pad_t;
-
-    if (n->kind == R2_NODE_TEXT) {
-        float h = n->height >= 0.0f ? n->height : (content_h >= 0.0f ? content_h : 0.0f);
-        g_rects[node].x = x;
-        g_rects[node].y = y;
-        g_rects[node].w = w;
-        g_rects[node].h = h;
-        return h + n->margin[2];
-    }
-
-    float cursor = content_y;
-    if (n->kind == R2_NODE_FLEX) {
-        cursor += layout_flex_children(node, content_x, content_y, content_w, content_h);
-    } else {
-        for (int child = g_first_child[node]; child >= 0; child = g_next_sibling[child]) {
-            cursor += layout_node(child, content_x, cursor, content_w, content_h, 0, -1.0f);
-        }
-    }
-    const float content_used = cursor - content_y;
-
-    float h;
-    if (n->height >= 0.0f) {
-        h = n->height;
-    } else if (n->height_pct > 0.0f && parent_content_h >= 0.0f) {
-        h = parent_content_h * n->height_pct * 0.01f;
-    } else {
-        h = content_used + pad_t + pad_b;
-    }
-    g_rects[node].x = x;
-    g_rects[node].y = y;
-    g_rects[node].w = w;
-    g_rects[node].h = h;
-    return h + n->margin[2];
-}
+static int g_vertex_count = 0;
+static int g_glyph_vertex_count = 0;
 
 static void layout_page(float viewport_w, float viewport_h)
 {
-    int root = 0;
-    for (int i = 0; i < UI_NODE_COUNT; ++i) {
-        if (kUiNodes[i].parent < 0) {
-            root = i;
-            break;
-        }
-    }
-    layout_node(root, 0.0f, 0.0f, viewport_w, viewport_h, 1, -1.0f);
+    wn_core_resize(g_core, (int)viewport_w, (int)viewport_h);
+    wn_core_relayout(g_core);
 }
-
-/* ------------------------------------------------------------- interaction */
-
-static int g_hover = -1;
-static int g_press = -1;
-static int g_selected = -1;
-
-static int point_in_rect(float px, float py, const Rect *r)
-{
-    return r->w > 0.0f && r->h > 0.0f &&
-           px >= r->x && px < r->x + r->w && py >= r->y && py < r->y + r->h;
-}
-
-static int hit_test(float px, float py)
-{
-    for (int i = UI_NODE_COUNT - 1; i >= 0; --i) {
-        if (kUiNodes[i].action != ACTION_NONE &&
-            point_in_rect(px, py, &g_rects[i])) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-static unsigned int node_color(int node)
-{
-    const UiNode *n = &kUiNodes[node];
-    if (n->action == ACTION_NONE) {
-        return n->background;
-    }
-    if (g_press == node && n->press_bg != 0) {
-        return n->press_bg;
-    }
-    if (g_hover == node && n->hover_bg != 0) {
-        return n->hover_bg;
-    }
-    if (g_selected == node && n->selected_bg != 0) {
-        return n->selected_bg;
-    }
-    return n->background;
-}
-
-/* --------------------------------------------------------------- geometry */
-
-typedef struct {
-    float x, y;
-    uint8_t r, g, b, a;
-} Vertex;
-
-_Static_assert(sizeof(Vertex) == 12, "Vertex must stay 12 bytes (vec2 + unorm8x4)");
-
-static Vertex g_vertices[UI_NODE_COUNT * 6];
-static int g_vertex_count = 0;
-
-static void push_vertex(float x, float y, float vw, float vh,
-                        uint8_t r, uint8_t g, uint8_t b, uint8_t a)
-{
-    Vertex *v = &g_vertices[g_vertex_count++];
-    v->x = (x / vw) * 2.0f - 1.0f;
-    v->y = 1.0f - (y / vh) * 2.0f;
-    v->r = r; v->g = g; v->b = b; v->a = a;
-}
-
-static void push_quad(float x, float y, float w, float h,
-                      float vw, float vh, unsigned int argb)
-{
-    if (w <= 0.0f || h <= 0.0f) {
-        return;
-    }
-    uint8_t a = (uint8_t)((argb >> 24) & 0xFFu);
-    if (a == 0) {
-        return;
-    }
-    uint8_t r = (uint8_t)((argb >> 16) & 0xFFu);
-    uint8_t g = (uint8_t)((argb >> 8) & 0xFFu);
-    uint8_t b = (uint8_t)(argb & 0xFFu);
-    float x1 = x + w, y1 = y + h;
-    push_vertex(x,  y,  vw, vh, r, g, b, a);
-    push_vertex(x1, y,  vw, vh, r, g, b, a);
-    push_vertex(x1, y1, vw, vh, r, g, b, a);
-
-    push_vertex(x,  y,  vw, vh, r, g, b, a);
-    push_vertex(x1, y1, vw, vh, r, g, b, a);
-    push_vertex(x,  y1, vw, vh, r, g, b, a);
-}
-
-static void build_text_geometry(float viewport_w, float viewport_h);
 
 static void build_geometry(float viewport_w, float viewport_h)
 {
-    g_vertex_count = 0;
-    for (int i = 0; i < UI_NODE_COUNT; ++i) {
-        unsigned int color = node_color(i);
-        if (color == 0) {
-            continue;
-        }
-        const Rect *r = &g_rects[i];
-        push_quad(r->x, r->y, r->w, r->h, viewport_w, viewport_h, color);
-    }
-    build_text_geometry(viewport_w, viewport_h);
+    const wn_display_list *list;
+    (void)viewport_w;
+    (void)viewport_h;
+    wn_core_build_display_list(g_core);
+    list = wn_core_display_list(g_core);
+    g_vertex_count = list != NULL ? list->vertex_count : 0;
+    g_glyph_vertex_count = list != NULL ? list->glyph_vertex_count : 0;
 }
 
-/* Pre-shaped glyph quads: one textured pipeline, one draw call for all text. */
-typedef struct {
-    float x, y, u, v;
-    uint8_t r, g, b, a;
-} GlyphVertex;
-
-_Static_assert(sizeof(GlyphVertex) == 20, "GlyphVertex must stay 20 bytes");
-
-static GlyphVertex g_glyph_vertices[(UI_GLYPH_COUNT > 0 ? UI_GLYPH_COUNT : 1) * 6];
-static int g_glyph_vertex_count = 0;
-
-static void push_glyph_vertex(float x, float y, float u, float v,
-                              float vw, float vh,
-                              uint8_t r, uint8_t g, uint8_t b, uint8_t a)
+static void set_state_from_arg(int state, int node)
 {
-    GlyphVertex *out = &g_glyph_vertices[g_glyph_vertex_count++];
-    out->x = (x / vw) * 2.0f - 1.0f;
-    out->y = 1.0f - (y / vh) * 2.0f;
-    out->u = u;
-    out->v = v;
-    out->r = r; out->g = g; out->b = b; out->a = a;
-}
-
-static void push_glyph_quad(float x, float y, const UiGlyph *g, float vw, float vh,
-                            uint8_t r, uint8_t gr, uint8_t b, uint8_t a)
-{
-    float x1 = x + g->w, y1 = y + g->h;
-    push_glyph_vertex(x,  y,  g->u0, g->v0, vw, vh, r, gr, b, a);
-    push_glyph_vertex(x1, y,  g->u1, g->v0, vw, vh, r, gr, b, a);
-    push_glyph_vertex(x1, y1, g->u1, g->v1, vw, vh, r, gr, b, a);
-
-    push_glyph_vertex(x,  y,  g->u0, g->v0, vw, vh, r, gr, b, a);
-    push_glyph_vertex(x1, y1, g->u1, g->v1, vw, vh, r, gr, b, a);
-    push_glyph_vertex(x,  y1, g->u0, g->v1, vw, vh, r, gr, b, a);
-}
-
-static void build_text_geometry(float viewport_w, float viewport_h)
-{
-    g_glyph_vertex_count = 0;
-    for (int run_index = 0; run_index < UI_TEXT_RUN_COUNT; ++run_index) {
-        const UiTextRun *run = &kUiTextRuns[run_index];
-        if (run->node < 0 || run->node >= UI_NODE_COUNT || run->count <= 0) {
-            continue;
-        }
-        const Rect *r = &g_rects[run->node];
-        unsigned int color = kUiNodes[run->node].text_color;
-        uint8_t a = (uint8_t)((color >> 24) & 0xFFu);
-        if (a == 0) {
-            continue;
-        }
-        uint8_t cr = (uint8_t)((color >> 16) & 0xFFu);
-        uint8_t cg = (uint8_t)((color >> 8) & 0xFFu);
-        uint8_t cb = (uint8_t)(color & 0xFFu);
-        for (int j = 0; j < run->count; ++j) {
-            const UiGlyph *g = &kUiGlyphs[run->first + j];
-            if (g->w <= 0.0f || g->h <= 0.0f) {
-                continue;
-            }
-            /* Round to the pixel grid: the bitmaps were rasterized at integer
-             * positions, so subpixel placement only adds blur. */
-            float x = floorf(r->x + g->x + 0.5f);
-            float y = floorf(r->y + g->y + 0.5f);
-            push_glyph_quad(x, y, g, viewport_w, viewport_h, cr, cg, cb, a);
-        }
+    if (node < 0) {
+        wn_core_set_state(g_core, 0, state, 0);
+    } else {
+        wn_core_set_state(g_core, node, state, 1);
     }
 }
 
@@ -1853,11 +1289,13 @@ static int run_states(const char *prefix, int node, int width, int height)
         return 1;
     }
 
-    g_hover = g_press = g_selected = -1;
+    wn_core_set_state(g_core, 0, WN_STATE_HOVER, 0);
+    wn_core_set_state(g_core, 0, WN_STATE_PRESS, 0);
+    wn_core_set_state(g_core, 0, WN_STATE_SELECTED, 0);
     for (int state = 0; state < 4; ++state) {
-        g_hover = (state == 1) ? node : -1;
-        g_press = (state == 2) ? node : -1;
-        g_selected = (state == 3) ? node : -1;
+        wn_core_set_state(g_core, node, WN_STATE_HOVER, state == 1);
+        wn_core_set_state(g_core, node, WN_STATE_PRESS, state == 2);
+        wn_core_set_state(g_core, node, WN_STATE_SELECTED, state == 3);
         snprintf(path, sizeof(path), "%s_%s.png", prefix, suffixes[state]);
         wchar_t wide[MAX_PATH];
         MultiByteToWideChar(CP_ACP, 0, path, -1, wide, MAX_PATH);
@@ -1979,9 +1417,9 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
     case WM_MOUSEMOVE: {
         int x = (int)(short)LOWORD(lparam);
         int y = (int)(short)HIWORD(lparam);
-        int hit = hit_test((float)x, (float)y);
-        if (hit != g_hover) {
-            g_hover = hit;
+        int before = g_hover;
+        int hit = wn_core_pointer_move(g_core, (float)x, (float)y);
+        if (hit != before) {
             g_need_geometry = 1;
         }
         TRACKMOUSEEVENT track;
@@ -1994,15 +1432,14 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
     }
     case WM_MOUSELEAVE:
         if (g_hover != -1) {
-            g_hover = -1;
+            wn_core_pointer_leave(g_core);
             g_need_geometry = 1;
         }
         return 0;
     case WM_LBUTTONDOWN: {
         int x = (int)(short)LOWORD(lparam);
         int y = (int)(short)HIWORD(lparam);
-        int hit = hit_test((float)x, (float)y);
-        g_press = hit;
+        wn_core_pointer_down(g_core, (float)x, (float)y);
         SetCapture(hwnd);
         g_need_geometry = 1;
         return 0;
@@ -2010,13 +1447,12 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
     case WM_LBUTTONUP: {
         int x = (int)(short)LOWORD(lparam);
         int y = (int)(short)HIWORD(lparam);
-        int hit = hit_test((float)x, (float)y);
-        if (g_press >= 0 && hit == g_press && kUiNodes[g_press].action == ACTION_SELECT) {
-            g_selected = g_press;
-            printf("click: node=%d %s -> selected\n", g_press, kUiNodeNames[g_press]);
+        int press = g_press;
+        int hit = wn_core_pointer_up(g_core, (float)x, (float)y);
+        if (press >= 0 && hit == press && kUiNodes[press].action == ACTION_SELECT) {
+            printf("click: node=%d %s -> selected\n", press, kUiNodeNames[press]);
             fflush(stdout);
         }
-        g_press = -1;
         ReleaseCapture();
         g_need_geometry = 1;
         return 0;
@@ -2494,7 +1930,12 @@ int main(int argc, char **argv)
     wgpuSetLogLevel(WGPULogLevel_Warn);
     wgpuSetLogCallback(on_log, NULL);
 
-    build_hierarchy();
+    g_core = wn_core_create(wn_document_builtin());
+    if (g_core == NULL) {
+        fprintf(stderr, "error: wn_core_create failed\n");
+        exit_code = 1;
+        goto done;
+    }
 
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--render") == 0) {
@@ -2528,11 +1969,11 @@ int main(int argc, char **argv)
         } else if (strcmp(argv[i], "--node") == 0 && i + 1 < argc) {
             state_node = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--hover") == 0 && i + 1 < argc) {
-            g_hover = atoi(argv[++i]);
+            set_state_from_arg(WN_STATE_HOVER, atoi(argv[++i]));
         } else if (strcmp(argv[i], "--press") == 0 && i + 1 < argc) {
-            g_press = atoi(argv[++i]);
+            set_state_from_arg(WN_STATE_PRESS, atoi(argv[++i]));
         } else if (strcmp(argv[i], "--selected") == 0 && i + 1 < argc) {
-            g_selected = atoi(argv[++i]);
+            set_state_from_arg(WN_STATE_SELECTED, atoi(argv[++i]));
         } else if (strcmp(argv[i], "--size") == 0 && i + 1 < argc) {
             if (parse_size(argv[++i], &render_w, &render_h) != 0) {
                 fprintf(stderr, "error: bad --size\n");
@@ -2642,6 +2083,8 @@ int main(int argc, char **argv)
     exit_code = run_window();
 
 done:
+    wn_core_destroy(g_core);
+    g_core = NULL;
     CoUninitialize();
     return exit_code;
 }

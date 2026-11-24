@@ -518,3 +518,176 @@ traduce sin importar `webnative`. Lo que queda:
    camino por defecto.
 
 El runtime C sigue siendo independiente de Python: solo el build lo usa.
+
+---
+
+## 13. Runtime platform ABI v0 (core / renderer / host, standalone + embedded)
+
+Esta capa implementa `include/webnative.h` sin cambiar la ABI y sin exponer
+wgpu, D3D12 ni Win32 en el header público. `runtime_r2.c` sigue siendo el
+binario de referencia y el sujeto de la aceptación 69/69; la capa ABI usa el
+mismo algoritmo extraído a `wn_core.c` y se compila aparte.
+
+### 13.1 Módulos
+
+| Ruta | Rol |
+|---|---|
+| `wn_core.h` / `wn_core.c` | Core portable: documento compilado, layout, estados, hit testing y display list (vértices sólidos + glyphs). No conoce OS, GPU ni modo. `runtime_r2.c` lo usa para no duplicar el motor. |
+| `wn_renderer.h` | Vtable `wn_renderer_ops`: `init(surface,w,h)`, `resize`, `upload(display list/atlas)`, `render` (draw+present), `destroy`, `last_error`, `get_info`, `get_stats`. |
+| `renderer_wgpu.c` | Backend wgpu-native (D3D12 aquí): surface desde HWND, swapchain FIFO, pipeline sólida + pipeline de texto R8, atlas bajo demanda. |
+| `wn_host.h` / `host_win32.c` | Host Win32: ventana, message loop, traducción Win32 → `wn_event`, resize, captura de ratón, cierre. |
+| `wn_view.h` / `wn_view.c` | Modo embedded: core + renderer sobre un HWND del host. El host posee el loop y llama `wn_view_render()` a demanda. |
+| `wn_app.h` / `wn_app.c` | Modo standalone: host Win32 + `wn_view`. `wn_app_run()` bloquea hasta cerrar. |
+| `wn_common.c` / `wn_internal.h` | Versión, error thread-local y helpers de copia UTF-8. |
+| `examples/standalone.c` | Demo `wn_app_*`; `--frames N` cierra solo. |
+| `examples/embedded.c` | Demo host: ventana padre + HWND hijo con `wn_view`; reenvía `WM_MOUSEMOVE`/`WM_LBUTTONDOWN`/`WM_LBUTTONUP`/`WM_SIZE`, renderiza en timer, `--frames N` cierra solo. |
+| `examples/abi_header_check.c/.cpp` | Compilan `webnative.h` como C17 y C++17 con `/W4`. |
+| `examples/abi_smoke.c` | Comprueba versión, error thread-local y validación de argumentos sin crear ventana/GPU. |
+| `build_abi.ps1` | Compila la capa, ejecuta header checks, smoke y ambas demos; escribe `build_abi/abi_report.json`. |
+
+### 13.2 Dos modos, un core
+
+| | Standalone | Embedded |
+|---|---|---|
+| Ventana | La crea `wn_app_create` | La crea el host (padre + hijo) |
+| Loop | `wn_app_run` | El host |
+| Render | Automático por frame | `wn_view_render()` a demanda |
+| Eventos | Win32 → host → view | El host llama `wn_view_event()` |
+| Superficie | HWND de la ventana propia | HWND hijo proporcionado |
+
+### 13.3 Comandos
+
+```powershell
+# build + header checks + smoke + demos + auto-close (no ejecuta cargo)
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build_abi.ps1
+
+# artefactos
+.\src\runtime\c-r2\build_abi\standalone.exe --frames 20
+.\src\runtime\c-r2\build_abi\embedded.exe --frames 20 --input-demo --resize-demo
+
+# solo compilar
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build_abi.ps1 -SkipRun
+```
+
+Si falta `build/ui_data.h`, `build_abi.ps1` llama a
+`build.ps1 -SkipRustBuild -SkipParityCheck -SkipRun` (reutiliza el
+`frontend-rust.exe` ya compilado y el emisor Python; no lanza cargo).
+
+### 13.4 Semántica de la ABI en v0
+
+- **Strings**: todo se copia; el caller conserva ownership. UTF-8.
+- **Threading**: una instancia por hilo de UI; callbacks en el hilo de UI; sin
+  locks. Destruir en el mismo hilo.
+- **`wn_last_error`**: buffer thread-local; se limpia al inicio de cada llamada
+  pública y se devuelve `NULL` si no hubo error.
+- **`wn_view_create`**: el handle nativo debe ser un HWND válido; `flags` debe
+  ser 0; crea core + renderer. El host embedded decide cuándo llamar
+  `wn_view_event` y `wn_view_render`.
+- **`wn_app_create`**: crea host Win32 + view; `wn_app_run` muestra la ventana y
+  bombea hasta `WM_CLOSE`/Esc o hasta `wn_app_set_max_frames(N)`.
+- **`load`**: copia HTML/CSS/base. En v0 el documento que se renderiza es el
+  árbol R2 compilado en `ui_data.h`; **no hay parser HTML/CSS en runtime** (ver
+  límites). `base_url` y el texto se conservan como fuente/diagnóstico.
+- **`target_id`**: nombre de nodo del árbol compilado (por ejemplo
+  `body.root/div.sidebar/div.nav`), no un atributo `id` HTML. `set_text` y
+  `set_class` aceptan la ruta exacta o el último componente si es único.
+- **Click**: la ABI v0 congelada tiene `POINTER_DOWN`/`POINTER_UP`, no
+  `WN_EVENT_CLICK`. La regla R2 es: si down y up caen en el mismo nodo con
+  `data-action="select"`, el nodo queda `selected`. El callback recibe
+  `WN_EVENT_POINTER_UP` con su `target_id`.
+- **`set_class`**: `"hover"`, `"press"` y `"selected"` cambian los colores de
+  estado R2. Otras clases se recuerdan por nodo pero los estilos están horneados
+  en build time (no hay cascada en runtime).
+- **`set_text`**: v0 no tiene shaping en runtime. El cambio se acepta si todos
+  sus caracteres existen ya en el atlas del mismo tamaño de fuente (el fixture
+  permite, por ejemplo, `"Texto"`); en otro caso devuelve
+  `WN_ERR_UNSUPPORTED`. Las métricas de layout del nodo no cambian.
+
+### 13.5 Evidencia de aceptación (última ejecución)
+
+`build_abi.ps1` termina con **exit 0**:
+
+- `include/webnative.h` compila como C17 y C++17 con MSVC `/W4`.
+- Grep proof: no aparecen `WGPU|wgpu|ID3D|D3D12|D3D11|HWND|HINSTANCE|IDXGI`.
+- `abi_smoke.exe`: PASS (versión, error thread-local, argumentos inválidos).
+- `standalone.exe --frames 20`: **exit 0**, adapter **D3D12**, ventana con la
+  página R2, 20 frames presentados.
+- `embedded.exe --frames 20 --input-demo --resize-demo`: **exit 0**, adapter
+  **D3D12**; el padre redimensiona 900×640 → 720×520 → 900×640, el hijo recibe
+  `WM_SIZE`, se reenvían `WM_MOUSEMOVE/WM_LBUTTONDOWN/WM_LBUTTONUP`, el click
+  selecciona `body.root/div.sidebar/div.nav` y `set_text("text[1]","Texto")`
+  devuelve `WN_OK`.
+
+Timings de la última ejecución (Windows 11 x64, VM, WARP/Basic Render Driver;
+no representativos de GPU real):
+
+| Métrica | Valor |
+|---|---:|
+| Build ABI completo | ~15.8 s (`cl` + header checks + smoke + demos) |
+| `standalone` startup (proceso→primer frame) | 149.7 ms |
+| `standalone` frame medio (FIFO/vsync) | 15.64 ms |
+| `standalone` CPU frame (upload+encode+submit) | 0.51 ms |
+| `embedded` startup | 153.3 ms |
+| `embedded` frame medio (timer) | 0.74 ms |
+| `embedded` CPU frame | 0.60 ms |
+| `standalone.exe` / `embedded.exe` | 285 184 / 286 720 B |
+| `runtime_r2.exe` (R2 + core) | 377 344 B |
+| R2 regresión (`build.ps1 -SkipRustBuild`) | **69/69 PASS** |
+
+El coste de arranque incluye instancia/adapter/device/surface y el primer
+present; en esta VM varía ~130–180 ms entre ejecuciones (el presupuesto de
+150 ms es orientativo y R2 ya lo roza). El frame embedded no está limitado por
+vsync en la ventana hija; el standalone sí usa `PresentMode::Fifo`.
+
+### 13.6 Paridad del core con R2
+
+Antes de conectar la ABI se volcaron los rects del core a 960×640, 720×640 y
+560×640 y se compararon con `build/layout_report.json` nodo a nodo:
+**0 diferencias** en `x/y/w/h`, y **84 vértices + 210 glyph vertices** en los
+tres tamaños, igual que R2. El core reutiliza el mismo algoritmo de bloque/flex,
+wrap con shrink ≤20 %, hit testing inverso y prioridad
+press > hover > selected > background.
+
+### 13.7 Límites y gaps restantes (v0)
+
+1. **Sin parser HTML/CSS en runtime**: `wn_view_load`/`wn_app_load` copian el
+   documento, pero el árbol que se pinta es el `ui_data.h` compilado. Cargar
+   otro HTML exige regenerar `ui_data.h` y recompilar (o un parser/estilo en
+   runtime, fuera de v0).
+2. **Texto**: sin shaping/wrapping/bidi/fallback en runtime. `set_text` solo
+   reutiliza glyphs pre-horneados del atlas para el mismo `font-size`; no
+   cambia el layout. Sin selección, IME ni portapapeles.
+3. **Teclado**: se traducen `WM_KEYDOWN/UP/CHAR`, pero el motor v0 no tiene
+   foco/navegación por teclado ni edición de texto. Esc cierra la ventana
+   standalone.
+4. **Accesibilidad**: no hay UIA/ARIA, roles ni árbol accesible. Fase 4.
+5. **Una vista/ventana por instancia**: no hay multi-documento ni multi-ventana
+   por handle. Una instancia por hilo de UI.
+6. **Sin invalidación incremental**: cambiar estado/texto reconstruye toda la
+   display list; un resize re-layouta todo el documento.
+7. **Sin scroll/clipping**: el overflow se dibuja fuera de la ventana, igual
+   que R2.
+8. **DPI**: `dpi_scale` se guarda, pero el layout trabaja en píxeles de cliente
+   y no hay escalado por monitor.
+9. **Offscreen/PNG**: no forma parte de la ABI; sigue disponible en el CLI de
+   `runtime_r2.exe` (`--render`, `--states`, `--report`).
+10. **Tablas `ui_data.h` duplicadas en el binario R2**: `runtime_r2.c` y
+    `wn_core.c` incluyen el header generado en TUs distintas, así que el
+    `.exe` lleva dos copias de las tablas estáticas (~78 KB extra; 377 KB
+    total). No hay lógica duplicada: el motor es solo `wn_core.c`. Unificarlo
+    en un único TU es un refactor menor posterior.
+11. **Doc vs header**: `docs/abi.md` muestra `WN_EVENT_CLICK`, que no existe en
+    el header v0 congelado. Las demos usan `WN_EVENT_POINTER_UP`; si se quiere
+    un evento click explícito, sería un cambio aditivo de ABI a decidir.
+12. **Sin bindings C#/WPF/WinForms** todavía: solo demos C y host Win32.
+
+### 13.8 Por qué no rompe R1 ni R2
+
+- No se tocó `src/runtime/c-static`, `src/build.ps1`, `benchmarks/**`,
+  `docs/**` ni `src/frontend/rust/**`.
+- `runtime_r2.c` quedó reducido a CLI, reporting, Win32 y wgpu; el motor vive
+  en `wn_core.c` y se compila desde `build.ps1` (que ahora añade `wn_core.c` y
+  `wn_common.c` al binario R2). La aceptación se re-ejecutó con
+  `-SkipRustBuild` y sigue en **69/69**.
+- La capa ABI es un conjunto de fuentes nuevo (`wn_*.c/h`, `renderer_wgpu.c`,
+  `host_win32.c`) compilado por `build_abi.ps1`; comparte `wn_core.c` con R2.
