@@ -21,10 +21,7 @@
 *.dll
 *.lib
 
-# Keep the wgpu-native runtime dependency (needed to run the demos)
-!third_party/wgpu-native/bin/
-!third_party/wgpu-native/bin/wgpu_native.dll
-!third_party/wgpu-native/lib/wgpu_native.dll.lib
+# wgpu-native binaries are fetched by tools/fetch-wgpu.ps1 (not committed)
 
 # Generated artifacts
 **/scene_data.h
