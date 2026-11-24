@@ -28,6 +28,11 @@ de estilos **pre-layout** (`ui.json` + atlas) que consume R2. Ver
 [Modo R2](#modo-r2-árbol-de-estilos-pre-layout---emit-ui): 28/28 nodos y
 estilos idénticos al oráculo Python, 35/35 avances y `x` exactos.
 
+El modo `--emit-ui` también emite el contrato **v2** (`webnative.ui-tree/2`)
+para grid, scroll e imágenes, con `--pilot` para habilitar las extensiones en
+el diagnóstico de subset. Ver
+[Grid, scroll e imágenes v2](#grid-scroll-e-imágenes-v2-único-en---emit-ui).
+
 Pipeline interno (mediana de 10 ejecuciones directas, sin PowerShell):
 **1,38 ms** (`contract`), **1,85 ms** (`flex-page`) y **6,72 ms** (`text-card`,
 incluye shaping + raster + atlas + escritura de 256 KB). Binario release:
@@ -49,14 +54,18 @@ src/frontend/rust/
     dom.rs              HTML -> árbol con html5ever (TreeSink propio)
     css.rs              hojas de estilo, declaraciones y selectores
     color.rs            longitudes (`length`) y colores (`parse_color`)
+    grid.rs             valores v2: repeat(auto-fill, <px>) y grid-auto-rows
     cascade.rs          estilo computado por nodo (especificidad, herencia, inline)
     layout.rs           layout de bloque/flex + line boxes + pintado pre-orden
     text.rs             shaping (rustybuzz), métricas/raster (ab_glyph), atlas R8
     emit.rs             JSON del IR, del atlas y de timings
     ui_tree.rs          --emit-ui: árbol de estilos pre-layout + texto para R2
+    r1.rs               avisos de grid/scroll/imágenes en el camino R1
     sha256.rs           SHA-256 del atlas (sin dependencias)
     rss.rs              peak working set del proceso (Win32, sin dependencias)
-    subset.rs           diagnóstico del contrato subset v1 (--strict-subset)
+    subset.rs           diagnóstico del contrato subset v1 (--strict-subset, --pilot)
+  tests/
+    ui_tree_v2.rs       tests de integración del contrato v2 (binario real)
 ```
 
 Fixture nueva (copia del demo de exp09, sin tocar las fixtures rect):
@@ -90,14 +99,17 @@ frontend-rust.exe --html src\runtime\c-r2\page\index.html `
 La ruta es opcional (`--emit-ui` sin valor usa `--out` o `ui.json`). Sin
 `--emit-ui` el CLI se comporta exactamente como antes y no escribe `ui.json`.
 
-### Esquema `webnative.ui-tree/1`
+### Esquema `webnative.ui-tree/1` (y `/2` con features v2)
 
 JSON plano, pre-orden, sin dependencias de lenguaje. Índices estables dentro
-del documento (el nodo 0 es `body`).
+del documento (el nodo 0 es `body`). Una página sin grid/scroll/imágenes emite
+`/1` exactamente como antes; con cualquiera de esas features emite `/2` y añade
+los campos descritos en
+[Grid, scroll e imágenes v2](#grid-scroll-e-imágenes-v2-único-en---emit-ui).
 
 | Campo | Tipo | Semántica |
 |---|---|---|
-| `schema` | string | `"webnative.ui-tree/1"` |
+| `schema` | string | `"webnative.ui-tree/1"` o `"webnative.ui-tree/2"` |
 | `generator` | string | `"frontend-rust"` |
 | `source` | `{html, css}` | Rutas tal como se pasaron al CLI |
 | `viewport` | `{width, height}` | Viewport de compilación (960×640 en R2) |
@@ -114,7 +126,7 @@ Cada nodo:
 | `id` | int | Índice en `nodes` |
 | `parent` | int | Índice del padre (`-1` en la raíz) |
 | `children` | int[] | Hijos en orden de emisión (texto propio primero) |
-| `kind` | `block` \| `flex` \| `text` | Tipo de nodo |
+| `kind` | `block` \| `flex` \| `grid` \| `text` \| `image` | Tipo de nodo (`grid`/`image` solo en `/2`) |
 | `name` | string | `tag#id.clase` con sufijo `[n]` para duplicados |
 | `tag` | string | Tag HTML (`#text` en nodos de texto) |
 | `classes` | string[] | `class` separado por whitespace |
@@ -156,6 +168,145 @@ Nodo de texto (`text`):
 `atlas.json` documenta tamaño, sha256, glyphs únicos y píxeles no cero. El
 empaquetado es el shelf packer del oráculo (guarda de 1 px, orden de primera
 aparición).
+
+### Grid, scroll e imágenes v2 (único en `--emit-ui`)
+
+El contrato completo está en `docs/ui-tree-v2.md`. Esta sección documenta lo
+que el frontend Rust **parsea y emite**; el layout, el scroll y el decode de
+imágenes son responsabilidad del runtime R2. En el camino R1 (`--out`) estas
+features siguen sin implementarse: solo se avisa (ver
+[R1 vs R2](#r1-vs-r2-avisos-y-paridad)).
+
+`--pilot` habilita las extensiones en el diagnóstico de subset:
+
+```
+frontend-rust.exe --html page.html --width 480 --height 320 `
+                  --emit-ui build\ui.json --pilot
+                  [--strict-subset]
+```
+
+#### Cuándo se emite `webnative.ui-tree/2`
+
+Se emite `/2` si **algún nodo emitido** usa una feature v2 (los nodos dentro de
+un subárbol `display: none` no cuentan):
+
+- `display: grid`;
+- `overflow: auto` o `overflow: scroll` (scroll);
+- un `<img>` (aunque el CSS lo deje `inline`);
+- `grid-template-columns` o `grid-auto-rows` declarados (aunque el nodo no sea
+  grid).
+
+En caso contrario se emite `/1` y **no se escribe ninguno de los campos v2**, de
+modo que las páginas existentes siguen siendo byte a byte idénticas.
+`overflow: hidden` no fuerza `/2`: ya existía en el subset v1 y el campo v2 solo
+se emite cuando el schema es `/2`.
+
+#### Campos de estilo v2
+
+Se añaden al objeto `style` de **todos** los nodos cuando el schema es `/2`
+(`null` = no declarado; los nodos de texto usan valores neutros):
+
+| Campo | Tipo | Semántica |
+|---|---|---|
+| `grid_template_columns` | `{mode, size_px}` o `null` | `{"mode":"auto_fill","size_px":180.0}`; solo `auto-fill` |
+| `grid_auto_rows` | `{"px": n}`, `"auto"` o `null` | altura de fila; `auto` = máximo de los hijos |
+| `row_gap`, `column_gap` | float | px efectivos: el longhand gana a `gap` (`row-gap ?? gap ?? 0`) |
+| `overflow` | `"hidden" \| "auto" \| "scroll"` o `null` | scroll solo vertical en v2 |
+| `display` | string | en contenedores `block`/`flex`/`grid`; en imágenes se conserva el computado (`inline` o el que fije el CSS) |
+| `height_px`, `width_px` | float | `-1.0` = auto (en imágenes, tamaño intrínseco del runtime) |
+
+`gap` se mantiene con la semántica v1 (shorthand o fallback truthy a
+`row-gap`/`column-gap`). `row_gap`/`column_gap` son los valores que debe usar el
+runtime para separar celdas y filas.
+
+Valores CSS aceptados (el resto se ignora y el subset lo diagnostica):
+
+| Propiedad | Formas válidas |
+|---|---|
+| `display` | `block`, `flex`, `grid` (v2), `none` |
+| `grid-template-columns` | `repeat(auto-fill, 180px)`; espacios y mayúsculas libres. Sin `auto-fit`, `fr`, `minmax()`, `span` ni varias pistas |
+| `grid-auto-rows` | `240px` (o número sin unidad) o `auto` |
+| `gap`, `row-gap`, `column-gap` | px (ya en v1) |
+| `overflow` | `hidden`, `auto`, `scroll` (`visible` = sin campo) |
+| `object-fit` | `fill`, `cover`, `contain` (default `fill`) |
+
+#### Nodo imagen
+
+Un `<img>` produce `kind:"image"` con `image` (solo en ese tipo de nodo):
+
+```json
+{
+  "kind": "image",
+  "tag": "img",
+  "style": { "width_px": 180.0, "height_px": 240.0, "...": "..." },
+  "image": {
+    "src": "poster.png",
+    "alt": "Demo",
+    "object_fit": "cover"
+  }
+}
+```
+
+- `src`: atributo `src` tal cual (ruta local relativa al HTML o absoluta); el
+  frontend **no** comprueba que exista ni la resuelve. `null` si falta.
+- `alt`: atributo `alt` o `null` si falta.
+- `object_fit`: `fill` por defecto; `cover`/`contain` si el CSS lo declara.
+- Tamaño: `width`/`height` del CSS en px ganan; si no, los atributos HTML
+  `width`/`height` (número o `Npx`); si tampoco, `-1.0` = intrínseco (WIC en el
+  runtime).
+- `<img>` es void: no tiene texto propio ni hijos. `display: none` lo excluye.
+
+Los hijos se emiten en orden de documento (row-major para el grid lo resuelve
+el runtime).
+
+#### R1 vs R2: avisos y paridad
+
+En el camino R1 (`--out`, display list) grid, scroll e imágenes **no** se
+implementan. Para no producir rects silenciosamente incorrectos, el binario
+recorre DOM+cascada después de calcular estilos e imprime:
+
+```
+warning[r1] div#gallery.gallery: 'display: grid' solo se implementa en R2 (--emit-ui); el IR de R1 no calcula layout grid
+warning[r1] div#gallery.gallery: 'overflow: auto' (scroll) solo existe en R2 (--emit-ui); R1 no recorta ni desplaza
+warning[r1] img.poster: <img> no se renderiza en el IR de R1; R2 (--emit-ui) emite kind:image
+r1: 3 features solo-R2 ignoradas en el IR (usa --emit-ui para el arbol v2)
+```
+
+- Son avisos informativos: no cambian el exit code, ni siquiera con
+  `--strict-subset`.
+- El layout R1 sigue igual que antes: solo entran hijos `block`/`flex`; el
+  subárbol grid/img se descarta (no se inventan rects) y el padre conserva su
+  altura calculada como si no existiera.
+- `--pilot` solo afecta al contrato de subset; **no** hace que R1 layout grid o
+  pinte imágenes.
+
+#### Diagnóstico de subset con `--pilot`
+
+`grid` y `overflow` (auto/scroll) son **extensiones del piloto**; `object-fit`
+también. `img` es v1. La matriz es:
+
+| Feature | default | `--strict-subset` sin `--pilot` | `--pilot` |
+|---|---|---|---|
+| `display: grid` | warning | error, exit ≠ 0 | permitida |
+| `grid-template-columns: repeat(auto-fill, <px>)` | warning | error, exit ≠ 0 | permitida |
+| `grid-auto-rows: <px> \| auto` | warning | error, exit ≠ 0 | permitida |
+| `overflow: auto \| scroll` | warning | error, exit ≠ 0 | permitida |
+| `object-fit: fill \| cover \| contain` | warning | error, exit ≠ 0 | permitida |
+| `overflow: hidden` | limpio (v1) | limpio | limpio |
+| `<img>` y sus atributos `src`/`alt`/`width`/`height` | limpio (v1) | limpio | limpio |
+
+`--pilot` no relaja valores inválidos: `grid-template-columns: 1fr`,
+`grid-auto-rows: minmax(...)` o `object-fit: zoom` se siguen diagnosticando.
+
+Decisión documentada: `alt`, `width` y `height` en `<img>` se aceptan como
+**aditivos al subset v1** (el contrato solo nombra `src`) porque el nodo imagen
+v2 los necesita. `object-fit` se trata como extensión del piloto, no como v1.
+
+Campos exactos que debe consumir el runtime: `kind` (`grid`/`image`),
+`style.grid_template_columns.mode`/`.size_px`, `style.grid_auto_rows` (`{"px"}`
+o `"auto"`), `style.row_gap`, `style.column_gap`, `style.overflow`,
+`style.width_px`/`style.height_px` (`-1` = auto/intrínseco) e
+`image.src`/`image.alt`/`image.object_fit`.
 
 ### Paridad con el oráculo Python
 
@@ -362,10 +513,10 @@ CLI del binario:
 ```
 frontend-rust.exe --html <path> --width <W> --height <H> --out <ir.json>
                   [--timings <timings.json>] [--atlas <atlas.bin>]
-                  [--strict-subset]
+                  [--strict-subset] [--pilot]
 frontend-rust.exe --html <path> --width <W> --height <H> --emit-ui [ui.json]
                   [--css <path>] [--timings <timings.json>]
-                  [--strict-subset]
+                  [--strict-subset] [--pilot]
 ```
 
 `--atlas` es opcional; por defecto se escribe `atlas.bin` en el directorio del
@@ -377,8 +528,8 @@ dejando exactamente los mismos artefactos que antes.
 respecto al directorio actual (igual que el `run.ps1` de Python). Sale con 0 en
 éxito y distinto de 0 ante cualquier error (HTML/CSS ilegible, hoja de estilos
 no encontrada, fuente no disponible, atlas desbordado, argumentos inválidos) o
-ante cualquier diagnóstico con `--strict-subset`. Acepta `-StrictSubset` y lo
-reenvía al binario.
+ante cualquier diagnóstico con `--strict-subset`. Acepta `-StrictSubset` y
+`-Pilot` y los reenvía al binario.
 
 ## Diagnóstico de subset v1 (`--strict-subset`)
 
@@ -395,7 +546,9 @@ frontend-rust.exe --html page.html --width 960 --height 640 `
 | Modo | Salida | Exit |
 |---|---|---|
 | sin flag (default) | `warning[subset] ...` por stderr; el pipeline continúa | 0 |
+| `--pilot` | igual, pero no diagnostica `display: grid`, `grid-*`, `overflow: auto\|scroll` ni `object-fit` | 0 |
 | `--strict-subset` | `error[subset] ...` por stderr; IR/atlas se escriben igual | 1 si hay ≥1 diagnóstico |
+| `--strict-subset --pilot` | solo errores reales (valores inválidos, otras propiedades) | 1 si hay ≥1 error |
 
 Formato de cada línea (archivo y línea siempre que el parser los da; si no, el
 contexto entre corchetes es el selector, la propiedad o la etiqueta):
@@ -452,8 +605,13 @@ Las rutas, la lista exacta de los 19 diagnósticos y los comandos sin
 `--strict-subset` están en
 `benchmarks/frontend-parity/fixtures/subset/README.md`.
 
-`cargo test` ejecuta los tests unitarios de `subset.rs` (lineas de HTML/CSS,
-comentarios, at-rules y valores) además del vector conocido de SHA-256.
+`cargo test` ejecuta los tests unitarios de `grid.rs` (parseo de
+`repeat(auto-fill, <px>)` y `grid-auto-rows`), los de `subset.rs` (líneas de
+HTML/CSS, comentarios, at-rules, valores y la matriz `--pilot`) y el vector
+conocido de SHA-256. Además, `tests/ui_tree_v2.rs` ejecuta el binario real
+(`--emit-ui` y `--out`) sobre fixtures temporales y verifica schema, kinds,
+estilos grid/scroll, campos de imagen y los avisos/exit codes de R1 y del
+subset. No necesita el runtime C ni el oráculo Python.
 
 ### Ambigüedades resueltas y límites del diagnóstico
 
@@ -721,8 +879,11 @@ el arranque de PowerShell, no el frontend (el harness lanza un proceso nuevo).
 - **Unidades**: solo `px` y números sin unidad. `%`, `em`, `rem`, `vw`,
   `calc()`, `auto`, `none`, `normal` → `auto` (None).
 - **Propiedades de layout**: sin `border`, sin `box-sizing: content-box`, sin
-  margin collapsing, floats, grid, `position`, `overflow`, `flex-wrap`,
-  `flex-grow/shrink`, `order`, `align-self`, `min/max-width/height`.
+  margin collapsing, floats, `position`, `overflow` real (R1 no recorta),
+  `flex-wrap`, `flex-grow/shrink`, `order`, `align-self`, `min/max-width/height`.
+  `display: grid`, `grid-template-columns`, `grid-auto-rows`, `overflow:
+  auto|scroll`, `<img>` y `object-fit` se **parsean y emiten** en `--emit-ui`
+  para R2, pero este frontend no calcula su layout, scroll ni decode.
 - **Profundidad de layout** acotada a 512 niveles para no desbordar la pila.
 - **Una sola pasada**: no hay recálculo ni incrementalidad; el benchmark mide
   una carga en frío por proceso.
@@ -736,6 +897,19 @@ el arranque de PowerShell, no el frontend (el harness lanza un proceso nuevo).
 - **`--emit-ui` no implementa layout**: emite estilos y texto pre-shapeado.
   `%`, `flex-wrap`, `data-*` y tipos de nodo se conservan, pero la geometría es
   responsabilidad del runtime R2.
+- **Grid v2**: solo `repeat(auto-fill, <px>)` con un tamaño fijo; sin `auto-fit`,
+  `fr`, `minmax()`, `grid-area`, `span`, grid anidado ni scroll horizontal. El
+  alto de fila `auto` lo resuelve el runtime con el máximo de los hijos. No hay
+  validación de que `grid-template-columns` y `display: grid` coexistan: si
+  falta el template, el runtime decide el fallback.
+- **Imágenes v2**: el frontend no resuelve la ruta `src`, no comprueba que el
+  archivo exista y no lee el tamaño intrínseco (eso es WIC/cache del runtime).
+  Sin `width`/`height` ni CSS, emite `-1.0` para que el runtime use el
+  intrínseco. Sin soporte de `srcset`, `loading`, `object-position` ni recorte
+  en el frontend.
+- **R1 y features v2**: grid/scroll/imágenes se ignoran en el display list; se
+  emite `warning[r1]` por stderr para que no haya rects silenciosamente
+  incorrectos. `--pilot` no cambia este comportamiento.
 
 ## Reproducir el benchmark
 

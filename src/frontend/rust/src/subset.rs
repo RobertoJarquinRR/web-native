@@ -8,12 +8,16 @@
 //!
 //! Modo por defecto: warnings y el pipeline continua (compatibilidad).
 //! `--strict-subset`: errores y exit != 0 si hay cualquier feature fuera del
-//! contrato.
+//! contrato. `--pilot`: permite las extensiones v2 del piloto (`display: grid`,
+//! `grid-*`, `overflow: auto|scroll`, `object-fit`); sin el flag se avisan como
+//! extensiones y `--strict-subset` las rechaza.
 
 use std::fs;
 use std::path::Path;
 
 use cssparser::{Delimiter, ParseError, Parser, ParserInput, Token};
+
+use crate::grid::{parse_grid_auto_rows, parse_grid_template_columns};
 
 /// Etiquetas del subconjunto v1.
 const SUPPORTED_TAGS: [&str; 19] = [
@@ -110,12 +114,27 @@ pub fn print_diagnostics(diagnostics: &[Diagnostic], strict: bool) {
 }
 
 /// Comprueba un documento HTML completo y todas las hojas que referencia.
+/// Variante sin piloto (tests y llamadas que no pasan `--pilot`).
+#[allow(dead_code)]
 pub fn check_document(html: &str, html_path: &Path, base_dir: &Path) -> Vec<Diagnostic> {
+    check_document_pilot(html, html_path, base_dir, false)
+}
+
+/// Igual que [`check_document`] pero con las extensiones del piloto v2:
+/// `display: grid`, scroll (`overflow: auto|scroll`), `grid-*` e `object-fit`
+/// dejan de diagnosticarse cuando `pilot` es `true`.
+pub fn check_document_pilot(
+    html: &str,
+    html_path: &Path,
+    base_dir: &Path,
+    pilot: bool,
+) -> Vec<Diagnostic> {
     let mut scanner = HtmlScanner {
         html,
         bytes: html.as_bytes(),
         path: html_path,
         base_dir,
+        pilot,
         pos: 0,
         line: 1,
         diagnostics: Vec::new(),
@@ -131,6 +150,8 @@ struct HtmlScanner<'a> {
     bytes: &'a [u8],
     path: &'a Path,
     base_dir: &'a Path,
+    /// Extensiones del piloto v2 permitidas (`--pilot`).
+    pilot: bool,
     pos: usize,
     line: u32,
     diagnostics: Vec<Diagnostic>,
@@ -306,7 +327,13 @@ impl<'a> HtmlScanner<'a> {
             find_raw_text_end(self.bytes, tag, content_start).unwrap_or(self.bytes.len());
         if is_css {
             let content = self.html[content_start..content_end].to_string();
-            check_stylesheet(&content, self.path, content_line, &mut self.diagnostics);
+            check_stylesheet_pilot(
+                &content,
+                self.path,
+                content_line,
+                self.pilot,
+                &mut self.diagnostics,
+            );
         }
         self.advance_to(content_end);
     }
@@ -351,13 +378,26 @@ impl<'a> HtmlScanner<'a> {
                         if let Some((text, path)) =
                             read_linked_stylesheet(value, self.base_dir)
                         {
-                            check_stylesheet(&text, &path, 1, &mut self.diagnostics);
+                            check_stylesheet_pilot(
+                                &text,
+                                &path,
+                                1,
+                                self.pilot,
+                                &mut self.diagnostics,
+                            );
                         }
                     }
                 }
                 (_, "style") => {
                     let context = format!("style inline en <{tag}>");
-                    check_inline_style(value, self.path, *attr_line, &context, &mut self.diagnostics);
+                    check_inline_style_pilot(
+                        value,
+                        self.path,
+                        *attr_line,
+                        &context,
+                        self.pilot,
+                        &mut self.diagnostics,
+                    );
                 }
                 _ => {}
             }
@@ -382,7 +422,10 @@ impl<'a> HtmlScanner<'a> {
 
 fn attribute_supported(tag: &str, name: &str) -> bool {
     GLOBAL_ATTRIBUTES.contains(&name)
-        || (tag == "img" && name == "src")
+        // `alt`, `width` y `height` son parte del nodo `kind:image` de v2: el
+        // runtime necesita el texto alternativo y el tamano intrinseco. Son
+        // aditivos al subset v1 (que solo nombra `src`).
+        || (tag == "img" && matches!(name, "src" | "alt" | "width" | "height"))
         || (tag == "link" && (name == "href" || name == "rel"))
         || (tag == "button" && name == "disabled")
 }
@@ -458,7 +501,20 @@ fn find_raw_text_end(bytes: &[u8], tag: &str, from: usize) -> Option<usize> {
 /// Valida una hoja de estilos. `base_line` es la linea (1-based) del primer
 /// caracter de `text` dentro de `path`; para ficheros CSS es 1 y para bloques
 /// `<style>` es la linea del HTML donde empieza el contenido.
+/// Variante sin piloto (tests).
+#[allow(dead_code)]
 pub fn check_stylesheet(text: &str, path: &Path, base_line: u32, diagnostics: &mut Vec<Diagnostic>) {
+    check_stylesheet_pilot(text, path, base_line, false, diagnostics)
+}
+
+/// Igual que [`check_stylesheet`] permitiendo las extensiones del piloto v2.
+pub fn check_stylesheet_pilot(
+    text: &str,
+    path: &Path,
+    base_line: u32,
+    pilot: bool,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
     let masked = mask_comments(text);
     let text = masked.as_str();
     let mut input = ParserInput::new(text);
@@ -495,6 +551,7 @@ pub fn check_stylesheet(text: &str, path: &Path, base_line: u32, diagnostics: &m
                         path,
                         base_line,
                         &prelude,
+                        pilot,
                         diagnostics,
                     );
                 }
@@ -528,6 +585,7 @@ fn check_block<'i, 't>(
     path: &Path,
     base_line: u32,
     selector: &str,
+    pilot: bool,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let where_context = format!("selector '{selector}'");
@@ -544,7 +602,15 @@ fn check_block<'i, 't>(
             if !raw.is_empty() {
                 if let Some((name, value, _important)) = split_declaration(raw) {
                     let line = line_at(text, base_line, decl_start);
-                    check_property(&name, &value, path, line, &where_context, diagnostics);
+                    check_property(
+                        &name,
+                        &value,
+                        path,
+                        line,
+                        &where_context,
+                        pilot,
+                        diagnostics,
+                    );
                 }
             }
             if nested.next_including_whitespace_and_comments().is_err() {
@@ -556,11 +622,25 @@ fn check_block<'i, 't>(
 }
 
 /// Valida el contenido de un `style="..."` inline.
+/// Variante sin piloto (tests).
+#[allow(dead_code)]
 pub fn check_inline_style(
     text: &str,
     path: &Path,
     base_line: u32,
     context: &str,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    check_inline_style_pilot(text, path, base_line, context, false, diagnostics)
+}
+
+/// Igual que [`check_inline_style`] permitiendo las extensiones del piloto v2.
+pub fn check_inline_style_pilot(
+    text: &str,
+    path: &Path,
+    base_line: u32,
+    context: &str,
+    pilot: bool,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let masked = mask_comments(text);
@@ -579,7 +659,7 @@ pub fn check_inline_style(
         if !raw.is_empty() {
             if let Some((name, value, _important)) = split_declaration(raw) {
                 let line = line_at(text, base_line, decl_start);
-                check_property(&name, &value, path, line, context, diagnostics);
+                check_property(&name, &value, path, line, context, pilot, diagnostics);
             }
         }
         if parser.next_including_whitespace_and_comments().is_err() {
@@ -748,6 +828,7 @@ fn check_property(
     path: &Path,
     line: u32,
     where_context: &str,
+    pilot: bool,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let context = Some(format!("{where_context}, propiedad '{name}'"));
@@ -774,14 +855,29 @@ fn check_property(
         }
     }
 
+    // Extensiones del piloto v2: warning por defecto, silencio con `--pilot`.
+    let pilot_extension = |feature: &str, report: &mut dyn FnMut(String)| {
+        if !pilot {
+            report(format!(
+                "{feature} es una extension del piloto v2 (R2, fuera de subset v1); usa --pilot para permitirla"
+            ));
+        }
+    };
+
     match name {
-        "display" => check_keyword(
-            name,
-            &lowered,
-            &["block", "flex", "none"],
-            "block | flex | none",
-            &mut report,
-        ),
+        "display" => {
+            if lowered == "grid" {
+                pilot_extension("'display: grid'", &mut report);
+            } else {
+                check_keyword(
+                    name,
+                    &lowered,
+                    &["block", "flex", "none"],
+                    "block | flex | none",
+                    &mut report,
+                );
+            }
+        }
         "flex-direction" => check_keyword(name, &lowered, &["row", "column"], "row | column", &mut report),
         "justify-content" => check_keyword(
             name,
@@ -800,7 +896,50 @@ fn check_property(
         "flex-wrap" => check_keyword(name, &lowered, &["nowrap", "wrap"], "nowrap | wrap", &mut report),
         "box-sizing" => check_keyword(name, &lowered, &["border-box"], "border-box", &mut report),
         "border-style" => check_keyword(name, &lowered, &["solid"], "solid", &mut report),
-        "overflow" => check_keyword(name, &lowered, &["hidden"], "hidden", &mut report),
+        "overflow" => {
+            if matches!(lowered.as_str(), "hidden" | "auto" | "scroll") {
+                if lowered != "hidden" {
+                    pilot_extension(
+                        &format!("'overflow: {lowered}' (scroll R2)"),
+                        &mut report,
+                    );
+                }
+            } else {
+                report(format!(
+                    "valor '{trimmed}' no soportado en 'overflow' (v1: hidden; piloto v2: auto | scroll)"
+                ));
+            }
+        }
+        "grid-template-columns" => {
+            if parse_grid_template_columns(trimmed).is_some() {
+                pilot_extension(
+                    "'grid-template-columns: repeat(auto-fill, <px>)'",
+                    &mut report,
+                );
+            } else {
+                report(format!(
+                    "valor '{trimmed}' no soportado en 'grid-template-columns' (v2: solo repeat(auto-fill, <px>))"
+                ));
+            }
+        }
+        "grid-auto-rows" => {
+            if parse_grid_auto_rows(trimmed).is_some() {
+                pilot_extension("'grid-auto-rows: <px> | auto'", &mut report);
+            } else {
+                report(format!(
+                    "valor '{trimmed}' no soportado en 'grid-auto-rows' (v2: <px> | auto)"
+                ));
+            }
+        }
+        "object-fit" => {
+            if matches!(lowered.as_str(), "fill" | "cover" | "contain") {
+                pilot_extension("'object-fit' (imagenes R2)", &mut report);
+            } else {
+                report(format!(
+                    "valor '{trimmed}' no soportado en 'object-fit' (v2: fill | cover | contain)"
+                ));
+            }
+        }
         "font-weight" => check_keyword(name, &lowered, &["400", "700"], "400 | 700", &mut report),
         "text-align" => check_keyword(name, &lowered, &["left", "center", "right"], "left | center | right", &mut report),
         "width" | "height" => check_lengths(
@@ -1325,5 +1464,43 @@ mod tests {
         assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
         assert_eq!(diagnostics[0].file, "page.html");
         assert_eq!(diagnostics[0].line, Some(5));
+    }
+
+    #[test]
+    fn pilot_extensions_warn_by_default_and_are_allowed_with_pilot() {
+        let text = ".g {\n  display: grid;\n  grid-template-columns: repeat(auto-fill, 180px);\n  grid-auto-rows: 240px;\n  overflow: auto;\n  object-fit: cover;\n}\n";
+        let mut diagnostics = Vec::new();
+        check_stylesheet_pilot(text, Path::new("test.css"), 1, false, &mut diagnostics);
+        assert_eq!(diagnostics.len(), 5, "{diagnostics:#?}");
+        assert!(
+            diagnostics
+                .iter()
+                .all(|item| item.message.contains("piloto v2")),
+            "{diagnostics:#?}"
+        );
+        let lines: Vec<Option<u32>> = diagnostics.iter().map(|item| item.line).collect();
+        assert_eq!(lines, vec![Some(2), Some(3), Some(4), Some(5), Some(6)]);
+
+        let mut allowed = Vec::new();
+        check_stylesheet_pilot(text, Path::new("test.css"), 1, true, &mut allowed);
+        assert!(allowed.is_empty(), "{allowed:#?}");
+    }
+
+    #[test]
+    fn pilot_keeps_invalid_grid_values_rejected() {
+        let text = ".g {\n  display: grid;\n  grid-template-columns: 1fr;\n  grid-auto-rows: minmax(10px, 1fr);\n  object-fit: zoom;\n}\n";
+        let mut diagnostics = Vec::new();
+        check_stylesheet_pilot(text, Path::new("test.css"), 1, true, &mut diagnostics);
+        assert_eq!(diagnostics.len(), 3, "{diagnostics:#?}");
+        assert!(diagnostics.iter().all(|item| !item.message.contains("piloto v2")));
+    }
+
+    #[test]
+    fn inline_pilot_extension_follows_the_same_gate() {
+        let html = "<html><body><div style=\"display: grid; overflow: auto\">x</div></body></html>";
+        let strict = check_document_pilot(html, Path::new("page.html"), Path::new("."), false);
+        assert_eq!(strict.len(), 2, "{strict:#?}");
+        let allowed = check_document_pilot(html, Path::new("page.html"), Path::new("."), true);
+        assert!(allowed.is_empty(), "{allowed:#?}");
     }
 }

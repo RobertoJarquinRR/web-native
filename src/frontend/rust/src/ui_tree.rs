@@ -15,6 +15,9 @@
 //!   - `atlas.json`  dimensiones, sha256 y conteos del atlas
 //!
 //! No ejecuta el pase de layout: no hay x/y/w/h de cajas, solo el estilo.
+//! Emite `webnative.ui-tree/1` si la pagina no usa features v2 y
+//! `webnative.ui-tree/2` si emite grid, scroll (`overflow: auto|scroll`) o
+//! imagenes (`docs/ui-tree-v2.md`).
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -25,14 +28,20 @@ use crate::cascade::ComputedStyle;
 use crate::color::parse_color;
 use crate::dom::{Dom, NodeId};
 use crate::emit::{push_json_string, py_float};
+use crate::grid::{GridAutoRows, GridTemplateColumns};
 use crate::sha256;
 use crate::text::{Atlas, BakedUiText, TextEngine, UiGlyphOut, UiTextBaker};
 
-pub const SCHEMA: &str = "webnative.ui-tree/1";
+/// Schema sin features v2 (grid/scroll/imagenes). Identico al contrato previo.
+pub const SCHEMA_V1: &str = "webnative.ui-tree/1";
+/// Schema v2 cuando la pagina usa grid, scroll o imagenes.
+pub const SCHEMA_V2: &str = "webnative.ui-tree/2";
 
 const KIND_BLOCK: u32 = 0;
 const KIND_FLEX: u32 = 1;
 const KIND_TEXT: u32 = 2;
+const KIND_GRID: u32 = 3;
+const KIND_IMAGE: u32 = 4;
 
 const DEFAULT_FAMILY: &str = "Segoe UI";
 const DEFAULT_SIZE: f64 = 16.0;
@@ -66,6 +75,16 @@ fn wrap_code(name: &str) -> u32 {
     }
 }
 
+fn kind_name(kind: u32) -> &'static str {
+    match kind {
+        KIND_FLEX => "flex",
+        KIND_TEXT => "text",
+        KIND_GRID => "grid",
+        KIND_IMAGE => "image",
+        _ => "block",
+    }
+}
+
 /// `argb()` del oraculo para un color ya normalizado a `#rrggbb`.
 fn argb_from_hex(value: Option<&str>) -> u32 {
     let Some(text) = value else { return 0 };
@@ -89,7 +108,7 @@ fn normalize_text(text: &str) -> String {
 }
 
 struct StyleOut {
-    display: Option<&'static str>,
+    display: Option<String>,
     direction: u32,
     justify: u32,
     align: u32,
@@ -99,6 +118,12 @@ struct StyleOut {
     align_items: String,
     flex_wrap: String,
     gap: f64,
+    /// v2 (solo se serializan con schema `/2`).
+    row_gap: f64,
+    column_gap: f64,
+    grid_template_columns: Option<GridTemplateColumns>,
+    grid_auto_rows: Option<GridAutoRows>,
+    overflow: Option<String>,
     width_px: f64,
     width_pct: f64,
     height_px: f64,
@@ -133,6 +158,13 @@ struct TextOut {
     glyphs: Vec<UiGlyphOut>,
 }
 
+/// Contenido de un nodo `kind:"image"` (solo schema `/2`).
+struct ImageOut {
+    src: Option<String>,
+    alt: Option<String>,
+    object_fit: String,
+}
+
 struct NodeOut {
     parent: i64,
     children: Vec<usize>,
@@ -145,6 +177,7 @@ struct NodeOut {
     data: DataOut,
     argb: ArgbOut,
     text: Option<TextOut>,
+    image: Option<ImageOut>,
 }
 
 /// Resumen para el log del build.
@@ -218,10 +251,26 @@ impl<'a> Builder<'a> {
         let style = self.styles[id]
             .as_ref()
             .ok_or_else(|| format!("nodo {} sin estilo computado", id))?;
+        let is_image = self.dom.nodes[id].tag == "img";
         let mut width_px = style.width.unwrap_or(-1.0);
         let mut width_pct = style.width_pct;
         let mut height_px = style.height.unwrap_or(-1.0);
         let mut height_pct = style.height_pct;
+        // Imagen: `width`/`height` del HTML son presentational hints. Solo se
+        // usan si el CSS no fijo la dimension (el CSS siempre gana; `auto`
+        // explicito tambien gana y deja que el runtime mida el intrinseco).
+        if is_image {
+            if width_px < 0.0 && width_pct == 0.0 && !css_auto(style, "width") {
+                if let Some(value) = attribute_length(self.dom.nodes[id].attr("width")) {
+                    width_px = value;
+                }
+            }
+            if height_px < 0.0 && height_pct == 0.0 && !css_auto(style, "height") {
+                if let Some(value) = attribute_length(self.dom.nodes[id].attr("height")) {
+                    height_px = value;
+                }
+            }
+        }
         // Raiz: `%` contra el viewport, igual que el oraculo.
         if is_root {
             if width_pct == 0.0 && width_px < 0.0 {
@@ -233,7 +282,8 @@ impl<'a> Builder<'a> {
                 height_pct = 100.0;
             }
         }
-        if style.display == "none" || style.display == "inline" {
+        // Un `<img>` inline si se emite (kind image); el resto de `inline` no.
+        if style.display == "none" || (style.display == "inline" && !is_image) {
             // El oraculo filtra por block/flex antes de llamar; los nodos no
             // renderizables de la raiz son un error de fixture.
             if is_root {
@@ -241,7 +291,11 @@ impl<'a> Builder<'a> {
             }
             return Err(format!("nodo {} no renderizable", id));
         }
-        let kind = if style.display == "flex" {
+        let kind = if is_image {
+            KIND_IMAGE
+        } else if style.display == "grid" {
+            KIND_GRID
+        } else if style.display == "flex" {
             KIND_FLEX
         } else {
             KIND_BLOCK
@@ -250,6 +304,18 @@ impl<'a> Builder<'a> {
             .data_action
             .as_deref()
             .map(|value| value.trim().to_ascii_lowercase());
+        let image = if is_image {
+            Some(ImageOut {
+                src: self.dom.nodes[id].attr("src").map(str::to_string),
+                alt: self.dom.nodes[id].attr("alt").map(str::to_string),
+                object_fit: style
+                    .object_fit
+                    .clone()
+                    .unwrap_or_else(|| "fill".to_string()),
+            })
+        } else {
+            None
+        };
         let index = self.nodes.len();
         self.nodes.push(NodeOut {
             parent,
@@ -263,7 +329,7 @@ impl<'a> Builder<'a> {
                 .collect(),
             element_id: self.dom.nodes[id].attr("id").map(str::to_string),
             style: StyleOut {
-                display: Some(if kind == KIND_FLEX { "flex" } else { "block" }),
+                display: Some(style.display.clone()),
                 direction: if style.flex_direction == "column" { 1 } else { 0 },
                 justify: justify_code(&style.justify_content),
                 align: align_code(&style.align_items),
@@ -273,6 +339,11 @@ impl<'a> Builder<'a> {
                 align_items: style.align_items.clone(),
                 flex_wrap: style.flex_wrap.clone(),
                 gap: style.gap,
+                row_gap: style.row_gap,
+                column_gap: style.column_gap,
+                grid_template_columns: style.grid_template_columns.clone(),
+                grid_auto_rows: style.grid_auto_rows.clone(),
+                overflow: style.overflow.clone(),
                 width_px,
                 width_pct,
                 height_px,
@@ -299,7 +370,13 @@ impl<'a> Builder<'a> {
                 selected: argb_from_attr(style.data_selected.as_deref()),
             },
             text: None,
+            image,
         });
+
+        // `<img>` es void: no tiene texto propio ni hijos.
+        if is_image {
+            return Ok(index);
+        }
 
         // Texto propio primero, como `Emitter._emit_element`.
         let text = normalize_text(&self.dom.nodes[id].text);
@@ -312,12 +389,7 @@ impl<'a> Builder<'a> {
             .children
             .iter()
             .copied()
-            .filter(|child| {
-                matches!(
-                    self.styles[*child].as_ref().map(|style| style.display.as_str()),
-                    Some("block") | Some("flex")
-                )
-            })
+            .filter(|child| self.is_renderable(*child))
             .collect();
         for child in child_ids {
             let base = self.base_name(child);
@@ -327,6 +399,21 @@ impl<'a> Builder<'a> {
             self.nodes[index].children.push(child_index);
         }
         Ok(index)
+    }
+
+    /// Hijos que el arbol v2 conserva: block/flex/grid y `<img>` renderizable.
+    /// `inline`, `none` y el resto se descartan igual que antes.
+    fn is_renderable(&self, child: NodeId) -> bool {
+        let Some(style) = self.styles[child].as_ref() else {
+            return false;
+        };
+        if style.display == "none" {
+            return false;
+        }
+        if self.dom.nodes[child].tag == "img" {
+            return true;
+        }
+        matches!(style.display.as_str(), "block" | "flex" | "grid")
     }
 
     fn emit_text(
@@ -376,6 +463,11 @@ impl<'a> Builder<'a> {
                 align_items: "stretch".to_string(),
                 flex_wrap: "nowrap".to_string(),
                 gap: 0.0,
+                row_gap: 0.0,
+                column_gap: 0.0,
+                grid_template_columns: None,
+                grid_auto_rows: None,
+                overflow: None,
                 width_px: node_width,
                 width_pct: 0.0,
                 height_px: node_height,
@@ -406,6 +498,7 @@ impl<'a> Builder<'a> {
                 baseline: ascender,
                 glyphs,
             }),
+            image: None,
         });
         self.glyph_count += self.nodes[index]
             .text
@@ -450,10 +543,10 @@ fn push_opt_string(out: &mut String, value: Option<&str>) {
     }
 }
 
-fn push_style(out: &mut String, style: &StyleOut) {
+fn push_style(out: &mut String, style: &StyleOut, v2: bool) {
     out.push_str("      \"style\": {\n");
     out.push_str("        \"display\": ");
-    push_opt_string(out, style.display);
+    push_opt_string(out, style.display.as_deref());
     let _ = write!(
         out,
         ",\n        \"direction\": {},\n        \"justify\": {},\n        \"align\": {},\n        \"wrap\": {},\n",
@@ -472,6 +565,37 @@ fn push_style(out: &mut String, style: &StyleOut) {
     push_json_string(out, &style.flex_wrap);
     out.push_str(",\n        \"gap\": ");
     push_float(out, style.gap);
+    if v2 {
+        // Campos v2 (`docs/ui-tree-v2.md`). En `/1` no se escriben para que
+        // las paginas existentes sigan siendo byte a byte identicas.
+        out.push_str(",\n        \"row_gap\": ");
+        push_float(out, style.row_gap);
+        out.push_str(",\n        \"column_gap\": ");
+        push_float(out, style.column_gap);
+        out.push_str(",\n        \"grid_template_columns\": ");
+        match &style.grid_template_columns {
+            None => out.push_str("null"),
+            Some(grid) => {
+                out.push_str("{ \"mode\": ");
+                push_json_string(out, &grid.mode);
+                out.push_str(", \"size_px\": ");
+                push_float(out, grid.size_px);
+                out.push_str(" }");
+            }
+        }
+        out.push_str(",\n        \"grid_auto_rows\": ");
+        match &style.grid_auto_rows {
+            None => out.push_str("null"),
+            Some(GridAutoRows::Auto) => out.push_str("\"auto\""),
+            Some(GridAutoRows::Px(px)) => {
+                out.push_str("{ \"px\": ");
+                push_float(out, *px);
+                out.push_str(" }");
+            }
+        }
+        out.push_str(",\n        \"overflow\": ");
+        push_opt_string(out, style.overflow.as_deref());
+    }
     out.push_str(",\n        \"width_px\": ");
     push_float(out, style.width_px);
     out.push_str(",\n        \"width_pct\": ");
@@ -497,7 +621,7 @@ fn push_style(out: &mut String, style: &StyleOut) {
     out.push_str("\n      }");
 }
 
-fn push_nodes_json(out: &mut String, nodes: &[NodeOut]) {
+fn push_nodes_json(out: &mut String, nodes: &[NodeOut], v2: bool) {
     for (index, node) in nodes.iter().enumerate() {
         if index > 0 {
             out.push(',');
@@ -515,14 +639,7 @@ fn push_nodes_json(out: &mut String, nodes: &[NodeOut]) {
             let _ = write!(out, "{child}");
         }
         out.push_str("],\n      \"kind\": ");
-        push_json_string(
-            out,
-            match node.kind {
-                KIND_FLEX => "flex",
-                KIND_TEXT => "text",
-                _ => "block",
-            },
-        );
+        push_json_string(out, kind_name(node.kind));
         out.push_str(",\n      \"name\": ");
         push_json_string(out, &node.name);
         out.push_str(",\n      \"tag\": ");
@@ -537,7 +654,7 @@ fn push_nodes_json(out: &mut String, nodes: &[NodeOut]) {
         out.push_str("],\n      \"element_id\": ");
         push_opt_string(out, node.element_id.as_deref());
         out.push_str(",\n");
-        push_style(out, &node.style);
+        push_style(out, &node.style, v2);
         out.push_str(",\n      \"data\": {\n        \"hover\": ");
         push_opt_string(out, node.data.hover.as_deref());
         out.push_str(",\n        \"press\": ");
@@ -587,6 +704,16 @@ fn push_nodes_json(out: &mut String, nodes: &[NodeOut]) {
                 out.push_str("\n        ]\n      }");
             }
         }
+        // Solo los nodos imagen llevan `image`; asi `/1` no cambia.
+        if let Some(image) = &node.image {
+            out.push_str(",\n      \"image\": {\n        \"src\": ");
+            push_opt_string(out, image.src.as_deref());
+            out.push_str(",\n        \"alt\": ");
+            push_opt_string(out, image.alt.as_deref());
+            out.push_str(",\n        \"object_fit\": ");
+            push_json_string(out, &image.object_fit);
+            out.push_str("\n      }");
+        }
         out.push_str("\n    }");
     }
 }
@@ -623,6 +750,38 @@ fn push_atlas_json(out: &mut String, reference: Option<&AtlasRef<'_>>) {
 
 // ------------------------------------------------------------------ driver
 
+/// `width="180"` / `height="240px"` -> px; `%`/`auto`/basura -> `None`.
+fn attribute_length(value: Option<&str>) -> Option<f64> {
+    let px = crate::color::length(value)?;
+    if px.is_finite() && px >= 0.0 {
+        Some(px)
+    } else {
+        None
+    }
+}
+
+/// `true` si el CSS declaro `auto` explicitamente para `width`/`height`.
+fn css_auto(style: &ComputedStyle, name: &str) -> bool {
+    style
+        .raw
+        .get(name)
+        .is_some_and(|value| value.trim().eq_ignore_ascii_case("auto"))
+}
+
+/// Una pagina emite `/2` si algun nodo del arbol usa grid, scroll o imagen.
+/// Se decide sobre los nodos ya emitidos (no sobre CSS muerto): un `<img>`
+/// dentro de `display:none` no cuenta. `overflow: hidden` no fuerza v2: ya
+/// existia en v1 y no anade scroll.
+fn nodes_use_v2(nodes: &[NodeOut]) -> bool {
+    nodes.iter().any(|node| {
+        node.kind == KIND_GRID
+            || node.kind == KIND_IMAGE
+            || matches!(node.style.overflow.as_deref(), Some("auto") | Some("scroll"))
+            || node.style.grid_template_columns.is_some()
+            || node.style.grid_auto_rows.is_some()
+    })
+}
+
 /// Emite `ui.json` (+ atlas) desde el DOM y la cascada ya calculados.
 ///
 /// `ui_path` es el fichero `ui.json`; el atlas se escribe al lado con nombres
@@ -647,7 +806,7 @@ pub fn emit_ui_tree(
         .get(body)
         .and_then(Option::as_ref)
         .ok_or_else(|| "body sin estilo computado".to_string())?;
-    if body_style.display != "block" && body_style.display != "flex" {
+    if !matches!(body_style.display.as_str(), "block" | "flex" | "grid") {
         return Err("body is not renderable".to_string());
     }
 
@@ -661,6 +820,8 @@ pub fn emit_ui_tree(
         ..
     } = builder;
 
+    let v2 = nodes_use_v2(&nodes);
+    let schema = if v2 { SCHEMA_V2 } else { SCHEMA_V1 };
     let atlas: Option<AtlasRef<'_>> = if run_count > 0 {
         Some(AtlasRef {
             atlas: baker.atlas(),
@@ -673,7 +834,7 @@ pub fn emit_ui_tree(
 
     let mut out = String::with_capacity(4096 + nodes.len() * 768 + glyph_count * 160);
     out.push_str("{\n  \"schema\": ");
-    push_json_string(&mut out, SCHEMA);
+    push_json_string(&mut out, schema);
     out.push_str(",\n  \"generator\": \"frontend-rust\",\n  \"source\": {\n    \"html\": ");
     push_json_string(&mut out, source_html);
     out.push_str(",\n    \"css\": ");
@@ -685,7 +846,7 @@ pub fn emit_ui_tree(
     );
     push_atlas_json(&mut out, atlas.as_ref());
     out.push_str(",\n  \"nodes\": [");
-    push_nodes_json(&mut out, &nodes);
+    push_nodes_json(&mut out, &nodes, v2);
     out.push_str("\n  ]\n}\n");
 
     if let Some(parent) = ui_path.parent() {

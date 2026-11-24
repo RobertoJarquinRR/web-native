@@ -5,7 +5,8 @@ param(
     [Parameter(Mandatory = $true)][string]$Out,
     [string]$Timings,
     [string]$Atlas,
-    [switch]$StrictSubset
+    [switch]$StrictSubset,
+    [switch]$Pilot
 )
 
 $ErrorActionPreference = 'Stop'
@@ -32,6 +33,9 @@ if ($Atlas) {
 }
 if ($StrictSubset) {
     $argv += '--strict-subset'
+}
+if ($Pilot) {
+    $argv += '--pilot'
 }
 
 & $exe @argv

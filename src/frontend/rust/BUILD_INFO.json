@@ -2,6 +2,6 @@
     "binary":  "target/release/frontend-rust.exe",
     "build_mode":  "release",
     "rustc":  "rustc 1.93.0 (254b59607 2026-01-19)",
-    "binary_bytes":  1722368,
-    "built_at":  "2026-11-24T00:06:24Z"
+    "binary_bytes":  1740800,
+    "built_at":  "2026-11-24T00:47:05Z"
 }

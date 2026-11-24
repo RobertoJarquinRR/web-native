@@ -8,6 +8,9 @@ use std::collections::HashMap;
 use crate::color::{length, parse_color, percentage};
 use crate::css::{parse_declarations, Rule};
 use crate::dom::{ua_display, Dom, NodeId};
+use crate::grid::{
+    parse_grid_auto_rows, parse_grid_template_columns, GridAutoRows, GridTemplateColumns,
+};
 
 const SIDES: [&str; 4] = ["top", "right", "bottom", "left"];
 
@@ -47,6 +50,17 @@ pub struct ComputedStyle {
     pub align_items: String,
     pub flex_wrap: String,
     pub gap: f64,
+    /// v2: `gap` resuelto por eje (`row-gap`/`column-gap` ganan a `gap`).
+    pub row_gap: f64,
+    pub column_gap: f64,
+    /// v2: solo `repeat(auto-fill, <px>)`; el resto queda `None`.
+    pub grid_template_columns: Option<GridTemplateColumns>,
+    /// v2: `<px>` o `auto`.
+    pub grid_auto_rows: Option<GridAutoRows>,
+    /// v2: `hidden | auto | scroll`; `visible`/desconocido -> `None`.
+    pub overflow: Option<String>,
+    /// v2: `fill | cover | contain`; se emite dentro de `image.object_fit`.
+    pub object_fit: Option<String>,
     /// `data-hover` / `data-press` / `data-selected` / `data-action` crudos.
     /// La cascada los transporta porque el runtime R2 los necesita por nodo y
     /// el IR de R1 los ignora deliberadamente.
@@ -137,14 +151,30 @@ fn resolve(dom: &Dom, id: NodeId, raw: HashMap<String, String>) -> ComputedStyle
     let font_size = length(raw.get("font-size").map(String::as_str)).unwrap_or(16.0);
 
     // `gap` con el mismo cortocircuito "truthy" que el Python (0.0 es falsy).
-    let gap = match length(raw.get("gap").map(String::as_str)) {
+    // `row_gap`/`column_gap` son los valores efectivos por eje: el longhand
+    // gana al shorthand (CSS), y `gap` sigue calculandose igual que en v1.
+    let gap_direct = length(raw.get("gap").map(String::as_str));
+    let row_gap_decl = length(raw.get("row-gap").map(String::as_str));
+    let column_gap_decl = length(raw.get("column-gap").map(String::as_str));
+    let gap = match gap_direct {
         Some(value) => value,
         None => {
-            let row = length(raw.get("row-gap").map(String::as_str)).filter(|v| *v != 0.0);
-            let column = length(raw.get("column-gap").map(String::as_str)).filter(|v| *v != 0.0);
+            let row = row_gap_decl.filter(|v| *v != 0.0);
+            let column = column_gap_decl.filter(|v| *v != 0.0);
             row.or(column).unwrap_or(0.0)
         }
     };
+    let row_gap = row_gap_decl.or(gap_direct).unwrap_or(0.0);
+    let column_gap = column_gap_decl.or(gap_direct).unwrap_or(0.0);
+
+    let overflow = keyword_value(raw.get("overflow"), &["hidden", "auto", "scroll"]);
+    let object_fit = keyword_value(raw.get("object-fit"), &["fill", "cover", "contain"]);
+    let grid_template_columns = raw
+        .get("grid-template-columns")
+        .and_then(|value| parse_grid_template_columns(value));
+    let grid_auto_rows = raw
+        .get("grid-auto-rows")
+        .and_then(|value| parse_grid_auto_rows(value));
 
     let display = match raw.get("display") {
         Some(value) if !value.is_empty() => value.trim().to_ascii_lowercase(),
@@ -183,6 +213,12 @@ fn resolve(dom: &Dom, id: NodeId, raw: HashMap<String, String>) -> ComputedStyle
         background,
         font_size,
         gap,
+        row_gap,
+        column_gap,
+        grid_template_columns,
+        grid_auto_rows,
+        overflow,
+        object_fit,
         data_hover: dom.attr(id, "data-hover").map(str::to_string),
         data_press: dom.attr(id, "data-press").map(str::to_string),
         data_selected: dom.attr(id, "data-selected").map(str::to_string),
@@ -195,5 +231,15 @@ fn keyword(raw: &HashMap<String, String>, name: &str, default: &str) -> String {
     match raw.get(name) {
         Some(value) if !value.is_empty() => value.trim().to_ascii_lowercase(),
         _ => default.to_string(),
+    }
+}
+
+/// Palabra clave normalizada si pertenece a `allowed`; si no, `None`.
+fn keyword_value(value: Option<&String>, allowed: &[&str]) -> Option<String> {
+    let keyword = value?.trim().to_ascii_lowercase();
+    if allowed.contains(&keyword.as_str()) {
+        Some(keyword)
+    } else {
+        None
     }
 }

@@ -3,18 +3,21 @@
 //! Uso:
 //!   frontend-rust.exe --html <path> --width <W> --height <H> --out <ir.json>
 //!                     [--timings <timings.json>] [--atlas <atlas.bin>]
-//!                     [--strict-subset]
+//!                     [--strict-subset] [--pilot]
 //!
 //! Mismas etapas y semantica que `src/frontend/python` (incluido texto).
 //! `--strict-subset` valida el contrato `docs/subset-v1.md` y devuelve exit
-//! != 0 si encuentra cualquier feature fuera del subset.
+//! != 0 si encuentra cualquier feature fuera del subset. `--pilot` permite las
+//! extensiones v2 del piloto de biblioteca (grid, scroll, object-fit).
 
 mod cascade;
 mod color;
 mod css;
 mod dom;
 mod emit;
+mod grid;
 mod layout;
+mod r1;
 mod rss;
 mod sha256;
 mod subset;
@@ -38,10 +41,12 @@ struct Args {
     emit_ui: Option<PathBuf>,
     /// `--strict-subset`: diagnosticos de subset v1 como errores (exit != 0).
     strict_subset: bool,
+    /// `--pilot`: permite las extensiones del piloto v2 (grid, scroll, imagenes).
+    pilot: bool,
 }
 
 fn usage() -> &'static str {
-    "uso: frontend-rust --html <path> --width <W> --height <H> --out <ir.json> [--timings <timings.json>] [--atlas <atlas.bin>] [--strict-subset]\n     frontend-rust --html <path> --width <W> --height <H> --emit-ui [ui.json] [--css <path>] [--timings <timings.json>] [--strict-subset]"
+    "uso: frontend-rust --html <path> --width <W> --height <H> --out <ir.json> [--timings <timings.json>] [--atlas <atlas.bin>] [--strict-subset] [--pilot]\n     frontend-rust --html <path> --width <W> --height <H> --emit-ui [ui.json] [--css <path>] [--timings <timings.json>] [--strict-subset] [--pilot]"
 }
 
 fn take_value(
@@ -71,6 +76,7 @@ fn parse_args() -> Result<Args, String> {
     let mut emit_ui: Option<PathBuf> = None;
     let mut emit_ui_requested = false;
     let mut strict_subset = false;
+    let mut pilot = false;
 
     let mut index = 0usize;
     while index < argv.len() {
@@ -115,6 +121,7 @@ fn parse_args() -> Result<Args, String> {
                 }
             }
             "--strict-subset" => strict_subset = true,
+            "--pilot" => pilot = true,
             "--help" | "-h" => return Err(usage().to_string()),
             other => return Err(format!("argumento desconocido: {other}\n{}", usage())),
         }
@@ -138,6 +145,7 @@ fn parse_args() -> Result<Args, String> {
         css,
         emit_ui,
         strict_subset,
+        pilot,
     })
 }
 
@@ -204,13 +212,21 @@ fn run() -> Result<bool, String> {
 
     // `subset v1`: inspeccion del HTML/CSS de entrada. No toca la cascada, el
     // layout ni la emision; sin `--strict-subset` solo imprime warnings.
-    let diagnostics = subset::check_document(&html, &args.html, &base_dir);
+    // `--pilot` permite las extensiones v2 (grid, scroll, object-fit).
+    let diagnostics = subset::check_document_pilot(&html, &args.html, &base_dir, args.pilot);
     subset::print_diagnostics(&diagnostics, args.strict_subset);
     let subset_ok = !args.strict_subset || diagnostics.is_empty();
 
     let since = Instant::now();
     let styles = cascade::compute_styles(&document, &rules);
     let cascade_ms = ms(since);
+
+    // R1 (IR post-layout): grid/scroll/imagenes no se implementan. Avisar y
+    // seguir sin tocarlas: el layout actual las ignora, no inventa rects.
+    if args.emit_ui.is_none() {
+        let warnings = r1::collect(&document, &styles);
+        r1::print(&warnings);
+    }
 
     let since = Instant::now();
     let engine = text::TextEngine::new();
