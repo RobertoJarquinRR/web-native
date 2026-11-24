@@ -3,6 +3,12 @@
 El subset es un **contrato cerrado**: lo que está aquí se garantiza; lo demás se
 rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 
+> **Estado real:** este documento es el contrato objetivo. La matriz de lo que
+> el frontend emite y lo que R1/R2 renderizan hoy está en
+> [`support.md`](support.md). Varias propiedades v1 se parsean pero su render
+> runtime sigue pendiente (por ejemplo `font-weight`, `text-align`,
+> `line-height`, `opacity`, `border-radius` y `box-shadow`).
+
 ## HTML
 
 ### Etiquetas
@@ -47,11 +53,18 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
   `rgb()`, `rgba()`, nombres básicos).
 - `opacity` (0–1).
 
+> **Runtime actual:** `font-weight` no selecciona todavía una variante real de
+> la fuente; `line-height` y `text-align` no se aplican de forma fiable en R2;
+> `opacity` se emite pero el core aún no lo compone. Ver `support.md`.
+
 ### Bordes y caja
 
 - `border`, `border-width`, `border-style` (solid), `border-color`.
 - `border-radius` (px).
 - `overflow: hidden` (sin scroll en v1).
+
+> **Runtime actual:** el frontend emite bordes/radius, pero el render en R2 está
+> en curso (v1 sólido, radio uniforme). `box-shadow` es una extensión pilot v3.
 
 ### Estados
 
@@ -63,6 +76,20 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 `animation`, `box-shadow`, `gradient`, `@media`, `@font-face`, pseudo-elementos
 (`::before/::after`), `calc()`, `em/rem/vh/vw`, `float`, `table`, `filter`,
 `clip-path`, `z-index`, `columns`.
+
+## Extensiones pilot (no v1)
+
+Estas features no forman parte del subset v1; se habilitan con `--pilot` y el
+frontend avisa (o falla con `--strict-subset`) si se usan sin él:
+
+- **v2:** `display:grid` con `repeat(auto-fill, px)`, `grid-auto-rows`, gap,
+  `overflow: auto|scroll`, imágenes locales y `object-fit`.
+- **v3:** `input type="text"` de una línea con pool ASCII; bordes por lado,
+  `border-radius` por esquina, `box-shadow`, `min/max-*` y unidades
+  `em/rem/vh/vw`.
+
+El detalle del contrato y de lo que el runtime ya implementa está en
+[`support.md`](support.md).
 
 ## Diagnósticos
 

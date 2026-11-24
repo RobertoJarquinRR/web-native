@@ -1,13 +1,31 @@
 # webnative
 
-Compilador experimental de **HTML + CSS a render nativo GPU**, sin navegador,
-sin WebView, sin Skia y sin Electron.
+Motor experimental de **HTML + CSS a UI nativa GPU**, sin navegador, sin
+WebView, sin Skia y sin Electron.
 
 El contrato central de **R1** es un **display list IR** en JSON: el frontend lo
 produce, el emitter lo hornea en datos C + WGSL, y `cl.exe` genera un `.exe`
 que renderiza con **wgpu-native** (D3D12 / Vulkan / Metal). **R2** usa un
 **árbol de estilos pre-layout** (`ui_data.h`) y calcula el layout en C en
 runtime.
+
+> **Origen:** nació como un experimento personal para usar HTML/CSS como
+> lenguaje de vista de apps desktop nativas, sin el peso de Electron/WebView y
+> sin aprender otro framework de UI. La historia completa está en
+> [`docs/origin.md`](docs/origin.md).
+
+## Qué es / Qué no es
+
+| Es | No es |
+|---|---|
+| Una plataforma de UI nativa con HTML/CSS como vista | Un navegador o un WebView |
+| Un motor C pequeño con ABI C para hosts C#/C/C++/Rust | Un motor JS o una plataforma web |
+| Layout, grid, scroll, imágenes y texto en GPU | Un visor de webs content-heavy |
+| Un subset cerrado y medible | “Soportar toda la web” |
+
+La lógica de negocio vive en el **host**; el motor solo pone la vista y los
+eventos. El detalle de lo que se puede usar hoy está en
+[`docs/support.md`](docs/support.md).
 
 ## Estructura
 
@@ -31,6 +49,20 @@ third_party/          wgpu-native v29.0.1.1 (headers; binaries fetched)
 tools/                fetch-wgpu.ps1 y utilidades del repo
 ```
 
+## Frontends
+
+| Frontend | Rol | Alcance |
+|---|---|---|
+| **Rust** | canónico / producción | subset v1 + extensiones pilot v2/v3 |
+| **Python** | oráculo y verificación | v1; goldens y paridad |
+| **C++** | referencia de paridad / benchmark | fixtures de `benchmarks/frontend-parity/SPEC.md` |
+| **C#** | referencia de paridad / benchmark | fixtures de `benchmarks/frontend-parity/SPEC.md` |
+
+La paridad byte-idéntica entre los cuatro es el argumento central del proyecto:
+mismo input, mismo IR, mismos píxeles. Las features nuevas de Rust (CSS v3,
+input, etc.) no obligan a C++/C# a seguirlas; su contrato es el subset de
+paridad.
+
 ## Estado
 
 | Capa | Estado |
@@ -45,10 +77,35 @@ tools/                fetch-wgpu.ps1 y utilidades del repo
 | ABI C v4 | ✅ standalone/embedded; v3 dinámica + v4 input |
 | Dynamic UI (v3) | ✅ `set_visible`, `set_image`, `set_text`, clone/append/remove (53/53) |
 | Text input (v4) | ✅ ASCII single-line, caret/selección/clipboard, `WN_EVENT_INPUT` (111/111) |
-| CSS v3 (frontend) | ✅ bordes/radius/sombras/unidades; render en core pendiente |
+| CSS v3 (frontend) | ✅ bordes/radius/sombras/unidades; render en core en curso |
 | Host C# (piloto) | ✅ 30 cards, detalle, filtros, open-with-system (65/65) |
 | AOT HTML → `.exe` | ✅ rects; texto vía `c-static/build_text.ps1` |
 | Interactividad | ✅ R2 (`src/runtime/c-r2`); prototipo histórico en `archive/experiments/12` |
+
+## Soporte y subset
+
+El contrato cerrado es [`docs/subset-v1.md`](docs/subset-v1.md). Las
+extensiones del piloto son opt-in con `--pilot`:
+
+| Extensión | Qué añade | Schema |
+|---|---|---|
+| **v2** | grid, scroll vertical, imágenes, `object-fit` | `ui-tree/2` |
+| **v3** | input ASCII, bordes/radius/sombras, unidades relativas | `ui-tree/3` |
+
+Resumen de lo que hay hoy:
+
+| Área | Estado |
+|---|---|
+| Layout | block, flex, grid, scroll vertical, resize |
+| Contenido | texto pre-shapeado, imágenes locales (WIC) |
+| Interacción | hover/press/selected, wheel, input de una línea |
+| Dinamismo | visibilidad, `set_image`, clone/append/remove |
+| CSS visual | radius/bordes/sombras en curso en el core |
+| Fuera | JS, iframes, red, parser runtime, formularios web, UIA/IME |
+
+La matriz completa —frontend, R1, R2 y limitaciones— está en
+[`docs/support.md`](docs/support.md). `--strict-subset` convierte cualquier
+feature fuera del contrato en error.
 
 ## Quick start
 
@@ -68,8 +125,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build.ps1
 cd src\frontend\python
 .\.venv\Scripts\python.exe -m webnative ..\..\..\spec\input.html --width 400 --height 300
 
-# Benchmark multi-lenguaje (cuando existan los run.ps1)
-python benchmarks\frontend-parity\tools\bench.py --runs 10
+# Benchmark multi-lenguaje de paridad (requiere los frontends compilados)
+python benchmarks\frontend-parity\tools\bench.py --runs 3
 
 # Verificar un IR contra el golden
 python benchmarks\frontend-parity\tools\verify_ir.py `
@@ -79,12 +136,14 @@ python benchmarks\frontend-parity\tools\verify_ir.py `
 
 ## Documentación
 
-- `docs/architecture.md` — pipeline, contratos y lanes.
-- `src/runtime/README.md` — R1 (`c-static`) vs R2 (`c-r2`) y por qué R2 usa el frontend Python.
-- `docs/ir-schema.md` — formato del IR.
-- `docs/conventions.md` — nombres y reglas del repo.
-- `benchmarks/frontend-parity/SPEC.md` — subset exacto para las
-  implementaciones C++/Rust/C# y reglas de paridad.
+- [`docs/origin.md`](docs/origin.md) — por qué existe el proyecto.
+- [`docs/support.md`](docs/support.md) — matriz de soportado / no soportado.
+- [`docs/subset-v1.md`](docs/subset-v1.md) — contrato HTML/CSS v1.
+- [`docs/architecture.md`](docs/architecture.md) — pipeline, contratos y lanes.
+- [`docs/ui-tree-v3.md`](docs/ui-tree-v3.md) — input y schema `/3`.
+- [`src/runtime/c-r2/README.md`](src/runtime/c-r2/README.md) — runtime R2, ABI y tests.
+- [`benchmarks/frontend-parity/SPEC.md`](benchmarks/frontend-parity/SPEC.md) — subset de paridad y reglas.
+- [`docs/conventions.md`](docs/conventions.md) — nombres y reglas del repo.
 
 ## Principios
 
