@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wn-cli"
+version = "0.1.0"
+description = "WebNative build, verification, and orchestration CLI"
+requires-python = ">=3.11"
+
+[project.scripts]
+wn-cli = "cli:main"
+
+[tool.setuptools]
+py-modules = ["cli"]
+packages = ["wn_cli", "wn_cli.commands"]

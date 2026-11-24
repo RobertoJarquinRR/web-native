@@ -3,7 +3,7 @@
 **/__pycache__/
 *.py[cod]
 .pytest_cache/
-
+*.egg-info/
 # Rust
 **/target/
 
@@ -20,7 +20,9 @@
 *.exp
 *.dll
 *.lib
-
+build_cmake/
+build_debug/
+generated/
 # wgpu-native binaries are fetched by tools/fetch-wgpu.ps1 (not committed)
 
 # Generated artifacts
