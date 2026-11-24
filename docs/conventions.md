@@ -24,6 +24,10 @@
 4. Cada implementación de una capa debe exponer un `run.ps1` con el CLI
    documentado en su README.
 5. Los resultados de benchmarks se guardan en `results/` con fecha y versión.
+6. Los frontends C++ y C# son **referencias de paridad congeladas** en
+   `benchmarks/frontend-parity/SPEC.md`. No se actualizan con features nuevas
+   de Rust; un cambio del SPEC decide si se actualizan o quedan fuera del
+   subset.
 
 ## Mapa actual
 
@@ -31,10 +35,10 @@
 archive/experiments/          16 experimentos históricos, renombrados por etapa
 src/
   ir/                 contrato del display list + schema
-  frontend/python/    frontend de referencia / oráculo
+  frontend/python/    frontend de referencia / oráculo v1
   frontend/rust/      frontend canónico (producción)
-  frontend/cpp/       alternativa del benchmark
-  frontend/csharp/    alternativa del benchmark
+  frontend/cpp/       referencia de paridad congelada (SPEC.md)
+  frontend/csharp/    referencia de paridad congelada (SPEC.md)
   emitter/python/     emit_c.py (IR -> scene_data.h) y emit_ui.py (estilos -> ui_data.h)
   runtime/c-static/   runtime C estático (R1): escena horneada
   runtime/c-r2/       runtime C dinámico (R2): layout en runtime, eventos, resize

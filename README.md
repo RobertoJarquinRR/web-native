@@ -54,14 +54,15 @@ tools/                fetch-wgpu.ps1 y utilidades del repo
 | Frontend | Rol | Alcance |
 |---|---|---|
 | **Rust** | canónico / producción | subset v1 + extensiones pilot v2/v3 |
-| **Python** | oráculo y verificación | v1; goldens y paridad |
-| **C++** | referencia de paridad / benchmark | fixtures de `benchmarks/frontend-parity/SPEC.md` |
-| **C#** | referencia de paridad / benchmark | fixtures de `benchmarks/frontend-parity/SPEC.md` |
+| **Python** | oráculo v1 | goldens y paridad; no sigue features nuevas |
+| **C++** | referencia de paridad **congelada** | fixtures de `benchmarks/frontend-parity/SPEC.md` |
+| **C#** | referencia de paridad **congelada** | fixtures de `benchmarks/frontend-parity/SPEC.md` |
 
 La paridad byte-idéntica entre los cuatro es el argumento central del proyecto:
-mismo input, mismo IR, mismos píxeles. Las features nuevas de Rust (CSS v3,
-input, etc.) no obligan a C++/C# a seguirlas; su contrato es el subset de
-paridad.
+mismo input, mismo IR, mismos píxeles. C++/C# quedan congelados en el subset de
+`SPEC.md`; las features nuevas de Rust (CSS v3, input, etc.) no les obligan a
+seguirlas. Los resultados se versionan en
+[`benchmarks/frontend-parity/results/README.md`](benchmarks/frontend-parity/results/README.md).
 
 ## Estado
 

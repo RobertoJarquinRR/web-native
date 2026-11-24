@@ -1,10 +1,10 @@
 {
-  "html": 15.534,
-  "css": 1.423,
-  "cascade": 0.483,
-  "fonts": 0.008,
-  "layout": 0.042,
-  "text+ir": 0.017,
-  "pipeline": 17.536,
+  "html": 15.448,
+  "css": 1.606,
+  "cascade": 0.809,
+  "fonts": 0.014,
+  "layout": 0.073,
+  "text+ir": 0.028,
+  "pipeline": 18.024,
   "ops": 4
 }

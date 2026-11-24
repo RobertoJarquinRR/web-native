@@ -38,6 +38,14 @@ FRONTEND_DIRS = {
     "csharp": ROOT / "src" / "frontend" / "csharp",
 }
 
+def rel(path: Path) -> str:
+    """Stable, repo-relative path for committed result JSON."""
+    try:
+        return str(path.resolve().relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
 FIXTURES = [
     {
         "name": "contract",
@@ -125,7 +133,7 @@ def main() -> int:
             continue
         golden = load(fixture["golden"])
         report["fixtures"][fixture["name"]] = {
-            "html": str(fixture["html"]),
+            "html": rel(fixture["html"]),
             "viewport": [fixture["width"], fixture["height"]],
             "golden_ops": len(golden.get("ops", [])),
         }
@@ -176,7 +184,7 @@ def main() -> int:
                     "max": round(max(times), 3) if times else None,
                 },
                 "internal_timings_ms": internal,
-                "ir": str(out),
+                "ir": rel(out),
             }
             report["frontends"].setdefault(key, {})[fixture["name"]] = entry
             rows.append({"frontend": key, **entry})

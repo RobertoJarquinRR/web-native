@@ -1,11 +1,32 @@
 # Frontend parity benchmark — specification
 
+> **Estado: congelado (subset v1, 2026-11-24).** Este SPEC es el contrato de
+> paridad de **C++ y C#**. Rust es el frontend canónico y puede avanzar con
+> features nuevas (grid, input, CSS v3); C++/C# no tienen obligación de
+> seguirlas. Python es el oráculo de este mismo subset v1. Ver
+> [`results/README.md`](results/README.md).
+
 Goal: implement the same HTML+CSS frontend in different languages and prove
 that (a) it produces the **same IR**, and (b) measure speed and cost.
 
 The reference implementation is `src/frontend/python` (the v1 package).
 The other implementations must match its output for the two fixtures below,
 within **0.01 px** geometry tolerance.
+
+## Política de mantenimiento
+
+- **Rust** (`src/frontend/rust`) es el frontend canónico y evoluciona con el
+  producto: grid, scroll, imágenes, input y CSS v3.
+- **Python** (`src/frontend/python`) es el oráculo del subset v1; se mantiene
+  para goldens y verificación, no para seguir features nuevas de Rust.
+- **C++** y **C#** son **referencias de paridad congeladas** en este SPEC. No
+  se actualizan para seguir a Rust; su contrato es producir el mismo IR en los
+  fixtures de este documento.
+- Un cambio incompatible del IR o del subset requiere una decisión explícita:
+  actualizar los frontends congelados o declararlos fuera del subset actual.
+  No se actualizan en silencio.
+- Los resultados se versionan en [`results/README.md`](results/README.md) con
+  fecha, commit y subset.
 
 ## Fixtures
 

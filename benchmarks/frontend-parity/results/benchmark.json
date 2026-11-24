@@ -26,18 +26,18 @@
         "mode": "direct",
         "error": "",
         "wall_ms": {
-          "median": 375.763,
-          "min": 374.178,
-          "max": 380.523
+          "median": 386.318,
+          "min": 385.925,
+          "max": 418.976
         },
         "internal_timings_ms": {
-          "html": 15.534,
-          "css": 1.423,
-          "cascade": 0.483,
-          "fonts": 0.008,
-          "layout": 0.042,
-          "text+ir": 0.017,
-          "pipeline": 17.536,
+          "html": 15.448,
+          "css": 1.606,
+          "cascade": 0.809,
+          "fonts": 0.014,
+          "layout": 0.073,
+          "text+ir": 0.028,
+          "pipeline": 18.024,
           "ops": 4
         },
         "ir": "benchmarks\\frontend-parity\\results\\python\\contract.ir.json"
@@ -48,18 +48,18 @@
         "mode": "direct",
         "error": "",
         "wall_ms": {
-          "median": 382.721,
-          "min": 378.618,
-          "max": 383.748
+          "median": 451.296,
+          "min": 431.557,
+          "max": 474.47
         },
         "internal_timings_ms": {
-          "html": 15.816,
-          "css": 5.872,
-          "cascade": 1.68,
-          "fonts": 0.013,
-          "layout": 0.178,
-          "text+ir": 0.046,
-          "pipeline": 23.634,
+          "html": 18.34,
+          "css": 7.253,
+          "cascade": 2.257,
+          "fonts": 0.017,
+          "layout": 0.255,
+          "text+ir": 0.052,
+          "pipeline": 28.216,
           "ops": 23
         },
         "ir": "benchmarks\\frontend-parity\\results\\python\\flex-page.ir.json"
@@ -72,20 +72,20 @@
         "mode": "direct",
         "error": "",
         "wall_ms": {
-          "median": 10.872,
-          "min": 10.833,
-          "max": 11.224
+          "median": 11.756,
+          "min": 10.981,
+          "max": 12.567
         },
         "internal_timings_ms": {
-          "html": 0.503,
-          "css": 0.049,
-          "cascade": 0.059,
+          "html": 0.51,
+          "css": 0.042,
+          "cascade": 0.061,
           "fonts": 0.0,
-          "layout": 0.006,
-          "text+ir": 0.003,
-          "pipeline": 0.62,
+          "layout": 0.007,
+          "text+ir": 0.004,
+          "pipeline": 0.624,
           "ops": 4,
-          "peak_rss_kb": 3536
+          "peak_rss_kb": 3008
         },
         "ir": "benchmarks\\frontend-parity\\results\\cpp\\contract.ir.json"
       },
@@ -95,20 +95,20 @@
         "mode": "direct",
         "error": "",
         "wall_ms": {
-          "median": 11.612,
-          "min": 11.355,
-          "max": 11.855
+          "median": 14.265,
+          "min": 13.384,
+          "max": 16.867
         },
         "internal_timings_ms": {
-          "html": 0.609,
-          "css": 0.114,
-          "cascade": 0.264,
+          "html": 0.811,
+          "css": 0.193,
+          "cascade": 0.499,
           "fonts": 0.0,
-          "layout": 0.019,
-          "text+ir": 0.011,
-          "pipeline": 1.018,
+          "layout": 0.032,
+          "text+ir": 0.021,
+          "pipeline": 1.558,
           "ops": 23,
-          "peak_rss_kb": 3592
+          "peak_rss_kb": 3064
         },
         "ir": "benchmarks\\frontend-parity\\results\\cpp\\flex-page.ir.json"
       }
@@ -120,22 +120,22 @@
         "mode": "direct",
         "error": "",
         "wall_ms": {
-          "median": 10.155,
-          "min": 9.742,
-          "max": 10.479
+          "median": 10.158,
+          "min": 10.132,
+          "max": 10.496
         },
         "internal_timings_ms": {
-          "parse": 0.474,
-          "html": 0.474,
-          "css": 0.067,
-          "cascade": 0.081,
+          "parse": 0.531,
+          "html": 0.531,
+          "css": 0.075,
+          "cascade": 0.122,
           "fonts": 0.0,
-          "layout": 0.008,
-          "text": 0.007,
-          "emit": 0.676,
-          "pipeline": 1.317,
+          "layout": 0.016,
+          "text": 0.001,
+          "emit": 0.768,
+          "pipeline": 1.704,
           "ops": 4,
-          "peak_rss_kb": 4060
+          "peak_rss_kb": 3644
         },
         "ir": "benchmarks\\frontend-parity\\results\\rust\\contract.ir.json"
       },
@@ -145,22 +145,22 @@
         "mode": "direct",
         "error": "",
         "wall_ms": {
-          "median": 10.351,
-          "min": 10.186,
-          "max": 11.389
+          "median": 11.831,
+          "min": 11.317,
+          "max": 12.513
         },
         "internal_timings_ms": {
-          "parse": 0.604,
-          "html": 0.604,
-          "css": 0.186,
-          "cascade": 0.235,
+          "parse": 0.602,
+          "html": 0.602,
+          "css": 0.222,
+          "cascade": 0.359,
           "fonts": 0.0,
-          "layout": 0.027,
+          "layout": 0.028,
           "text": 0.003,
-          "emit": 0.737,
-          "pipeline": 1.794,
+          "emit": 0.763,
+          "pipeline": 2.283,
           "ops": 23,
-          "peak_rss_kb": 4156
+          "peak_rss_kb": 3752
         },
         "ir": "benchmarks\\frontend-parity\\results\\rust\\flex-page.ir.json"
       }
@@ -172,19 +172,19 @@
         "mode": "direct",
         "error": "",
         "wall_ms": {
-          "median": 29.266,
-          "min": 29.178,
-          "max": 29.591
+          "median": 30.211,
+          "min": 29.572,
+          "max": 30.374
         },
         "internal_timings_ms": {
-          "parse": 3.805,
-          "css": 4.757,
-          "cascade": 0.229,
-          "layout": 0.008,
-          "emit": 0.621,
-          "total": 9.425,
+          "parse": 3.882,
+          "css": 5.226,
+          "cascade": 0.273,
+          "layout": 0.009,
+          "emit": 0.684,
+          "total": 10.08,
           "ops": 4,
-          "peak_rss_kb": 18184
+          "peak_rss_kb": 17664
         },
         "ir": "benchmarks\\frontend-parity\\results\\csharp\\contract.ir.json"
       },
@@ -194,19 +194,19 @@
         "mode": "direct",
         "error": "",
         "wall_ms": {
-          "median": 29.57,
-          "min": 29.444,
-          "max": 30.005
+          "median": 31.459,
+          "min": 31.248,
+          "max": 34.528
         },
         "internal_timings_ms": {
-          "parse": 3.801,
-          "css": 5.062,
-          "cascade": 0.527,
-          "layout": 0.024,
-          "emit": 0.673,
-          "total": 10.092,
+          "parse": 4.017,
+          "css": 5.692,
+          "cascade": 0.603,
+          "layout": 0.027,
+          "emit": 0.851,
+          "total": 11.196,
           "ops": 23,
-          "peak_rss_kb": 18532
+          "peak_rss_kb": 17948
         },
         "ir": "benchmarks\\frontend-parity\\results\\csharp\\flex-page.ir.json"
       }

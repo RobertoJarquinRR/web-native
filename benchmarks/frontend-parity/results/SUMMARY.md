@@ -6,13 +6,13 @@ Wall time includes process startup, HTML+CSS parse, cascade, layout and IR write
 
 | Frontend | Fixture | Status | Mode | Wall median (ms) | Wall min | Wall max | Ops |
 |---|---|---:|---|---:|---:|---:|---:|
-| python | contract | PASS | direct | 375.763 | 374.178 | 380.523 | 4 |
-| cpp | contract | PASS | direct | 10.872 | 10.833 | 11.224 | 4 |
-| rust | contract | PASS | direct | 10.155 | 9.742 | 10.479 | 4 |
-| csharp | contract | PASS | direct | 29.266 | 29.178 | 29.591 | 4 |
-| python | flex-page | PASS | direct | 382.721 | 378.618 | 383.748 | 23 |
-| cpp | flex-page | PASS | direct | 11.612 | 11.355 | 11.855 | 23 |
-| rust | flex-page | PASS | direct | 10.351 | 10.186 | 11.389 | 23 |
-| csharp | flex-page | PASS | direct | 29.57 | 29.444 | 30.005 | 23 |
+| python | contract | PASS | direct | 386.318 | 385.925 | 418.976 | 4 |
+| cpp | contract | PASS | direct | 11.756 | 10.981 | 12.567 | 4 |
+| rust | contract | PASS | direct | 10.158 | 10.132 | 10.496 | 4 |
+| csharp | contract | PASS | direct | 30.211 | 29.572 | 30.374 | 4 |
+| python | flex-page | PASS | direct | 451.296 | 431.557 | 474.47 | 23 |
+| cpp | flex-page | PASS | direct | 14.265 | 13.384 | 16.867 | 23 |
+| rust | flex-page | PASS | direct | 11.831 | 11.317 | 12.513 | 23 |
+| csharp | flex-page | PASS | direct | 31.459 | 31.248 | 34.528 | 23 |
 
 Parity is measured against `golden/*.ir.json` with 0.01 px tolerance.

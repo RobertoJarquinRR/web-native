@@ -1,10 +1,10 @@
 {
-  "parse": 3.805,
-  "css": 4.757,
-  "cascade": 0.229,
-  "layout": 0.008,
-  "emit": 0.621,
-  "total": 9.425,
+  "parse": 3.882,
+  "css": 5.226,
+  "cascade": 0.273,
+  "layout": 0.009,
+  "emit": 0.684,
+  "total": 10.08,
   "ops": 4,
-  "peak_rss_kb": 18184
+  "peak_rss_kb": 17664
 }

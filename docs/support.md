@@ -114,13 +114,15 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | Frontend | Rol | Alcance |
 |---|---|---|
 | **Rust** | canónico / producción | subset v1 + pilot v2/v3 |
-| **Python** | oráculo y verificación | v1; paridad y goldens |
-| **C++** | referencia de paridad / benchmark | fixtures de `benchmarks/frontend-parity/SPEC.md` |
-| **C#** | referencia de paridad / benchmark | fixtures de `benchmarks/frontend-parity/SPEC.md` |
+| **Python** | oráculo v1 | paridad y goldens; no sigue features nuevas |
+| **C++** | referencia de paridad **congelada** | fixtures de `benchmarks/frontend-parity/SPEC.md` |
+| **C#** | referencia de paridad **congelada** | fixtures de `benchmarks/frontend-parity/SPEC.md` |
 
 La paridad byte-idéntica se mide contra `benchmarks/frontend-parity/SPEC.md`.
-Las features nuevas de Rust (CSS v3, input, etc.) **no obligan** a que C++/C# las
-implementen; su contrato es el subset de paridad.
+C++/C# quedan **congelados** en ese subset: las features nuevas de Rust no les
+obligan a actualizarse. Si el SPEC cambia, se decide explícitamente si se
+actualizan o se quedan fuera del subset actual. Snapshot de resultados en
+[`benchmarks/frontend-parity/results/README.md`](../benchmarks/frontend-parity/results/README.md).
 
 ## Cómo comprobar el soporte
 

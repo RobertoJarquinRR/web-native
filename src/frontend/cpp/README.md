@@ -1,5 +1,10 @@
 # Frontend C++ — paridad con la referencia Python
 
+> **Congelado (2026-11):** referencia de paridad del subset de
+> `benchmarks/frontend-parity/SPEC.md`. No se actualiza con las features nuevas
+> de Rust (grid, input, CSS v3). Si el SPEC cambia, se decide explícitamente si
+> se actualiza o se queda fuera del subset.
+
 Implementación nativa en C++20 del frontend HTML+CSS → IR de display-list, sin
 navegador, WebView, Skia ni Electron. Reproduce la semántica de
 `src/frontend/python/webnative` y genera un IR **byte-idéntico** al golden

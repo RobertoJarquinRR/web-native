@@ -1,5 +1,10 @@
 # Frontend C# — paridad con la referencia Python
 
+> **Congelado (2026-11):** referencia de paridad del subset de
+> `benchmarks/frontend-parity/SPEC.md`. No se actualiza con las features nuevas
+> de Rust (grid, input, CSS v3). Si el SPEC cambia, se decide explícitamente si
+> se actualiza o se queda fuera del subset.
+
 Implementación en **C# / .NET 10** del frontend `HTML + CSS → display-list IR`
 (rects) definido en `benchmarks/frontend-parity/SPEC.md`. No usa navegador,
 WebView, Skia, Electron ni servidor; tampoco async. Convierte el documento en un
