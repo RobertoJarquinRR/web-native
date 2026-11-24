@@ -1,0 +1,602 @@
+{
+  "source": {
+    "html": "benchmarks\\frontend-parity\\fixtures\\flex-page\\index.html",
+    "css": "benchmarks\\frontend-parity\\fixtures\\flex-page\\style.css"
+  },
+  "default_viewport": [
+    480,
+    320
+  ],
+  "node_count": 26,
+  "rule_count": 24,
+  "text": {
+    "atlas_size": 0,
+    "glyph_count": 0,
+    "text_run_count": 0
+  },
+  "nodes": [
+    {
+      "id": 0,
+      "name": "body.root",
+      "tag": "body",
+      "classes": [],
+      "element_id": null,
+      "kind": "block",
+      "direction": "row",
+      "wrap": false,
+      "background": "#0f1115",
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    },
+    {
+      "id": 1,
+      "name": "body.root/div#root",
+      "tag": "div",
+      "classes": [],
+      "element_id": "root",
+      "kind": "block",
+      "direction": "row",
+      "wrap": false,
+      "background": "#0f1115",
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    },
+    {
+      "id": 2,
+      "name": "body.root/div#root/div.topbar",
+      "tag": "div",
+      "classes": [
+        "topbar"
+      ],
+      "element_id": null,
+      "kind": "flex",
+      "direction": "row",
+      "wrap": false,
+      "background": null,
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    },
+    {
+      "id": 3,
+      "name": "body.root/div#root/div.topbar/div.dots",
+      "tag": "div",
+      "classes": [
+        "dots"
+      ],
+      "element_id": null,
+      "kind": "flex",
+      "direction": "row",
+      "wrap": false,
+      "background": null,
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    },
+    {
+      "id": 4,
+      "name": "body.root/div#root/div.topbar/div.dots/div.dot",
+      "tag": "div",
+      "classes": [
+        "dot",
+        "dot-a"
+      ],
+      "element_id": null,
+      "kind": "block",
+      "direction": "row",
+      "wrap": false,
+      "background": "#e74c3c",
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    },
+    {
+      "id": 5,
+      "name": "body.root/div#root/div.topbar/div.dots/div.dot[1]",
+      "tag": "div",
+      "classes": [
+        "dot",
+        "dot-b"
+      ],
+      "element_id": null,
+      "kind": "block",
+      "direction": "row",
+      "wrap": false,
+      "background": "#2ecc71",
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    },
+    {
+      "id": 6,
+      "name": "body.root/div#root/div.topbar/div.dots/div.dot[2]",
+      "tag": "div",
+      "classes": [
+        "dot",
+        "dot-c"
+      ],
+      "element_id": null,
+      "kind": "block",
+      "direction": "row",
+      "wrap": false,
+      "background": "#3498db",
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    },
+    {
+      "id": 7,
+      "name": "body.root/div#root/div.topbar/div.pill",
+      "tag": "div",
+      "classes": [
+        "pill"
+      ],
+      "element_id": null,
+      "kind": "block",
+      "direction": "row",
+      "wrap": false,
+      "background": "#2a3140",
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    },
+    {
+      "id": 8,
+      "name": "body.root/div#root/div.cards",
+      "tag": "div",
+      "classes": [
+        "cards"
+      ],
+      "element_id": null,
+      "kind": "flex",
+      "direction": "row",
+      "wrap": false,
+      "background": null,
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    },
+    {
+      "id": 9,
+      "name": "body.root/div#root/div.cards/div.card",
+      "tag": "div",
+      "classes": [
+        "card"
+      ],
+      "element_id": null,
+      "kind": "flex",
+      "direction": "column",
+      "wrap": false,
+      "background": "#1a1f2a",
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    },
+    {
+      "id": 10,
+      "name": "body.root/div#root/div.cards/div.card/div.accent",
+      "tag": "div",
+      "classes": [
+        "accent",
+        "accent-a"
+      ],
+      "element_id": null,
+      "kind": "block",
+      "direction": "row",
+      "wrap": false,
+      "background": "#e74c3c",
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    },
+    {
+      "id": 11,
+      "name": "body.root/div#root/div.cards/div.card/div.line",
+      "tag": "div",
+      "classes": [
+        "line",
+        "line-1"
+      ],
+      "element_id": null,
+      "kind": "block",
+      "direction": "row",
+      "wrap": false,
+      "background": "#2a3140",
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    },
+    {
+      "id": 12,
+      "name": "body.root/div#root/div.cards/div.card/div.line[1]",
+      "tag": "div",
+      "classes": [
+        "line",
+        "line-2"
+      ],
+      "element_id": null,
+      "kind": "block",
+      "direction": "row",
+      "wrap": false,
+      "background": "#2a3140",
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    },
+    {
+      "id": 13,
+      "name": "body.root/div#root/div.cards/div.card/div.line[2]",
+      "tag": "div",
+      "classes": [
+        "line",
+        "line-3"
+      ],
+      "element_id": null,
+      "kind": "block",
+      "direction": "row",
+      "wrap": false,
+      "background": "#2a3140",
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    },
+    {
+      "id": 14,
+      "name": "body.root/div#root/div.cards/div.card[1]",
+      "tag": "div",
+      "classes": [
+        "card"
+      ],
+      "element_id": null,
+      "kind": "flex",
+      "direction": "column",
+      "wrap": false,
+      "background": "#1a1f2a",
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    },
+    {
+      "id": 15,
+      "name": "body.root/div#root/div.cards/div.card[1]/div.accent[1]",
+      "tag": "div",
+      "classes": [
+        "accent",
+        "accent-b"
+      ],
+      "element_id": null,
+      "kind": "block",
+      "direction": "row",
+      "wrap": false,
+      "background": "#2ecc71",
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    },
+    {
+      "id": 16,
+      "name": "body.root/div#root/div.cards/div.card[1]/div.line[3]",
+      "tag": "div",
+      "classes": [
+        "line",
+        "line-1"
+      ],
+      "element_id": null,
+      "kind": "block",
+      "direction": "row",
+      "wrap": false,
+      "background": "#2a3140",
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    },
+    {
+      "id": 17,
+      "name": "body.root/div#root/div.cards/div.card[1]/div.line[4]",
+      "tag": "div",
+      "classes": [
+        "line",
+        "line-2b"
+      ],
+      "element_id": null,
+      "kind": "block",
+      "direction": "row",
+      "wrap": false,
+      "background": "#2a3140",
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    },
+    {
+      "id": 18,
+      "name": "body.root/div#root/div.cards/div.card[1]/div.line[5]",
+      "tag": "div",
+      "classes": [
+        "line",
+        "line-3"
+      ],
+      "element_id": null,
+      "kind": "block",
+      "direction": "row",
+      "wrap": false,
+      "background": "#2a3140",
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    },
+    {
+      "id": 19,
+      "name": "body.root/div#root/div.cards/div.card[2]",
+      "tag": "div",
+      "classes": [
+        "card"
+      ],
+      "element_id": null,
+      "kind": "flex",
+      "direction": "column",
+      "wrap": false,
+      "background": "#1a1f2a",
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    },
+    {
+      "id": 20,
+      "name": "body.root/div#root/div.cards/div.card[2]/div.accent[2]",
+      "tag": "div",
+      "classes": [
+        "accent",
+        "accent-c"
+      ],
+      "element_id": null,
+      "kind": "block",
+      "direction": "row",
+      "wrap": false,
+      "background": "#3498db",
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    },
+    {
+      "id": 21,
+      "name": "body.root/div#root/div.cards/div.card[2]/div.line[6]",
+      "tag": "div",
+      "classes": [
+        "line",
+        "line-1"
+      ],
+      "element_id": null,
+      "kind": "block",
+      "direction": "row",
+      "wrap": false,
+      "background": "#2a3140",
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    },
+    {
+      "id": 22,
+      "name": "body.root/div#root/div.cards/div.card[2]/div.line[7]",
+      "tag": "div",
+      "classes": [
+        "line",
+        "line-2c"
+      ],
+      "element_id": null,
+      "kind": "block",
+      "direction": "row",
+      "wrap": false,
+      "background": "#2a3140",
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    },
+    {
+      "id": 23,
+      "name": "body.root/div#root/div.cards/div.card[2]/div.line[8]",
+      "tag": "div",
+      "classes": [
+        "line",
+        "line-3"
+      ],
+      "element_id": null,
+      "kind": "block",
+      "direction": "row",
+      "wrap": false,
+      "background": "#2a3140",
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    },
+    {
+      "id": 24,
+      "name": "body.root/div#root/div.footer",
+      "tag": "div",
+      "classes": [
+        "footer"
+      ],
+      "element_id": null,
+      "kind": "block",
+      "direction": "row",
+      "wrap": false,
+      "background": "#161a22",
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    },
+    {
+      "id": 25,
+      "name": "body.root/div#root/div.footer/div.footer-bar",
+      "tag": "div",
+      "classes": [
+        "footer-bar"
+      ],
+      "element_id": null,
+      "kind": "block",
+      "direction": "row",
+      "wrap": false,
+      "background": "#2a3140",
+      "interactive": false,
+      "text": null,
+      "grid": {
+        "mode": null,
+        "column_px": 0.0,
+        "row_px": -1.0
+      },
+      "overflow": 0,
+      "image": null
+    }
+  ]
+}

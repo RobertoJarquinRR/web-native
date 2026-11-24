@@ -1,0 +1,93 @@
+{
+ "schema": "webnative.style-compare/1",
+ "nodes": [
+  {
+   "name": "body.root",
+   "kind": "block",
+   "width_px": -1.0,
+   "height_px": -1.0,
+   "width_pct": 100.0,
+   "height_pct": 100.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "gap": 0.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root",
+   "kind": "block",
+   "width_px": 400.0,
+   "height_px": 300.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    20.0,
+    20.0,
+    20.0,
+    20.0
+   ],
+   "gap": 0.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.box",
+   "kind": "block",
+   "width_px": 120.0,
+   "height_px": 80.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "gap": 0.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.box[1]",
+   "kind": "block",
+   "width_px": 120.0,
+   "height_px": 80.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    16.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "gap": 0.0,
+   "box_sizing": "border-box"
+  }
+ ]
+}

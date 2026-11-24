@@ -1597,6 +1597,8 @@ def main() -> int:
                         help="consume the Rust pre-layout style tree instead of HTML+CSS")
     parser.add_argument("--compare", nargs=2, metavar=("PYTHON_H", "RUST_H"),
                         default=None, help="compare two generated ui_data.h files")
+    parser.add_argument("--dump-style-json", default=None,
+                        help="write the computed style tree (flat) for cross-frontend parity")
     parser.add_argument("--strict", action="store_true",
                         help="with --compare, fail on bitmap-box, UV-shift or AA differences")
     args = parser.parse_args()
@@ -1623,6 +1625,29 @@ def main() -> int:
     emitter = Emitter(root, styles, metrics, base_dir=html_path.parent)
     emitter.run()
     write_header(emitter.nodes, emitter.meta, Path(args.out), args.width, args.height, metrics)
+
+    if args.dump_style_json:
+        kinds = {KIND_BLOCK: "block", KIND_FLEX: "flex", KIND_TEXT: "text",
+                 KIND_GRID: "grid", KIND_IMAGE: "image", KIND_INPUT: "input"}
+        dump_nodes = []
+        for index, node in enumerate(emitter.nodes):
+            meta = emitter.meta[index]
+            dump_nodes.append({
+                "name": meta["name"],
+                "kind": kinds.get(int(node["kind"]), "block"),
+                "width_px": float(node["width"]),
+                "height_px": float(node["height"]),
+                "width_pct": float(node["width_pct"]),
+                "height_pct": float(node["height_pct"]),
+                "margin": [float(v) for v in node["margin"]],
+                "padding": [float(v) for v in node["padding"]],
+                "gap": float(node["gap"]),
+                "box_sizing": "border-box" if int(node.get("box_sizing") or 0) else "content-box",
+            })
+        Path(args.dump_style_json).write_text(
+            json.dumps({"schema": "webnative.style-compare/1", "nodes": dump_nodes},
+                       indent=1, ensure_ascii=False) + "\n", encoding="utf-8")
+        print(f"emit_ui: style tree -> {args.dump_style_json} ({len(dump_nodes)} nodes)")
 
     meta = {
         "source": {"html": display_path(html_path), "css": display_path(css_path)},

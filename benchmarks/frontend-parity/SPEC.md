@@ -28,6 +28,24 @@ within **0.01 px** geometry tolerance.
 - Los resultados se versionan en [`results/README.md`](results/README.md) con
   fecha, commit y subset.
 
+## Dos gates, por tipo de contrato
+
+| Gate | Frontends | Contrato | Comando |
+|---|---|---|---|
+| IR post-layout (congelado) | Rust, Python, C++, C# | `display_list.json` | `bench.py` |
+| Árbol de estilos (vivo) | Rust, Python | `ui.json` (proyección de estilo) | `tools/run_style_parity.ps1` |
+
+El gate vivo compara **el árbol de estilos pre-layout**, que es lo que consume
+el motor. Así `box-sizing`, márgenes o `flex-grow` se comprueban una vez, sin
+obligar a reimplementar layout en cada lenguaje. C++/C# quedan congelados en el
+IR post-layout y en el modelo border-box, tal como documenta su SPEC.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File benchmarks\frontend-parity\tools\run_style_parity.ps1
+```
+
+Última ejecución: `contract` 4 nodos, `flex-page` 26 nodos, **0 diferencias**.
+
 ## Fixtures
 
 | Name | HTML | Viewport | What it exercises |

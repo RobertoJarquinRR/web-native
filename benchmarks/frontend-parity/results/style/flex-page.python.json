@@ -1,0 +1,577 @@
+{
+ "schema": "webnative.style-compare/1",
+ "nodes": [
+  {
+   "name": "body.root",
+   "kind": "block",
+   "width_px": -1.0,
+   "height_px": -1.0,
+   "width_pct": 100.0,
+   "height_pct": 100.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "gap": 0.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root",
+   "kind": "block",
+   "width_px": 480.0,
+   "height_px": 320.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    24.0,
+    24.0,
+    24.0,
+    24.0
+   ],
+   "gap": 0.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.topbar",
+   "kind": "flex",
+   "width_px": -1.0,
+   "height_px": 12.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "gap": 0.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.topbar/div.dots",
+   "kind": "flex",
+   "width_px": 52.0,
+   "height_px": 12.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "gap": 8.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.topbar/div.dots/div.dot",
+   "kind": "block",
+   "width_px": 12.0,
+   "height_px": 12.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "gap": 0.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.topbar/div.dots/div.dot[1]",
+   "kind": "block",
+   "width_px": 12.0,
+   "height_px": 12.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "gap": 0.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.topbar/div.dots/div.dot[2]",
+   "kind": "block",
+   "width_px": 12.0,
+   "height_px": 12.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "gap": 0.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.topbar/div.pill",
+   "kind": "block",
+   "width_px": 60.0,
+   "height_px": 12.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "gap": 0.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.cards",
+   "kind": "flex",
+   "width_px": -1.0,
+   "height_px": 148.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    24.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "gap": 16.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.cards/div.card",
+   "kind": "flex",
+   "width_px": 128.0,
+   "height_px": 148.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    12.0,
+    12.0,
+    12.0,
+    12.0
+   ],
+   "gap": 8.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.cards/div.card/div.accent",
+   "kind": "block",
+   "width_px": 96.0,
+   "height_px": 6.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "gap": 0.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.cards/div.card/div.line",
+   "kind": "block",
+   "width_px": 96.0,
+   "height_px": 6.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "gap": 0.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.cards/div.card/div.line[1]",
+   "kind": "block",
+   "width_px": 72.0,
+   "height_px": 6.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "gap": 0.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.cards/div.card/div.line[2]",
+   "kind": "block",
+   "width_px": 90.0,
+   "height_px": 6.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "gap": 0.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.cards/div.card[1]",
+   "kind": "flex",
+   "width_px": 128.0,
+   "height_px": 148.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    12.0,
+    12.0,
+    12.0,
+    12.0
+   ],
+   "gap": 8.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.cards/div.card[1]/div.accent[1]",
+   "kind": "block",
+   "width_px": 96.0,
+   "height_px": 6.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "gap": 0.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.cards/div.card[1]/div.line[3]",
+   "kind": "block",
+   "width_px": 96.0,
+   "height_px": 6.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "gap": 0.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.cards/div.card[1]/div.line[4]",
+   "kind": "block",
+   "width_px": 84.0,
+   "height_px": 6.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "gap": 0.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.cards/div.card[1]/div.line[5]",
+   "kind": "block",
+   "width_px": 90.0,
+   "height_px": 6.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "gap": 0.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.cards/div.card[2]",
+   "kind": "flex",
+   "width_px": 128.0,
+   "height_px": 148.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    12.0,
+    12.0,
+    12.0,
+    12.0
+   ],
+   "gap": 8.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.cards/div.card[2]/div.accent[2]",
+   "kind": "block",
+   "width_px": 96.0,
+   "height_px": 6.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "gap": 0.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.cards/div.card[2]/div.line[6]",
+   "kind": "block",
+   "width_px": 96.0,
+   "height_px": 6.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "gap": 0.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.cards/div.card[2]/div.line[7]",
+   "kind": "block",
+   "width_px": 60.0,
+   "height_px": 6.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "gap": 0.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.cards/div.card[2]/div.line[8]",
+   "kind": "block",
+   "width_px": 90.0,
+   "height_px": 6.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "gap": 0.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.footer",
+   "kind": "block",
+   "width_px": -1.0,
+   "height_px": 44.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    24.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    16.0,
+    16.0,
+    16.0,
+    16.0
+   ],
+   "gap": 0.0,
+   "box_sizing": "border-box"
+  },
+  {
+   "name": "body.root/div#root/div.footer/div.footer-bar",
+   "kind": "block",
+   "width_px": 140.0,
+   "height_px": 8.0,
+   "width_pct": 0.0,
+   "height_pct": 0.0,
+   "margin": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "padding": [
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "gap": 0.0,
+   "box_sizing": "border-box"
+  }
+ ]
+}
