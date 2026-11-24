@@ -355,6 +355,29 @@ wn_view *wn_view_create(void *native_window_handle, int32_t width, int32_t heigh
     return view_create_with_surface(&surface, width, height, NULL);
 }
 
+wn_view *wn_view_create_with_core(void *native_window_handle, wn_core *core,
+                                  int32_t width, int32_t height)
+{
+    wn_surface_desc surface;
+
+    wn_clear_error();
+    if (native_window_handle == NULL || core == NULL) {
+        wn_set_error("wn_view_create_with_core: window and core are required");
+        return NULL;
+    }
+    if (width <= 0 || height <= 0) {
+        wn_set_error("wn_view_create_with_core: bad size %dx%d", (int)width, (int)height);
+        return NULL;
+    }
+    memset(&surface, 0, sizeof(surface));
+    surface.kind = WN_SURFACE_HWND;
+    surface.handle = native_window_handle;
+    surface.instance_handle = NULL;
+    surface.width = width;
+    surface.height = height;
+    return view_create_with_surface(&surface, width, height, core);
+}
+
 wn_view *wn_view_create_offscreen_with_core(wn_core *core, int32_t width, int32_t height)
 {
     wn_surface_desc surface;

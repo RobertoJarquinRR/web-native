@@ -29,6 +29,8 @@ int wn_view_needs_render(const wn_view *view);
 wn_view *wn_view_create_offscreen(int32_t width, int32_t height);
 /* Same, but borrowing an existing core (the caller keeps ownership). */
 wn_view *wn_view_create_offscreen_with_core(wn_core *core, int32_t width, int32_t height);
+wn_view *wn_view_create_with_core(void *native_window_handle, wn_core *core,
+                                  int32_t width, int32_t height);
 /* Copy the last offscreen frame to a PNG. WN_OK on success. */
 wn_status wn_view_readback(wn_view *view, const char *png_path);
 /* Tooling/test surface: states and wheel on the view's own core. */
