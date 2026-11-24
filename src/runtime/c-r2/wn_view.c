@@ -361,10 +361,12 @@ wn_status wn_view_event(wn_view *view, const wn_event *event)
     out.target_id = NULL;
 
     switch (event->type) {
-    case WN_EVENT_POINTER_MOVE:
+    case WN_EVENT_POINTER_MOVE: {
+        int previous_hover = wn_core_hover(view->core);
         hit = wn_core_pointer_move(view->core, event->x, event->y);
-        changed = 1;
+        changed = hit != previous_hover;
         break;
+    }
     case WN_EVENT_POINTER_DOWN:
         hit = wn_core_pointer_down(view->core, event->x, event->y);
         changed = 1;
@@ -446,6 +448,11 @@ wn_status wn_view_render(wn_view *view)
     }
 
     t0 = wn_now_ms();
+    if (wn_core_dirty(view->core)) {
+        /* Host mutations mark the core dirty; make sure the display list is
+         * rebuilt even when the setter did not touch view->geometry_dirty. */
+        view->geometry_dirty = 1;
+    }
     if (wn_core_needs_layout(view->core)) {
         wn_core_relayout(view->core);
         view->geometry_dirty = 1;
@@ -516,6 +523,23 @@ void wn_view_destroy(wn_view *view)
     wn_free_(view->css);
     wn_free_(view->value_scratch);
     free(view);
+}
+
+int wn_view_needs_render(const wn_view *view)
+{
+    if (view == NULL || !view->loaded) {
+        return 0;
+    }
+    if (view->width <= 0 || view->height <= 0) {
+        return 0;
+    }
+    if (!view->have_frame || view->geometry_dirty || view->upload_dirty) {
+        return 1;
+    }
+    if (wn_core_needs_layout(view->core) || wn_core_dirty(view->core)) {
+        return 1;
+    }
+    return 0;
 }
 
 int wn_view_get_stats(const wn_view *view, wn_view_stats *stats)

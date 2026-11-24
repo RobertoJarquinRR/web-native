@@ -279,24 +279,34 @@ static int host_run(void *context)
         int first = 1;
         while (host->running) {
             MSG msg;
-            BOOL got = PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE);
-            if (got) {
+            BOOL got = 0;
+            int force = 0;
+            /* Drain the batch first. Mouse moves can arrive much faster than a
+             * WARP frame; process the final pointer state and paint once. */
+            while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
+                got = 1;
                 if (msg.message == WM_QUIT) {
                     host->running = 0;
                     break;
                 }
+                if (msg.message == WM_PAINT || msg.message == WM_SHOWWINDOW) {
+                    force = 1;
+                }
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
+                if (!host->running) {
+                    break;
+                }
             }
             if (!host->running) {
                 break;
             }
-            /* Idle UIs render once at startup and after each message. Tests and
+            /* Idle UIs render once at startup and after each batch. Tests and
              * demos that need a fixed number of frames opt into continuous mode
              * through wn_app_set_max_frames(). */
             if (host->continuous || got || first) {
                 if (host->on_frame != NULL) {
-                    host->on_frame(host->userdata);
+                    host->on_frame(host->userdata, force || first);
                 }
                 first = 0;
                 if (host->continuous && !got) {

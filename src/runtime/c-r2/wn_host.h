@@ -21,7 +21,8 @@ typedef struct wn_host_config {
 } wn_host_config;
 
 typedef void (*wn_host_event_fn)(void *userdata, const wn_event *event);
-typedef void (*wn_host_frame_fn)(void *userdata);
+/* force=1 requests a present even when the view is not dirty (WM_PAINT). */
+typedef void (*wn_host_frame_fn)(void *userdata, int force);
 
 typedef struct wn_host_ops {
     const char *name;

@@ -71,13 +71,16 @@ static void app_view_event(void *userdata, const wn_event *event)
     }
 }
 
-static void app_host_frame(void *userdata)
+static void app_host_frame(void *userdata, int force)
 {
     wn_app *app = (wn_app *)userdata;
     wn_view_stats view_stats;
     wn_status status;
 
     if (app == NULL || app->view == NULL || app->closed) {
+        return;
+    }
+    if (!force && app->max_frames <= 0 && !wn_view_needs_render(app->view)) {
         return;
     }
     if (wn_view_render_width(app->view) <= 0 || wn_view_render_height(app->view) <= 0) {
