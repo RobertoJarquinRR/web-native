@@ -73,10 +73,15 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 
 ### Fuera de v1
 
-`grid`, `position` (excepto `relative` futuro), `transform`, `transition`,
-`animation`, `box-shadow`, `gradient`, `@media`, `@font-face`, pseudo-elementos
-(`::before/::after`), `calc()`, `em/rem/vh/vw`, `float`, `table`, `filter`,
-`clip-path`, `z-index`, `columns`.
+`position` (excepto `relative` futuro), `transform`, `transition`,
+`animation`, `gradient`, `@media`, `@font-face`, pseudo-elementos
+(`::before/::after`), `calc()`, `float`, `table`, `filter`, `clip-path`,
+`z-index`, `columns`.
+
+> `grid`, `box-shadow`, `em/rem/vh/vw`, per-side borders, per-corner radius y
+> `min/max` ya no están “fuera de v1” sin más: son **pilot v2/v3** y están en la
+> sección de extensiones. Este listado es solo lo que sigue fuera del contrato
+> actual.
 
 ## Extensiones pilot (no v1)
 
