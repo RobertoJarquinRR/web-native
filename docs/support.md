@@ -13,6 +13,10 @@ Leyenda:
 - **Pilot**: extensión opt-in (`--pilot`), fuera del subset v1.
 - **No**: fuera del alcance actual.
 
+> **Columna R1:** el pipeline estático R1 está archivado
+> (`archive/r1-static/`). Se conserva la columna porque describe el render
+> horneado histórico; hoy el único runtime soportado es R2.
+
 ## Contratos
 
 | Contrato | Versión | Estado |

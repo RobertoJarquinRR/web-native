@@ -22,7 +22,14 @@ param(
     [switch]$UsePythonTree,
     [switch]$SkipRustBuild,
     [switch]$SkipParityCheck,
-    [switch]$Pilot
+    [switch]$Pilot,
+    # Arbitrary page mode (tooling/harness): build one HTML file and its CSS
+    # into a throw-away runtime under -OutDir. Skips parity and verify.
+    [string]$Html,
+    [string]$Css,
+    [int]$Width = 0,
+    [int]$Height = 0,
+    [string]$OutDir
 )
 
 $ErrorActionPreference = 'Stop'
@@ -32,13 +39,22 @@ Push-Location $root
 # c-r2 -> runtime -> src -> repo root
 $repo = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $root))
 $benchmark = Join-Path $repo 'benchmarks\pilot-media-library'
-if ($Pilot) {
+$PageMode = [bool]$Html
+if ($PageMode) {
+    if ([string]::IsNullOrWhiteSpace($Css)) { throw '-Html requires -Css' }
+    $fixtureHtml = (Resolve-Path -LiteralPath $Html).Path
+    $fixtureCss = (Resolve-Path -LiteralPath $Css).Path
+    $runtimeCwd = Split-Path -Parent $fixtureHtml
+    $out = if ($OutDir) { [System.IO.Path]::GetFullPath($OutDir) } else { Join-Path $root 'build_page' }
+} elseif ($Pilot) {
     $out = Join-Path $root 'build_pilot'
 } else {
     $out = Join-Path $root 'build'
 }
 New-Item -ItemType Directory -Force -Path $out | Out-Null
-if ($Pilot) {
+if ($PageMode) {
+    # fixtureHtml/fixtureCss/runtimeCwd already resolved above.
+} elseif ($Pilot) {
     $fixtureHtml = Join-Path $benchmark 'page\index.html'
     $fixtureCss = Join-Path $benchmark 'page\style.css'
     $runtimeCwd = Join-Path $benchmark 'page'
@@ -52,7 +68,7 @@ $coreC = Join-Path $root 'wn_core.c'
 $commonC = Join-Path $root 'wn_common.c'
 $verifyPy = Join-Path $root 'verify.py'
 $pilotVerifyPy = Join-Path $benchmark 'verify.py'
-$fixtureLabel = if ($Pilot) { 'benchmarks/pilot-media-library/page/index.html' } else { 'src/runtime/c-r2/page/index.html' }
+$fixtureLabel = if ($PageMode) { $fixtureHtml } elseif ($Pilot) { 'benchmarks/pilot-media-library/page/index.html' } else { 'src/runtime/c-r2/page/index.html' }
 $emitter = Join-Path $repo 'src\emitter\python\emit_ui.py'
 $py = Join-Path $repo 'src\frontend\python\.venv\Scripts\python.exe'
 $rustDir = Join-Path $repo 'src\frontend\rust'
@@ -160,8 +176,8 @@ try {
         Stop-Fail "wgpu_native.dll not found under $wgpu"
     }
 
-    $emitWidth = if ($Pilot) { 1280 } else { 960 }
-    $emitHeight = if ($Pilot) { 800 } else { 640 }
+    $emitWidth = if ($Width -gt 0) { $Width } elseif ($Pilot) { 1280 } else { 960 }
+    $emitHeight = if ($Height -gt 0) { $Height } elseif ($Pilot) { 800 } else { 640 }
     if (-not $SkipEmit) {
         $uiJson = Join-Path $out 'ui.json'
         if ($UsePythonTree) {
@@ -209,7 +225,7 @@ try {
             if ($LASTEXITCODE -ne 0) { Stop-Fail 'emit_ui.py --ui-json failed' }
             $report.timings_ms['emit'] = [math]::Round($sw.Elapsed.TotalMilliseconds, 2)
 
-            if (-not $SkipParityCheck -and -not $Pilot) {
+            if (-not $SkipParityCheck -and -not $Pilot -and -not $PageMode) {
                 $oracleDir = Join-Path $out 'oracle'
                 New-Item -ItemType Directory -Force -Path $oracleDir | Out-Null
                 Write-Host 'parity: python oracle tree vs rust tree -> build\oracle\ui_data.h' -ForegroundColor Cyan
@@ -254,7 +270,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $wgpu 'bin\wgpu_native.dll') `
         -Destination (Join-Path $out 'wgpu_native.dll') -Force
 
-    if (-not $SkipRun) {
+    if (-not $SkipRun -and -not $PageMode) {
         if ($Pilot) {
             $pilotLayout = Join-Path $out 'pilot_layout.json'
             Write-Host 'run: pilot layout report (1280x800, 800x600)' -ForegroundColor Cyan

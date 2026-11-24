@@ -49,59 +49,93 @@ def _is_file(path: Path | None) -> bool:
     return bool(path) and path.exists() and path.is_file()
 
 
-def find_vcvars() -> Path | None:
-    fixed = Path(r"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat")
-    if fixed.exists():
-        return fixed
-    vswhere = Path(r"C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe")
-    if not vswhere.exists():
-        candidate = Path(r"C:\Program Files\Microsoft Visual Studio\Installer\vswhere.exe")
-        vswhere = candidate if candidate.exists() else vswhere
-    if not vswhere.exists():
-        return None
-    completed = c.run_command(
-        [
-            str(vswhere),
-            "-latest",
-            "-products",
-            "*",
-            "-requires",
-            "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
-            "-property",
-            "installationPath",
-        ],
-        timeout=30,
-    )
-    if completed.returncode != 0 or not completed.stdout.strip():
-        return None
-    candidate = Path(completed.stdout.strip().splitlines()[0]) / "VC" / "Auxiliary" / "Build" / "vcvars64.bat"
-    return candidate if candidate.exists() else None
+def r2_build_dir(out_dir: Path, fixture_name: str) -> Path:
+    return out_dir / "build" / f"r2-{fixture_name}"
 
 
-def r1_prerequisites() -> dict[str, Any]:
+def _r2_page_sources() -> list[Path]:
     root = _repo()
-    checks = {
-        "build_ps1": root / "src" / "build.ps1",
-        "frontend_rust": root / "src" / "frontend" / "rust" / "target" / "release" / "frontend-rust.exe",
-        "emitter": root / "src" / "emitter" / "python" / "emit_c.py",
-        "frontend_python": root / "src" / "frontend" / "python" / ".venv" / "Scripts" / "python.exe",
-        "wgpu_dll": root / "third_party" / "wgpu-native" / "bin" / "wgpu_native.dll",
-        "wgpu_lib": root / "third_party" / "wgpu-native" / "lib" / "wgpu_native.dll.lib",
-    }
-    missing = {name: str(path) for name, path in checks.items() if not _is_file(path)}
-    vcvars = find_vcvars()
-    if vcvars is None:
-        missing["vcvars64.bat"] = "not found (install the MSVC C++ workload)"
-    return {
-        "ok": not missing,
-        "missing": missing,
-        "vcvars": str(vcvars) if vcvars else None,
-        "script": str(checks["build_ps1"]),
-    }
+    runtime = root / "src" / "runtime" / "c-r2"
+    return [
+        root / "src" / "frontend" / "rust" / "target" / "release" / "frontend-rust.exe",
+        root / "src" / "emitter" / "python" / "emit_ui.py",
+        runtime / "build.ps1",
+        runtime / "runtime_r2.c",
+        runtime / "wn_core.c",
+        runtime / "wn_core.h",
+        runtime / "wn_common.c",
+    ]
 
 
-def r1_build_dir(out_dir: Path, fixture_name: str) -> Path:
-    return out_dir / "build" / fixture_name
+def _r2_page_is_newer(render_exe: Path, fixture: dict[str, Any]) -> bool:
+    if not _is_file(render_exe):
+        return True
+    exe_mtime = render_exe.stat().st_mtime
+    sources = [Path(fixture["html_path"])]
+    if fixture.get("style_path"):
+        sources.append(Path(fixture["style_path"]))
+    sources.extend(_r2_page_sources())
+    return any(path.exists() and path.stat().st_mtime > exe_mtime for path in sources)
+
+
+def build_r2_page(
+    fixture: dict[str, Any],
+    out_dir: Path,
+    width: int,
+    height: int,
+    timeout: int,
+) -> dict[str, Any]:
+    """Compile one fixture into its own throw-away runtime (no R1, no prebuilt exe)."""
+    root = _repo()
+    build_dir = r2_build_dir(out_dir, fixture["name"])
+    exe = build_dir / "runtime_r2.exe"
+    if not fixture.get("style_path"):
+        raise NativeError(f"{fixture['name']}: r2 mode needs a style path")
+    command = [
+        "powershell.exe",
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        str(root / "src" / "runtime" / "c-r2" / "build.ps1"),
+        "-Html",
+        str(Path(fixture["html_path"])),
+        "-Css",
+        str(Path(fixture["style_path"])),
+        "-Width",
+        str(int(width)),
+        "-Height",
+        str(int(height)),
+        "-OutDir",
+        str(build_dir),
+        "-SkipRustBuild",
+    ]
+    started = time.perf_counter()
+    completed = c.run_command(command, cwd=root, timeout=timeout)
+    duration_ms = round((time.perf_counter() - started) * 1000.0, 2)
+    log_path = out_dir / "logs" / f"{fixture['name']}.r2-build.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    c.write_text(
+        log_path,
+        "$ " + " ".join(command) + "\n\n[stdout]\n" + completed.stdout + "\n[stderr]\n" + completed.stderr,
+    )
+    info: dict[str, Any] = {
+        "attempted": True,
+        "ok": completed.returncode == 0 and _is_file(exe),
+        "exit_code": completed.returncode,
+        "duration_ms": duration_ms,
+        "command": command,
+        "log": str(log_path),
+        "build_dir": str(build_dir),
+        "stdout_tail": c.tail(completed.stdout, 20),
+        "stderr_tail": c.tail(completed.stderr, 40),
+    }
+    if not info["ok"]:
+        raise NativeError(
+            f"r2 build failed for {fixture['name']} (exit {completed.returncode}). Log: {log_path}\n"
+            + "\n".join(c.tail(completed.stderr or completed.stdout, 30))
+        )
+    return info
 
 
 def r2_candidates(fixture: dict[str, Any], override: str | None = None) -> list[Path]:
@@ -164,23 +198,23 @@ def check(args: argparse.Namespace, out_dir: Path) -> int:
         mode = str(fixture.get("native", {}).get("mode", "r1")).lower()
         entry: dict[str, Any] = {"fixture": fixture["name"], "mode": mode}
         if mode == "r2":
-            exe = find_r2_exe(fixture)
-            entry["ok"] = exe is not None
-            entry["exe"] = str(exe) if exe else None
-            if exe:
-                entry["exe_sha256"] = c.cached_sha256(exe, out_dir / ".cache")
-                entry["exe_mtime"] = exe.stat().st_mtime
-            else:
-                entry["error"] = (
-                    "no runtime_r2.exe found; candidates: "
-                    + ", ".join(str(p) for p in r2_candidates(fixture))
-                )
+            build_dir = r2_build_dir(out_dir, fixture["name"])
+            exe = build_dir / "runtime_r2.exe"
+            entry["build_dir"] = str(build_dir)
+            entry["exe"] = str(exe)
+            missing = {
+                "build.ps1": _repo() / "src" / "runtime" / "c-r2" / "build.ps1",
+                "frontend-rust": _repo() / "src" / "frontend" / "rust" / "target" / "release" / "frontend-rust.exe",
+                "emit_ui.py": _repo() / "src" / "emitter" / "python" / "emit_ui.py",
+            }
+            entry["missing"] = {name: str(path) for name, path in missing.items() if not path.exists()}
+            entry["cached"] = _is_file(exe)
+            entry["ok"] = not entry["missing"]
+            if not entry["ok"]:
+                entry["error"] = "r2 build prerequisites missing"
         elif mode == "r1":
-            prereq = r1_prerequisites()
-            render_exe = r1_build_dir(out_dir, fixture["name"]) / "render_png.exe"
-            entry.update(prereq)
-            entry["cached_renderer"] = str(render_exe) if _is_file(render_exe) else None
-            entry["ok"] = bool(prereq["ok"])
+            entry["ok"] = False
+            entry["error"] = "r1 retired (archive/r1-static); use native.mode = 'r2'"
         else:
             entry["ok"] = False
             entry["error"] = f"unknown native mode {mode!r}"
@@ -205,130 +239,6 @@ def check(args: argparse.Namespace, out_dir: Path) -> int:
     return 0
 
 
-def _source_is_newer(render_exe: Path, fixture: dict[str, Any]) -> bool:
-    if not _is_file(render_exe):
-        return True
-    exe_mtime = render_exe.stat().st_mtime
-    sources = [Path(fixture["html_path"])]
-    if fixture.get("style_path"):
-        sources.append(Path(fixture["style_path"]))
-    html_dir = Path(fixture["html_path"]).parent
-    sources.extend(html_dir.glob("*.css"))
-    sources.extend(html_dir.glob("*.html"))
-    root = _repo()
-    sources.extend(
-        [
-            root / "src" / "frontend" / "rust" / "target" / "release" / "frontend-rust.exe",
-            root / "src" / "emitter" / "python" / "emit_c.py",
-            root / "src" / "runtime" / "c-static" / "runtime_gpu.c",
-            root / "src" / "runtime" / "c-static" / "runtime_window.c",
-        ]
-    )
-    return any(path.exists() and path.stat().st_mtime > exe_mtime for path in sources)
-
-
-def _build_r1(fixture: dict[str, Any], out_dir: Path, rebuild: bool, timeout: int) -> dict[str, Any]:
-    root = _repo()
-    build_dir = r1_build_dir(out_dir, fixture["name"])
-    render_exe = build_dir / "render_png.exe"
-    prereq = r1_prerequisites()
-    if not prereq["ok"]:
-        raise NativeError(
-            "R1 prerequisites missing: "
-            + "; ".join(f"{name}={path}" for name, path in prereq["missing"].items())
-        )
-    needs_build = rebuild or _source_is_newer(render_exe, fixture)
-    info: dict[str, Any] = {
-        "attempted": False,
-        "reused": not needs_build,
-        "render_exe": str(render_exe),
-        "build_dir": str(build_dir),
-        "script": str(root / "src" / "build.ps1"),
-    }
-    if needs_build:
-        build_dir.mkdir(parents=True, exist_ok=True)
-        command = [
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            str(root / "src" / "build.ps1"),
-            "-Html",
-            str(Path(fixture["html_path"])),
-            "-OutDir",
-            str(build_dir),
-            "-Width",
-            str(int(fixture["viewport"]["width"])),
-            "-Height",
-            str(int(fixture["viewport"]["height"])),
-        ]
-        started = time.perf_counter()
-        completed = c.run_command(command, cwd=root, timeout=timeout)
-        duration_ms = round((time.perf_counter() - started) * 1000.0, 2)
-        log_path = out_dir / "logs" / f"{fixture['name']}.r1-build.log"
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        c.write_text(
-            log_path,
-            "$ " + " ".join(command) + "\n\n[stdout]\n" + completed.stdout + "\n[stderr]\n" + completed.stderr,
-        )
-        info.update(
-            {
-                "attempted": True,
-                "ok": completed.returncode == 0,
-                "exit_code": completed.returncode,
-                "duration_ms": duration_ms,
-                "command": command,
-                "log": str(log_path),
-                "stdout_tail": c.tail(completed.stdout, 20),
-                "stderr_tail": c.tail(completed.stderr, 40),
-            }
-        )
-        if completed.returncode != 0:
-            raise NativeError(
-                f"R1 build failed with exit {completed.returncode}. Log: {log_path}\n"
-                + "\n".join(c.tail(completed.stderr or completed.stdout, 30))
-            )
-        if not _is_file(render_exe):
-            raise NativeError(f"R1 build finished but {render_exe} is missing")
-    return info
-
-
-def _try_rebuild_r2(fixture: dict[str, Any], out_dir: Path, timeout: int) -> dict[str, Any]:
-    root = _repo()
-    script = root / "src" / "runtime" / "c-r2" / "build.ps1"
-    command = [
-        "powershell.exe",
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        str(script),
-        "-Pilot",
-        "-SkipRustBuild",
-        "-SkipRun",
-    ]
-    started = time.perf_counter()
-    completed = c.run_command(command, cwd=root, timeout=timeout)
-    duration_ms = round((time.perf_counter() - started) * 1000.0, 2)
-    log_path = out_dir / "logs" / f"{fixture['name']}.r2-build.log"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    c.write_text(
-        log_path,
-        "$ " + " ".join(command) + "\n\n[stdout]\n" + completed.stdout + "\n[stderr]\n" + completed.stderr,
-    )
-    return {
-        "attempted": True,
-        "ok": completed.returncode == 0,
-        "exit_code": completed.returncode,
-        "duration_ms": duration_ms,
-        "command": command,
-        "log": str(log_path),
-        "stdout_tail": c.tail(completed.stdout, 20),
-        "stderr_tail": c.tail(completed.stderr, 40),
-    }
-
-
 def render(args: argparse.Namespace, out_path: Path, meta_path: Path) -> int:
     fixture = _fixture_selection(args)[0]
     c.validate_no_reasonless_excludes(fixture)
@@ -341,30 +251,22 @@ def render(args: argparse.Namespace, out_path: Path, meta_path: Path) -> int:
     r2_build_info: dict[str, Any] | None = None
 
     if mode == "r1":
-        build_info = _build_r1(fixture, out_root, args.rebuild, args.timeout)
-        exe = Path(build_info["render_exe"])
-        command = [str(exe), str(out_path)]
-        cwd = exe.parent
-        completed = c.run_command(command, cwd=cwd, timeout=args.timeout)
+        raise NativeError(
+            f"{fixture['name']}: native mode 'r1' was retired; R1 is archived in "
+            "archive/r1-static. Set native.mode to 'r2'."
+        )
     elif mode == "r2":
-        if args.rebuild:
-            try:
-                r2_build_info = _try_rebuild_r2(fixture, out_root, args.timeout)
-            except Exception as exc:  # keep the existing binary if a concurrent edit breaks the build
-                r2_build_info = {
-                    "attempted": True,
-                    "ok": False,
-                    "error": f"{type(exc).__name__}: {exc}",
-                }
-        exe = find_r2_exe(fixture)
-        if exe is None:
-            raise NativeError(
-                "no runtime_r2.exe found. Candidates: "
-                + ", ".join(str(p) for p in r2_candidates(fixture))
-                + ". Build with: powershell -NoProfile -ExecutionPolicy Bypass -File "
-                "src\\runtime\\c-r2\\build.ps1 -Pilot -SkipRustBuild -SkipRun"
-            )
-        cwd = Path(fixture.get("native", {}).get("cwd_path") or Path(fixture["html_path"]).parent)
+        override = os.environ.get("WEBNATIVE_R2_EXE") or fixture.get("native", {}).get("exe_path")
+        if override:
+            exe = find_r2_exe(fixture, override)
+            if exe is None:
+                raise NativeError(f"r2 override executable not found: {override}")
+        else:
+            build_dir = r2_build_dir(out_root, fixture["name"])
+            exe = build_dir / "runtime_r2.exe"
+            if args.rebuild or _r2_page_is_newer(exe, fixture):
+                r2_build_info = build_r2_page(fixture, out_root, width, height, args.timeout)
+        cwd = Path(fixture["html_path"]).parent
         command = [str(exe), "--render", str(width), str(height), str(out_path)]
         completed = c.run_command(command, cwd=cwd, timeout=args.timeout)
         build_info = None

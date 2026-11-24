@@ -243,10 +243,10 @@ if (-not $SkipNative) {
         $message = @"
 Native renderer prerequisites are missing.
 
-R1 (rect-only) needs MSVC, frontend-rust and the emitter from src/build.ps1.
-R2 (pilot) needs the existing binary at src\runtime\c-r2\build_pilot\runtime_r2.exe.
-If the concurrent D3D11/E1 edits broke the build, keep the existing exe and
-rerun; do not edit build scripts for the benchmark.
+Every fixture is compiled by the engine: src\runtime\c-r2\build.ps1 -Html <html>
+-Css <css> -Width W -Height H -OutDir out\build\r2-<fixture>, then rendered with
+runtime_r2.exe --render. This needs MSVC, frontend-rust and emit_ui.py.
+If the build breaks, fix the error; do not fall back to a stale binary.
 "@
         if ($AllowPartial) {
             Write-Host $message -ForegroundColor Yellow

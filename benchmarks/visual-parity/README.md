@@ -16,8 +16,9 @@ Se compara:
 - el mismo HTML/CSS de un fixture estático y autocontenido;
 - viewport fijo, DPR 1, 96 DPI, fondo opaco y sRGB;
 - layout, color, bordes, radio, texto y posters locales;
-- R1 (escena horneada) para rect-only y R2 (`runtime_r2.exe --render`) para el
-  piloto;
+- todos los fixtures se compilan y renderizan con el motor (`build.ps1 -Html ...
+  -Css ... -OutDir ...` + `runtime_r2.exe --render`); no hay pipeline estático
+  paralelo;
 - Chromium headless **pinned por Playwright**, nunca Edge/WebView2 instalados.
 
 No se compara:
@@ -37,10 +38,9 @@ reporte.
 
 - Windows 10/11.
 - Python 3.12 (`py -3.12`).
-- Para R1: MSVC con `vcvars64.bat`, `frontend-rust.exe` ya compilado,
-  `src/emitter/python/emit_c.py` y `third_party/wgpu-native`.
-- Para R2: el binario existente
-  `src/runtime/c-r2/build_pilot/runtime_r2.exe`.
+- MSVC con `vcvars64.bat`, `frontend-rust.exe` ya compilado, `emit_ui.py` y
+  `third_party/wgpu-native`. Cada fixture se compila con
+  `src/runtime/c-r2/build.ps1 -Html ... -Css ... -OutDir ...`.
 - Playwright + Chromium **solo** en este directorio. Nunca en el venv del
   runtime (`src/frontend/python/.venv`) ni enlazado por el engine.
 
@@ -114,7 +114,7 @@ Opciones:
 | `-OutDir <ruta>` | salida alternativa (por defecto `benchmarks/visual-parity/out`). |
 | `-SkipChromium` | reutiliza capturas Chromium existentes. |
 | `-SkipNative` | reutiliza PNGs nativos existentes. |
-| `-RebuildNative` | R1 recompila; R2 intenta `build.ps1 -Pilot -SkipRustBuild -SkipRun` y, si falla por las ediciones concurrentes, conserva el exe actual y registra el error exacto. |
+| `-RebuildNative` | recompila cada fixture con `build.ps1 -Html ... -Css ... -OutDir ... -SkipRustBuild` antes de renderizar. |
 | `-AllowPartial` | continúa si Chromium/nativo falla (genera reporte con ERROR). |
 | `-EnforceGate` | sale con código 1 si un fixture `gate=true` falla. |
 | `-NoArchive` | no copia el reporte a `reports/<timestamp>/`. |
@@ -173,7 +173,7 @@ benchmarks/visual-parity/out/
   diff/<name>.overlay.png              # diff > 8 en rojo sobre gris
   diff/<name>.<region>.crop.png        # recorte + overlay de regiones FAIL/WARN
   logs/<run>/...                       # stdout/stderr de cada herramienta
-  build/<name>/                        # R1 render_png.exe y escena horneada
+  build/r2-<name>/                     # runtime_r2.exe + ui_data.h del fixture
 reports/<timestamp>/report.json|md     # archivo de la corrida (sin PNGs)
 ```
 
@@ -228,7 +228,9 @@ Umbrales iniciales (se calibran con la baseline, no son un gate definitivo):
 - El reporte registra el SHA-256 del ejecutable de Chromium y del nativo, el
   backend/adaptador y si es software (en esta máquina: D3D12 sobre
   **Microsoft Basic Render Driver**, WARP, `type=cpu`).
-- R1 y R2 son caminos distintos; no se comparan ni se promedian entre sí.
+- El render nativo es la ruta offscreen del motor (`runtime_r2.exe --render`),
+  que hoy habla wgpu directamente; no usa todavía la vtable D3D11. El layout
+  comparado es el mismo; el pintado se compara contra WARP.
 
 ---
 
@@ -274,7 +276,7 @@ Chromium no bloquea build ni producto; el benchmark es opcional.
 | `Harness venv not found` | Ejecutar los tres comandos de instalación de §2. |
 | `CHROMIUM NOT AVAILABLE` | `...python.exe -m playwright install chromium-headless-shell`. No usar Edge/WebView2. |
 | `missing fixture fonts` | Instalar la fuente de la allowlist o quitar el fixture; no se compara un fallback. |
-| `R1 prerequisites missing` | Compilar `frontend-rust`, revisar MSVC/`vcvars64.bat` y `third_party/wgpu-native`. |
+| `r2 build prerequisites missing` | Compilar `frontend-rust`, revisar MSVC/`vcvars64.bat` y `third_party/wgpu-native`. |
 | `no runtime_r2.exe found` | Compilar el piloto con `src\runtime\c-r2\build.ps1 -Pilot -SkipRustBuild` o reutilizar el exe existente. |
 | `dimension mismatch` | El capturador/backend no respetó el viewport. No se reescala: corregir el fixture o el render. |
 | `native check` falla por ediciones concurrentes | Usar el `build_pilot/runtime_r2.exe` existente y reportar el error exacto; no modificar build scripts desde el harness. |

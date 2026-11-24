@@ -3,12 +3,16 @@
 Motor experimental de **HTML + CSS a UI nativa GPU**, sin navegador, sin
 WebView, sin Skia y sin Electron.
 
-El contrato central de **R1** es un **display list IR** en JSON: el frontend lo
-produce, el emitter lo hornea en datos C + WGSL, y `cl.exe` genera un `.exe`
-que renderiza sobre una vtable de backend: **D3D11** en Windows y
-**wgpu-native** (D3D12 / Vulkan / Metal) como alternativa y fallback. **R2**
-usa un **árbol de estilos pre-layout** (`ui_data.h`) y calcula el layout en C
-en runtime.
+El contrato central es el **árbol de estilos pre-layout** (`ui.json` →
+`ui_data.h`): el frontend Rust lo produce en build time, `emit_ui.py` lo
+convierte en datos C, y el motor calcula layout, estado y pintado en runtime
+sobre una vtable de backend: **D3D11** en Windows y **wgpu-native**
+(D3D12 / Vulkan / Metal) como alternativa y fallback.
+
+> **R1 está archivado.** La primera prueba del proyecto —hornear un
+> `display_list.json` post-layout en un `.exe` estático— duplicaba renderizador
+> y layout. Vive en [`archive/r1-static/`](archive/r1-static/README.md) como
+> referencia histórica, fuera del producto y de los tests.
 
 > **Origen:** nació como un experimento personal para usar HTML/CSS como
 > lenguaje de vista de apps desktop nativas, sin el peso de Electron/WebView y
@@ -37,13 +41,14 @@ src/
   frontend/rust/      frontend canónico (producción)
   frontend/cpp/       alternativa del benchmark
   frontend/csharp/    alternativa del benchmark
-  emitter/python/     emit_c.py (IR -> scene_data.h) · emit_ui.py (estilos -> ui_data.h)
-  runtime/c-static/   runtime C estático (R1): escena horneada, ventana + PNG
-  runtime/c-r2/       runtime C dinámico (R2): layout en runtime, eventos, resize
+  emitter/python/     emit_ui.py (estilos -> ui_data.h)
+  runtime/c-r2/       motor C: layout en runtime, eventos, resize, renderer
 benchmarks/
   frontend-parity/    fixtures, goldens, verifier y benchmark multi-lenguaje
+  visual-parity/      Chromium vs nativo (SSIM, diff, regiones)
 archive/
   experiments/        16 experimentos históricos (no mantenidos)
+  r1-static/          R1 horneado (archivado): escena estática + su renderer
 spec/                 fixtures originales del contrato
 docs/                 arquitectura, IR y convenciones
 third_party/          wgpu-native v29.0.1.1 (headers; binaries fetched)
@@ -72,17 +77,17 @@ seguirlas. Los resultados se versionan en
 | Frontend **Rust** (canónico) | ✅ paridad byte-idéntica, ~10 ms wall, 887 KB |
 | Frontend Python v1 (oráculo) | ✅ parse + cascada + block/flex + texto (HarfBuzz/FreeType) |
 | Frontend C++ / C# (benchmark) | ✅ alternativas medidas |
-| IR | ✅ schema + goldens |
-| Emitter C | ✅ `emit_c.py` (rects) y `emit_c_text.py` (texto) |
-| Runtime C estático (R1) | ✅ `src/runtime/c-static` — ventana + PNG, escena horneada |
-| Runtime C dinámico (R2) | ✅ `src/runtime/c-r2` — layout, grid, scroll, imágenes y eventos (69/69) |
+| IR de estilos (`ui.json`) | ✅ schema + goldens |
+| Emitter | ✅ `emit_ui.py` (estilos → `ui_data.h`) |
+| Runtime C | ✅ `src/runtime/c-r2` — layout, grid, scroll, imágenes y eventos (69/69) |
 | ABI C v4 | ✅ standalone/embedded; v3 dinámica + v4 input |
 | Dynamic UI (v3) | ✅ `set_visible`, `set_image`, `set_text`, clone/append/remove (53/53) |
 | Text input (v4) | ✅ ASCII single-line, caret/selección/clipboard, `WN_EVENT_INPUT` (111/111) |
 | CSS v3 (frontend) | ✅ bordes/radius/sombras/unidades |
 | CSS core v1 | ✅ radius/borde uniforme + primera sombra (41/41) |
-| Host C# (piloto) | ✅ 30 cards, búsqueda real, detalle, filtros, open (108/108) |
-| AOT HTML → `.exe` | ✅ rects; texto vía `c-static/build_text.ps1` |
+| Renderer | ✅ D3D11 hardware por defecto; wgpu como fallback |
+| Host C# (piloto) | ✅ 30 cards, búsqueda real, detalle, filtros, open (113/113) |
+| AOT HTML → `.exe` | 🗄️ archivado en `archive/r1-static` (histórico) |
 | Interactividad | ✅ R2 (`src/runtime/c-r2`); prototipo histórico en `archive/experiments/12` |
 
 ## Soporte y subset
@@ -107,7 +112,7 @@ Resumen de lo que hay hoy:
 | CSS visual | radius/bordes/sombras v1; per-side/per-corner/inset pendiente |
 | Fuera | JS, iframes, red, parser runtime, formularios web, UIA/IME |
 
-La matriz completa —frontend, R1, R2 y limitaciones— está en
+La matriz completa —frontend, runtime y limitaciones— está en
 [`docs/support.md`](docs/support.md). `--strict-subset` convierte cualquier
 feature fuera del contrato en error.
 
@@ -117,16 +122,20 @@ feature fuera del contrato en error.
 # Dependencias nativas: descarga wgpu-native v29.0.1.1 y verifica su SHA-256
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\fetch-wgpu.ps1
 
-# R1: HTML/CSS -> .exe con escena horneada (rects)
-powershell -NoProfile -ExecutionPolicy Bypass -File src\build.ps1 `
-  -Html benchmarks\frontend-parity\fixtures\contract\input.html `
-  -OutDir build\rect -Width 400 -Height 300
-
-# R2: build + aceptación del runtime dinámico (layout, reflow, estados, texto)
+# Build + aceptación del runtime (layout, reflow, estados, texto)
 powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build.ps1
 
 # El runtime usa D3D11 hardware en Windows. Para comparar con wgpu:
 #   $env:WN_RENDERER='wgpu'; ...\build_abi.ps1 ; Remove-Item Env:\WN_RENDERER
+
+# Compilar una página arbitraria a un runtime desechable (tooling/harness)
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build.ps1 `
+  -Html benchmarks\frontend-parity\fixtures\contract\input.html `
+  -Css benchmarks\frontend-parity\fixtures\contract\input.css `
+  -Width 400 -Height 300 -OutDir build\contract
+
+# Paridad visual contra Chromium (dev-only, requiere Playwright)
+powershell -NoProfile -ExecutionPolicy Bypass -File benchmarks\visual-parity\run_visual.ps1
 
 # Frontend Python: HTML/CSS -> IR + PNG
 cd src\frontend\python

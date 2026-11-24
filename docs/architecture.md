@@ -8,11 +8,11 @@
 │    Rust (canónico) · Python (oráculo) · C++/C# (benchmarks)  │
 ├──────────────────────────────────────────────────────────────┤
 │ 2. IR (contratos)                                            │
-│    display_list.json (R1, post-layout)                       │
-│    ui.json / ui_data.h (R2, style tree pre-layout)           │
+│    ui.json / ui_data.h (style tree pre-layout)               │
+│    display_list.json (post-layout, solo tooling/paridad)     │
 ├──────────────────────────────────────────────────────────────┤
 │ 3. Emitters (build time)                                     │
-│    emit_c.py · emit_c_text.py · emit_ui.py                   │
+│    emit_ui.py                                                │
 ├──────────────────────────────────────────────────────────────┤
 │ 4. Core C                                                    │
 │    tree · styles · layout · state · hit test · display list  │
@@ -44,23 +44,14 @@
 
 | Frontera | Formato | Productor | Consumidor |
 |---|---|---|---|
-| HTML/CSS → IR R1 | `display_list.json` | frontend | `emit_c` / renderer |
-| HTML/CSS → UI tree R2 | `ui.json` | frontend | `emit_ui` |
-| IR → datos C | `scene_data.h` / `ui_data.h` | emitters | runtime |
+| HTML/CSS → UI tree | `ui.json` | frontend | `emit_ui` |
+| UI tree → datos C | `ui_data.h` | emitter | runtime |
+| HTML/CSS → IR post-layout | `display_list.json` | frontend | benchmark de paridad (no se compila) |
 | App ↔ engine | `include/webnative.h` | engine | host (C/C++/Rust/C#/Python) |
 | Engine ↔ GPU | vtable `wn_renderer` | core | D3D11 o wgpu |
 | Engine ↔ OS | vtable `wn_host` | core | Win32 host |
 
-## Flujos
-
-### R1 estático
-
-```
-HTML/CSS → frontend Rust → display_list.json → emit_c(_text)
-         → scene_data.h → cl.exe → app.exe → renderer → ventana/PNG
-```
-
-### R2 dinámico
+## Flujo
 
 ```
 HTML/CSS → frontend Rust --emit-ui → ui.json (+atlas)
@@ -73,6 +64,14 @@ host: ABI v4 → set_visible/set_image/set_text/clone (v3) + input (v4)
 **D3D11 hardware** (`renderer_d3d11.c`) con fallback a **wgpu-native**; en otras
 plataformas solo wgpu. `WN_RENDERER=d3d11|wgpu` fuerza uno para A/B.
 
+### R1 estático (archivado)
+
+`HTML/CSS → display_list.json → emit_c → scene_data.h → .exe` existió como
+primera prueba. Duplicaba layout (en el frontend) y renderer
+(`src/runtime/c-static`), así que se retiró del producto. Vive en
+[`../archive/r1-static/`](../archive/r1-static/README.md); `display_list.json`
+sigue generándose para el benchmark de paridad entre lenguajes.
+
 ## Repo
 
 ```
@@ -81,13 +80,12 @@ src/
   frontend/python/     oráculo (goldens, fallback)
   frontend/cpp|csharp/ benchmarks archivados
   ir/                  schema + validador
-  emitter/python/      emit_c, emit_c_text, emit_ui
-  runtime/c-static/    R1
-  runtime/c-r2/        R2 + core/ABI (fase 1)
-  build.ps1            driver R1
+  emitter/python/      emit_ui
+  runtime/c-r2/        motor + core/ABI + renderers
 include/webnative.h    ABI C v4 (v3 dinámica + v4 input)
-benchmarks/            paridad de frontends + engine-metrics
-archive/experiments/           histórico inmutable
+benchmarks/            paridad de frontends, paridad visual, engine-metrics
+archive/experiments/   histórico inmutable
+archive/r1-static/     R1 horneado (archivado)
 docs/                  spec, arquitectura, ABI, métricas, subset, roadmap
 third_party/wgpu-native/
 ```

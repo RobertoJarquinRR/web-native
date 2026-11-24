@@ -34,7 +34,7 @@
       "gate": true,
       "fonts": [],
       "native": {
-        "mode": "r1"
+        "mode": "r2"
       },
       "tolerances": {
         "strict": {
@@ -77,7 +77,7 @@
       "gate": true,
       "fonts": [],
       "native": {
-        "mode": "r1"
+        "mode": "r2"
       },
       "tolerances": {
         "strict": {

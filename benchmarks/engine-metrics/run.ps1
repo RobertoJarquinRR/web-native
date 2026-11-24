@@ -141,11 +141,17 @@ else {
 }
 
 # ------------------------------------------------------------------- 3 R1 build
+# R1 is archived (archive/r1-static). When the script is gone, the R1 engine-size
+# and startup rows are simply not produced; R2 metrics are unaffected.
 if (-not $SkipR1) {
-    $needR1 = $RebuildR1 -or -not (Test-Path -LiteralPath (Join-Path $r1Dir 'webnative-rust.exe'))
-    if ($needR1) {
+    $r1Script = Join-Path $repo 'src\build.ps1'
+    if (-not (Test-Path -LiteralPath $r1Script)) {
+        Write-Host 'R1: archived (archive/r1-static) - skipping R1 metrics' -ForegroundColor Yellow
+        $SkipR1 = $true
+    }
+    elseif ($RebuildR1 -or -not (Test-Path -LiteralPath (Join-Path $r1Dir 'webnative-rust.exe'))) {
         Write-Host 'R1: building with src\build.ps1 -> work\r1-build (one time)' -ForegroundColor Cyan
-        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'src\build.ps1') `
+        & powershell -NoProfile -ExecutionPolicy Bypass -File $r1Script `
             -Html $r1Fixture -OutDir $r1Dir -Width 480 -Height 320 | Write-Host
         if ($LASTEXITCODE -ne 0) { Fail 'R1 build failed (src\build.ps1)' }
     }

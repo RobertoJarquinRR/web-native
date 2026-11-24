@@ -4,8 +4,9 @@
 
 - Frontend Rust canónico (HTML/CSS + texto) con paridad byte-idéntica.
 - Benchmark C++/Rust/C#/Python.
-- R1 estático (ventana/PNG, rects + texto, sin Python en runtime).
-- R2 dinámico (layout runtime, eventos, resize, estados) en `src/runtime/c-r2`.
+- R1 estático (ventana/PNG, rects + texto) — **[archivado](archive/r1-static/README.md)**
+  tras la consolidación: duplicaba layout y renderer.
+- Motor dinámico (layout runtime, eventos, resize, estados) en `src/runtime/c-r2`.
 - Rust `--emit-ui` → `ui.json` → `emit_ui.py --ui-json` → `ui_data.h`.
 - Repo git + docs base.
 
@@ -31,7 +32,7 @@ Un stream no toca los archivos de otro; se integra por contrato.
 
 ## Estado (2026-11)
 
-- ✅ R1/R2, grid/scroll/imágenes, paridad multi-frontend.
+- ✅ Runtime C, grid/scroll/imágenes, paridad multi-frontend.
 - ✅ ABI v3: UI dinámica (visibilidad, clone/append/remove, set_image) — 53/53.
 - ✅ ABI v4: input ASCII, caret/selección/clipboard, `WN_EVENT_INPUT` — 111/111.
 - ✅ **CSS core v1**: radius/borde uniforme + primera sombra — 41/41.
@@ -67,7 +68,7 @@ subset diagnostics.
 
 **Dependencias:** W4 (contratos) antes de W1. W2 y W3 son independientes.
 **Criterios:** R2 69/69; ABI compila y corre en C; métricas registran baseline;
-subset rechaza features fuera de v1; R1 sin regresión.
+subset rechaza features fuera de v1; R2 sin regresión.
 
 ## Fase 2 — Bindings y demos de host
 

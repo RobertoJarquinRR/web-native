@@ -39,11 +39,12 @@ src/
   frontend/rust/      frontend canónico (producción)
   frontend/cpp/       referencia de paridad congelada (SPEC.md)
   frontend/csharp/    referencia de paridad congelada (SPEC.md)
-  emitter/python/     emit_c.py (IR -> scene_data.h) y emit_ui.py (estilos -> ui_data.h)
-  runtime/c-static/   runtime C estático (R1): escena horneada
-  runtime/c-r2/       runtime C dinámico (R2): layout en runtime, eventos, resize
+  emitter/python/     emit_ui.py (estilos -> ui_data.h)
+  runtime/c-r2/       motor C: layout en runtime, eventos, resize, renderers
 third_party/wgpu-native/
 benchmarks/frontend-parity/
+benchmarks/visual-parity/
+archive/r1-static/    R1 horneado (archivado, no mantenido)
 spec/                 fixtures originales del contrato
 docs/                 arquitectura, IR y convenciones
 ```
