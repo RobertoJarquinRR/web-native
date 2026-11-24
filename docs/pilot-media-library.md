@@ -69,6 +69,25 @@ Fase A1 usa posters y metadata precalculados. Fase A2 los genera con FFprobe
 Estas features se evalúan como **extensiones del piloto**; las que se usen en
 más apps se promueven al subset v2.
 
+## Bloqueos de engine v0
+
+La ABI v0 renderiza un **árbol compilado** (`ui_data.h`); no parsea HTML/CSS en
+runtime, `set_text` es limitado y no hay scroll/imágenes/listas dinámicas/input.
+Por tanto, el piloto A1 no es implementable solo con v0. Orden propuesto:
+
+| Feature de motor | Por qué | Prioridad |
+|---|---|---|
+| `grid` o flex-wrap + scroll/clipping | biblioteca de 500–1000 items | 1 |
+| Imágenes (decode/cache) | posters | 1 |
+| Lista dinámica/template + virtualización | catálogo del host | 2 |
+| Texto dinámico (`set_text` arbitrario) | títulos del catálogo | 2 |
+| Input de búsqueda + teclado | filtro | 3 |
+| Truncado/ellipsis | títulos largos | 3 |
+
+**A0 opcional**: catálogo estático compilado (20–50 items) para validar estética
+y flujo del diseñador. Aun así necesita grid/scroll/imágenes.
+**A1 real**: lista dinámica/virtualizada + imágenes + input + texto dinámico.
+
 ## Arquitectura
 
 ```
