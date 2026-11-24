@@ -16,7 +16,9 @@ extern "C" {
 
 typedef enum wn_surface_kind {
     WN_SURFACE_NONE = 0,
-    WN_SURFACE_HWND = 1
+    WN_SURFACE_HWND = 1,
+    /* Texture target, no window. Render into it, then readback() to a PNG. */
+    WN_SURFACE_OFFSCREEN = 2
 } wn_surface_kind;
 
 typedef struct wn_surface_desc {
@@ -51,6 +53,8 @@ typedef struct wn_renderer_ops {
     const char *(*last_error)(void *context);
     void (*get_info)(void *context, wn_renderer_info *info);
     void (*get_stats)(void *context, wn_renderer_stats *stats);
+    /* Offscreen only: copy the last rendered frame into a PNG. 0 on success. */
+    int (*readback)(void *context, const char *png_path);
 } wn_renderer_ops;
 
 const wn_renderer_ops *wn_renderer_wgpu(void);

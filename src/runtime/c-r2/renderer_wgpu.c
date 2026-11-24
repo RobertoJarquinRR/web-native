@@ -58,6 +58,9 @@ typedef struct {
     int width;
     int height;
     int configured;
+    int offscreen;
+    WGPUTexture target;
+    WGPUTextureView target_view;
 
     WGPUShaderModule shader;
     WGPURenderPipeline pipeline;
@@ -292,6 +295,8 @@ static const char *kImageShaderWGSL =
     "fn fs_main(in: VSOut) -> @location(0) vec4<f32> {\n"
     "  return textureSample(image_texture, image_sampler, in.uv);\n"
     "}\n";
+
+static int create_offscreen_target(WnWgpu *gpu);
 
 static void configure_surface(WnWgpu *gpu)
 {
@@ -648,7 +653,9 @@ static int renderer_init(void **out, const wn_surface_desc *surface, int width, 
         return 1;
     }
     *out = NULL;
-    if (surface == NULL || surface->kind != WN_SURFACE_HWND || surface->handle == NULL) {
+    if (surface == NULL ||
+        (surface->kind != WN_SURFACE_HWND && surface->kind != WN_SURFACE_OFFSCREEN) ||
+        (surface->kind == WN_SURFACE_HWND && surface->handle == NULL)) {
         return 1;
     }
     gpu = (WnWgpu *)calloc(1, sizeof(*gpu));
@@ -657,6 +664,7 @@ static int renderer_init(void **out, const wn_surface_desc *surface, int width, 
     }
     gpu->width = width > 0 ? width : 1;
     gpu->height = height > 0 ? height : 1;
+    gpu->offscreen = surface->kind == WN_SURFACE_OFFSCREEN ? 1 : 0;
     gpu->format = WGPUTextureFormat_BGRA8Unorm;
     gpu->info.width = gpu->width;
     gpu->info.height = gpu->height;
@@ -674,7 +682,7 @@ static int renderer_init(void **out, const wn_surface_desc *surface, int width, 
         goto fail;
     }
 
-    {
+    if (!gpu->offscreen) {
         WGPUSurfaceSourceWindowsHWND source;
         WGPUSurfaceDescriptor descriptor;
         memset(&source, 0, sizeof(source));
@@ -762,24 +770,31 @@ static int renderer_init(void **out, const wn_surface_desc *surface, int width, 
 
     {
         WGPUSurfaceCapabilities caps;
-        memset(&caps, 0, sizeof(caps));
-        if (wgpuSurfaceGetCapabilities(gpu->surface, gpu->adapter, &caps) != WGPUStatus_Success ||
-            caps.formatCount == 0) {
-            set_error(gpu, "surface capabilities failed");
-            goto fail;
-        }
-        gpu->format = caps.formats[0];
-        for (size_t i = 0; i < caps.formatCount; ++i) {
-            if (caps.formats[i] == WGPUTextureFormat_BGRA8Unorm ||
-                caps.formats[i] == WGPUTextureFormat_RGBA8Unorm) {
-                gpu->format = caps.formats[i];
-                break;
+        if (gpu->offscreen) {
+            gpu->format = WGPUTextureFormat_BGRA8Unorm;
+            gpu->info.format = (int)gpu->format;
+        } else {
+            memset(&caps, 0, sizeof(caps));
+            if (wgpuSurfaceGetCapabilities(gpu->surface, gpu->adapter, &caps) != WGPUStatus_Success ||
+                caps.formatCount == 0) {
+                set_error(gpu, "surface capabilities failed");
+                goto fail;
             }
+            gpu->format = caps.formats[0];
+            for (size_t i = 0; i < caps.formatCount; ++i) {
+                if (caps.formats[i] == WGPUTextureFormat_BGRA8Unorm ||
+                    caps.formats[i] == WGPUTextureFormat_RGBA8Unorm) {
+                    gpu->format = caps.formats[i];
+                    break;
+                }
+            }
+            gpu->info.format = (int)gpu->format;
         }
-        gpu->info.format = (int)gpu->format;
     }
 
-    configure_surface(gpu);
+    if (!gpu->offscreen) {
+        configure_surface(gpu);
+    }
     if (create_text_resources(gpu) != 0 || create_pipelines(gpu) != 0) {
         goto fail;
     }
@@ -820,13 +835,18 @@ static void renderer_resize(void *context, int width, int height)
     }
     if (width < 1) width = 1;
     if (height < 1) height = 1;
-    if (gpu->width == width && gpu->height == height && gpu->configured) {
+    if (gpu->width == width && gpu->height == height &&
+        (gpu->offscreen ? gpu->target_view != NULL : gpu->configured)) {
         return;
     }
     gpu->width = width;
     gpu->height = height;
     gpu->info.width = width;
     gpu->info.height = height;
+    if (gpu->offscreen) {
+        (void)create_offscreen_target(gpu);
+        return;
+    }
     configure_surface(gpu);
 }
 
@@ -1237,10 +1257,235 @@ static int set_scissor(WGPURenderPassEncoder pass, float x, float y, float w, fl
     return 1;
 }
 
+static int create_offscreen_target(WnWgpu *gpu)
+{
+    WGPUTextureDescriptor desc;
+    if (gpu == NULL || gpu->device == NULL) {
+        return 1;
+    }
+    if (gpu->target_view != NULL) {
+        wgpuTextureViewRelease(gpu->target_view);
+        gpu->target_view = NULL;
+    }
+    if (gpu->target != NULL) {
+        wgpuTextureRelease(gpu->target);
+        gpu->target = NULL;
+    }
+    memset(&desc, 0, sizeof(desc));
+    desc.label = wsv("wn-offscreen");
+    desc.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_CopySrc;
+    desc.dimension = WGPUTextureDimension_2D;
+    desc.size.width = (uint32_t)(gpu->width > 0 ? gpu->width : 1);
+    desc.size.height = (uint32_t)(gpu->height > 0 ? gpu->height : 1);
+    desc.size.depthOrArrayLayers = 1;
+    desc.format = gpu->format;
+    desc.mipLevelCount = 1;
+    desc.sampleCount = 1;
+    gpu->target = wgpuDeviceCreateTexture(gpu->device, &desc);
+    if (gpu->target == NULL) {
+        set_error(gpu, "offscreen texture creation failed");
+        return 1;
+    }
+    gpu->target_view = wgpuTextureCreateView(gpu->target, NULL);
+    if (gpu->target_view == NULL) {
+        set_error(gpu, "offscreen texture view creation failed");
+        return 1;
+    }
+    return 0;
+}
+
+/* ------------------------------------------------------- offscreen readback */
+
+typedef struct {
+    volatile int done;
+    WGPUMapAsyncStatus status;
+} WnMapResult;
+
+static void on_map(WGPUMapAsyncStatus status, WGPUStringView message, void *userdata1,
+                   void *userdata2)
+{
+    WnMapResult *result = (WnMapResult *)userdata1;
+    (void)message;
+    (void)userdata2;
+    if (result != NULL) {
+        result->status = status;
+        result->done = 1;
+    }
+}
+
+static int write_png_bgra_file(WnWgpu *gpu, const char *path, const unsigned char *pixels,
+                               int width, int height, unsigned int stride)
+{
+    wchar_t wide[1024];
+    IWICStream *stream = NULL;
+    IWICBitmapEncoder *encoder = NULL;
+    IWICBitmapFrameEncode *frame = NULL;
+    IWICBitmap *bitmap = NULL;
+    WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
+    HRESULT hr;
+    int result = 1;
+
+    if (gpu->wic == NULL) {
+        hr = CoCreateInstance(&CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER,
+                             &IID_IWICImagingFactory, (void **)&gpu->wic);
+        if (FAILED(hr) || gpu->wic == NULL) {
+            return 1;
+        }
+    }
+    if (MultiByteToWideChar(CP_UTF8, 0, path, -1, wide,
+                           (int)(sizeof(wide) / sizeof(wide[0]))) <= 0) {
+        return 1;
+    }
+    hr = gpu->wic->lpVtbl->CreateStream(gpu->wic, &stream);
+    if (FAILED(hr)) goto fail;
+    hr = stream->lpVtbl->InitializeFromFilename(stream, wide, GENERIC_WRITE);
+    if (FAILED(hr)) goto fail;
+    hr = gpu->wic->lpVtbl->CreateEncoder(gpu->wic, &GUID_ContainerFormatPng, NULL,
+                                        &encoder);
+    if (FAILED(hr)) goto fail;
+    hr = encoder->lpVtbl->Initialize(encoder, (IStream *)stream, WICBitmapEncoderNoCache);
+    if (FAILED(hr)) goto fail;
+    hr = encoder->lpVtbl->CreateNewFrame(encoder, &frame, NULL);
+    if (FAILED(hr)) goto fail;
+    hr = frame->lpVtbl->Initialize(frame, NULL);
+    if (FAILED(hr)) goto fail;
+    hr = frame->lpVtbl->SetSize(frame, (UINT)width, (UINT)height);
+    if (FAILED(hr)) goto fail;
+    hr = frame->lpVtbl->SetPixelFormat(frame, &format);
+    if (FAILED(hr)) goto fail;
+    hr = gpu->wic->lpVtbl->CreateBitmapFromMemory(
+        gpu->wic, (UINT)width, (UINT)height, &GUID_WICPixelFormat32bppBGRA, stride,
+        stride * (UINT)height, (BYTE *)pixels, &bitmap);
+    if (FAILED(hr)) goto fail;
+    hr = frame->lpVtbl->WriteSource(frame, (IWICBitmapSource *)bitmap, NULL);
+    if (FAILED(hr)) goto fail;
+    hr = frame->lpVtbl->Commit(frame);
+    if (FAILED(hr)) goto fail;
+    hr = encoder->lpVtbl->Commit(encoder);
+    if (FAILED(hr)) goto fail;
+    result = 0;
+
+fail:
+    if (bitmap != NULL) bitmap->lpVtbl->Release(bitmap);
+    if (frame != NULL) frame->lpVtbl->Release(frame);
+    if (encoder != NULL) encoder->lpVtbl->Release(encoder);
+    if (stream != NULL) stream->lpVtbl->Release(stream);
+    return result;
+}
+
+static int renderer_readback(void *context, const char *path)
+{
+    WnWgpu *gpu = (WnWgpu *)context;
+    WGPUBufferDescriptor buffer_desc;
+    WGPUTexelCopyTextureInfo source;
+    WGPUTexelCopyBufferInfo destination;
+    WGPUExtent3D extent;
+    WGPUCommandEncoder encoder;
+    WGPUCommandBuffer command;
+    WGPUBufferMapCallbackInfo callback_info;
+    WnMapResult map_result;
+    WGPUBuffer buffer = NULL;
+    void *mapped;
+    unsigned int stride;
+    size_t bytes;
+    int rc = 1;
+
+    if (gpu == NULL || path == NULL || path[0] == '\0' || !gpu->offscreen) {
+        return 1;
+    }
+    if (gpu->target == NULL) {
+        set_error(gpu, "readback before render");
+        return 1;
+    }
+    stride = ((unsigned int)gpu->width * 4u + 255u) & ~255u;
+    bytes = (size_t)stride * (size_t)gpu->height;
+
+    memset(&buffer_desc, 0, sizeof(buffer_desc));
+    buffer_desc.label = wsv("wn-readback");
+    buffer_desc.size = (uint64_t)bytes;
+    buffer_desc.usage = WGPUBufferUsage_MapRead | WGPUBufferUsage_CopyDst;
+    buffer = wgpuDeviceCreateBuffer(gpu->device, &buffer_desc);
+    if (buffer == NULL) {
+        set_error(gpu, "readback buffer creation failed");
+        return 1;
+    }
+
+    memset(&source, 0, sizeof(source));
+    source.texture = gpu->target;
+    source.mipLevel = 0;
+    source.origin.x = 0;
+    source.origin.y = 0;
+    source.origin.z = 0;
+    source.aspect = WGPUTextureAspect_All;
+
+    memset(&destination, 0, sizeof(destination));
+    destination.buffer = buffer;
+    destination.layout.offset = 0;
+    destination.layout.bytesPerRow = stride;
+    destination.layout.rowsPerImage = (uint32_t)gpu->height;
+
+    memset(&extent, 0, sizeof(extent));
+    extent.width = (uint32_t)gpu->width;
+    extent.height = (uint32_t)gpu->height;
+    extent.depthOrArrayLayers = 1;
+
+    encoder = wgpuDeviceCreateCommandEncoder(gpu->device, NULL);
+    if (encoder == NULL) {
+        set_error(gpu, "readback encoder creation failed");
+        goto done;
+    }
+    wgpuCommandEncoderCopyTextureToBuffer(encoder, &source, &destination, &extent);
+    command = wgpuCommandEncoderFinish(encoder, NULL);
+    wgpuCommandEncoderRelease(encoder);
+    if (command == NULL) {
+        set_error(gpu, "readback command buffer failed");
+        goto done;
+    }
+    wgpuQueueSubmit(gpu->queue, 1, &command);
+    wgpuCommandBufferRelease(command);
+
+    memset(&map_result, 0, sizeof(map_result));
+    memset(&callback_info, 0, sizeof(callback_info));
+    callback_info.mode = WGPUCallbackMode_AllowProcessEvents;
+    callback_info.callback = on_map;
+    callback_info.userdata1 = &map_result;
+    (void)wgpuBufferMapAsync(buffer, WGPUMapMode_Read, 0, bytes, callback_info);
+    if (map_result.done == 0) {
+        DWORD start = GetTickCount();
+        while (!map_result.done) {
+            wgpuInstanceProcessEvents(gpu->instance);
+            if (GetTickCount() - start > 30000u) {
+                set_error(gpu, "readback map timed out");
+                goto done;
+            }
+            Sleep(1);
+        }
+    }
+    if (map_result.status != WGPUMapAsyncStatus_Success) {
+        set_error(gpu, "readback map failed (status %d)", (int)map_result.status);
+        goto done;
+    }
+    mapped = wgpuBufferGetMappedRange(buffer, 0, bytes);
+    if (mapped == NULL) {
+        set_error(gpu, "readback mapped range is NULL");
+        goto done;
+    }
+    rc = write_png_bgra_file(gpu, path, (const unsigned char *)mapped, gpu->width,
+                             gpu->height, stride);
+    wgpuBufferUnmap(buffer);
+
+done:
+    if (buffer != NULL) {
+        wgpuBufferRelease(buffer);
+    }
+    return rc;
+}
+
 static int renderer_render(void *context, const wn_display_list *list)
 {
     WnWgpu *gpu = (WnWgpu *)context;
     WGPUSurfaceTexture surface_texture;
+    memset(&surface_texture, 0, sizeof(surface_texture));
     WGPUTextureView view = NULL;
     WGPUCommandEncoder encoder = NULL;
     WGPUCommandBuffer command = NULL;
@@ -1265,44 +1510,55 @@ static int renderer_render(void *context, const wn_display_list *list)
         clear[2] = list->clear_color[2];
         clear[3] = list->clear_color[3];
     }
-    if (!gpu->configured) {
+    if (!gpu->configured && !gpu->offscreen) {
         configure_surface(gpu);
     }
 
-    for (attempt = 0; attempt < 2; ++attempt) {
-        memset(&surface_texture, 0, sizeof(surface_texture));
-        wgpuSurfaceGetCurrentTexture(gpu->surface, &surface_texture);
-        if (surface_texture.status == WGPUSurfaceGetCurrentTextureStatus_Outdated ||
-            surface_texture.status == WGPUSurfaceGetCurrentTextureStatus_Lost) {
-            configure_surface(gpu);
-            continue;
-        }
-        if (surface_texture.status == WGPUSurfaceGetCurrentTextureStatus_Timeout) {
-            return 0;
-        }
-        if (surface_texture.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
-            surface_texture.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
-            set_error(gpu, "getCurrentTexture status %d", (int)surface_texture.status);
+    if (gpu->offscreen) {
+        if (gpu->target_view == NULL && create_offscreen_target(gpu) != 0) {
             return 1;
         }
-        break;
-    }
-    if (attempt == 2) {
-        set_error(gpu, "surface texture unavailable after reconfigure");
-        return 1;
+    } else {
+        for (attempt = 0; attempt < 2; ++attempt) {
+            memset(&surface_texture, 0, sizeof(surface_texture));
+            wgpuSurfaceGetCurrentTexture(gpu->surface, &surface_texture);
+            if (surface_texture.status == WGPUSurfaceGetCurrentTextureStatus_Outdated ||
+                surface_texture.status == WGPUSurfaceGetCurrentTextureStatus_Lost) {
+                configure_surface(gpu);
+                continue;
+            }
+            if (surface_texture.status == WGPUSurfaceGetCurrentTextureStatus_Timeout) {
+                return 0;
+            }
+            if (surface_texture.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
+                surface_texture.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
+                set_error(gpu, "getCurrentTexture status %d", (int)surface_texture.status);
+                return 1;
+            }
+            break;
+        }
+        if (attempt == 2) {
+            set_error(gpu, "surface texture unavailable after reconfigure");
+            return 1;
+        }
     }
     t0 = wn_now_ms();
 
-    view = wgpuTextureCreateView(surface_texture.texture, NULL);
+    view = gpu->offscreen ? gpu->target_view
+                          : wgpuTextureCreateView(surface_texture.texture, NULL);
     if (view == NULL) {
-        wgpuTextureRelease(surface_texture.texture);
+        if (!gpu->offscreen) {
+            wgpuTextureRelease(surface_texture.texture);
+        }
         set_error(gpu, "surface texture view creation failed");
         return 1;
     }
     encoder = wgpuDeviceCreateCommandEncoder(gpu->device, NULL);
     if (encoder == NULL) {
-        wgpuTextureViewRelease(view);
-        wgpuTextureRelease(surface_texture.texture);
+        if (!gpu->offscreen) {
+            wgpuTextureViewRelease(view);
+            wgpuTextureRelease(surface_texture.texture);
+        }
         set_error(gpu, "command encoder creation failed");
         return 1;
     }
@@ -1406,15 +1662,14 @@ static int renderer_render(void *context, const wn_display_list *list)
     wgpuCommandEncoderRelease(encoder);
     cpu_ms = wn_now_ms() - t0;
 
-    {
+    if (!gpu->offscreen) {
         double p0 = wn_now_ms();
         (void)wgpuSurfacePresent(gpu->surface);
         present_ms = wn_now_ms() - p0;
         (void)p0;
+        wgpuTextureViewRelease(view);
+        wgpuTextureRelease(surface_texture.texture);
     }
-
-    wgpuTextureViewRelease(view);
-    wgpuTextureRelease(surface_texture.texture);
 
     gpu->stats.frames += 1;
     gpu->stats.last_cpu_ms = cpu_ms;
@@ -1432,6 +1687,8 @@ static void renderer_destroy(void *context)
     if (gpu->vertex_buffer != NULL) wgpuBufferRelease(gpu->vertex_buffer);
     if (gpu->glyph_buffer != NULL) wgpuBufferRelease(gpu->glyph_buffer);
     if (gpu->image_buffer != NULL) wgpuBufferRelease(gpu->image_buffer);
+    if (gpu->target_view != NULL) wgpuTextureViewRelease(gpu->target_view);
+    if (gpu->target != NULL) wgpuTextureRelease(gpu->target);
     for (i = 0; i < gpu->image_count; ++i) {
         if (gpu->images[i].bind != NULL) wgpuBindGroupRelease(gpu->images[i].bind);
         if (gpu->images[i].view != NULL) wgpuTextureViewRelease(gpu->images[i].view);
@@ -1495,7 +1752,8 @@ static const wn_renderer_ops g_wgpu_ops = {
     renderer_destroy,
     renderer_last_error,
     renderer_get_info,
-    renderer_get_stats
+    renderer_get_stats,
+    renderer_readback
 };
 
 const wn_renderer_ops *wn_renderer_wgpu(void)

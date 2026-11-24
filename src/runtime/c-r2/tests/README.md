@@ -103,6 +103,24 @@ Evidence: `out/render_card.png`, `out/render_control.png`,
 `out/layout_card.json`, `out/css_verify_report.json`, `out/run_report.json`
 (generated, gitignored). Result: **41/41 PASS**.
 
+## `offscreen/`
+
+Offscreen target through the renderer vtable (`WN_SURFACE_OFFSCREEN` +
+`readback`), without a window. This is the path tooling and the visual-parity
+harness use:
+
+- `offscreen_test.c` creates a view on a texture, loads the compiled fixture,
+  renders one frame and writes it with the backend readback.
+- `run_offscreen.ps1` compiles it with `/W4 /WX`, runs it with
+  `WN_RENDERER=d3d11` and `WN_RENDERER=wgpu`, and compares both PNGs.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\offscreen\run_offscreen.ps1
+```
+
+Last run: **PASS**, 960x640, max channel diff **3**, 99.83 % exact, 0 % beyond
+tolerance.
+
 ## `d3d11/`
 
 Acceptance for the second renderer backend (`renderer_d3d11.c`). It proves the

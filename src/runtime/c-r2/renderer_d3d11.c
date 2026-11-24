@@ -55,6 +55,7 @@ typedef struct {
     D3D_FEATURE_LEVEL feature_level;
     int driver_hardware;
     int flip_model;
+    int offscreen;   /* 1 when rendering into a texture (no swapchain) */
     int width;
     int height;
 
@@ -304,6 +305,38 @@ static int create_render_target(WnD3D11 *gpu)
     ID3D11Texture2D *backbuffer = NULL;
     ID3D11RenderTargetView *rtv = NULL;
 
+    if (gpu->offscreen) {
+        D3D11_TEXTURE2D_DESC desc;
+        memset(&desc, 0, sizeof(desc));
+        desc.Width = (UINT)(gpu->width > 0 ? gpu->width : 1);
+        desc.Height = (UINT)(gpu->height > 0 ? gpu->height : 1);
+        desc.MipLevels = 1;
+        desc.ArraySize = 1;
+        desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        desc.Usage = D3D11_USAGE_DEFAULT;
+        desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+        hr = gpu->device->lpVtbl->CreateTexture2D(gpu->device, &desc, NULL, &backbuffer);
+        if (FAILED(hr) || backbuffer == NULL) {
+            set_error(gpu, "offscreen CreateTexture2D failed (hr=0x%08lX)",
+                      (unsigned long)hr);
+            return 1;
+        }
+        hr = gpu->device->lpVtbl->CreateRenderTargetView(
+            gpu->device, (ID3D11Resource *)backbuffer, NULL, &rtv);
+        if (FAILED(hr) || rtv == NULL) {
+            set_error(gpu, "offscreen CreateRenderTargetView failed (hr=0x%08lX)",
+                      (unsigned long)hr);
+            backbuffer->lpVtbl->Release(backbuffer);
+            return 1;
+        }
+        com_release((IUnknown *)gpu->rtv);
+        com_release((IUnknown *)gpu->backbuffer);
+        gpu->backbuffer = backbuffer;
+        gpu->rtv = rtv;
+        return 0;
+    }
+
     if (gpu->swapchain == NULL) {
         return 1;
     }
@@ -326,6 +359,35 @@ static int create_render_target(WnD3D11 *gpu)
     gpu->backbuffer = backbuffer;
     gpu->rtv = rtv;
     return 0;
+}
+
+static void fill_adapter_name(WnD3D11 *gpu)
+{
+    IDXGIDevice *dxgi_device = NULL;
+    IDXGIAdapter1 *adapter = NULL;
+    DXGI_ADAPTER_DESC1 desc;
+    HRESULT hr;
+
+    if (gpu == NULL || gpu->device == NULL || gpu->info.device[0] != '\0') {
+        return;
+    }
+    hr = gpu->device->lpVtbl->QueryInterface(gpu->device, &IID_IDXGIDevice,
+                                             (void **)&dxgi_device);
+    if (FAILED(hr) || dxgi_device == NULL) {
+        return;
+    }
+    hr = dxgi_device->lpVtbl->GetAdapter(dxgi_device, (IDXGIAdapter **)&adapter);
+    dxgi_device->lpVtbl->Release(dxgi_device);
+    if (FAILED(hr) || adapter == NULL) {
+        return;
+    }
+    memset(&desc, 0, sizeof(desc));
+    if (SUCCEEDED(adapter->lpVtbl->GetDesc1(adapter, &desc))) {
+        WideCharToMultiByte(CP_UTF8, 0, desc.Description, -1, gpu->info.device,
+                            (int)sizeof(gpu->info.device), NULL, NULL);
+        gpu->info.device[sizeof(gpu->info.device) - 1] = '\0';
+    }
+    adapter->lpVtbl->Release(adapter);
 }
 
 static int create_swapchain(WnD3D11 *gpu, void *handle, int width, int height)
@@ -850,8 +912,10 @@ static int renderer_init(void **out, const wn_surface_desc *surface, int width, 
         return 1;
     }
     *out = NULL;
-    if (surface == NULL || surface->kind != WN_SURFACE_HWND || surface->handle == NULL) {
-        fprintf(stderr, "renderer: d3d11 init needs a valid HWND surface\n");
+    if (surface == NULL ||
+        (surface->kind != WN_SURFACE_HWND && surface->kind != WN_SURFACE_OFFSCREEN) ||
+        (surface->kind == WN_SURFACE_HWND && surface->handle == NULL)) {
+        fprintf(stderr, "renderer: d3d11 init needs an HWND or offscreen surface\n");
         return 1;
     }
     gpu = (WnD3D11 *)calloc(1, sizeof(*gpu));
@@ -860,6 +924,7 @@ static int renderer_init(void **out, const wn_surface_desc *surface, int width, 
     }
     gpu->width = width > 0 ? width : 1;
     gpu->height = height > 0 ? height : 1;
+    gpu->offscreen = surface->kind == WN_SURFACE_OFFSCREEN ? 1 : 0;
     gpu->info.width = gpu->width;
     gpu->info.height = gpu->height;
     gpu->capture_frame = 1;
@@ -901,8 +966,13 @@ static int renderer_init(void **out, const wn_surface_desc *surface, int width, 
     }
     gpu->feature_level = got_level;
     snprintf(gpu->info.backend, sizeof(gpu->info.backend), "%s", "D3D11");
+    fill_adapter_name(gpu);
 
-    if (create_swapchain(gpu, surface->handle, gpu->width, gpu->height) != 0) {
+    if (gpu->offscreen) {
+        if (create_render_target(gpu) != 0) {
+            goto fail;
+        }
+    } else if (create_swapchain(gpu, surface->handle, gpu->width, gpu->height) != 0) {
         goto fail;
     }
 
@@ -978,7 +1048,8 @@ static int renderer_init(void **out, const wn_surface_desc *surface, int width, 
            gpu->info.backend,
            gpu->info.device[0] != '\0' ? gpu->info.device : "(unknown)",
            gpu->driver_hardware ? "hardware" : "warp",
-           (unsigned)got_level, gpu->flip_model ? "flip-discard" : "discard");
+           (unsigned)got_level,
+           gpu->offscreen ? "offscreen" : (gpu->flip_model ? "flip-discard" : "discard"));
     fflush(stdout);
 
     *out = gpu;
@@ -1043,6 +1114,14 @@ static void renderer_resize(void *context, int width, int height)
     gpu->height = height;
     gpu->info.width = width;
     gpu->info.height = height;
+    if (gpu->offscreen) {
+        com_release((IUnknown *)gpu->rtv);
+        gpu->rtv = NULL;
+        com_release((IUnknown *)gpu->backbuffer);
+        gpu->backbuffer = NULL;
+        (void)create_render_target(gpu);
+        return;
+    }
     if (gpu->swapchain == NULL) {
         return;
     }
@@ -1161,7 +1240,8 @@ static int renderer_render(void *context, const wn_display_list *list)
     if (gpu->width <= 0 || gpu->height <= 0) {
         return 0;
     }
-    if (gpu->device == NULL || gpu->context == NULL || gpu->swapchain == NULL) {
+    if (gpu->device == NULL || gpu->context == NULL ||
+        (gpu->swapchain == NULL && !gpu->offscreen)) {
         set_error(gpu, "renderer is not initialized");
         return 1;
     }
@@ -1284,6 +1364,14 @@ static int renderer_render(void *context, const wn_display_list *list)
         }
     }
 
+    if (gpu->offscreen) {
+        /* No present: the frame stays in the render target until readback. */
+        gpu->stats.frames += 1;
+        gpu->stats.last_cpu_ms = cpu_ms;
+        gpu->stats.last_present_ms = 0.0;
+        return 0;
+    }
+
     {
         double p0 = wn_now_ms();
         /* Present(1, 0) caps the app to the display refresh with vsync. */
@@ -1376,6 +1464,23 @@ static void renderer_get_stats(void *context, wn_renderer_stats *stats)
     }
 }
 
+static int renderer_readback(void *context, const char *path)
+{
+    WnD3D11 *gpu = (WnD3D11 *)context;
+    if (gpu == NULL || path == NULL || path[0] == '\0') {
+        return 1;
+    }
+    if (!gpu->offscreen) {
+        set_error(gpu, "readback requires an offscreen surface");
+        return 1;
+    }
+    if (capture_backbuffer(gpu, path) != 0) {
+        set_error(gpu, "readback failed");
+        return 1;
+    }
+    return 0;
+}
+
 static const wn_renderer_ops g_d3d11_ops = {
     "d3d11",
     renderer_init,
@@ -1385,7 +1490,8 @@ static const wn_renderer_ops g_d3d11_ops = {
     renderer_destroy,
     renderer_last_error,
     renderer_get_info,
-    renderer_get_stats
+    renderer_get_stats,
+    renderer_readback
 };
 
 const wn_renderer_ops *wn_renderer_d3d11(void)

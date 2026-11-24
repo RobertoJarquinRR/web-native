@@ -281,12 +281,48 @@ static int view_init_renderer(wn_view *view, const wn_surface_desc *surface,
     return 1;
 }
 
+/* Common constructor: the surface decides window vs offscreen. */
+static wn_view *view_create_with_surface(const wn_surface_desc *surface,
+                                         int32_t width, int32_t height)
+{
+    wn_view *view;
+    char renderer_errors[512];
+
+    view = (wn_view *)calloc(1, sizeof(*view));
+    if (view == NULL) {
+        wn_set_error("wn_view_create: out of memory");
+        return NULL;
+    }
+    view->core = wn_core_create(wn_document_builtin());
+    if (view->core == NULL) {
+        wn_set_error("wn_view_create: core creation failed");
+        free(view);
+        return NULL;
+    }
+    view->native_window = surface->handle;
+    view->width = width;
+    view->height = height;
+    view->dpi_scale = 1.0f;
+    view->created_ms = wn_now_ms();
+
+    if (view_init_renderer(view, surface, width, height, renderer_errors,
+                           sizeof(renderer_errors)) != 0) {
+        wn_set_error("wn_view_create: renderer init failed: %s",
+                     renderer_errors[0] != '\0' ? renderer_errors : "unknown");
+        wn_core_destroy(view->core);
+        free(view);
+        return NULL;
+    }
+    wn_core_resize(view->core, width, height);
+    view->geometry_dirty = 1;
+    view->upload_dirty = 1;
+    return view;
+}
+
 wn_view *wn_view_create(void *native_window_handle, int32_t width, int32_t height,
                         uint32_t flags)
 {
-    wn_view *view;
     wn_surface_desc surface;
-    char renderer_errors[512];
 
     wn_clear_error();
     if (native_window_handle == NULL) {
@@ -302,42 +338,60 @@ wn_view *wn_view_create(void *native_window_handle, int32_t width, int32_t heigh
         wn_set_error("wn_view_create: flags must be 0 (got 0x%X)", (unsigned)flags);
         return NULL;
     }
-
-    view = (wn_view *)calloc(1, sizeof(*view));
-    if (view == NULL) {
-        wn_set_error("wn_view_create: out of memory");
-        return NULL;
-    }
-    view->core = wn_core_create(wn_document_builtin());
-    if (view->core == NULL) {
-        wn_set_error("wn_view_create: core creation failed");
-        free(view);
-        return NULL;
-    }
-    view->native_window = native_window_handle;
-    view->width = width;
-    view->height = height;
-    view->dpi_scale = 1.0f;
-    view->created_ms = wn_now_ms();
-
     memset(&surface, 0, sizeof(surface));
     surface.kind = WN_SURFACE_HWND;
     surface.handle = native_window_handle;
     surface.instance_handle = NULL;
     surface.width = width;
     surface.height = height;
-    if (view_init_renderer(view, &surface, width, height, renderer_errors,
-                           sizeof(renderer_errors)) != 0) {
-        wn_set_error("wn_view_create: renderer init failed: %s",
-                     renderer_errors[0] != '\0' ? renderer_errors : "unknown");
-        wn_core_destroy(view->core);
-        free(view);
+    return view_create_with_surface(&surface, width, height);
+}
+
+wn_view *wn_view_create_offscreen(int32_t width, int32_t height)
+{
+    wn_surface_desc surface;
+
+    wn_clear_error();
+    if (width <= 0 || height <= 0) {
+        wn_set_error("wn_view_create_offscreen: width/height must be positive (got %dx%d)",
+                     (int)width, (int)height);
         return NULL;
     }
-    wn_core_resize(view->core, width, height);
-    view->geometry_dirty = 1;
-    view->upload_dirty = 1;
-    return view;
+    memset(&surface, 0, sizeof(surface));
+    surface.kind = WN_SURFACE_OFFSCREEN;
+    surface.handle = NULL;
+    surface.instance_handle = NULL;
+    surface.width = width;
+    surface.height = height;
+    return view_create_with_surface(&surface, width, height);
+}
+
+wn_status wn_view_readback(wn_view *view, const char *png_path)
+{
+    const wn_renderer_ops *ops;
+
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_view_readback: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    if (png_path == NULL || png_path[0] == '\0') {
+        wn_set_error("wn_view_readback: path is empty");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    ops = view->ops;
+    if (ops == NULL || ops->readback == NULL) {
+        wn_set_error("wn_view_readback: backend has no readback");
+        return WN_ERR_UNSUPPORTED;
+    }
+    if (ops->readback(view->renderer, png_path) != 0) {
+        const char *error = ops->last_error != NULL
+                                ? ops->last_error(view->renderer)
+                                : NULL;
+        wn_set_error("wn_view_readback: %s", error != NULL ? error : "backend error");
+        return WN_ERR_GPU;
+    }
+    return WN_OK;
 }
 
 wn_status wn_view_load(wn_view *view, const char *html_utf8,

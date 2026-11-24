@@ -24,6 +24,10 @@ typedef struct wn_view_stats {
 int wn_view_get_stats(const wn_view *view, wn_view_stats *stats);
 /* 1 when the next frame would change pixels (dirty/have no frame yet). */
 int wn_view_needs_render(const wn_view *view);
+/* Texture target without a window (tooling, tests, offscreen PNG). */
+wn_view *wn_view_create_offscreen(int32_t width, int32_t height);
+/* Copy the last offscreen frame to a PNG. WN_OK on success. */
+wn_status wn_view_readback(wn_view *view, const char *png_path);
 const char *wn_view_backend(const wn_view *view);
 const char *wn_view_device(const wn_view *view);
 int wn_view_render_width(const wn_view *view);
