@@ -219,6 +219,106 @@ wn_status wn_app_on_event(wn_app *app, wn_event_cb callback, void *userdata)
     return WN_OK;
 }
 
+/* ---------------------------------------------------- dynamic UI (ABI v3) */
+
+wn_node_id wn_app_root(wn_app *app)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_app_root: app is NULL");
+        return WN_NODE_INVALID;
+    }
+    return wn_view_root(app->view);
+}
+
+wn_node_id wn_app_find(wn_app *app, const char *name)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_app_find: app is NULL");
+        return WN_NODE_INVALID;
+    }
+    return wn_view_find(app->view, name);
+}
+
+int32_t wn_app_node_count(wn_app *app)
+{
+    if (app == NULL || app->view == NULL) {
+        return 0;
+    }
+    return wn_view_node_count(app->view);
+}
+
+wn_status wn_node_set_visible(wn_app *app, wn_node_id node, int visible)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_set_visible: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_set_visible(app->view, node, visible);
+}
+
+wn_status wn_node_set_image(wn_app *app, wn_node_id node, const char *path)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_set_image: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_set_image(app->view, node, path);
+}
+
+wn_status wn_node_set_text(wn_app *app, wn_node_id node, const char *utf8)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_set_text: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_set_node_text(app->view, node, utf8);
+}
+
+wn_node_id wn_node_clone(wn_app *app, wn_node_id template_node, wn_node_id parent)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_clone: app is NULL");
+        return WN_NODE_INVALID;
+    }
+    return wn_view_clone(app->view, template_node, parent);
+}
+
+wn_status wn_node_remove(wn_app *app, wn_node_id node)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_remove: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_remove(app->view, node);
+}
+
+wn_status wn_node_clear_children(wn_app *app, wn_node_id node)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_clear_children: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_clear_children(app->view, node);
+}
+
+wn_status wn_node_append(wn_app *app, wn_node_id parent, wn_node_id child)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_append: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_append(app->view, parent, child);
+}
+
 int wn_app_run(wn_app *app)
 {
     wn_clear_error();

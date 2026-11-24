@@ -306,6 +306,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build.ps1 -
 
 # regresión del escaping C no-ASCII del emisor
 powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\emitter-escapes\run_test.ps1
+
+# UI dinámica v0 (ABI v3): core headless + 11 PNGs + demo ABI + 53 checks
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\dynamic\run_dynamic.ps1
 ```
 
 Emisión manual (misma secuencia que `build.ps1`):
@@ -591,6 +594,10 @@ wgpu, D3D12 ni Win32 en el header público. `runtime_r2.c` sigue siendo el
 binario de referencia y el sujeto de la aceptación 69/69; la capa ABI usa el
 mismo algoritmo extraído a `wn_core.c` y se compila aparte.
 
+> **ABI v3 (aditiva)**: la UI dinámica de la sección 15 añade `wn_node_id`,
+> visibilidad, `set_image`, `set_text`, clonado y borrado. Los structs y eventos
+> v2 (`wn_event`, `wn_config`, wheel) no cambian.
+
 ### 13.1 Módulos
 
 | Ruta | Rol |
@@ -603,6 +610,7 @@ mismo algoritmo extraído a `wn_core.c` y se compila aparte.
 | `wn_app.h` / `wn_app.c` | Modo standalone: host Win32 + `wn_view`. `wn_app_run()` bloquea hasta cerrar. |
 | `wn_common.c` / `wn_internal.h` | Versión, error thread-local y helpers de copia UTF-8. |
 | `examples/standalone.c` | Demo `wn_app_*`; `--frames N` cierra solo. |
+| `examples/dynamic.c` | Demo de UI dinámica (ABI v3): visibilidad, clon, imagen, texto, append/remove; `--frames N` cierra solo. |
 | `examples/embedded.c` | Demo host: ventana padre + HWND hijo con `wn_view`; reenvía `WM_MOUSEMOVE`/`WM_LBUTTONDOWN`/`WM_LBUTTONUP`/`WM_SIZE`, renderiza en timer, `--frames N` cierra solo. |
 | `examples/abi_header_check.c/.cpp` | Compilan `webnative.h` como C17 y C++17 con `/W4`. |
 | `examples/abi_smoke.c` | Comprueba versión, error thread-local y validación de argumentos sin crear ventana/GPU. |
@@ -903,3 +911,165 @@ nunca absorbe un dígito hexadecimal siguiente (el bug `\xd72160` /
 emite un `ui.json` con `×`, `í`, `Ó` y `ñ`, compila un `.c` que incluye el
 header y compara los bytes UTF-8; ya no hace falta el workaround
 `benchmarks/pilot-media-library/tools/split_c_escapes.py`.
+
+## 15. UI dinámica v0 (ABI v3)
+
+La API de contenido reactivo permite que el host cambie el árbol compilado sin
+recompilar ni volver a emitir `ui_data.h`: visibilidad, imagen, texto, clonado
+de plantillas, re-parentado y borrado. Es **aditiva** sobre la ABI v2: los
+structs, eventos y funciones existentes no cambian; `wn_event` sigue teniendo el
+mismo tamaño.
+
+### 15.1 Handles y búsqueda
+
+`wn_node_id` es un `uint64_t` opaco, 1-based (`0 == WN_NODE_INVALID`). El core
+guarda un arena mutable de hasta 4096 nodos: los nodos compilados se copian al
+crear el core y los clones se asignan desde una free list.
+
+```c
+wn_node_id root  = wn_app_root(app);                 /* body.root */
+wn_node_id cards = wn_app_find(app, "body.root/div.cards");
+wn_node_id card  = wn_app_find(app, "body.root/div.cards/div.card");
+int32_t live     = wn_app_node_count(app);           /* 17 en el fixture */
+```
+
+`wn_app_find` resuelve **nombres compilados**: primero el nombre completo y,
+si no hay match, un último componente de ruta único (`div.card`, `text[1]`).
+Los handles devueltos por `wn_node_clone` no se buscan por nombre en v0; hay que
+conservarlos.
+
+### 15.2 API
+
+```c
+/* Visibilidad: excluye el subárbol de layout, paint y hit-test. */
+wn_node_set_visible(app, card, 0);
+wn_node_set_visible(app, card, 1);
+
+/* Imagen: reemplaza image_src; reutiliza la caché de texturas por ruta. */
+wn_node_set_image(app, image, "images/b.png");
+
+/* Texto: solo strings ya pre-shaped para ese font-size en el atlas compilado. */
+wn_node_set_text(app, label, "Beta");      /* WN_OK */
+wn_node_set_text(app, label, "Ω");         /* WN_ERR_UNSUPPORTED + wn_last_error() */
+
+/* Plantilla/lista. */
+wn_node_id copy = wn_node_clone(app, card, cards);  /* deep clone, último hijo */
+wn_node_append(app, cards, copy);                   /* re-parenta al final */
+wn_node_clear_children(app, cards);
+wn_node_remove(app, copy);
+```
+
+Reglas de error: handles inválidos o muertos devuelven
+`WN_ERR_INVALID_ARGUMENT`; `wn_node_clone` devuelve `WN_NODE_INVALID` y deja el
+detalle en `wn_last_error()`; el root del documento no se puede borrar ni mover;
+un `append` que crearía un ciclo se rechaza. `wn_node_set_image` sobre un nodo
+que no es `NODE_IMAGE` devuelve `WN_ERR_UNSUPPORTED`.
+
+### 15.3 Invalidación
+
+Toda mutación marca el core `dirty` y `needs_layout`. El siguiente
+`wn_view_render()` (o frame de `wn_app_run`) re-ejecuta layout, clipping, hit
+testing y display list **antes** de subir geometría. El host no llama a
+`relayout` a mano. Resize y wheel conservan su comportamiento v2; el wheel sigue
+buscando el contenedor `overflow:scroll` subiendo por los parent links del arena.
+
+El layout ignora nodos ocultos al medir y al colocar (flex, grid, block y
+scroll), y el paint/hit recorren un `paint_order` DFS que solo contiene nodos
+visibles. Ocultar una card reflowa sus hermanas; volver a mostrarla restaura la
+geometría y el display list exactamente.
+
+### 15.4 Clonado profundo
+
+`wn_node_clone` copia el subárbol completo: `UiNode` (estilos, márgenes,
+padding, colores, `action`, `hover/press/selected`, `image_*`, `data-*`
+reflejados en `UiNode`), el rango de runs de texto pre-shaped, el `image_src` y
+los overrides runtime (`set_text`/`set_image`) del template. El clon raíz se
+inserta como último hijo (`order_key` monótono, no el índice del arena), así que
+el paint order sigue siendo correcto aunque se reciclen slots. Los nombres
+internos son `clone#N` y son únicos.
+
+El borrado libera el subárbol y sus strings, limpia hover/press/selected si
+apuntaban dentro y devuelve los slots a la free list. `wn_node_clear_children`
+hace lo mismo con cada hijo sin tocar el contenedor.
+
+### 15.5 `set_image`: caché y límites
+
+El renderer decodifica PNG/JPEG con WIC y cachea **por ruta** durante la vida
+del renderer (`image_cache` en el reporte de test se mantiene en 2 al alternar
+`images/a.png` y `images/b.png`). Cambiar `image_src` no duplica geometría: el
+nodo sigue emitiendo 6 vértices. La ruta se resuelve contra el CWD como en v2.
+
+Limitación v0: el tamaño intrínseco (`image_width/height`) sigue siendo el
+compilado; no se sondea el nuevo archivo con WIC ni se re-layouta el aspect
+ratio. `object-fit` usa las dimensiones viejas hasta que se re-emita el fixture.
+
+### 15.6 `set_text`: shaping en build time
+
+No hay shaping en runtime. `wn_core_set_text` acepta el string solo si cada byte
+no espacio tiene un `GlyphEntry` válido en el `GlyphSet` del `font-size` del nodo
+(construido con los runs compilados). Si no, devuelve `WN_ERR_UNSUPPORTED` con
+un mensaje que incluye el nodo. Tampoco se recalculan métricas/width: el nodo
+conserva su caja compilada y el texto se pinta con los avances pre-shaped. Un
+string vacío borra el texto visible.
+
+Esto cubre el caso “cambiar una etiqueta por otra del mismo atlas” (por ejemplo
+`Alpha` → `Beta`) pero no contenido arbitrario, i18n en runtime ni text input.
+
+### 15.7 Demo y tests
+
+```powershell
+# R2 canónico (69/69), piloto (48/48) y ABI v0 siguen igual:
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build.ps1 -Pilot
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build_abi.ps1
+
+# Dynamic UI v0: core headless + 11 renders offscreen + demo ABI + 53 checks:
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\dynamic\run_dynamic.ps1
+```
+
+El fixture ([tests/dynamic](tests/dynamic)) es una página de 400×300 con dos
+cards de 120×120 (imagen 104×60 + label) y `data-action="select"`. El script:
+
+1. `dynamic_core_test.exe` (solo `wn_core.c`) valida búsqueda, geometría,
+   hit-testing, conteos, clone/append/remove/clear, `set_image`, `set_text` y
+   los vertex counts de la display list.
+2. `runtime_dynamic.exe --dynamic out\stage` renderiza 11 PNGs:
+   inicial, hide, show, clone, imagen del clon, texto del clon, remove, append,
+   imagen del template, restore y clear. `stage_report.json` registra rects,
+   hits, conteos y `image_cache`.
+3. `dynamic.exe` (demo C ABI) crea una ventana real, ejecuta la misma secuencia
+   vía `wn_app_*` y auto-cierra a los 8 frames.
+4. `verify_dynamic.py` comprueba geometría, conteos y píxeles: escenario
+   **53/53 PASS** con diff bboxes exactos
+   (`hide=(18,50,260,170)`, `clone=(270,50,390,170)`,
+   `set_text=(278,124,314,137)`, `set_image=(18,58,122,118)`), igualdad
+   byte-a-byte tras show/remove/append/restore y ausencia de píxeles de card
+   tras `clear_children`.
+
+Evidencia en `tests/dynamic/out/`: `stage_00.png` … `stage_10.png`,
+`stage_report.json`, `core_events.jsonl`, `dynamic_verify_report.json`,
+`runtime_dynamic.log`, `abi_dynamic.log` y `run_report.json`.
+
+### 15.8 Gaps restantes
+
+1. **Texto dinámico real**: no hay shaping runtime (HarfBuzz/FreeType), métricas
+   nuevas, wrapping ni reflow por longitud. `set_text` es un override de
+   glifos pre-shaped; no crea runs ni actualiza `width/height`.
+2. **Input**: no hay foco, teclado/IME, selección de texto, clipboard ni
+   formularios. La API dinámica es host-driven (el host llama), no un sistema de
+   eventos de contenido.
+3. **Virtualización/reciclado**: clonar/borrar es O(subárbol) y la arena es fija
+   (4096 nodos, error claro al agotarse). No hay pooling de items visibles,
+   `key`/reconciliación, lazy lists ni reciclado de texturas.
+4. **Animación/transiciones**: no hay timeline, spring, layout animation ni
+   repintado por frame sin mutación. Cada mutación fuerza layout completo.
+5. **HTML/CSS en runtime**: el árbol sigue siendo el compilado; no se parsea
+   contenido nuevo. Los nombres de clones no son direccionables por
+   `wn_app_find` (solo handles).
+6. **Imágenes**: sin `srcset`, red, SVG, animación, sondeo de tamaño runtime ni
+   evicción de caché. `set_image` mantiene las dimensiones intrínsecas
+   compiladas.
+7. **Orden de pintado**: sigue siendo sólidos → imágenes → texto y sin
+   `z-index`/stacking contexts; el arena garantiza el orden de hijos, no capas
+   arbitrarias.
+

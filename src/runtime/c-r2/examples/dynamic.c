@@ -1,0 +1,195 @@
+/*
+ * dynamic.c - C ABI v3 demo: host-driven content reactivity.
+ *
+ *   dynamic.exe [--frames N] [--image-b PATH]
+ *
+ * The document is the compiled fixture in tests/dynamic/fixture/ui_data.h,
+ * built by tests/dynamic/run_dynamic.ps1. The demo hides/shows a card, clones
+ * the card template, swaps its image and text, re-parents and removes it, then
+ * verifies WN_ERR_UNSUPPORTED for text that is not pre-shaped.
+ *
+ * The window auto-closes after N presented frames (default 8) so the script is
+ * headless.
+ */
+#include "webnative.h"
+#include "wn_app.h"
+#include "demo_common.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+static int g_failures;
+
+static const char *status_name(wn_status status)
+{
+    switch (status) {
+    case WN_OK: return "WN_OK";
+    case WN_ERR_INVALID_ARGUMENT: return "WN_ERR_INVALID_ARGUMENT";
+    case WN_ERR_OUT_OF_MEMORY: return "WN_ERR_OUT_OF_MEMORY";
+    case WN_ERR_IO: return "WN_ERR_IO";
+    case WN_ERR_PARSE: return "WN_ERR_PARSE";
+    case WN_ERR_UNSUPPORTED: return "WN_ERR_UNSUPPORTED";
+    case WN_ERR_GPU: return "WN_ERR_GPU";
+    case WN_ERR_STATE: return "WN_ERR_STATE";
+    case WN_ERR_INTERNAL: return "WN_ERR_INTERNAL";
+    default: return "WN_ERR_UNKNOWN";
+    }
+}
+
+static int expect_status(const char *what, wn_status got, wn_status want)
+{
+    int ok = got == want;
+    printf("dynamic: %s -> %s (expected %s)%s%s\n", what, status_name(got),
+           status_name(want), ok ? "" : ": ",
+           ok ? "" : (wn_last_error() != NULL ? wn_last_error() : "?"));
+    if (!ok) {
+        ++g_failures;
+    }
+    return ok;
+}
+
+static int parse_int(const char *text, int fallback)
+{
+    char *end = NULL;
+    long value;
+    if (text == NULL) {
+        return fallback;
+    }
+    value = strtol(text, &end, 10);
+    if (end == text || value < 0 || value > 100000) {
+        return fallback;
+    }
+    return (int)value;
+}
+
+int main(int argc, char **argv)
+{
+    int frames = 8;
+    const char *image_b = "images/b.png";
+    int i;
+    int rc;
+    wn_config config;
+    wn_app *app;
+    wn_status status;
+    wn_app_stats stats;
+    wn_node_id root;
+    wn_node_id cards;
+    wn_node_id card0;
+    wn_node_id image0;
+    wn_node_id text0;
+    wn_node_id clone;
+    int32_t count_initial;
+    int32_t count_cloned;
+    int32_t count_after_remove;
+    int32_t count_after_clear;
+
+    for (i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc) {
+            frames = parse_int(argv[++i], frames);
+        } else if (strcmp(argv[i], "--image-b") == 0 && i + 1 < argc) {
+            image_b = argv[++i];
+        } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
+            printf("usage: dynamic.exe [--frames N] [--image-b PATH]\n");
+            return 0;
+        }
+    }
+
+    SetProcessDPIAware();
+    printf("dynamic: webnative %s ABI %u\n", wn_version(), wn_abi_version());
+
+    memset(&config, 0, sizeof(config));
+    config.title = "webnative dynamic UI (ABI v3)";
+    config.width = 400;
+    config.height = 300;
+    config.flags = WN_FLAG_NONE;
+    app = wn_app_create(&config);
+    if (app == NULL) {
+        fprintf(stderr, "dynamic: wn_app_create failed: %s\n",
+                wn_last_error() != NULL ? wn_last_error() : "(no detail)");
+        return 1;
+    }
+    /* v0 attaches the compiled document; the HTML/CSS strings are retained only
+     * as diagnostics, so a marker string is enough for this demo. */
+    status = wn_app_load(app, "<!doctype html><html><body class=\"root\"></body></html>",
+                         NULL, NULL);
+    if (status != WN_OK) {
+        fprintf(stderr, "dynamic: wn_app_load failed: %s\n",
+                wn_last_error() != NULL ? wn_last_error() : "(no detail)");
+        wn_app_destroy(app);
+        return 1;
+    }
+
+    root = wn_app_root(app);
+    cards = wn_app_find(app, "body.root/div.cards");
+    card0 = wn_app_find(app, "body.root/div.cards/div.card");
+    image0 = wn_app_find(app, "body.root/div.cards/div.card/img.thumb");
+    text0 = wn_app_find(app, "body.root/div.cards/div.card/div.label/text[1]");
+    count_initial = wn_app_node_count(app);
+    printf("dynamic: root=%llu cards=%llu card=%llu image=%llu text=%llu nodes=%d\n",
+           (unsigned long long)root, (unsigned long long)cards,
+           (unsigned long long)card0, (unsigned long long)image0,
+           (unsigned long long)text0, (int)count_initial);
+    if (root == WN_NODE_INVALID || cards == WN_NODE_INVALID ||
+        card0 == WN_NODE_INVALID || image0 == WN_NODE_INVALID ||
+        text0 == WN_NODE_INVALID || count_initial != 17) {
+        printf("dynamic: FAIL (lookup)\n");
+        wn_app_destroy(app);
+        return 1;
+    }
+
+    expect_status("set_visible(card,0)", wn_node_set_visible(app, card0, 0), WN_OK);
+    expect_status("set_visible(card,1)", wn_node_set_visible(app, card0, 1), WN_OK);
+
+    clone = wn_node_clone(app, card0, cards);
+    count_cloned = wn_app_node_count(app);
+    printf("dynamic: clone(card,cards)=%llu nodes=%d\n",
+           (unsigned long long)clone, (int)count_cloned);
+    if (clone == WN_NODE_INVALID || count_cloned != count_initial + 4) {
+        ++g_failures;
+        printf("dynamic: FAIL (clone)\n");
+    }
+
+    expect_status("set_image(image,b)", wn_node_set_image(app, image0, image_b), WN_OK);
+    expect_status("set_text(text,Beta)", wn_node_set_text(app, text0, "Beta"), WN_OK);
+    status = wn_node_set_text(app, text0, "\xce\xa9");
+    printf("dynamic: set_text(Omega) -> %s (%s)\n",
+           status == WN_ERR_UNSUPPORTED ? "WN_ERR_UNSUPPORTED" : "unexpected",
+           wn_last_error() != NULL ? wn_last_error() : "(no error text)");
+    if (status != WN_ERR_UNSUPPORTED || wn_last_error() == NULL) {
+        ++g_failures;
+    }
+
+    expect_status("append(cards,clone)", wn_node_append(app, cards, clone), WN_OK);
+    expect_status("append cycle", wn_node_append(app, clone, cards), WN_ERR_INVALID_ARGUMENT);
+    expect_status("remove(clone)", wn_node_remove(app, clone), WN_OK);
+    count_after_remove = wn_app_node_count(app);
+    if (count_after_remove != count_initial) {
+        ++g_failures;
+        printf("dynamic: FAIL (remove count %d)\n", (int)count_after_remove);
+    }
+
+    expect_status("set_image(text)", wn_node_set_image(app, text0, image_b), WN_ERR_UNSUPPORTED);
+    expect_status("set_visible(invalid)", wn_node_set_visible(app, 0, 1), WN_ERR_INVALID_ARGUMENT);
+    expect_status("remove(root)", wn_node_remove(app, root), WN_ERR_INVALID_ARGUMENT);
+
+    expect_status("clear_children(cards)", wn_node_clear_children(app, cards), WN_OK);
+    count_after_clear = wn_app_node_count(app);
+    printf("dynamic: clear_children -> nodes=%d\n", (int)count_after_clear);
+    if (count_after_clear != count_initial - 8) {
+        ++g_failures;
+    }
+
+    wn_app_on_event(app, NULL, NULL);
+    wn_app_set_max_frames(app, frames);
+    rc = wn_app_run(app);
+    memset(&stats, 0, sizeof(stats));
+    wn_app_get_stats(app, &stats);
+    printf("dynamic: backend=%s exit=%d frames=%d startup_ms=%.2f frame_avg_ms=%.2f\n",
+           stats.backend[0] != '\0' ? stats.backend : "(unknown)", rc, stats.frames,
+           stats.startup_ms,
+           stats.frames > 0 ? stats.frame_total_ms / (double)stats.frames : 0.0);
+    printf("dynamic: %s\n", g_failures == 0 && rc == 0 ? "PASS" : "FAIL");
+    wn_app_destroy(app);
+    return g_failures == 0 && rc == 0 ? 0 : 1;
+}

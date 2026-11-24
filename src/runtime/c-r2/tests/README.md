@@ -37,3 +37,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\emitt
 It emits `out/ui_data.h`, compiles `check.c` (which includes it), writes the
 UTF-8 strings and compares the bytes with Python. No `split_c_escapes.py`
 workaround is needed.
+
+## `dynamic/`
+
+Dynamic UI API v0 (ABI v3) fixture: a 400x300 page with two 120x120 cards
+(image + text, `data-action="select"`). `page/ui.json` and `fixture/ui_data.h`
+are tracked; `make_images.py` generates the two solid thumbnails;
+`dynamic_core_test.c` is the headless core test; `runtime_dynamic.exe --dynamic`
+renders 11 offscreen PNG stages; `examples/dynamic.c` is the C ABI window demo;
+`verify_dynamic.py` checks geometry/counts/pixels (53/53).
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\dynamic\run_dynamic.ps1
+# re-emit page\ui.json + fixture\ui_data.h with frontend-rust + emit_ui.py:
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\dynamic\run_dynamic.ps1 -Regenerate
+```
+
+Evidence: `out/stage_00.png` ... `out/stage_10.png`, `out/stage_report.json`,
+`out/core_events.jsonl`, `out/dynamic_verify_report.json`, `out/abi_dynamic.log`
+and `out/run_report.json` (generated, gitignored).

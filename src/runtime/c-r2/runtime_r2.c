@@ -16,6 +16,7 @@
  *   runtime_r2.exe --render 960x640 out.png [--hover ID] [--press ID] [--selected ID]
  *   runtime_r2.exe --states out_prefix [--node ID] [--size 960x640]
  *   runtime_r2.exe --report layout_report.json [--sizes 960x640,720x640,560x640]
+ *   runtime_r2.exe --dynamic out_prefix        (11-stage Dynamic UI v0 demo)
  *   runtime_r2.exe --frames 30 [--resize-demo]
  *   runtime_r2.exe                      (window, close with Esc)
  */
@@ -944,20 +945,76 @@ static int gpu_create_images(Gpu *gpu)
     return 0;
 }
 
-static void gpu_upload_geometry(Gpu *gpu)
+static int gpu_ensure_buffer(Gpu *gpu, WGPUBuffer *buffer, size_t *capacity,
+                             size_t bytes, WGPUBufferUsage usage, const char *label)
+{
+    size_t grown_capacity;
+    WGPUBufferDescriptor descriptor;
+    WGPUBuffer grown;
+    if (gpu == NULL || buffer == NULL || capacity == NULL || bytes == 0) {
+        return bytes == 0 ? 0 : 1;
+    }
+    if (*buffer != NULL && bytes <= *capacity) {
+        return 0;
+    }
+    grown_capacity = *capacity > 0 ? *capacity : 256;
+    while (grown_capacity < bytes) {
+        grown_capacity *= 2;
+    }
+    memset(&descriptor, 0, sizeof(descriptor));
+    descriptor.label = sv(label);
+    descriptor.usage = usage;
+    descriptor.size = grown_capacity;
+    grown = wgpuDeviceCreateBuffer(gpu->device, &descriptor);
+    if (grown == NULL) {
+        fprintf(stderr, "error: %s buffer creation failed (%zu bytes)\n",
+                label, grown_capacity);
+        return 1;
+    }
+    if (*buffer != NULL) {
+        wgpuBufferRelease(*buffer);
+    }
+    *buffer = grown;
+    *capacity = grown_capacity;
+    return 0;
+}
+
+static int gpu_upload_geometry(Gpu *gpu)
 {
     size_t bytes = (size_t)g_vertex_count * sizeof(Vertex);
     if (bytes > 0) {
+        if (gpu_ensure_buffer(gpu, &gpu->vertex_buffer, &gpu->vertex_capacity, bytes,
+                              WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst,
+                              "r2-vertices") != 0) {
+            return 1;
+        }
         wgpuQueueWriteBuffer(gpu->queue, gpu->vertex_buffer, 0, g_vertices, bytes);
     }
-    size_t glyph_bytes = (size_t)g_glyph_vertex_count * sizeof(GlyphVertex);
-    if (glyph_bytes > 0) {
-        wgpuQueueWriteBuffer(gpu->queue, gpu->glyph_buffer, 0, g_glyph_vertices, glyph_bytes);
+    {
+        size_t glyph_bytes = (size_t)g_glyph_vertex_count * sizeof(GlyphVertex);
+        if (glyph_bytes > 0) {
+            if (gpu_ensure_buffer(gpu, &gpu->glyph_buffer, &gpu->glyph_capacity, glyph_bytes,
+                                  WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst,
+                                  "r2-glyph-vertices") != 0) {
+                return 1;
+            }
+            wgpuQueueWriteBuffer(gpu->queue, gpu->glyph_buffer, 0,
+                                 g_glyph_vertices, glyph_bytes);
+        }
     }
-    size_t image_bytes = (size_t)g_image_vertex_count * sizeof(wn_image_vertex);
-    if (image_bytes > 0) {
-        wgpuQueueWriteBuffer(gpu->queue, gpu->image_buffer, 0, g_image_vertices, image_bytes);
+    {
+        size_t image_bytes = (size_t)g_image_vertex_count * sizeof(wn_image_vertex);
+        if (image_bytes > 0) {
+            if (gpu_ensure_buffer(gpu, &gpu->image_buffer, &gpu->image_capacity, image_bytes,
+                                  WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst,
+                                  "r2-image-vertices") != 0) {
+                return 1;
+            }
+            wgpuQueueWriteBuffer(gpu->queue, gpu->image_buffer, 0,
+                                 g_image_vertices, image_bytes);
+        }
     }
+    return 0;
 }
 
 /* -------------------------------------------------------- WIC image cache */
@@ -1500,7 +1557,9 @@ static int render_offscreen(Gpu *gpu, int width, int height, const wchar_t *path
     if (layout_ms_out) *layout_ms_out = t1 - t0;
     apply_pending_wheel();
     build_geometry((float)width, (float)height);
-    gpu_upload_geometry(gpu);
+    if (gpu_upload_geometry(gpu) != 0) {
+        goto cleanup;
+    }
     gpu->image_width_hint = width;
     gpu->image_height_hint = height;
     {
@@ -2332,7 +2391,10 @@ static int run_window(void)
             printf("surface: reconfigured %dx%d\n", g_window_width, g_window_height);
             fflush(stdout);
         }
-        gpu_upload_geometry(&gpu);
+        if (gpu_upload_geometry(&gpu) != 0) {
+            fprintf(stderr, "error: geometry upload failed\n");
+            break;
+        }
         gpu.image_width_hint = g_window_width;
         gpu.image_height_hint = g_window_height;
 
@@ -2446,6 +2508,234 @@ cleanup:
     return exit_code;
 }
 
+/* ------------------------------------------------------------ dynamic demo */
+
+static int dynamic_rect_json(FILE *f, int node)
+{
+    const wn_rect *rects;
+    wn_rect r;
+    int hit = -1;
+    int alive;
+    if (g_core == NULL || node < 0) {
+        fputs("null", f);
+        return -1;
+    }
+    alive = wn_core_node_is_alive(g_core, node);
+    rects = wn_core_rects(g_core, NULL);
+    r = rects[node];
+    if (alive && wn_core_node_is_visible(g_core, node) && r.w > 0.0f && r.h > 0.0f) {
+        hit = wn_core_hit_test(g_core, r.x + r.w * 0.5f, r.y + r.h * 0.5f);
+    }
+    fprintf(f, "{\"id\":%d,\"alive\":%d,\"visible\":%d,"
+               "\"x\":%.2f,\"y\":%.2f,\"w\":%.2f,\"h\":%.2f,\"hit\":%d}",
+            node, alive, wn_core_node_is_visible(g_core, node),
+            r.x, r.y, r.w, r.h, hit);
+    return alive;
+}
+
+static int dynamic_stage(Gpu *gpu, FILE *report, const char *prefix, int stage,
+                         const char *action, int card0, int card1, int clone)
+{
+    char path[MAX_PATH];
+    wchar_t wide[MAX_PATH];
+    double layout_ms = 0.0;
+    double frame_ms = 0.0;
+    int node_count;
+
+    snprintf(path, sizeof(path), "%s_%02d.png", prefix, stage);
+    MultiByteToWideChar(CP_ACP, 0, path, -1, wide, MAX_PATH);
+    if (render_offscreen(gpu, 400, 300, wide, &layout_ms, &frame_ms) != 0) {
+        fprintf(stderr, "error: dynamic stage %d render failed\n", stage);
+        return 1;
+    }
+    node_count = wn_core_live_node_count(g_core);
+    printf("dynamic: stage=%d action=%s live=%d vertices=%d glyphs=%d images=%d "
+           "cache=%d layout=%.3fms frame=%.3fms\n",
+           stage, action, node_count, g_vertex_count, g_glyph_vertex_count,
+           g_image_vertex_count, gpu->image_count, layout_ms, frame_ms);
+    fflush(stdout);
+
+    fprintf(report, "%s{\"stage\":%d,\"action\":\"%s\",\"live\":%d,"
+                    "\"vertices\":%d,\"glyphs\":%d,\"image_vertices\":%d,"
+                    "\"image_cache\":%d,\"layout_ms\":%.3f,\"frame_ms\":%.3f,",
+            stage == 0 ? "" : ",\n    ", stage, action, node_count,
+            g_vertex_count, g_glyph_vertex_count, g_image_vertex_count,
+            gpu->image_count, layout_ms, frame_ms);
+    fputs("\"card0\":", report);
+    dynamic_rect_json(report, card0);
+    fputs(",\"card1\":", report);
+    dynamic_rect_json(report, card1);
+    fputs(",\"clone\":", report);
+    if (clone >= 0 && wn_core_node_is_alive(g_core, clone)) {
+        dynamic_rect_json(report, clone);
+    } else {
+        fputs("null", report);
+    }
+    fputs(",\"card0_image\":", report);
+    {
+        const char *src = NULL;
+        if (card0 >= 0 && wn_core_node_is_alive(g_core, card0)) {
+            int image = wn_core_node_first_child(g_core, card0);
+            src = wn_core_node_image_src(g_core, image);
+        }
+        if (src != NULL) {
+            json_escape(report, src);
+        } else {
+            fputs("null", report);
+        }
+    }
+    fputs(",\"clone_image\":", report);
+    if (clone >= 0 && wn_core_node_is_alive(g_core, clone)) {
+        int image = wn_core_node_first_child(g_core, clone);
+        const char *src = wn_core_node_image_src(g_core, image);
+        if (src != NULL) {
+            json_escape(report, src);
+        } else {
+            fputs("null", report);
+        }
+    } else {
+        fputs("null", report);
+    }
+    fputc('}', report);
+    return 0;
+}
+
+static int run_dynamic(const char *prefix)
+{
+    Gpu gpu;
+    FILE *report = NULL;
+    char report_path[MAX_PATH];
+    int cards;
+    int card0;
+    int card1;
+    int image0;
+    int label0;
+    int text0;
+    int clone = -1;
+    int clone_image;
+    int clone_label;
+    int clone_text;
+    int rc = 1;
+
+    if (g_core == NULL || prefix == NULL || prefix[0] == '\0') {
+        fprintf(stderr, "error: --dynamic needs an output prefix\n");
+        return 1;
+    }
+    cards = wn_core_find_node(g_core, "body.root/div.cards");
+    if (cards < 0) {
+        cards = wn_core_find_node(g_core, "div.cards");
+    }
+    if (cards < 0) {
+        fprintf(stderr, "error: --dynamic fixture has no div.cards\n");
+        return 1;
+    }
+    card0 = wn_core_node_first_child(g_core, cards);
+    card1 = card0 >= 0 ? wn_core_node_next_sibling(g_core, card0) : -1;
+    image0 = card0 >= 0 ? wn_core_node_first_child(g_core, card0) : -1;
+    label0 = image0 >= 0 ? wn_core_node_next_sibling(g_core, image0) : -1;
+    text0 = label0 >= 0 ? wn_core_node_first_child(g_core, label0) : -1;
+    if (card1 < 0 || text0 < 0) {
+        fprintf(stderr, "error: --dynamic fixture is not the expected two-card page\n");
+        return 1;
+    }
+
+    snprintf(report_path, sizeof(report_path), "%s_report.json", prefix);
+    report = fopen(report_path, "wb");
+    if (report == NULL) {
+        fprintf(stderr, "error: cannot create %s\n", report_path);
+        return 1;
+    }
+    memset(&gpu, 0, sizeof(gpu));
+    if (gpu_init(&gpu, NULL, 0, WGPUTextureFormat_RGBA8Unorm,
+                 "r2-dynamic-device") != 0) {
+        gpu_release(&gpu);
+        fclose(report);
+        return 1;
+    }
+    fprintf(report, "{\n  \"fixture\": \"tests/dynamic/page\",\n  "
+                    "\"viewport\": {\"width\": 400, \"height\": 300},\n  "
+                    "\"cards\": %d, \"card0\": %d, \"card1\": %d,\n  "
+                    "\"stages\": [\n    ", cards, card0, card1);
+
+    if (dynamic_stage(&gpu, report, prefix, 0, "initial", card0, card1, clone) != 0) goto done;
+    if (wn_core_set_visible(g_core, card0, 0) != 0) goto done;
+    if (dynamic_stage(&gpu, report, prefix, 1, "hide card0", card0, card1, clone) != 0) goto done;
+    if (wn_core_set_visible(g_core, card0, 1) != 0) goto done;
+    if (dynamic_stage(&gpu, report, prefix, 2, "show card0", card0, card1, clone) != 0) goto done;
+
+    clone = wn_core_clone(g_core, card0, cards);
+    if (clone < 0) {
+        fprintf(stderr, "error: clone failed\n");
+        goto done;
+    }
+    clone_image = wn_core_node_first_child(g_core, clone);
+    clone_label = wn_core_node_next_sibling(g_core, clone_image);
+    clone_text = wn_core_node_first_child(g_core, clone_label);
+    if (dynamic_stage(&gpu, report, prefix, 3, "clone card0", card0, card1, clone) != 0) goto done;
+
+    if (wn_core_set_image(g_core, clone_image, "images/b.png") != 0) {
+        fprintf(stderr, "error: set_image(clone) failed\n");
+        goto done;
+    }
+    if (dynamic_stage(&gpu, report, prefix, 4, "set_image clone b", card0, card1, clone) != 0) goto done;
+
+    if (wn_core_set_text(g_core, clone_text, "Beta") != 0) {
+        fprintf(stderr, "error: set_text(clone) failed\n");
+        goto done;
+    }
+    if (dynamic_stage(&gpu, report, prefix, 5, "set_text clone Beta", card0, card1, clone) != 0) goto done;
+
+    if (wn_core_remove(g_core, clone) != 0) {
+        fprintf(stderr, "error: remove(clone) failed\n");
+        goto done;
+    }
+    if (dynamic_stage(&gpu, report, prefix, 6, "remove clone", card0, card1, -1) != 0) goto done;
+    clone = -1;
+
+    if (wn_core_append(g_core, cards, card1) != 0) {
+        fprintf(stderr, "error: append(card1) failed\n");
+        goto done;
+    }
+    if (dynamic_stage(&gpu, report, prefix, 7, "append card1 last", card0, card1, clone) != 0) goto done;
+
+    if (wn_core_set_image(g_core, image0, "images/b.png") != 0) {
+        fprintf(stderr, "error: set_image(card0) failed\n");
+        goto done;
+    }
+    if (dynamic_stage(&gpu, report, prefix, 8, "set_image card0 b", card0, card1, clone) != 0) goto done;
+    if (wn_core_set_image(g_core, image0, "images/a.png") != 0) {
+        fprintf(stderr, "error: set_image(card0 a) failed\n");
+        goto done;
+    }
+    if (dynamic_stage(&gpu, report, prefix, 9, "set_image card0 a", card0, card1, clone) != 0) goto done;
+
+    if (wn_core_set_text(g_core, text0, "\xce\xa9") == 1) {
+        printf("dynamic: set_text(Omega) -> unsupported (expected)\n");
+    } else {
+        fprintf(stderr, "error: set_text(Omega) was accepted\n");
+        goto done;
+    }
+    if (wn_core_clear_children(g_core, cards) != 0) {
+        fprintf(stderr, "error: clear_children(cards) failed\n");
+        goto done;
+    }
+    if (dynamic_stage(&gpu, report, prefix, 10, "clear cards", card0, card1, clone) != 0) goto done;
+
+    fprintf(report, "\n  ]\n}\n");
+    rc = 0;
+
+done:
+    if (!rc) {
+        fclose(report);
+        report = NULL;
+    } else if (report != NULL) {
+        fprintf(report, "\n  ]\n}\n");
+        fclose(report);
+    }
+    gpu_release(&gpu);
+    return rc;
+}
+
 /* -------------------------------------------------------------------- main */
 
 static int parse_size_list(const char *text, int *widths, int *heights, int max_count)
@@ -2473,7 +2763,8 @@ static int parse_size_list(const char *text, int *widths, int *heights, int max_
 int main(int argc, char **argv)
 {
     int exit_code = 1;
-    int mode_render = 0, mode_states = 0, mode_report = 0, mode_dump = 0;
+    int mode_render = 0, mode_states = 0, mode_report = 0, mode_dump = 0, mode_dynamic = 0;
+    const char *dynamic_prefix = "dynamic";
     int render_w = UI_VIEWPORT_WIDTH, render_h = UI_VIEWPORT_HEIGHT;
     const char *render_path = "out.png";
     const char *states_prefix = "state";
@@ -2540,6 +2831,11 @@ int main(int argc, char **argv)
                 fprintf(stderr, "error: bad --size\n");
                 return 1;
             }
+        } else if (strcmp(argv[i], "--dynamic") == 0) {
+            mode_dynamic = 1;
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                dynamic_prefix = argv[++i];
+            }
         } else if (strcmp(argv[i], "--report") == 0) {
             mode_report = 1;
             if (i + 1 < argc && argv[i + 1][0] != '-') {
@@ -2572,7 +2868,7 @@ int main(int argc, char **argv)
             height_arg = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
             printf("usage: runtime_r2.exe [--render W H out.png] [--states PREFIX] "
-                   "[--report FILE] [--frames N] [--resize-demo]\n");
+                   "[--report FILE] [--dynamic PREFIX] [--frames N] [--resize-demo]\n");
             CoUninitialize();
             return 0;
         } else {
@@ -2605,6 +2901,11 @@ int main(int argc, char **argv)
 
     if (mode_report) {
         exit_code = write_layout_report(report_path, widths, heights, size_count);
+        goto done;
+    }
+
+    if (mode_dynamic) {
+        exit_code = run_dynamic(dynamic_prefix);
         goto done;
     }
 

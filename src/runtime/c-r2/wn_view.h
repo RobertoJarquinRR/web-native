@@ -32,6 +32,19 @@ wn_status wn_view_set_text(wn_view *view, const char *id, const char *text_utf8)
 wn_status wn_view_set_class(wn_view *view, const char *id, const char *class_name,
                             int enabled);
 
+/* Dynamic UI (ABI v3) internal surface. wn_node_id values are the same opaque
+ * handles exposed by include/webnative.h. */
+wn_node_id wn_view_find(wn_view *view, const char *name);
+wn_node_id wn_view_root(wn_view *view);
+int32_t wn_view_node_count(wn_view *view);
+wn_status wn_view_set_visible(wn_view *view, wn_node_id node, int visible);
+wn_status wn_view_set_image(wn_view *view, wn_node_id node, const char *path);
+wn_status wn_view_set_node_text(wn_view *view, wn_node_id node, const char *utf8);
+wn_node_id wn_view_clone(wn_view *view, wn_node_id template_node, wn_node_id parent);
+wn_status wn_view_remove(wn_view *view, wn_node_id node);
+wn_status wn_view_clear_children(wn_view *view, wn_node_id node);
+wn_status wn_view_append(wn_view *view, wn_node_id parent, wn_node_id child);
+
 #if defined(__cplusplus)
 }
 #endif

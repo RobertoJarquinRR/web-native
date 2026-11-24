@@ -290,6 +290,10 @@ wn_status wn_view_render(wn_view *view)
     }
 
     t0 = wn_now_ms();
+    if (wn_core_needs_layout(view->core)) {
+        wn_core_relayout(view->core);
+        view->geometry_dirty = 1;
+    }
     if (view->geometry_dirty) {
         wn_core_build_display_list(view->core);
         view->geometry_dirty = 0;
@@ -457,6 +461,296 @@ wn_status wn_view_set_class(wn_view *view, const char *id, const char *class_nam
     if (result != 0) {
         wn_set_error("wn_view_set_class: cannot %s class '%s' on '%s'",
                      enabled ? "add" : "remove", class_name, id);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    view_mark_geometry(view);
+    return WN_OK;
+}
+
+/* ---------------------------------------------------- dynamic UI (ABI v3) */
+
+static int view_node_index(const wn_view *view, wn_node_id node)
+{
+    int index;
+    if (view == NULL || node == WN_NODE_INVALID) {
+        return -1;
+    }
+    index = (int)(node - 1u);
+    if (!wn_core_node_is_alive(view->core, index)) {
+        return -1;
+    }
+    return index;
+}
+
+static wn_node_id view_node_handle(int index)
+{
+    return index >= 0 ? (wn_node_id)((uint64_t)index + 1u) : WN_NODE_INVALID;
+}
+
+wn_node_id wn_view_find(wn_view *view, const char *name)
+{
+    int node;
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_app_find: view is NULL");
+        return WN_NODE_INVALID;
+    }
+    if (name == NULL || name[0] == '\0') {
+        wn_set_error("wn_app_find: name is NULL or empty");
+        return WN_NODE_INVALID;
+    }
+    node = wn_core_find_node(view->core, name);
+    if (node < 0) {
+        wn_set_error("wn_app_find: node '%s' not found", name);
+        return WN_NODE_INVALID;
+    }
+    return view_node_handle(node);
+}
+
+wn_node_id wn_view_root(wn_view *view)
+{
+    int i;
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_app_root: view is NULL");
+        return WN_NODE_INVALID;
+    }
+    for (i = 0; i < wn_core_node_count(view->core); ++i) {
+        if (wn_core_node_is_alive(view->core, i) &&
+            wn_core_node_parent(view->core, i) < 0) {
+            return view_node_handle(i);
+        }
+    }
+    wn_set_error("wn_app_root: the document has no root");
+    return WN_NODE_INVALID;
+}
+
+int32_t wn_view_node_count(wn_view *view)
+{
+    if (view == NULL) {
+        return 0;
+    }
+    return (int32_t)wn_core_live_node_count(view->core);
+}
+
+wn_status wn_view_set_visible(wn_view *view, wn_node_id node, int visible)
+{
+    int index;
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_node_set_visible: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    index = view_node_index(view, node);
+    if (index < 0) {
+        wn_set_error("wn_node_set_visible: invalid node handle %llu",
+                     (unsigned long long)node);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    if (wn_core_set_visible(view->core, index, visible) != 0) {
+        wn_set_error("wn_node_set_visible: node handle %llu is not alive",
+                     (unsigned long long)node);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    view_mark_geometry(view);
+    return WN_OK;
+}
+
+wn_status wn_view_set_image(wn_view *view, wn_node_id node, const char *path)
+{
+    int index;
+    int result;
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_node_set_image: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    index = view_node_index(view, node);
+    if (index < 0) {
+        wn_set_error("wn_node_set_image: invalid node handle %llu",
+                     (unsigned long long)node);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    if (path == NULL || path[0] == '\0') {
+        wn_set_error("wn_node_set_image: path is NULL or empty");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    result = wn_core_set_image(view->core, index, path);
+    if (result == 1) {
+        wn_set_error("wn_node_set_image: node handle %llu is not an image node",
+                     (unsigned long long)node);
+        return WN_ERR_UNSUPPORTED;
+    }
+    if (result == -2) {
+        wn_set_error("wn_node_set_image: out of memory copying '%s'", path);
+        return WN_ERR_OUT_OF_MEMORY;
+    }
+    if (result != 0) {
+        wn_set_error("wn_node_set_image: invalid node handle %llu",
+                     (unsigned long long)node);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    view_mark_geometry(view);
+    return WN_OK;
+}
+
+wn_status wn_view_set_node_text(wn_view *view, wn_node_id node, const char *utf8)
+{
+    int index;
+    int result;
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_node_set_text: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    index = view_node_index(view, node);
+    if (index < 0) {
+        wn_set_error("wn_node_set_text: invalid node handle %llu",
+                     (unsigned long long)node);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    if (utf8 == NULL) {
+        wn_set_error("wn_node_set_text: utf8 is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    if (!wn_core_node_is_text(view->core, index)) {
+        wn_set_error("wn_node_set_text: node handle %llu is not a text node",
+                     (unsigned long long)node);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    result = wn_core_set_text(view->core, index, utf8);
+    if (result == 1) {
+        wn_set_error("wn_node_set_text: '%s' cannot be rendered with the pre-shaped "
+                     "glyphs of node %llu (runtime shaping is out of v0)",
+                     utf8, (unsigned long long)node);
+        return WN_ERR_UNSUPPORTED;
+    }
+    if (result != 0) {
+        wn_set_error("wn_node_set_text: invalid text node %llu",
+                     (unsigned long long)node);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    view_mark_geometry(view);
+    return WN_OK;
+}
+
+wn_node_id wn_view_clone(wn_view *view, wn_node_id template_node, wn_node_id parent)
+{
+    int template_index;
+    int parent_index;
+    int result;
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_node_clone: view is NULL");
+        return WN_NODE_INVALID;
+    }
+    template_index = view_node_index(view, template_node);
+    if (template_index < 0) {
+        wn_set_error("wn_node_clone: invalid template handle %llu",
+                     (unsigned long long)template_node);
+        return WN_NODE_INVALID;
+    }
+    parent_index = view_node_index(view, parent);
+    if (parent_index < 0) {
+        wn_set_error("wn_node_clone: invalid parent handle %llu",
+                     (unsigned long long)parent);
+        return WN_NODE_INVALID;
+    }
+    result = wn_core_clone(view->core, template_index, parent_index);
+    if (result == -2) {
+        wn_set_error("wn_node_clone: node arena is full (%d nodes)",
+                     wn_core_node_count(view->core));
+        return WN_NODE_INVALID;
+    }
+    if (result < 0) {
+        wn_set_error("wn_node_clone: cannot clone handle %llu under %llu",
+                     (unsigned long long)template_node,
+                     (unsigned long long)parent);
+        return WN_NODE_INVALID;
+    }
+    view_mark_geometry(view);
+    return view_node_handle(result);
+}
+
+wn_status wn_view_remove(wn_view *view, wn_node_id node)
+{
+    int index;
+    int result;
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_node_remove: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    index = view_node_index(view, node);
+    if (index < 0) {
+        wn_set_error("wn_node_remove: invalid node handle %llu",
+                     (unsigned long long)node);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    result = wn_core_remove(view->core, index);
+    if (result == -2) {
+        wn_set_error("wn_node_remove: out of memory");
+        return WN_ERR_OUT_OF_MEMORY;
+    }
+    if (result != 0) {
+        wn_set_error("wn_node_remove: cannot remove handle %llu (root or invalid)",
+                     (unsigned long long)node);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    view_mark_geometry(view);
+    return WN_OK;
+}
+
+wn_status wn_view_clear_children(wn_view *view, wn_node_id node)
+{
+    int index;
+    int result;
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_node_clear_children: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    index = view_node_index(view, node);
+    if (index < 0) {
+        wn_set_error("wn_node_clear_children: invalid node handle %llu",
+                     (unsigned long long)node);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    result = wn_core_clear_children(view->core, index);
+    if (result != 0) {
+        wn_set_error("wn_node_clear_children: cannot clear handle %llu",
+                     (unsigned long long)node);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    view_mark_geometry(view);
+    return WN_OK;
+}
+
+wn_status wn_view_append(wn_view *view, wn_node_id parent, wn_node_id child)
+{
+    int parent_index;
+    int child_index;
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_node_append: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    parent_index = view_node_index(view, parent);
+    if (parent_index < 0) {
+        wn_set_error("wn_node_append: invalid parent handle %llu",
+                     (unsigned long long)parent);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    child_index = view_node_index(view, child);
+    if (child_index < 0) {
+        wn_set_error("wn_node_append: invalid child handle %llu",
+                     (unsigned long long)child);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    if (wn_core_append(view->core, parent_index, child_index) != 0) {
+        wn_set_error("wn_node_append: cannot append handle %llu to %llu "
+                     "(root, self or cycle)",
+                     (unsigned long long)child, (unsigned long long)parent);
         return WN_ERR_INVALID_ARGUMENT;
     }
     view_mark_geometry(view);

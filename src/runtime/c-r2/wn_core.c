@@ -21,6 +21,7 @@
 
 #define WN_MAX_GLYPH_SETS 8
 #define WN_MAX_CLASSES 8
+#define WN_MAX_NODES 4096
 
 struct wn_document {
     const UiNode *nodes;
@@ -86,11 +87,31 @@ typedef struct {
 struct wn_core {
     const wn_document *doc;
 
+    /* Mutable node arena. [0, compiled_count) are copies of the compiled nodes;
+     * slots from compiled_count up are cloned at runtime. Removed slots are
+     * recycled through free_list. */
+    UiNode *nodes;
+    const char **names;          /* compiled names are borrowed from wn_document */
+    int node_count;              /* high-water mark */
+    int live_count;
+    int node_capacity;
+    unsigned char *alive;
+    unsigned char *dynamic_node;
+    unsigned char *visible;
+    unsigned char *visible_eff;
+    int *parent;
+    int *order_key;
+    int next_order;
+    int *run_first;
+    int *run_count;
+    int *free_list;
+    int free_count;
+    int clone_serial;
+
     wn_rect *rects;
     wn_rect *clips;
     int *first_child;
     int *next_sibling;
-    int *subtree_end;
     int *last_child;
 
     float *scroll;
@@ -128,12 +149,19 @@ struct wn_core {
     double last_layout_ms;
 
     char **text_override;
+    char **image_override;
 
     char **classes;
     unsigned char *class_count;
 
     GlyphSet *glyph_sets;
     int glyph_set_count;
+
+    int *paint_order;
+    int paint_count;
+
+    int dirty;
+    int needs_layout;
 };
 
 /* Max-content width. Flex items use their content width, not the container
@@ -249,40 +277,111 @@ static void ensure_image_batch_capacity(wn_core *c, int needed)
 
 static const UiNode *node_at(const wn_core *c, int node)
 {
-    if (node < 0 || node >= c->doc->node_count) {
+    if (node < 0 || node >= c->node_count || !c->alive[node]) {
         return NULL;
     }
-    return &c->doc->nodes[node];
+    return &c->nodes[node];
+}
+
+static UiNode *node_mut(wn_core *c, int node)
+{
+    if (node < 0 || node >= c->node_count || !c->alive[node]) {
+        return NULL;
+    }
+    return &c->nodes[node];
 }
 
 int wn_core_node_count(const wn_core *core)
 {
-    return core != NULL ? core->doc->node_count : 0;
+    return core != NULL ? core->node_count : 0;
+}
+
+int wn_core_live_node_count(const wn_core *core)
+{
+    return core != NULL ? core->live_count : 0;
 }
 
 const char *wn_core_node_name(const wn_core *core, int node)
 {
-    if (core == NULL || node < 0 || node >= core->doc->node_count) {
+    if (core == NULL || node < 0 || node >= core->node_count ||
+        !core->alive[node]) {
         return NULL;
     }
-    return core->doc->names[node];
+    return core->names[node];
 }
 
 const char *wn_core_node_text(const wn_core *core, int node)
 {
-    if (core == NULL || node < 0 || node >= core->doc->node_count) {
+    if (core == NULL || node_at(core, node) == NULL) {
         return NULL;
     }
     if (core->text_override[node] != NULL) {
         return core->text_override[node];
     }
-    return core->doc->nodes[node].text;
+    return core->nodes[node].text;
+}
+
+const char *wn_core_node_image_src(const wn_core *core, int node)
+{
+    if (core == NULL || node_at(core, node) == NULL) {
+        return NULL;
+    }
+    if (core->image_override[node] != NULL) {
+        return core->image_override[node];
+    }
+    return core->nodes[node].image_src;
 }
 
 int wn_core_node_is_text(const wn_core *core, int node)
 {
     const UiNode *n = core != NULL ? node_at(core, node) : NULL;
     return n != NULL && n->kind == R2_NODE_TEXT;
+}
+
+int wn_core_node_is_alive(const wn_core *core, int node)
+{
+    return core != NULL && node >= 0 && node < core->node_count &&
+           core->alive[node] != 0;
+}
+
+int wn_core_node_is_visible(const wn_core *core, int node)
+{
+    if (!wn_core_node_is_alive(core, node)) {
+        return 0;
+    }
+    return core->visible[node] != 0;
+}
+
+int wn_core_node_is_dynamic(const wn_core *core, int node)
+{
+    if (!wn_core_node_is_alive(core, node)) {
+        return 0;
+    }
+    return core->dynamic_node[node] != 0;
+}
+
+int wn_core_node_parent(const wn_core *core, int node)
+{
+    if (!wn_core_node_is_alive(core, node)) {
+        return -1;
+    }
+    return core->parent[node];
+}
+
+int wn_core_node_first_child(const wn_core *core, int node)
+{
+    if (!wn_core_node_is_alive(core, node)) {
+        return -1;
+    }
+    return core->first_child[node];
+}
+
+int wn_core_node_next_sibling(const wn_core *core, int node)
+{
+    if (!wn_core_node_is_alive(core, node)) {
+        return -1;
+    }
+    return core->next_sibling[node];
 }
 
 int wn_core_node_action(const wn_core *core, int node)
@@ -316,13 +415,13 @@ int wn_core_find_node(const wn_core *core, const char *id)
     if (core == NULL || id == NULL || id[0] == '\0') {
         return -1;
     }
-    for (i = 0; i < core->doc->node_count; ++i) {
-        if (strcmp(core->doc->names[i], id) == 0) {
+    for (i = 0; i < core->node_count; ++i) {
+        if (core->alive[i] && strcmp(core->names[i], id) == 0) {
             return i;
         }
     }
-    for (i = 0; i < core->doc->node_count; ++i) {
-        if (name_matches_id(core->doc->names[i], id)) {
+    for (i = 0; i < core->node_count; ++i) {
+        if (core->alive[i] && name_matches_id(core->names[i], id)) {
             match = i;
             ++matches;
         }
@@ -332,53 +431,88 @@ int wn_core_find_node(const wn_core *core, const char *id)
 
 /* ------------------------------------------------------------- hierarchy */
 
+/* Rebuild first_child/next_sibling/last_child from the parent links. Cheap
+ * (O(nodes)) and called after every structural mutation. */
 static void build_hierarchy(wn_core *c)
 {
     int i;
-    const int count = c->doc->node_count;
-    for (i = 0; i < count; ++i) {
+    for (i = 0; i < c->node_count; ++i) {
         c->first_child[i] = -1;
         c->next_sibling[i] = -1;
         c->last_child[i] = -1;
-        c->subtree_end[i] = i + 1;
+        c->nodes[i].parent = c->parent[i];
     }
-    for (i = 0; i < count; ++i) {
-        int parent = c->doc->nodes[i].parent;
-        if (parent < 0 || parent >= count) {
+    for (i = 0; i < c->node_count; ++i) {
+        int parent;
+        int prev = -1;
+        int walk;
+        if (!c->alive[i]) {
             continue;
         }
-        if (c->first_child[parent] < 0) {
+        parent = c->parent[i];
+        if (parent < 0 || parent >= c->node_count || !c->alive[parent]) {
+            if (parent >= 0) {
+                c->parent[i] = -1;
+                c->nodes[i].parent = -1;
+            }
+            continue;
+        }
+        /* Insert sorted by order_key so append/re-parent keeps an explicit
+         * child order even when arena slots are recycled. */
+        walk = c->first_child[parent];
+        while (walk >= 0 && c->order_key[walk] < c->order_key[i]) {
+            prev = walk;
+            walk = c->next_sibling[walk];
+        }
+        if (prev < 0) {
+            if (c->first_child[parent] < 0) {
+                c->last_child[parent] = i;
+            }
+            c->next_sibling[i] = c->first_child[parent];
             c->first_child[parent] = i;
         } else {
-            c->next_sibling[c->last_child[parent]] = i;
-        }
-        c->last_child[parent] = i;
-    }
-    for (i = count - 1; i >= 0; --i) {
-        int end = i + 1;
-        int child;
-        for (child = c->first_child[i]; child >= 0; child = c->next_sibling[child]) {
-            if (c->subtree_end[child] > end) {
-                end = c->subtree_end[child];
+            c->next_sibling[i] = c->next_sibling[prev];
+            c->next_sibling[prev] = i;
+            if (c->next_sibling[i] < 0) {
+                c->last_child[parent] = i;
             }
         }
-        c->subtree_end[i] = end;
     }
 }
 
 static void translate_subtree(wn_core *c, int node, float dx, float dy)
 {
-    int end = c->subtree_end[node];
-    int i;
-    for (i = node; i < end; ++i) {
-        c->rects[i].x += dx;
-        c->rects[i].y += dy;
+    int child;
+    if (!c->alive[node] || !c->visible_eff[node]) {
+        return;
+    }
+    c->rects[node].x += dx;
+    c->rects[node].y += dy;
+    for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
+        translate_subtree(c, child, dx, dy);
+    }
+}
+
+static void mark_subtree_hidden(wn_core *c, int node)
+{
+    int child;
+    if (!c->alive[node]) {
+        return;
+    }
+    c->visible_eff[node] = 0;
+    c->rects[node].x = 0.0f;
+    c->rects[node].y = 0.0f;
+    c->rects[node].w = 0.0f;
+    c->rects[node].h = 0.0f;
+    c->clips[node] = c->rects[node];
+    for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
+        mark_subtree_hidden(c, child);
     }
 }
 
 static float intrinsic_width(wn_core *c, int node, float available)
 {
-    const UiNode *n = &c->doc->nodes[node];
+    const UiNode *n = &c->nodes[node];
     if (n->width >= 0.0f) {
         return n->width;
     }
@@ -401,6 +535,9 @@ static float intrinsic_width(wn_core *c, int node, float available)
         int count = 0;
         int child;
         for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
+            if (!c->alive[child] || !c->visible[child]) {
+                continue;
+            }
             sum += intrinsic_width(c, child, available);
             ++count;
         }
@@ -412,7 +549,11 @@ static float intrinsic_width(wn_core *c, int node, float available)
         float maxw = 0.0f;
         int child;
         for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
-            float w = intrinsic_width(c, child, available);
+            float w;
+            if (!c->alive[child] || !c->visible[child]) {
+                continue;
+            }
+            w = intrinsic_width(c, child, available);
             if (w > maxw) {
                 maxw = w;
             }
@@ -461,7 +602,7 @@ static float layout_flex_children(wn_core *c, int parent, float content_x,
                                   float content_y, float content_w,
                                   float content_h)
 {
-    const UiNode *p = &c->doc->nodes[parent];
+    const UiNode *p = &c->nodes[parent];
     int *items;
     float *item_w;
     float *item_h;
@@ -474,6 +615,9 @@ static float layout_flex_children(wn_core *c, int parent, float content_x,
     int child;
 
     for (child = c->first_child[parent]; child >= 0; child = c->next_sibling[child]) {
+        if (!c->alive[child] || !c->visible[child]) {
+            continue;
+        }
         ++count;
     }
     if (count == 0) {
@@ -493,6 +637,9 @@ static float layout_flex_children(wn_core *c, int parent, float content_x,
 
     count = 0;
     for (child = c->first_child[parent]; child >= 0; child = c->next_sibling[child]) {
+        if (!c->alive[child] || !c->visible[child]) {
+            continue;
+        }
         items[count] = child;
         ++count;
     }
@@ -505,7 +652,7 @@ static float layout_flex_children(wn_core *c, int parent, float content_x,
     /* 1. Measure every item at (0,0). */
     for (k = 0; k < count; ++k) {
         int id = items[k];
-        const UiNode *n = &c->doc->nodes[id];
+        const UiNode *n = &c->nodes[id];
         float forced = -1.0f;
         if (n->width < 0.0f && n->width_pct == 0.0f) {
             float margins = n->margin[1] + n->margin[3];
@@ -664,7 +811,7 @@ static float layout_flex_children(wn_core *c, int parent, float content_x,
         int j;
         for (j = start; j < start + take; ++j) {
             int id = items[j];
-            const UiNode *n = &c->doc->nodes[id];
+            const UiNode *n = &c->nodes[id];
             float w = item_w[j];
             float h = item_h[j];
             float cross_extent = line_cross[l];
@@ -709,7 +856,7 @@ static float layout_grid_children(wn_core *c, int parent, float content_x,
                                   float content_y, float content_w,
                                   float content_h)
 {
-    const UiNode *p = &c->doc->nodes[parent];
+    const UiNode *p = &c->nodes[parent];
     int *items;
     float *item_w;
     float *item_h;
@@ -721,6 +868,9 @@ static float layout_grid_children(wn_core *c, int parent, float content_x,
     int k;
 
     for (child = c->first_child[parent]; child >= 0; child = c->next_sibling[child]) {
+        if (!c->alive[child] || !c->visible[child]) {
+            continue;
+        }
         ++count;
     }
     if (count == 0) {
@@ -730,6 +880,9 @@ static float layout_grid_children(wn_core *c, int parent, float content_x,
         /* Not a v2 grid: behave like a block container. */
         float cursor = content_y;
         for (child = c->first_child[parent]; child >= 0; child = c->next_sibling[child]) {
+            if (!c->alive[child] || !c->visible[child]) {
+                continue;
+            }
             cursor += layout_node(c, child, content_x, cursor, content_w, content_h, 0, -1.0f);
         }
         return cursor - content_y;
@@ -758,13 +911,16 @@ static float layout_grid_children(wn_core *c, int parent, float content_x,
 
     k = 0;
     for (child = c->first_child[parent]; child >= 0; child = c->next_sibling[child]) {
+        if (!c->alive[child] || !c->visible[child]) {
+            continue;
+        }
         items[k] = child;
         ++k;
     }
 
     /* Pass 1: measure each item at (0,0) with the track width forced. */
     for (k = 0; k < count; ++k) {
-        const UiNode *n = &c->doc->nodes[items[k]];
+        const UiNode *n = &c->nodes[items[k]];
         float forced = track;
         if (n->width >= 0.0f) {
             forced = n->width;
@@ -822,8 +978,13 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
                          float available_w, float parent_content_h,
                          int is_root, float forced_w)
 {
-    const UiNode *n = &c->doc->nodes[node];
+    const UiNode *n = &c->nodes[node];
     float w;
+    if (!c->alive[node] || !c->visible[node]) {
+        mark_subtree_hidden(c, node);
+        return 0.0f;
+    }
+    c->visible_eff[node] = 1;
     if (forced_w >= 0.0f) {
         w = forced_w;
     } else if (n->width >= 0.0f) {
@@ -893,6 +1054,10 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
     } else {
         int child;
         for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
+            if (!c->alive[child] || !c->visible[child]) {
+                mark_subtree_hidden(c, child);
+                continue;
+            }
             cursor += layout_node(c, child, content_x, cursor, content_w, content_h, 0, -1.0f);
         }
     }
@@ -963,7 +1128,7 @@ static int rect_is_empty(wn_rect r)
  * of an overflow container are additionally clipped to its content box. */
 static void compute_clips(wn_core *c, int node, wn_rect clip)
 {
-    const UiNode *n = &c->doc->nodes[node];
+    const UiNode *n = &c->nodes[node];
     wn_rect child_clip = clip;
     int child;
     c->clips[node] = clip;
@@ -977,27 +1142,60 @@ static void compute_clips(wn_core *c, int node, wn_rect clip)
         child_clip = rect_intersection(clip, content);
     }
     for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
+        if (!c->alive[child] || !c->visible_eff[child]) {
+            continue;
+        }
         compute_clips(c, child, child_clip);
+    }
+}
+
+static void build_paint_order(wn_core *c, int node)
+{
+    int child;
+    if (!c->alive[node] || !c->visible_eff[node]) {
+        return;
+    }
+    if (c->paint_count < c->node_capacity) {
+        c->paint_order[c->paint_count++] = node;
+    }
+    for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
+        build_paint_order(c, child);
     }
 }
 
 static void layout_page(wn_core *c, float viewport_w, float viewport_h)
 {
-    int root = 0;
+    int root = -1;
     int i;
     wn_rect viewport;
-    for (i = 0; i < c->doc->node_count; ++i) {
-        if (c->doc->nodes[i].parent < 0) {
+    for (i = 0; i < c->node_count; ++i) {
+        c->visible_eff[i] = 0;
+        if (c->alive[i]) {
+            c->rects[i].x = 0.0f;
+            c->rects[i].y = 0.0f;
+            c->rects[i].w = 0.0f;
+            c->rects[i].h = 0.0f;
+            c->clips[i] = c->rects[i];
+        }
+    }
+    for (i = 0; i < c->node_count; ++i) {
+        if (c->alive[i] && c->parent[i] < 0) {
             root = i;
             break;
         }
     }
-    layout_node(c, root, 0.0f, 0.0f, viewport_w, viewport_h, 1, -1.0f);
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.w = viewport_w;
-    viewport.h = viewport_h;
-    compute_clips(c, root, viewport);
+    c->paint_count = 0;
+    if (root >= 0) {
+        layout_node(c, root, 0.0f, 0.0f, viewport_w, viewport_h, 1, -1.0f);
+        viewport.x = 0.0f;
+        viewport.y = 0.0f;
+        viewport.w = viewport_w;
+        viewport.h = viewport_h;
+        if (c->visible_eff[root]) {
+            compute_clips(c, root, viewport);
+        }
+        build_paint_order(c, root);
+    }
 }
 
 void wn_core_resize(wn_core *core, int width, int height)
@@ -1016,6 +1214,7 @@ void wn_core_resize(wn_core *core, int width, int height)
     t0 = wn_now_ms();
     layout_page(core, (float)width, (float)height);
     core->last_layout_ms = wn_now_ms() - t0;
+    core->needs_layout = 0;
 }
 
 void wn_core_relayout(wn_core *core)
@@ -1027,6 +1226,7 @@ void wn_core_relayout(wn_core *core)
     t0 = wn_now_ms();
     layout_page(core, (float)core->width, (float)core->height);
     core->last_layout_ms = wn_now_ms() - t0;
+    core->needs_layout = 0;
 }
 
 /* ------------------------------------------------------------- interaction */
@@ -1037,16 +1237,32 @@ static int point_in_rect(float px, float py, const wn_rect *r)
            px >= r->x && px < r->x + r->w && py >= r->y && py < r->y + r->h;
 }
 
+/* Public pointer/hit entry points can run between a mutation and the next
+ * frame. Bring geometry up to date first so hidden/removed nodes never win a
+ * hit even if the host has not rendered yet. */
+static void ensure_layout_for_hit(wn_core *core)
+{
+    if (core != NULL && core->needs_layout) {
+        layout_page(core, (float)core->width, (float)core->height);
+        core->needs_layout = 0;
+    }
+}
+
 int wn_core_node_at(const wn_core *core, float px, float py)
 {
     int i;
     if (core == NULL) {
         return -1;
     }
-    for (i = core->doc->node_count - 1; i >= 0; --i) {
-        if (point_in_rect(px, py, &core->rects[i]) &&
-            point_in_rect(px, py, &core->clips[i])) {
-            return i;
+    ensure_layout_for_hit((wn_core *)core);
+    for (i = core->paint_count - 1; i >= 0; --i) {
+        int node = core->paint_order[i];
+        if (!core->visible_eff[node]) {
+            continue;
+        }
+        if (point_in_rect(px, py, &core->rects[node]) &&
+            point_in_rect(px, py, &core->clips[node])) {
+            return node;
         }
     }
     return -1;
@@ -1058,11 +1274,16 @@ int wn_core_hit_test(const wn_core *core, float px, float py)
     if (core == NULL) {
         return -1;
     }
-    for (i = core->doc->node_count - 1; i >= 0; --i) {
-        if (core->doc->nodes[i].action != ACTION_NONE &&
-            point_in_rect(px, py, &core->rects[i]) &&
-            point_in_rect(px, py, &core->clips[i])) {
-            return i;
+    ensure_layout_for_hit((wn_core *)core);
+    for (i = core->paint_count - 1; i >= 0; --i) {
+        int node = core->paint_order[i];
+        if (!core->visible_eff[node]) {
+            continue;
+        }
+        if (core->nodes[node].action != ACTION_NONE &&
+            point_in_rect(px, py, &core->rects[node]) &&
+            point_in_rect(px, py, &core->clips[node])) {
+            return node;
         }
     }
     return -1;
@@ -1079,12 +1300,12 @@ int wn_core_wheel(wn_core *core, float x, float y, float delta_x, float delta_y)
     }
     node = wn_core_node_at(core, x, y);
     while (node >= 0) {
-        if (core->doc->nodes[node].overflow == R2_OVERFLOW_SCROLL &&
+        if (core->nodes[node].overflow == R2_OVERFLOW_SCROLL &&
             core->scroll_max[node] > 0.0f) {
             container = node;
             break;
         }
-        node = core->doc->nodes[node].parent;
+        node = core->nodes[node].parent;
     }
     if (container < 0) {
         return -1;
@@ -1110,7 +1331,7 @@ int wn_core_wheel(wn_core *core, float x, float y, float delta_x, float delta_y)
 
 float wn_core_scroll_offset(const wn_core *core, int node)
 {
-    if (core == NULL || node < 0 || node >= core->doc->node_count) {
+    if (!wn_core_node_is_alive(core, node)) {
         return -1.0f;
     }
     return core->scroll[node];
@@ -1118,7 +1339,7 @@ float wn_core_scroll_offset(const wn_core *core, int node)
 
 float wn_core_scroll_max(const wn_core *core, int node)
 {
-    if (core == NULL || node < 0 || node >= core->doc->node_count) {
+    if (!wn_core_node_is_alive(core, node)) {
         return -1.0f;
     }
     return core->scroll_max[node];
@@ -1126,7 +1347,7 @@ float wn_core_scroll_max(const wn_core *core, int node)
 
 int wn_core_node_clip(const wn_core *core, int node, wn_rect *out)
 {
-    if (core == NULL || out == NULL || node < 0 || node >= core->doc->node_count) {
+    if (core == NULL || out == NULL || !wn_core_node_is_alive(core, node)) {
         return -1;
     }
     *out = core->clips[node];
@@ -1165,7 +1386,7 @@ int wn_core_pointer_up(wn_core *core, float px, float py)
     hit = wn_core_hit_test(core, px, py);
     core->hover = hit;
     if (core->press >= 0 && hit == core->press &&
-        core->doc->nodes[core->press].action == ACTION_SELECT) {
+        core->nodes[core->press].action == ACTION_SELECT) {
         core->selected = core->press;
     }
     core->press = -1;
@@ -1196,7 +1417,7 @@ int wn_core_selected(const wn_core *core)
 
 static unsigned int node_color(const wn_core *c, int node)
 {
-    const UiNode *n = &c->doc->nodes[node];
+    const UiNode *n = &c->nodes[node];
     if (n->action == ACTION_NONE) {
         return n->background;
     }
@@ -1215,7 +1436,7 @@ static unsigned int node_color(const wn_core *c, int node)
 void wn_core_set_state(wn_core *core, int node, int state, int enabled)
 {
     int value;
-    if (core == NULL || node < 0 || node >= core->doc->node_count) {
+    if (core == NULL || node < 0 || node >= core->node_count) {
         return;
     }
     if (!enabled) {
@@ -1230,6 +1451,7 @@ void wn_core_set_state(wn_core *core, int node, int state, int enabled)
     } else if (state == WN_STATE_SELECTED) {
         core->selected = value;
     }
+    core->dirty = 1;
 }
 
 /* ---------------------------------------------------------------- classes */
@@ -1240,7 +1462,7 @@ int wn_core_set_class(wn_core *core, int node, const char *class_name, int enabl
     int slot = -1;
     int count;
     if (core == NULL || class_name == NULL || class_name[0] == '\0' ||
-        node < 0 || node >= core->doc->node_count) {
+        node < 0 || node >= core->node_count || !core->alive[node]) {
         return -1;
     }
     if (strcmp(class_name, "hover") == 0) {
@@ -1249,6 +1471,7 @@ int wn_core_set_class(wn_core *core, int node, const char *class_name, int enabl
         } else if (core->hover == node) {
             core->hover = -1;
         }
+        core->dirty = 1;
         return 0;
     }
     if (strcmp(class_name, "press") == 0) {
@@ -1257,6 +1480,7 @@ int wn_core_set_class(wn_core *core, int node, const char *class_name, int enabl
         } else if (core->press == node) {
             core->press = -1;
         }
+        core->dirty = 1;
         return 0;
     }
     if (strcmp(class_name, "selected") == 0) {
@@ -1265,6 +1489,7 @@ int wn_core_set_class(wn_core *core, int node, const char *class_name, int enabl
         } else if (core->selected == node) {
             core->selected = -1;
         }
+        core->dirty = 1;
         return 0;
     }
 
@@ -1296,6 +1521,7 @@ int wn_core_set_class(wn_core *core, int node, const char *class_name, int enabl
         core->classes[node * WN_MAX_CLASSES + count - 1] = NULL;
         core->class_count[node] = (unsigned char)(count - 1);
     }
+    core->dirty = 1;
     return 0;
 }
 
@@ -1333,10 +1559,11 @@ static void build_glyph_sets(wn_core *c)
         int glyph_index;
         int i;
         int text_len;
-        if (run->node < 0 || run->node >= c->doc->node_count || run->count <= 0) {
+        if (run->node < 0 || run->node >= c->node_count || run->count <= 0 ||
+            !c->alive[run->node]) {
             continue;
         }
-        node = &c->doc->nodes[run->node];
+        node = &c->nodes[run->node];
         text = node->text;
         if (text == NULL) {
             continue;
@@ -1428,7 +1655,7 @@ static int text_supported(const wn_core *c, int node, const char *text)
         return 0;
     }
     for (i = 0; c->glyph_sets != NULL && i < c->glyph_set_count; ++i) {
-        if (c->glyph_sets[i].font_px == (int)(c->doc->nodes[node].font_size + 0.5f)) {
+        if (c->glyph_sets[i].font_px == (int)(c->nodes[node].font_size + 0.5f)) {
             set = &c->glyph_sets[i];
             break;
         }
@@ -1452,8 +1679,8 @@ static int text_supported(const wn_core *c, int node, const char *text)
 
 int wn_core_text_override_supported(const wn_core *core, int node, const char *text)
 {
-    if (core == NULL || node < 0 || node >= core->doc->node_count ||
-        core->doc->nodes[node].kind != R2_NODE_TEXT) {
+    if (core == NULL || !wn_core_node_is_alive(core, node) ||
+        core->nodes[node].kind != R2_NODE_TEXT) {
         return -1;
     }
     if (text == NULL) {
@@ -1465,8 +1692,8 @@ int wn_core_text_override_supported(const wn_core *core, int node, const char *t
 int wn_core_set_text(wn_core *core, int node, const char *text)
 {
     char *copy;
-    if (core == NULL || node < 0 || node >= core->doc->node_count ||
-        core->doc->nodes[node].kind != R2_NODE_TEXT || text == NULL) {
+    if (core == NULL || !wn_core_node_is_alive(core, node) ||
+        core->nodes[node].kind != R2_NODE_TEXT || text == NULL) {
         return -1;
     }
     if (!text_supported(core, node, text)) {
@@ -1478,6 +1705,8 @@ int wn_core_set_text(wn_core *core, int node, const char *text)
     }
     wn_free_(core->text_override[node]);
     core->text_override[node] = copy;
+    core->dirty = 1;
+    core->needs_layout = 1;
     return 0;
 }
 
@@ -1651,8 +1880,9 @@ static void push_image_vertex(wn_core *c, float x, float y, float u, float v,
 /* object-fit fill/cover/contain -> destination quad + source UVs. */
 static void push_image_quad(wn_core *c, int node, const wn_rect *clip)
 {
-    const UiNode *n = &c->doc->nodes[node];
+    const UiNode *n = &c->nodes[node];
     const wn_rect *r = &c->rects[node];
+    const char *src = wn_core_node_image_src(c, node);
     wn_image_batch *batch;
     float x = r->x + n->padding[3];
     float y = r->y + n->padding[0];
@@ -1663,7 +1893,7 @@ static void push_image_quad(wn_core *c, int node, const wn_rect *clip)
     float ih = n->image_height;
     float x1, y1;
 
-    if (n->image_src == NULL || w <= 0.0f || h <= 0.0f) {
+    if (src == NULL || w <= 0.0f || h <= 0.0f) {
         return;
     }
     if (iw > 0.0f && ih > 0.0f) {
@@ -1696,7 +1926,7 @@ static void push_image_quad(wn_core *c, int node, const wn_rect *clip)
     }
     if (c->image_batch_count > 0) {
         wn_image_batch *last = &c->image_batches[c->image_batch_count - 1];
-        if (last->src != NULL && strcmp(last->src, n->image_src) == 0 &&
+        if (last->src != NULL && strcmp(last->src, src) == 0 &&
             last->clip_x == clip->x && last->clip_y == clip->y &&
             last->clip_w == clip->w && last->clip_h == clip->h) {
             last->count += 6;
@@ -1711,7 +1941,7 @@ static void push_image_quad(wn_core *c, int node, const wn_rect *clip)
     batch->clip_y = clip->y;
     batch->clip_w = clip->w;
     batch->clip_h = clip->h;
-    batch->src = n->image_src;
+    batch->src = src;
 
 push_vertices:
     (void)batch;
@@ -1727,32 +1957,36 @@ push_vertices:
 
 static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
 {
-    int run_index;
-    for (run_index = 0; run_index < c->doc->run_count; ++run_index) {
-        const UiTextRun *run = &c->doc->runs[run_index];
+    int order_index;
+    for (order_index = 0; order_index < c->paint_count; ++order_index) {
+        int node = c->paint_order[order_index];
+        const UiNode *n = &c->nodes[node];
         const wn_rect *r;
         unsigned int color;
         uint8_t a, cr, cg, cb;
         int j;
-        if (run->node < 0 || run->node >= c->doc->node_count || run->count <= 0) {
+        if (!c->visible_eff[node] || n->kind != R2_NODE_TEXT) {
             continue;
         }
-        r = &c->rects[run->node];
-        color = c->doc->nodes[run->node].text_color;
+        if (c->run_count[node] <= 0 && c->text_override[node] == NULL) {
+            continue;
+        }
+        r = &c->rects[node];
+        color = n->text_color;
         a = (uint8_t)((color >> 24) & 0xFFu);
         if (a == 0) {
             continue;
         }
-        if (rect_is_empty(c->clips[run->node])) {
+        if (rect_is_empty(c->clips[node])) {
             continue;
         }
-        set_glyph_clip(c, &c->clips[run->node]);
+        set_glyph_clip(c, &c->clips[node]);
         cr = (uint8_t)((color >> 16) & 0xFFu);
         cg = (uint8_t)((color >> 8) & 0xFFu);
         cb = (uint8_t)(color & 0xFFu);
 
-        if (c->text_override[run->node] != NULL && c->text_override[run->node][0] != '\0') {
-            int font_px = (int)(c->doc->nodes[run->node].font_size + 0.5f);
+        if (c->text_override[node] != NULL) {
+            int font_px = (int)(n->font_size + 0.5f);
             GlyphSet *set = NULL;
             float pen = 0.0f;
             int s;
@@ -1765,7 +1999,7 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
             if (set == NULL) {
                 continue;
             }
-            for (const unsigned char *p = (const unsigned char *)c->text_override[run->node];
+            for (const unsigned char *p = (const unsigned char *)c->text_override[node];
                  *p != '\0'; ++p) {
                 const GlyphEntry *entry;
                 if (*p >= 128) {
@@ -1789,8 +2023,8 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
             continue;
         }
 
-        for (j = 0; j < run->count; ++j) {
-            const UiGlyph *g = &c->doc->glyphs[run->first + j];
+        for (j = 0; j < c->run_count[node]; ++j) {
+            const UiGlyph *g = &c->doc->glyphs[c->run_first[node] + j];
             float x, y;
             if (g->w <= 0.0f || g->h <= 0.0f) {
                 continue;
@@ -1811,6 +2045,10 @@ void wn_core_build_display_list(wn_core *core)
     if (core == NULL) {
         return;
     }
+    if (core->needs_layout) {
+        layout_page(core, (float)core->width, (float)core->height);
+        core->needs_layout = 0;
+    }
     core->vertex_count = 0;
     core->solid_batch_count = 0;
     core->glyph_vertex_count = 0;
@@ -1818,24 +2056,26 @@ void wn_core_build_display_list(wn_core *core)
     core->image_vertex_count = 0;
     core->image_batch_count = 0;
 
-    for (i = 0; i < core->doc->node_count; ++i) {
-        unsigned int color = node_color(core, i);
+    for (i = 0; i < core->paint_count; ++i) {
+        int node = core->paint_order[i];
+        unsigned int color = node_color(core, node);
         const wn_rect *r;
         if (color == 0) {
             continue;
         }
-        if (rect_is_empty(core->clips[i])) {
+        if (rect_is_empty(core->clips[node])) {
             continue;
         }
-        r = &core->rects[i];
-        set_solid_clip(core, &core->clips[i]);
+        r = &core->rects[node];
+        set_solid_clip(core, &core->clips[node]);
         push_quad(core, r->x, r->y, r->w, r->h,
                   (float)core->width, (float)core->height, color);
     }
-    for (i = 0; i < core->doc->node_count; ++i) {
-        if (core->doc->nodes[i].kind == R2_NODE_IMAGE &&
-            !rect_is_empty(core->clips[i])) {
-            push_image_quad(core, i, &core->clips[i]);
+    for (i = 0; i < core->paint_count; ++i) {
+        int node = core->paint_order[i];
+        if (core->nodes[node].kind == R2_NODE_IMAGE &&
+            !rect_is_empty(core->clips[node])) {
+            push_image_quad(core, node, &core->clips[node]);
         }
     }
     build_text_geometry(core, (float)core->width, (float)core->height);
@@ -1845,14 +2085,14 @@ void wn_core_build_display_list(wn_core *core)
     finalize_draw_batches(core->glyph_batches, &core->glyph_batch_count,
                           core->glyph_vertex_count);
 
-    for (i = 0; i < core->doc->node_count; ++i) {
-        if (core->doc->nodes[i].parent < 0) {
+    for (i = 0; i < core->node_count; ++i) {
+        if (core->alive[i] && core->parent[i] < 0) {
             root = i;
             break;
         }
     }
     if (root >= 0) {
-        unsigned int bg = core->doc->nodes[root].background;
+        unsigned int bg = core->nodes[root].background;
         if ((bg >> 24) != 0) {
             clear = bg;
         }
@@ -1880,6 +2120,7 @@ void wn_core_build_display_list(wn_core *core)
     core->list.clear_color[3] = (float)((clear >> 24) & 0xFFu) / 255.0f;
     core->list.width = core->width;
     core->list.height = core->height;
+    core->dirty = 0;
 }
 
 const wn_display_list *wn_core_display_list(const wn_core *core)
@@ -1896,7 +2137,7 @@ const wn_rect *wn_core_rects(const wn_core *core, int *count)
         return NULL;
     }
     if (count != NULL) {
-        *count = core->doc->node_count;
+        *count = core->node_count;
     }
     return core->rects;
 }
@@ -1912,6 +2153,8 @@ wn_core *wn_core_create(const wn_document *document)
 {
     wn_core *c;
     int count;
+    int capacity;
+    int i;
     size_t bytes;
     if (document == NULL || document->node_count <= 0) {
         return NULL;
@@ -1922,20 +2165,36 @@ wn_core *wn_core_create(const wn_document *document)
     }
     c->doc = document;
     count = document->node_count;
+    capacity = count > WN_MAX_NODES ? count : WN_MAX_NODES;
+    c->node_capacity = capacity;
+    c->node_count = count;
+    c->live_count = count;
     c->hover = c->press = c->selected = -1;
     c->width = document->viewport_width;
     c->height = document->viewport_height;
 
-    bytes = (size_t)count;
+    bytes = (size_t)capacity;
+    c->nodes = (UiNode *)calloc(bytes, sizeof(UiNode));
+    c->names = (const char **)calloc(bytes, sizeof(char *));
+    c->alive = (unsigned char *)calloc(bytes, sizeof(unsigned char));
+    c->dynamic_node = (unsigned char *)calloc(bytes, sizeof(unsigned char));
+    c->visible = (unsigned char *)calloc(bytes, sizeof(unsigned char));
+    c->visible_eff = (unsigned char *)calloc(bytes, sizeof(unsigned char));
+    c->parent = (int *)calloc(bytes, sizeof(int));
+    c->order_key = (int *)calloc(bytes, sizeof(int));
+    c->run_first = (int *)calloc(bytes, sizeof(int));
+    c->run_count = (int *)calloc(bytes, sizeof(int));
+    c->free_list = (int *)calloc(bytes, sizeof(int));
     c->rects = (wn_rect *)calloc(bytes, sizeof(wn_rect));
     c->clips = (wn_rect *)calloc(bytes, sizeof(wn_rect));
     c->scroll = (float *)calloc(bytes, sizeof(float));
     c->scroll_max = (float *)calloc(bytes, sizeof(float));
     c->first_child = (int *)calloc(bytes, sizeof(int));
     c->next_sibling = (int *)calloc(bytes, sizeof(int));
-    c->subtree_end = (int *)calloc(bytes, sizeof(int));
     c->last_child = (int *)calloc(bytes, sizeof(int));
+    c->paint_order = (int *)calloc(bytes, sizeof(int));
     c->text_override = (char **)calloc(bytes, sizeof(char *));
+    c->image_override = (char **)calloc(bytes, sizeof(char *));
     c->class_count = (unsigned char *)calloc(bytes, sizeof(unsigned char));
     c->classes = (char **)calloc(bytes * WN_MAX_CLASSES, sizeof(char *));
     c->glyph_sets = (GlyphSet *)calloc(WN_MAX_GLYPH_SETS, sizeof(GlyphSet));
@@ -1957,9 +2216,13 @@ wn_core *wn_core_create(const wn_document *document)
     c->image_batches = (wn_image_batch *)calloc(
         (size_t)c->image_batch_capacity, sizeof(wn_image_batch));
 
-    if (c->rects == NULL || c->clips == NULL || c->scroll == NULL ||
-        c->scroll_max == NULL || c->first_child == NULL || c->next_sibling == NULL ||
-        c->subtree_end == NULL || c->last_child == NULL || c->text_override == NULL ||
+    if (c->nodes == NULL || c->names == NULL || c->alive == NULL ||
+        c->dynamic_node == NULL || c->visible == NULL || c->visible_eff == NULL ||
+        c->parent == NULL || c->order_key == NULL || c->run_first == NULL || c->run_count == NULL ||
+        c->free_list == NULL || c->rects == NULL || c->clips == NULL ||
+        c->scroll == NULL || c->scroll_max == NULL || c->first_child == NULL ||
+        c->next_sibling == NULL || c->last_child == NULL || c->paint_order == NULL ||
+        c->text_override == NULL || c->image_override == NULL ||
         c->class_count == NULL || c->classes == NULL ||
         c->glyph_sets == NULL || c->vertices == NULL || c->solid_batches == NULL ||
         c->glyph_vertices == NULL || c->glyph_batches == NULL ||
@@ -1968,11 +2231,410 @@ wn_core *wn_core_create(const wn_document *document)
         return NULL;
     }
 
+    memcpy(c->nodes, document->nodes, (size_t)count * sizeof(UiNode));
+    for (i = 0; i < count; ++i) {
+        c->names[i] = document->names[i];
+        c->alive[i] = 1;
+        c->visible[i] = 1;
+        c->visible_eff[i] = 1;
+        c->parent[i] = c->nodes[i].parent;
+        c->order_key[i] = i;
+        c->run_first[i] = -1;
+        c->run_count[i] = 0;
+        c->first_child[i] = -1;
+        c->next_sibling[i] = -1;
+        c->last_child[i] = -1;
+    }
+    for (i = 0; i < document->run_count; ++i) {
+        const UiTextRun *run = &document->runs[i];
+        if (run->node >= 0 && run->node < count && run->count > 0) {
+            c->run_first[run->node] = run->first;
+            c->run_count[run->node] = run->count;
+        }
+    }
+    c->next_order = count;
+
     build_hierarchy(c);
     build_glyph_sets(c);
     layout_page(c, (float)c->width, (float)c->height);
     wn_core_build_display_list(c);
     return c;
+}
+
+/* ---------------------------------------------------------- dynamic arena */
+
+static void free_node_payload(wn_core *c, int node)
+{
+    int i;
+    if (c->dynamic_node != NULL && c->dynamic_node[node]) {
+        wn_free_((void *)c->names[node]);
+        c->names[node] = NULL;
+    }
+    if (c->text_override != NULL) {
+        wn_free_(c->text_override[node]);
+        c->text_override[node] = NULL;
+    }
+    if (c->image_override != NULL) {
+        wn_free_(c->image_override[node]);
+        c->image_override[node] = NULL;
+    }
+    if (c->classes != NULL && c->class_count != NULL) {
+        for (i = 0; i < c->class_count[node] && i < WN_MAX_CLASSES; ++i) {
+            wn_free_(c->classes[node * WN_MAX_CLASSES + i]);
+            c->classes[node * WN_MAX_CLASSES + i] = NULL;
+        }
+        c->class_count[node] = 0;
+    }
+}
+
+static int arena_alloc(wn_core *c)
+{
+    int id;
+    int i;
+    if (c->free_count > 0) {
+        id = c->free_list[--c->free_count];
+    } else {
+        if (c->node_count >= c->node_capacity) {
+            return -1;
+        }
+        id = c->node_count++;
+    }
+    memset(&c->nodes[id], 0, sizeof(UiNode));
+    c->nodes[id].parent = -1;
+    c->nodes[id].object_fit = R2_OBJECT_FIT_FILL;
+    c->names[id] = NULL;
+    c->alive[id] = 1;
+    c->dynamic_node[id] = 1;
+    c->visible[id] = 1;
+    c->visible_eff[id] = 1;
+    c->parent[id] = -1;
+    c->order_key[id] = c->next_order++;
+    c->run_first[id] = -1;
+    c->run_count[id] = 0;
+    c->rects[id].x = c->rects[id].y = 0.0f;
+    c->rects[id].w = c->rects[id].h = 0.0f;
+    c->clips[id] = c->rects[id];
+    c->scroll[id] = 0.0f;
+    c->scroll_max[id] = 0.0f;
+    c->first_child[id] = -1;
+    c->next_sibling[id] = -1;
+    c->last_child[id] = -1;
+    c->text_override[id] = NULL;
+    c->image_override[id] = NULL;
+    c->class_count[id] = 0;
+    for (i = 0; i < WN_MAX_CLASSES; ++i) {
+        c->classes[id * WN_MAX_CLASSES + i] = NULL;
+    }
+    ++c->live_count;
+    return id;
+}
+
+static void arena_release(wn_core *c, int node)
+{
+    if (!c->alive[node]) {
+        return;
+    }
+    free_node_payload(c, node);
+    c->alive[node] = 0;
+    c->dynamic_node[node] = 0;
+    c->names[node] = NULL;
+    c->parent[node] = -1;
+    c->nodes[node].parent = -1;
+    c->first_child[node] = -1;
+    c->next_sibling[node] = -1;
+    c->last_child[node] = -1;
+    c->visible[node] = 0;
+    c->visible_eff[node] = 0;
+    c->rects[node].x = c->rects[node].y = 0.0f;
+    c->rects[node].w = c->rects[node].h = 0.0f;
+    c->clips[node] = c->rects[node];
+    c->scroll[node] = 0.0f;
+    c->scroll_max[node] = 0.0f;
+    if (c->free_count < c->node_capacity) {
+        c->free_list[c->free_count++] = node;
+    }
+    --c->live_count;
+}
+
+static void mark_core_dirty(wn_core *c)
+{
+    c->dirty = 1;
+    c->needs_layout = 1;
+}
+
+int wn_core_dirty(const wn_core *core)
+{
+    return core != NULL ? core->dirty : 0;
+}
+
+int wn_core_needs_layout(const wn_core *core)
+{
+    return core != NULL ? core->needs_layout : 0;
+}
+
+void wn_core_clear_dirty(wn_core *core)
+{
+    if (core != NULL) {
+        core->dirty = 0;
+    }
+}
+
+int wn_core_set_visible(wn_core *core, int node, int visible)
+{
+    int state[3];
+    int i;
+    if (core == NULL || !wn_core_node_is_alive(core, node)) {
+        return -1;
+    }
+    core->visible[node] = visible != 0 ? 1 : 0;
+    if (!core->visible[node]) {
+        state[0] = core->hover;
+        state[1] = core->press;
+        state[2] = core->selected;
+        for (i = 0; i < 3; ++i) {
+            int walk = state[i];
+            while (walk >= 0) {
+                if (walk == node) {
+                    if (i == 0) core->hover = -1;
+                    else if (i == 1) core->press = -1;
+                    else core->selected = -1;
+                    break;
+                }
+                walk = core->parent[walk];
+            }
+        }
+    }
+    mark_core_dirty(core);
+    return 0;
+}
+
+int wn_core_set_image(wn_core *core, int node, const char *path)
+{
+    char *copy;
+    UiNode *n;
+    if (core == NULL || !wn_core_node_is_alive(core, node) || path == NULL ||
+        path[0] == '\0') {
+        return -1;
+    }
+    n = &core->nodes[node];
+    if (n->kind != R2_NODE_IMAGE) {
+        return 1;
+    }
+    copy = wn_strdup_(path);
+    if (copy == NULL) {
+        return -2;
+    }
+    wn_free_(core->image_override[node]);
+    core->image_override[node] = copy;
+    mark_core_dirty(core);
+    return 0;
+}
+
+static void collect_subtree(wn_core *c, int node, int *out, int *count)
+{
+    int child;
+    if (!c->alive[node]) {
+        return;
+    }
+    out[(*count)++] = node;
+    for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
+        collect_subtree(c, child, out, count);
+    }
+}
+
+int wn_core_clone(wn_core *core, int template_node, int parent)
+{
+    int *src_ids;
+    int *new_ids;
+    int *map;
+    int count = 0;
+    int i;
+    int result = -1;
+    int oom = 0;
+    char name[64];
+    if (core == NULL || !wn_core_node_is_alive(core, template_node) ||
+        !wn_core_node_is_alive(core, parent)) {
+        return -1;
+    }
+    if (core->live_count >= core->node_capacity) {
+        return -2;
+    }
+    src_ids = (int *)malloc((size_t)core->node_capacity * sizeof(int));
+    new_ids = (int *)malloc((size_t)core->node_capacity * sizeof(int));
+    map = (int *)malloc((size_t)core->node_capacity * sizeof(int));
+    if (src_ids == NULL || new_ids == NULL || map == NULL) {
+        free(src_ids);
+        free(new_ids);
+        free(map);
+        return -2;
+    }
+    collect_subtree(core, template_node, src_ids, &count);
+    if (count <= 0 || core->live_count + count > core->node_capacity) {
+        free(src_ids);
+        free(new_ids);
+        free(map);
+        return -2;
+    }
+    for (i = 0; i < core->node_capacity; ++i) {
+        map[i] = -1;
+    }
+    for (i = 0; i < count; ++i) {
+        map[src_ids[i]] = i;
+    }
+    for (i = 0; i < count; ++i) {
+        new_ids[i] = arena_alloc(core);
+        if (new_ids[i] < 0) {
+            while (i > 0) {
+                arena_release(core, new_ids[--i]);
+            }
+            free(src_ids);
+            free(new_ids);
+            free(map);
+            return -2;
+        }
+    }
+    for (i = 0; i < count; ++i) {
+        int src = src_ids[i];
+        int dst = new_ids[i];
+        int src_parent = core->parent[src];
+        core->nodes[dst] = core->nodes[src];
+        core->nodes[dst].parent = -1;
+        core->parent[dst] = (src_parent >= 0 && map[src_parent] >= 0)
+                                ? new_ids[map[src_parent]]
+                                : parent;
+        if (i == 0) {
+            core->parent[dst] = parent;
+        }
+        core->nodes[dst].parent = core->parent[dst];
+        core->visible[dst] = core->visible[src];
+        core->run_first[dst] = core->run_first[src];
+        core->run_count[dst] = core->run_count[src];
+        snprintf(name, sizeof(name), "clone#%d", core->clone_serial++);
+        core->names[dst] = wn_strdup_(name);
+        if (core->names[dst] == NULL) {
+            for (i = 0; i < count; ++i) {
+                arena_release(core, new_ids[i]);
+            }
+            free(src_ids);
+            free(new_ids);
+            free(map);
+            return -2;
+        }
+        core->dynamic_node[dst] = 1;
+        if (core->text_override[src] != NULL &&
+            (core->text_override[dst] = wn_strdup_(core->text_override[src])) == NULL) {
+            oom = 1;
+        }
+        if (core->image_override[src] != NULL &&
+            (core->image_override[dst] = wn_strdup_(core->image_override[src])) == NULL) {
+            oom = 1;
+        }
+        core->class_count[dst] = core->class_count[src];
+        for (int k = 0; k < core->class_count[src] && k < WN_MAX_CLASSES; ++k) {
+            core->classes[dst * WN_MAX_CLASSES + k] =
+                wn_strdup_(core->classes[src * WN_MAX_CLASSES + k]);
+            if (core->classes[dst * WN_MAX_CLASSES + k] == NULL) {
+                oom = 1;
+            }
+        }
+        if (oom) {
+            for (i = 0; i < count; ++i) {
+                arena_release(core, new_ids[i]);
+            }
+            free(src_ids);
+            free(new_ids);
+            free(map);
+            return -2;
+        }
+    }
+    build_hierarchy(core);
+    mark_core_dirty(core);
+    result = new_ids[0];
+    free(src_ids);
+    free(new_ids);
+    free(map);
+    return result;
+}
+
+int wn_core_remove(wn_core *core, int node)
+{
+    int *ids;
+    int count = 0;
+    int i;
+    if (core == NULL || !wn_core_node_is_alive(core, node)) {
+        return -1;
+    }
+    if (core->parent[node] < 0) {
+        return -1; /* root */
+    }
+    ids = (int *)malloc((size_t)core->node_capacity * sizeof(int));
+    if (ids == NULL) {
+        return -2;
+    }
+    collect_subtree(core, node, ids, &count);
+    for (i = 0; i < count; ++i) {
+        if (core->hover == ids[i]) core->hover = -1;
+        if (core->press == ids[i]) core->press = -1;
+        if (core->selected == ids[i]) core->selected = -1;
+    }
+    for (i = count - 1; i >= 0; --i) {
+        arena_release(core, ids[i]);
+    }
+    free(ids);
+    build_hierarchy(core);
+    mark_core_dirty(core);
+    return 0;
+}
+
+int wn_core_clear_children(wn_core *core, int node)
+{
+    int child;
+    int result = 0;
+    if (core == NULL || !wn_core_node_is_alive(core, node)) {
+        return -1;
+    }
+    child = core->first_child[node];
+    while (child >= 0) {
+        int next = core->next_sibling[child];
+        int status = wn_core_remove(core, child);
+        if (status != 0) {
+            result = status;
+        }
+        child = next;
+    }
+    return result;
+}
+
+static int is_ancestor(const wn_core *c, int maybe_ancestor, int node)
+{
+    int walk = node;
+    while (walk >= 0) {
+        if (walk == maybe_ancestor) {
+            return 1;
+        }
+        walk = c->parent[walk];
+    }
+    return 0;
+}
+
+int wn_core_append(wn_core *core, int parent, int child)
+{
+    if (core == NULL || !wn_core_node_is_alive(core, parent) ||
+        !wn_core_node_is_alive(core, child)) {
+        return -1;
+    }
+    if (parent == child || is_ancestor(core, child, parent)) {
+        return -1;
+    }
+    if (core->parent[child] < 0) {
+        return -1; /* document root */
+    }
+    core->parent[child] = parent;
+    core->nodes[child].parent = parent;
+    core->order_key[child] = core->next_order++;
+    build_hierarchy(core);
+    mark_core_dirty(core);
+    return 0;
 }
 
 void wn_core_destroy(wn_core *core)
@@ -1981,25 +2643,34 @@ void wn_core_destroy(wn_core *core)
     if (core == NULL) {
         return;
     }
-    if (core->text_override != NULL) {
-        for (i = 0; i < core->doc->node_count; ++i) {
-            wn_free_(core->text_override[i]);
+    if (core->nodes != NULL) {
+        for (i = 0; i < core->node_count; ++i) {
+            if (core->alive != NULL && core->alive[i]) {
+                free_node_payload(core, i);
+            }
         }
     }
-    if (core->classes != NULL && core->class_count != NULL) {
-        for (i = 0; i < core->doc->node_count * WN_MAX_CLASSES; ++i) {
-            wn_free_(core->classes[i]);
-        }
-    }
+    wn_free_(core->nodes);
+    wn_free_((void *)core->names);
+    wn_free_(core->alive);
+    wn_free_(core->dynamic_node);
+    wn_free_(core->visible);
+    wn_free_(core->visible_eff);
+    wn_free_(core->parent);
+    wn_free_(core->order_key);
+    wn_free_(core->run_first);
+    wn_free_(core->run_count);
+    wn_free_(core->free_list);
     wn_free_(core->rects);
     wn_free_(core->clips);
     wn_free_(core->scroll);
     wn_free_(core->scroll_max);
     wn_free_(core->first_child);
     wn_free_(core->next_sibling);
-    wn_free_(core->subtree_end);
     wn_free_(core->last_child);
+    wn_free_(core->paint_order);
     wn_free_(core->text_override);
+    wn_free_(core->image_override);
     wn_free_(core->classes);
     wn_free_(core->class_count);
     wn_free_(core->vertices);

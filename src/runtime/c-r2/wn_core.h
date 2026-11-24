@@ -92,7 +92,8 @@ typedef struct {
 } wn_display_list;
 
 /* Opaque compiled document. v0 ships exactly one: the built-in R2 fixture
- * compiled into ui_data.h. */
+ * compiled into ui_data.h. The document tables stay immutable; wn_core owns a
+ * mutable copy of the node table plus a dynamic arena for cloned nodes. */
 typedef struct wn_document wn_document;
 
 const wn_document *wn_document_builtin(void);
@@ -103,10 +104,20 @@ typedef struct wn_core wn_core;
 wn_core *wn_core_create(const wn_document *document);
 void wn_core_destroy(wn_core *core);
 
+/* node_count is the arena high-water mark (compiled nodes + slots ever used).
+ * live_node_count excludes removed slots and is what the ABI reports. */
 int wn_core_node_count(const wn_core *core);
+int wn_core_live_node_count(const wn_core *core);
 const char *wn_core_node_name(const wn_core *core, int node);
 const char *wn_core_node_text(const wn_core *core, int node);
+const char *wn_core_node_image_src(const wn_core *core, int node);
 int wn_core_node_is_text(const wn_core *core, int node);
+int wn_core_node_is_alive(const wn_core *core, int node);
+int wn_core_node_is_visible(const wn_core *core, int node);
+int wn_core_node_is_dynamic(const wn_core *core, int node);
+int wn_core_node_parent(const wn_core *core, int node);
+int wn_core_node_first_child(const wn_core *core, int node);
+int wn_core_node_next_sibling(const wn_core *core, int node);
 int wn_core_node_action(const wn_core *core, int node);
 
 /* Resolve an ABI id. Exact node names win. A bare last path component is
@@ -165,6 +176,31 @@ int wn_core_text_override_supported(const wn_core *core, int node,
  * Other class names are remembered per node but do not recompute styles
  * (styles are baked at build time). */
 int wn_core_set_class(wn_core *core, int node, const char *class_name, int enabled);
+
+/* ------------------------------------------------------ dynamic UI (v0) */
+/*
+ * Mutable tree operations used by the ABI layer. All int node ids are core
+ * indices; the ABI maps them to wn_node_id (index + 1). Mutations mark the core
+ * dirty; call wn_core_relayout() before painting (wn_view_render does it
+ * automatically on the next frame).
+ */
+
+/* 0 ok, -1 invalid argument/state, -2 arena exhausted. */
+int wn_core_set_visible(wn_core *core, int node, int visible);
+
+/* 0 ok, 1 unsupported (node is not NODE_IMAGE), -1 invalid argument,
+ * -2 out of memory. */
+int wn_core_set_image(wn_core *core, int node, const char *path);
+
+/* Deep clone. Returns the new node index or -1 (invalid) / -2 (arena full). */
+int wn_core_clone(wn_core *core, int template_node, int parent);
+int wn_core_remove(wn_core *core, int node);
+int wn_core_clear_children(wn_core *core, int node);
+int wn_core_append(wn_core *core, int parent, int child);
+
+int wn_core_dirty(const wn_core *core);
+int wn_core_needs_layout(const wn_core *core);
+void wn_core_clear_dirty(wn_core *core);
 
 /* Test/debug hooks: force a state without going through the pointer machine. */
 void wn_core_set_state(wn_core *core, int node, int state, int enabled);

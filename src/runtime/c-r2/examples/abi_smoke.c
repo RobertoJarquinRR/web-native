@@ -46,6 +46,22 @@ int main(void)
     if (status != WN_ERR_INVALID_ARGUMENT) {
         ++failures;
     }
+    if (wn_app_root(NULL) != WN_NODE_INVALID ||
+        wn_app_find(NULL, "body.root") != WN_NODE_INVALID ||
+        wn_app_node_count(NULL) != 0) {
+        printf("abi_smoke: expected invalid handles from the dynamic API on NULL app\n");
+        ++failures;
+    }
+    if (wn_node_set_visible(NULL, 1, 0) != WN_ERR_INVALID_ARGUMENT ||
+        wn_node_set_image(NULL, 1, "x.png") != WN_ERR_INVALID_ARGUMENT ||
+        wn_node_set_text(NULL, 1, "x") != WN_ERR_INVALID_ARGUMENT ||
+        wn_node_clone(NULL, 1, 1) != WN_NODE_INVALID ||
+        wn_node_remove(NULL, 1) != WN_ERR_INVALID_ARGUMENT ||
+        wn_node_clear_children(NULL, 1) != WN_ERR_INVALID_ARGUMENT ||
+        wn_node_append(NULL, 1, 2) != WN_ERR_INVALID_ARGUMENT) {
+        printf("abi_smoke: expected WN_ERR_INVALID_ARGUMENT from dynamic API on NULL app\n");
+        ++failures;
+    }
     {
         wn_config config;
         wn_app *app;

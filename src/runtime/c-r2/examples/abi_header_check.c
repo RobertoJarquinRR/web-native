@@ -3,6 +3,10 @@
 
 #include <stddef.h>
 
+#if WN_ABI_VERSION < 3u
+#error "dynamic UI needs ABI v3 or newer"
+#endif
+
 static void on_event(void *userdata, const wn_event *event)
 {
     (void)userdata;
@@ -15,9 +19,11 @@ int main(void)
     wn_config config;
     wn_event event;
     wn_status status = WN_OK;
+    wn_node_id node = WN_NODE_INVALID;
     size_t event_size = sizeof(event);
+    size_t node_size = sizeof(node);
     (void)callback;
     (void)config;
     (void)status;
-    return event_size > 0 ? 0 : 1;
+    return event_size > 0 && node_size == sizeof(uint64_t) && node == 0 ? 0 : 1;
 }

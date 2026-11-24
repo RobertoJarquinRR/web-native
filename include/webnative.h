@@ -35,7 +35,7 @@ extern "C" {
 #  define WN_API __attribute__((visibility("default")))
 #endif
 
-#define WN_ABI_VERSION 2u
+#define WN_ABI_VERSION 3u
 
 /* Modifier bits for wn_event.modifiers. */
 #define WN_MOD_SHIFT 0x01u
@@ -48,6 +48,13 @@ extern "C" {
 
 typedef struct wn_app  wn_app;
 typedef struct wn_view wn_view;
+
+/* ABI v3: stable node handle for the dynamic UI API. 0 is never a valid node
+ * (WN_NODE_INVALID). Handles stay valid until the node (or an ancestor) is
+ * removed; do not guess or persist them across wn_app_destroy(). */
+typedef uint64_t wn_node_id;
+#define WN_NODE_INVALID ((wn_node_id)0)
+
 
 typedef enum wn_status {
     WN_OK                    = 0,
@@ -126,6 +133,62 @@ WN_API wn_status wn_app_on_event(wn_app *app, wn_event_cb callback, void *userda
 /* Runs the UI loop until the window closes. Returns the process exit code. */
 WN_API int wn_app_run(wn_app *app);
 WN_API void wn_app_destroy(wn_app *app);
+
+/* ---------------------------------------------------- dynamic UI (ABI v3) */
+/*
+ * Host-driven content reactivity over the compiled tree. All mutations mark the
+ * engine dirty: the next wn_view_render()/frame re-runs layout, clipping and
+ * paint. There is no separate commit call.
+ *
+ * Node handles are 1-based and opaque. Lookup by name only resolves compiled
+ * node names (the generated ui_data.h table); clone handles are returned by
+ * wn_node_clone() and are not addressable by name in v0.
+ */
+
+/* Root node of the compiled document, or WN_NODE_INVALID. */
+WN_API wn_node_id wn_app_root(wn_app *app);
+
+/* Resolve a compiled node name. Exact names win; a unique bare last path
+ * component ("div.card", "text[1]") is also accepted. Returns
+ * WN_NODE_INVALID and sets wn_last_error() when not found. */
+WN_API wn_node_id wn_app_find(wn_app *app, const char *name);
+
+/* Live node count (compiled + cloned - removed). Diagnostic/testing hook. */
+WN_API int32_t wn_app_node_count(wn_app *app);
+
+/* Hide/show a node and its subtree. Hidden nodes are excluded from layout,
+ * paint and hit testing. visible=0 hides, non-zero shows. */
+WN_API wn_status wn_node_set_visible(wn_app *app, wn_node_id node, int visible);
+
+/* Replace the image source of a NODE_IMAGE node. `path` is copied and resolved
+ * by the renderer exactly like a compiled image src (relative to the process
+ * CWD in v0). The path-keyed texture cache is reused; the compiled intrinsic
+ * width/height are kept (no new WIC size probe in v0). */
+WN_API wn_status wn_node_set_image(wn_app *app, wn_node_id node, const char *path);
+
+/* Replace a text node's string. v0 has no runtime shaping: the string is only
+ * accepted when every non-space byte already has a pre-shaped glyph at the
+ * node's font size in the compiled atlas. Otherwise it returns
+ * WN_ERR_UNSUPPORTED and wn_last_error() explains it. Layout keeps the
+ * compiled text metrics (no reflow). */
+WN_API wn_status wn_node_set_text(wn_app *app, wn_node_id node, const char *utf8);
+
+/* Deep-clone `template_node` (styles, text runs, image and data-* fields) and
+ * append the copy as the last child of `parent`. Returns the new root handle,
+ * or WN_NODE_INVALID with wn_last_error() set. The copy is independent and is
+ * never inserted as a document root; cloning a template into its own subtree
+ * is allowed because the new nodes carry no cycle. */
+WN_API wn_node_id wn_node_clone(wn_app *app, wn_node_id template_node, wn_node_id parent);
+
+/* Remove a node and its subtree. The document root cannot be removed. */
+WN_API wn_status wn_node_remove(wn_app *app, wn_node_id node);
+
+/* Remove every child subtree of `node`; `node` itself stays alive. */
+WN_API wn_status wn_node_clear_children(wn_app *app, wn_node_id node);
+
+/* Re-parent `child` (and its subtree) as the last child of `parent`. The
+ * document root cannot be moved and `parent` must not be inside `child`. */
+WN_API wn_status wn_node_append(wn_app *app, wn_node_id parent, wn_node_id child);
 
 /* ----------------------------------------------------------- embedded view */
 
