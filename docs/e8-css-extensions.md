@@ -1,10 +1,8 @@
 # E8 — Extensiones CSS: transition, position, z-index, transform, animation, float
 
-> **Nota de calendario:** los `pd`/`pw` de la sección 3 son **esfuerzo humano**
-> (un ingeniero C/runtime con experiencia), no wall-clock con agentes. Con
-> agentes el primer corte sale en horas/días; lo que no desaparece es el coste
-> de verificación, casos límite, hit-test, scroll/clip y tests. No es una promesa
-> de calendario.
+> **Nota:** los `pd`/`pw` de la sección 3 son estimaciones orientativas de
+> esfuerzo (±50 %), no un compromiso de calendario. Dependen del alcance real,
+> de los casos límite y de la cobertura de tests.
 
 Este documento es un **análisis de prioridad y coste**, no un contrato. Nada de
 lo que aparece aquí está en el subset v1: `docs/subset-v1.md` los declara fuera
