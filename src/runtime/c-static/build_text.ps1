@@ -1,7 +1,7 @@
 # build_text.ps1 - text-capable canonical C runtime build + pixel gate.
 #
 # Builds TWO runtimes from the same sources:
-#   1. text:  experiments/16-text-atlas-c/{display_list.json,atlas.bin}
+#   1. text:  archive/experiments/16-text-atlas-c/{display_list.json,atlas.bin}
 #             -> emit_c_text.py -> scene_data.h
 #             -> runtime_gpu_text.c  -> scene_text.exe  -> scene_text.png
 #             -> runtime_window.c   -> webnative-text.exe (swapchain + glyphs)
@@ -50,7 +50,7 @@ $runtimeWindow = Join-Path $root 'runtime_window.c'
 $pythonVenv = Join-Path $repo 'src\frontend\python\.venv\Scripts\python.exe'
 
 if (-not $OutDir) { $OutDir = Join-Path $repo 'build\text-runtime' }
-if (-not $Exp16Dir) { $Exp16Dir = Join-Path $repo 'experiments\16-text-atlas-c' }
+if (-not $Exp16Dir) { $Exp16Dir = Join-Path $repo 'archive\experiments\16-text-atlas-c' }
 $OutDir = [System.IO.Path]::GetFullPath($OutDir)
 $Exp16Dir = [System.IO.Path]::GetFullPath($Exp16Dir)
 

@@ -23,7 +23,8 @@ src/
   runtime/c-r2/       runtime C dinámico (R2): layout en runtime, eventos, resize
 benchmarks/
   frontend-parity/    fixtures, goldens, verifier y benchmark multi-lenguaje
-experiments/          16 experimentos históricos (R2 promovido a src/runtime/c-r2)
+archive/
+  experiments/        16 experimentos históricos (no mantenidos)
 spec/                 fixtures originales del contrato
 docs/                 arquitectura, IR y convenciones
 third_party/          wgpu-native v29.0.1.1 (headers; binaries fetched)
@@ -47,7 +48,7 @@ tools/                fetch-wgpu.ps1 y utilidades del repo
 | CSS v3 (frontend) | ✅ bordes/radius/sombras/unidades; render en core pendiente |
 | Host C# (piloto) | ✅ 30 cards, detalle, filtros, open-with-system (65/65) |
 | AOT HTML → `.exe` | ✅ rects; texto vía `c-static/build_text.ps1` |
-| Interactividad | ✅ R2 (`src/runtime/c-r2`); prototipo histórico en `experiments/12` |
+| Interactividad | ✅ R2 (`src/runtime/c-r2`); prototipo histórico en `archive/experiments/12` |
 
 ## Quick start
 

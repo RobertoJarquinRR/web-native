@@ -261,7 +261,7 @@
     {
       "check": "frame_000: PNG existe",
       "ok": true,
-      "detail": ".\\exp12-interactivity\\frames\\frame_000.png"
+      "detail": "exp12-interactivity\\frames\\frame_000.png"
     },
     {
       "check": "frame_000: 400x300",
@@ -281,7 +281,7 @@
     {
       "check": "frame_001: PNG existe",
       "ok": true,
-      "detail": ".\\exp12-interactivity\\frames\\frame_001.png"
+      "detail": "exp12-interactivity\\frames\\frame_001.png"
     },
     {
       "check": "frame_001: 400x300",
@@ -301,7 +301,7 @@
     {
       "check": "frame_002: PNG existe",
       "ok": true,
-      "detail": ".\\exp12-interactivity\\frames\\frame_002.png"
+      "detail": "exp12-interactivity\\frames\\frame_002.png"
     },
     {
       "check": "frame_002: 400x300",
@@ -321,7 +321,7 @@
     {
       "check": "frame_003: PNG existe",
       "ok": true,
-      "detail": ".\\exp12-interactivity\\frames\\frame_003.png"
+      "detail": "exp12-interactivity\\frames\\frame_003.png"
     },
     {
       "check": "frame_003: 400x300",
@@ -341,7 +341,7 @@
     {
       "check": "frame_004: PNG existe",
       "ok": true,
-      "detail": ".\\exp12-interactivity\\frames\\frame_004.png"
+      "detail": "exp12-interactivity\\frames\\frame_004.png"
     },
     {
       "check": "frame_004: 400x300",
@@ -361,7 +361,7 @@
     {
       "check": "frame_005: PNG existe",
       "ok": true,
-      "detail": ".\\exp12-interactivity\\frames\\frame_005.png"
+      "detail": "exp12-interactivity\\frames\\frame_005.png"
     },
     {
       "check": "frame_005: 400x300",
@@ -381,7 +381,7 @@
     {
       "check": "frame_006: PNG existe",
       "ok": true,
-      "detail": ".\\exp12-interactivity\\frames\\frame_006.png"
+      "detail": "exp12-interactivity\\frames\\frame_006.png"
     },
     {
       "check": "frame_006: 400x300",
@@ -401,7 +401,7 @@
     {
       "check": "frame_007: PNG existe",
       "ok": true,
-      "detail": ".\\exp12-interactivity\\frames\\frame_007.png"
+      "detail": "exp12-interactivity\\frames\\frame_007.png"
     },
     {
       "check": "frame_007: 400x300",
@@ -421,7 +421,7 @@
     {
       "check": "frame_008: PNG existe",
       "ok": true,
-      "detail": ".\\exp12-interactivity\\frames\\frame_008.png"
+      "detail": "exp12-interactivity\\frames\\frame_008.png"
     },
     {
       "check": "frame_008: 400x300",
@@ -441,7 +441,7 @@
     {
       "check": "frame_009: PNG existe",
       "ok": true,
-      "detail": ".\\exp12-interactivity\\frames\\frame_009.png"
+      "detail": "exp12-interactivity\\frames\\frame_009.png"
     },
     {
       "check": "frame_009: 400x300",
@@ -461,7 +461,7 @@
     {
       "check": "frame_010: PNG existe",
       "ok": true,
-      "detail": ".\\exp12-interactivity\\frames\\frame_010.png"
+      "detail": "exp12-interactivity\\frames\\frame_010.png"
     },
     {
       "check": "frame_010: 400x300",
@@ -481,7 +481,7 @@
     {
       "check": "frame_011: PNG existe",
       "ok": true,
-      "detail": ".\\exp12-interactivity\\frames\\frame_011.png"
+      "detail": "exp12-interactivity\\frames\\frame_011.png"
     },
     {
       "check": "frame_011: 400x300",
@@ -501,7 +501,7 @@
     {
       "check": "frame_012: PNG existe",
       "ok": true,
-      "detail": ".\\exp12-interactivity\\frames\\frame_012.png"
+      "detail": "exp12-interactivity\\frames\\frame_012.png"
     },
     {
       "check": "frame_012: 400x300",

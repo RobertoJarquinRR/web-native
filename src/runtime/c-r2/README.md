@@ -19,7 +19,7 @@ piscina ASCII imprimible horneada en el atlas, caret/selección, teclado,
 clipboard Win32, `maxlength`, `WN_EVENT_INPUT`, `wn_node_set_value` y
 `wn_node_get_value` (§16). El fixture nuevo pasa **111/111** checks.
 
-Este directorio es la promoción canónica de `experiments/15-runtime-r2-c`. Con
+Este directorio es la promoción canónica de `archive/experiments/15-runtime-r2-c`. Con
 el árbol Python (`-UsePythonTree`) el `ui_data.h` generado sigue siendo
 **byte-idéntico** al de exp15. Con el árbol Rust (por defecto) los 28 nodos,
 todos los estilos, nombres, `data-*`, runs y posiciones/avances de glyph son
@@ -368,7 +368,7 @@ contra `renderer_wgpu.c` (ventana, 20 frames). Evidencia en
 `build.ps1` usa el binario `src/frontend/rust/target/release/frontend-rust.exe`,
 el venv canónico `src/frontend/python/.venv`, `src/emitter/python/emit_ui.py`,
 MSVC (`vcvars64`) y `third_party/wgpu-native` (include/lib/bin). No referencia
-`experiments/`.
+`archive/experiments/`.
 
 ---
 
@@ -509,7 +509,7 @@ El modo `--emit-ui` no toca el camino R1. Verificado tras los cambios:
 
 **Nuevo en la promoción:**
 
-- `src/runtime/c-r2/build.ps1` — build autocontenido (sin `experiments/`),
+- `src/runtime/c-r2/build.ps1` — build autocontenido (sin `archive/experiments/`),
   árbol Rust por defecto, `-UsePythonTree`/`-SkipEmit`/`-SkipRun`/
   `-SkipRustBuild`/`-SkipParityCheck`, reporte JSON y salida no-cero en fallo.
 - `src/frontend/rust/src/ui_tree.rs` — `--emit-ui`: árbol pre-layout + atlas.

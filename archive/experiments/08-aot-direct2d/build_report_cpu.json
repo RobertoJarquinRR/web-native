@@ -5,10 +5,10 @@
     "compiler":  "Microsoft (R) C/C++ Optimizing Compiler Version 19.51.36260 for x64",
     "backend":  "pure C software rasterizer + WIC PNG",
     "commands":  {
-                     "emit":  ".\\exp08-aot\\.venv\\Scripts\\python.exe  emit_c.py --ir display_list.json --out scene_data.h",
+                     "emit":  "exp08-aot\\.venv\\Scripts\\python.exe  emit_c.py --ir display_list.json --out scene_data.h",
                      "compile":  "cl /nologo /O2 /W4 /Brepro /TC runtime.c /Fe:scene.exe /link /Brepro windowscodecs.lib ole32.lib uuid.lib",
                      "run":  ".\\scene.exe scene_cpu.png",
-                     "verify":  ".\\exp08-aot\\.venv\\Scripts\\python.exe  verify.py --png scene_cpu.png --ir display_list.json --report verify_report_cpu.json"
+                     "verify":  "exp08-aot\\.venv\\Scripts\\python.exe  verify.py --png scene_cpu.png --ir display_list.json --report verify_report_cpu.json"
                  },
     "timings_ms":  {
                        "emit_ms":  148.54,

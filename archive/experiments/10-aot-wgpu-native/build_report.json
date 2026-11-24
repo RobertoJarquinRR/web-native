@@ -9,10 +9,10 @@
                        "proof_rebuild_run":  6723.12
                    },
     "commands":  {
-                     "emit":  ".\\exp10-aot-gpu\\.venv\\Scripts\\python.exe emit_c.py --ir display_list.json --out scene_data.h",
+                     "emit":  "exp10-aot-gpu\\.venv\\Scripts\\python.exe emit_c.py --ir display_list.json --out scene_data.h",
                      "compile":  "cl /nologo /O2 /W3 /std:c17 /TC runtime_gpu.c /Iwgpu-native\\include /Fe:scene_gpu.exe /link wgpu-native\\lib\\wgpu_native.dll.lib windowscodecs.lib ole32.lib user32.lib",
-                     "run":  "PATH=C:\\Windows\\System32;.\\exp10-aot-gpu ; .\\scene_gpu.exe scene_gpu.png",
-                     "verify":  ".\\exp10-aot-gpu\\.venv\\Scripts\\python.exe verify.py --png scene_gpu.png --report verify_report.json"
+                     "run":  "PATH=C:\\Windows\\System32;exp10-aot-gpu ; .\\scene_gpu.exe scene_gpu.png",
+                     "verify":  "exp10-aot-gpu\\.venv\\Scripts\\python.exe verify.py --png scene_gpu.png --report verify_report.json"
                  },
     "proof":  {
                   "extra_rect":  "x=260 y=180 w=80 h=60 fill=#2ecc71",
@@ -24,7 +24,7 @@
               },
     "wgpu_native":  "v29.0.1.1 wgpu-windows-x86_64-msvc-release.zip",
     "isolation":  {
-                      "path":  "C:\\Windows\\System32;.\\exp10-aot-gpu",
+                      "path":  "C:\\Windows\\System32;exp10-aot-gpu",
                       "exit_code":  0,
                       "stdout":  "scene_gpu: AOT GPU scene 400x300, 3 rect op(s), 18 vertices\r\n  op[0] rect x=0.0 y=0.0 w=400.0 h=300.0 rgba=0x101014FF\r\n  op[1] rect x=20.0 y=20.0 w=120.0 h=80.0 rgba=0xE74C3CFF\r\n  op[2] rect x=20.0 y=116.0 w=120.0 h=80.0 rgba=0x3498DBFF\r\nscene_gpu: clear color rgb(16,16,20)\r\nadapter: backend=D3D12 (4) type=cpu vendorID=0x1414 deviceID=0x008C\r\nadapter: vendor=10.0.19041.5794\r\nadapter: architecture=(none)\r\nadapter: device=Microsoft Basic Render Driver\r\nadapter: description=(none)\r\nscene_gpu: wrote scene_gpu.png (400x300)\r\ntimings: init+adapter+device+upload=88.64ms | pipeline=6.02ms | render+copy+submit=2.56ms | map=23.43ms | png=8.43ms | total=129.08ms",
                       "stderr":  "[wgpu 2] Returned GL context is 3.1, when 3.3+ is needed"
@@ -35,11 +35,11 @@
                 },
     "verify_report":  "verify_report.json",
     "exe":  {
-                "path":  ".\\exp10-aot-gpu\\scene_gpu.exe",
+                "path":  "exp10-aot-gpu\\scene_gpu.exe",
                 "bytes":  172032
             },
     "png":  {
-                "path":  ".\\exp10-aot-gpu\\scene_gpu.png",
+                "path":  "exp10-aot-gpu\\scene_gpu.png",
                 "bytes":  1227
             },
     "hashes":  {

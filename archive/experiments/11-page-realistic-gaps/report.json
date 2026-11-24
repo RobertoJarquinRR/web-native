@@ -819,9 +819,9 @@
     "warnings": [],
     "detail": "2 líneas; 14 features ignoradas sin excepción"
   },
-  "display_list": ".\\exp11-real-page\\display_list.json",
-  "layout_json": ".\\exp11-real-page\\layout.json",
-  "render_png": ".\\exp11-real-page\\render.png",
+  "display_list": "exp11-real-page\\display_list.json",
+  "layout_json": "exp11-real-page\\layout.json",
+  "render_png": "exp11-real-page\\render.png",
   "versions": {
     "python": "3.12.10",
     "html5lib": "1.1",

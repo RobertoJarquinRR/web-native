@@ -83,7 +83,7 @@ src/
   build.ps1            driver R1
 include/webnative.h    ABI C v4 (v3 dinámica + v4 input)
 benchmarks/            paridad de frontends + engine-metrics
-experiments/           histórico inmutable
+archive/experiments/           histórico inmutable
 docs/                  spec, arquitectura, ABI, métricas, subset, roadmap
 third_party/wgpu-native/
 ```

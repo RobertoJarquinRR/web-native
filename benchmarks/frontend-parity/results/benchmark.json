@@ -2,7 +2,7 @@
   "runs": 3,
   "fixtures": {
     "contract": {
-      "html": ".\\benchmarks\\frontend-parity\\fixtures\\contract\\input.html",
+      "html": "benchmarks\\frontend-parity\\fixtures\\contract\\input.html",
       "viewport": [
         400,
         300
@@ -10,7 +10,7 @@
       "golden_ops": 4
     },
     "flex-page": {
-      "html": ".\\benchmarks\\frontend-parity\\fixtures\\flex-page\\index.html",
+      "html": "benchmarks\\frontend-parity\\fixtures\\flex-page\\index.html",
       "viewport": [
         480,
         320
@@ -40,7 +40,7 @@
           "pipeline": 17.536,
           "ops": 4
         },
-        "ir": ".\\benchmarks\\frontend-parity\\results\\python\\contract.ir.json"
+        "ir": "benchmarks\\frontend-parity\\results\\python\\contract.ir.json"
       },
       "flex-page": {
         "fixture": "flex-page",
@@ -62,7 +62,7 @@
           "pipeline": 23.634,
           "ops": 23
         },
-        "ir": ".\\benchmarks\\frontend-parity\\results\\python\\flex-page.ir.json"
+        "ir": "benchmarks\\frontend-parity\\results\\python\\flex-page.ir.json"
       }
     },
     "cpp": {
@@ -87,7 +87,7 @@
           "ops": 4,
           "peak_rss_kb": 3536
         },
-        "ir": ".\\benchmarks\\frontend-parity\\results\\cpp\\contract.ir.json"
+        "ir": "benchmarks\\frontend-parity\\results\\cpp\\contract.ir.json"
       },
       "flex-page": {
         "fixture": "flex-page",
@@ -110,7 +110,7 @@
           "ops": 23,
           "peak_rss_kb": 3592
         },
-        "ir": ".\\benchmarks\\frontend-parity\\results\\cpp\\flex-page.ir.json"
+        "ir": "benchmarks\\frontend-parity\\results\\cpp\\flex-page.ir.json"
       }
     },
     "rust": {
@@ -137,7 +137,7 @@
           "ops": 4,
           "peak_rss_kb": 4060
         },
-        "ir": ".\\benchmarks\\frontend-parity\\results\\rust\\contract.ir.json"
+        "ir": "benchmarks\\frontend-parity\\results\\rust\\contract.ir.json"
       },
       "flex-page": {
         "fixture": "flex-page",
@@ -162,7 +162,7 @@
           "ops": 23,
           "peak_rss_kb": 4156
         },
-        "ir": ".\\benchmarks\\frontend-parity\\results\\rust\\flex-page.ir.json"
+        "ir": "benchmarks\\frontend-parity\\results\\rust\\flex-page.ir.json"
       }
     },
     "csharp": {
@@ -186,7 +186,7 @@
           "ops": 4,
           "peak_rss_kb": 18184
         },
-        "ir": ".\\benchmarks\\frontend-parity\\results\\csharp\\contract.ir.json"
+        "ir": "benchmarks\\frontend-parity\\results\\csharp\\contract.ir.json"
       },
       "flex-page": {
         "fixture": "flex-page",
@@ -208,7 +208,7 @@
           "ops": 23,
           "peak_rss_kb": 18532
         },
-        "ir": ".\\benchmarks\\frontend-parity\\results\\csharp\\flex-page.ir.json"
+        "ir": "benchmarks\\frontend-parity\\results\\csharp\\flex-page.ir.json"
       }
     }
   }

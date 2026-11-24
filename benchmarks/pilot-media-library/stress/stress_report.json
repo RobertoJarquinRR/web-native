@@ -13155,7 +13155,7 @@
     "failures": []
   },
   "artifacts": {
-    "rerun": ".\\src\\frontend\\python\\.venv\\Scripts\\python.exe .\\benchmarks\\pilot-media-library\\stress\\run_stress.py",
+    "rerun": "src\\frontend\\python\\.venv\\Scripts\\python.exe benchmarks\\pilot-media-library\\stress\\run_stress.py",
     "generated_pages": "variants/<id>/page",
     "builds": "variants/<id>/build",
     "logs": "logs",

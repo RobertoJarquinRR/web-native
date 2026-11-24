@@ -18,7 +18,7 @@ $py = Join-Path $repo 'src\frontend\python\.venv\Scripts\python.exe'
 $verify = Join-Path $parity 'tools\verify_ir.py'
 $verifyText = Join-Path $dir 'verify_text.py'
 $pyRoot = 'python'
-$exp16 = Join-Path $repo 'experiments\16-text-atlas-c'
+$exp16 = Join-Path $repo 'archive\experiments\16-text-atlas-c'
 
 New-Item -ItemType Directory -Force -Path $results | Out-Null
 

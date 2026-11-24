@@ -5,10 +5,10 @@
     "compiler":  "Microsoft (R) C/C++ Optimizing Compiler Version 19.51.36260 for x64",
     "backend":  "Direct2D + WIC (C++)",
     "commands":  {
-                     "emit":  ".\\exp08-aot\\.venv\\Scripts\\python.exe emit_c.py --ir display_list.json --out scene_data.h",
+                     "emit":  "exp08-aot\\.venv\\Scripts\\python.exe emit_c.py --ir display_list.json --out scene_data.h",
                      "compile":  "cl /nologo /O2 /W4 /wd4201 /Brepro /EHsc /TP runtime_d2d.cpp /Fe:scene.exe /link /Brepro d2d1.lib windowscodecs.lib ole32.lib uuid.lib",
                      "run":  ".\\scene.exe scene.png",
-                     "verify":  ".\\exp08-aot\\.venv\\Scripts\\python.exe verify.py --png scene.png --ir display_list.json --report verify_report.json"
+                     "verify":  "exp08-aot\\.venv\\Scripts\\python.exe verify.py --png scene.png --ir display_list.json --report verify_report.json"
                  },
     "timings_ms":  {
                        "emit_ms":  164.88,

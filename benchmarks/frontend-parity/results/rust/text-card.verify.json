@@ -1,16 +1,16 @@
 {
   "status": "PASS",
-  "ir": ".\\benchmarks\\frontend-parity\\results\\rust\\text-card.ir.json",
+  "ir": "benchmarks\\frontend-parity\\results\\rust\\text-card.ir.json",
   "checks": [
     {
       "name": "ir_json_parse",
       "status": "PASS",
-      "detail": ".\\benchmarks\\frontend-parity\\results\\rust\\text-card.ir.json"
+      "detail": "benchmarks\\frontend-parity\\results\\rust\\text-card.ir.json"
     },
     {
       "name": "ir_schema",
       "status": "PASS",
-      "detail": ".\\src\\ir\\schema.json"
+      "detail": "src\\ir\\schema.json"
     },
     {
       "name": "viewport_400x240",
@@ -189,7 +189,7 @@
       }
     ],
     "atlas": {
-      "file": ".\\benchmarks\\frontend-parity\\results\\rust\\text-card.atlas.bin",
+      "file": "benchmarks\\frontend-parity\\results\\rust\\text-card.atlas.bin",
       "width": 512,
       "height": 512,
       "format": "r8unorm",

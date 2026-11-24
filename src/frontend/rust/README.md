@@ -18,7 +18,7 @@ sin Electron y sin FreeType ni HarfBuzz en el binario.
 | `text-card` | 400×240 | 6 (5 rect + 1 `text_run`) | **PASS** `verify_text.py` (19/19 checks) | 2030 (idéntico byte a byte a exp16 y al Python actual) |
 
 El IR de `text-card` coincide **byte a byte** con
-`experiments/16-text-atlas-c/display_list.json` y con lo que produce hoy
+`archive/experiments/16-text-atlas-c/display_list.json` y con lo que produce hoy
 `src/frontend/python` para la misma fixture (mismo sha256 de fichero, incluido
 CRLF). Los 4 glyphs son `[43, 82, 79, 68]` con avances
 `[19.875, 16.40625, 6.78125, 14.25]` px, exactamente los de exp16.
@@ -616,7 +616,7 @@ El contrato de paridad es **contenido, posiciones y avances**:
 Los 4 valores coinciden con exp16 sin tolerancia (el IR completo es idéntico).
 Las **UVs coinciden porque el packing también**: rects `(1,1,16,20)`,
 `(19,1,15,14)`, `(36,1,3,21)`, `(41,1,12,14)`, los mismos que
-`experiments/16-text-atlas-c/atlas.json` describe.
+`archive/experiments/16-text-atlas-c/atlas.json` describe.
 
 La **cobertura de píxeles no es idéntica** y no se pretende: FreeType usa el
 intérprete TrueType (`FT_LOAD_TARGET_NORMAL`) y `ab_glyph` rasteriza el
@@ -863,7 +863,7 @@ python verify_text.py `
   --atlas ..\..\..\benchmarks\frontend-parity\results\rust\text-card.atlas.bin `
   --atlas-json ..\..\..\benchmarks\frontend-parity\results\rust\text-card.atlas.json `
   --reference ..\..\..\benchmarks\frontend-parity\results\rust\text-card.python-reference.json `
-  --reference-atlas ..\..\..\experiments\16-text-atlas-c\atlas.bin `
+  --reference-atlas ..\..\..\archive\experiments\16-text-atlas-c\atlas.bin `
   --report ..\..\..\benchmarks\frontend-parity\results\rust\text-card.verify.json
 ```
 
@@ -895,7 +895,7 @@ El IR de la fixture es **byte a byte** igual a exp16 y al Python actual:
 ```
 rust text-card.ir.json                        2030 bytes
 src/frontend/python (build_all, text-card)    2030 bytes  == exp16 display_list.json
-experiments/16-text-atlas-c/display_list.json 2030 bytes
+archive/experiments/16-text-atlas-c/display_list.json 2030 bytes
 sha256 de los tres ficheros: 8d32d008b37694c6ed92056641d3204b747973da14b32b1059d722697743e8e6
 ```
 
@@ -1129,7 +1129,7 @@ El contrato ya está separado en dos mitades limpias:
    `display_list.json` + `atlas.bin` + `atlas.json`. El IR de texto es
    **exactamente** el de exp16, así que `emit_c.py` puede consumirlo sin
    cambios: los quads salen de `ops[].glyphs[]` y el atlas de `atlas.bin`.
-2. **Runtime (C)**: el patrón de `experiments/16-text-atlas-c/runtime_text.c`
+2. **Runtime (C)**: el patrón de `archive/experiments/16-text-atlas-c/runtime_text.c`
    sirve tal cual:
    - subir el atlas 512×512 como textura `R8Unorm`, sampler `linear` +
      `clamp_to_edge`;

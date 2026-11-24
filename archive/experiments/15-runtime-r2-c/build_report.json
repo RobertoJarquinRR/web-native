@@ -7,7 +7,7 @@
                        "verify":  3854.13
                    },
     "steps":  {
-                  "compile":  "cl /nologo /O2 /W3 /std:c17 /TC /D_CRT_SECURE_NO_WARNINGS runtime_r2.c /I\".\\third_party\\wgpu-native\\include\" /Fe:runtime_r2.exe /link \".\\third_party\\wgpu-native\\lib\\wgpu_native.dll.lib\" windowscodecs.lib ole32.lib user32.lib gdi32.lib"
+                  "compile":  "cl /nologo /O2 /W3 /std:c17 /TC /D_CRT_SECURE_NO_WARNINGS runtime_r2.c /I\"third_party\\wgpu-native\\include\" /Fe:runtime_r2.exe /link \"third_party\\wgpu-native\\lib\\wgpu_native.dll.lib\" windowscodecs.lib ole32.lib user32.lib gdi32.lib"
               },
     "adapter":  {
                     "backend":  "adapter: backend=D3D12 (4) type=cpu vendorID=0x1414 deviceID=0x008C",
@@ -60,7 +60,7 @@
                    "report":  "states/state_states.json"
                },
     "exe":  {
-                "path":  ".\\experiments\\15-runtime-r2-c\\runtime_r2.exe",
+                "path":  "archive\\experiments\\15-runtime-r2-c\\runtime_r2.exe",
                 "bytes":  299008
             },
     "finished":  "2026-11-23T14:48:15.3244959-06:00"

@@ -16,8 +16,8 @@ Uso:
   python verify_text.py --ir results/rust/text-card.ir.json \
       --atlas results/rust/text-card.atlas.bin \
       --atlas-json results/rust/text-card.atlas.json \
-      --reference ../../../experiments/16-text-atlas-c/display_list.json \
-      --reference-atlas ../../../experiments/16-text-atlas-c/atlas.bin \
+      --reference ../../../archive/experiments/16-text-atlas-c/display_list.json \
+      --reference-atlas ../../../archive/experiments/16-text-atlas-c/atlas.bin \
       --report results/rust/text-card.verify.json
 """
 from __future__ import annotations

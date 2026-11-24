@@ -3,7 +3,7 @@
 ## Nombres
 
 - Todo en minúsculas, con guiones, sin espacios.
-- Carpetas de experimentos: `experiments/NN-<stage>-<slug>/`
+- Carpetas de experimentos: `archive/experiments/NN-<stage>-<slug>/`
   - `NN`: orden cronológico de dos dígitos.
   - `stage`: una de `parse`, `cascade`, `layout`, `text`, `render`, `aot`,
     `runtime`, `e2e`, `showcase`.
@@ -28,7 +28,7 @@
 ## Mapa actual
 
 ```
-experiments/          16 experimentos históricos, renombrados por etapa
+archive/experiments/          16 experimentos históricos, renombrados por etapa
 src/
   ir/                 contrato del display list + schema
   frontend/python/    frontend de referencia / oráculo

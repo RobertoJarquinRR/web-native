@@ -7,7 +7,7 @@ en un solo render pass, sin Python, sin JSON, sin FreeType/HarfBuzz, sin fichero
 de fuente y sin navegador en runtime.
 
 La paridad con el pipeline probado de exp16 es exacta: `scene_text.png` es
-**pixel-idéntico** a `experiments/16-text-atlas-c/scene_text.png`
+**pixel-idéntico** a `archive/experiments/16-text-atlas-c/scene_text.png`
 (`maxdiff = 0`, `0` píxeles cambiados de 96 000).
 
 ---
@@ -123,10 +123,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-static\build_t
 ```powershell
 $py = .\src\frontend\python\.venv\Scripts\python.exe
 $out = .\build\text-runtime
-Copy-Item .\experiments\16-text-atlas-c\display_list.json $out
-Copy-Item .\experiments\16-text-atlas-c\atlas.bin $out
-Copy-Item .\experiments\16-text-atlas-c\atlas.json $out
-Copy-Item .\experiments\16-text-atlas-c\glyph_quads.json $out
+Copy-Item .\archive\experiments\16-text-atlas-c\display_list.json $out
+Copy-Item .\archive\experiments\16-text-atlas-c\atlas.bin $out
+Copy-Item .\archive\experiments\16-text-atlas-c\atlas.json $out
+Copy-Item .\archive\experiments\16-text-atlas-c\glyph_quads.json $out
 
 & $py .\src\emitter\python\emit_c_text.py `
     --ir "$out\display_list.json" `
@@ -385,7 +385,7 @@ $py = .\src\frontend\python\.venv\Scripts\python.exe
 & $py .\src\runtime\c-static\verify_text.py `
     --mode text `
     --png .\build\text-runtime\scene_text.png `
-    --reference .\experiments\16-text-atlas-c\scene_text.png `
+    --reference .\archive\experiments\16-text-atlas-c\scene_text.png `
     --ir .\build\text-runtime\display_list.json `
     --header .\build\text-runtime\scene_data.h `
     --stdout .\build\text-runtime\offscreen_stdout.txt `

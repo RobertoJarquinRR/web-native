@@ -129,7 +129,7 @@
     {
       "check": "frontend-render-reproduces-exp09",
       "pass": true,
-      "detail": "render_frontend.png == .\\experiments\\09-core-package-v1\\render.png"
+      "detail": "render_frontend.png == archive\\experiments\\09-core-package-v1\\render.png"
     }
   ],
   "metrics": {
@@ -248,7 +248,7 @@
       }
     },
     "exp09_artifact_diff": {
-      "png": ".\\experiments\\09-core-package-v1\\render.png",
+      "png": "archive\\experiments\\09-core-package-v1\\render.png",
       "region": [
         0,
         0,
