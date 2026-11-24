@@ -11,6 +11,10 @@ viendo `target_id`, eventos y comandos.
 `dialog` son **extensiones del subset v2** (minor bump + `ui-tree/3`). No hay
 formularios web: sin `form`, `action`, validación ni `submit`.
 
+> **Estado (N2):** `input type="text"` v1 ya está implementado en `ui-tree/3` +
+> ABI v4: una línea, ASCII, caret/selección/clipboard, sin IME. El resto del
+> catálogo sigue en diseño.
+
 ## Modelo común
 
 ### Estados

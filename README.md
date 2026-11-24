@@ -40,7 +40,12 @@ tools/                fetch-wgpu.ps1 y utilidades del repo
 | IR | ✅ schema + goldens |
 | Emitter C | ✅ `emit_c.py` (rects) y `emit_c_text.py` (texto) |
 | Runtime C estático (R1) | ✅ `src/runtime/c-static` — ventana + PNG, escena horneada |
-| Runtime C dinámico (R2) | ✅ `src/runtime/c-r2` — layout en runtime + eventos + resize (69/69 checks) |
+| Runtime C dinámico (R2) | ✅ `src/runtime/c-r2` — layout, grid, scroll, imágenes y eventos (69/69) |
+| ABI C v4 | ✅ standalone/embedded; v3 dinámica + v4 input |
+| Dynamic UI (v3) | ✅ `set_visible`, `set_image`, `set_text`, clone/append/remove (53/53) |
+| Text input (v4) | ✅ ASCII single-line, caret/selección/clipboard, `WN_EVENT_INPUT` (111/111) |
+| CSS v3 (frontend) | ✅ bordes/radius/sombras/unidades; render en core pendiente |
+| Host C# (piloto) | ✅ 30 cards, detalle, filtros, open-with-system (65/65) |
 | AOT HTML → `.exe` | ✅ rects; texto vía `c-static/build_text.ps1` |
 | Interactividad | ✅ R2 (`src/runtime/c-r2`); prototipo histórico en `experiments/12` |
 

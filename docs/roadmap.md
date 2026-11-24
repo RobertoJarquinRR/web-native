@@ -9,9 +9,19 @@
 - Rust `--emit-ui` → `ui.json` → `emit_ui.py --ui-json` → `ui_data.h`.
 - Repo git + docs base.
 
-## Fase 1 — Contratos y runtime platform (actual)
+## Estado (2026-11)
 
-**Objetivo:** ABI C v0 + core/renderer/host separados + dos modos + métricas +
+- ✅ R1/R2, grid/scroll/imágenes, paridad multi-frontend.
+- ✅ ABI v3: UI dinámica (visibilidad, clone/append/remove, set_image).
+- ✅ ABI v4: input ASCII de una línea, caret/selección/clipboard, `WN_EVENT_INPUT`.
+- ✅ Host C# v3 (65/65): detalle con `set_image`, filtro con `set_visible`.
+- ✅ Frontend CSS v3: bordes/radius/sombras/unidades (render en core pendiente).
+- ⏳ Siguiente: render CSS v3, virtualización/culling, accesibilidad/IME, DPI,
+  cross-platform.
+
+## Fase 1 — Contratos y runtime platform (hecha)
+
+**Objetivo:** ABI C + core/renderer/host separados + dos modos + métricas +
 subset diagnostics.
 
 | Workstream | Alcance | Archivos | Entrega |
@@ -39,16 +49,17 @@ subset rechaza features fuera de v1; R1 sin regresión.
 - Invalidación incremental / dirty rects.
 - Clipping y scroll.
 - Flex fiel: grow/shrink/basis/min-content, margin collapse.
-- **API de UI dinámica: crear/actualizar/eliminar nodos, templates/listas.**
-- **Virtualización de listas/grids.**
-- **Texto dinámico** (shaping runtime o pre-shape por variantes).
-- **Input de texto single-line + foco/teclado.**
+- ✅ **API de UI dinámica: crear/actualizar/eliminar nodos, templates/listas.**
+- **Virtualización de listas/grids.** (pendiente)
+- **Texto dinámico** (shaping runtime o pre-shape por variantes). (pendiente)
+- ✅ **Input de texto single-line + foco/teclado** (ASCII; IME queda en fase 4).
 - Texto: wrapping, line breaking, DPI/zoom.
 - Animaciones/transiciones (futuro cercano).
 
 ## Fase 4 — CSS y OS integration
 
-- Bordes/radios/sombras, unidades relativas, `@media`.
+- Bordes/radios/sombras, unidades relativas, `@media`. El **frontend** ya
+  parsea y emite bordes/radius/sombras/unidades; falta el **render en core**.
 - IME, clipboard, drag & drop, diálogos, accesibilidad (UIA/ARIA).
 - Controles de texto (input/select) si el target lo exige.
 

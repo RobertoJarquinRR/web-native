@@ -66,6 +66,7 @@ HTML/CSS → frontend Rust → display_list.json → emit_c(_text)
 HTML/CSS → frontend Rust --emit-ui → ui.json (+atlas)
          → emit_ui.py → ui_data.h → cl.exe → app.exe
 runtime: eventos → estado → layout C → display list → wgpu → ventana
+host: ABI v4 → set_visible/set_image/set_text/clone (v3) + input (v4)
 ```
 
 ## Repo
@@ -80,7 +81,7 @@ src/
   runtime/c-static/    R1
   runtime/c-r2/        R2 + core/ABI (fase 1)
   build.ps1            driver R1
-include/webnative.h    ABI C v0
+include/webnative.h    ABI C v4 (v3 dinámica + v4 input)
 benchmarks/            paridad de frontends + engine-metrics
 experiments/           histórico inmutable
 docs/                  spec, arquitectura, ABI, métricas, subset, roadmap
