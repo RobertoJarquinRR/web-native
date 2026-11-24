@@ -20,6 +20,10 @@ foreach ($required in @($rust, $emitter, $py, $vcvars)) {
         throw "missing required path: $required"
     }
 }
+if (-not (Test-Path -LiteralPath (Join-Path $wgpu 'bin\wgpu_native.dll')) -or
+    -not (Test-Path -LiteralPath (Join-Path $wgpu 'lib\wgpu_native.dll.lib'))) {
+    throw "wgpu-native binaries are missing. Run tools\fetch-wgpu.ps1 first (see THIRD_PARTY_NOTICES.md)."
+}
 if (-not $OutDir) { $OutDir = Join-Path $repo 'build\demo' }
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $OutDir = (Resolve-Path -LiteralPath $OutDir).Path

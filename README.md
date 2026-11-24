@@ -26,7 +26,8 @@ benchmarks/
 experiments/          16 experimentos históricos (R2 promovido a src/runtime/c-r2)
 spec/                 fixtures originales del contrato
 docs/                 arquitectura, IR y convenciones
-third_party/          wgpu-native v29.0.1.1
+third_party/          wgpu-native v29.0.1.1 (headers; binaries fetched)
+tools/                fetch-wgpu.ps1 y utilidades del repo
 ```
 
 ## Estado
@@ -46,6 +47,9 @@ third_party/          wgpu-native v29.0.1.1
 ## Quick start
 
 ```powershell
+# Dependencias nativas: descarga wgpu-native v29.0.1.1 y verifica su SHA-256
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\fetch-wgpu.ps1
+
 # R1: HTML/CSS -> .exe con escena horneada (rects)
 powershell -NoProfile -ExecutionPolicy Bypass -File src\build.ps1 `
   -Html benchmarks\frontend-parity\fixtures\contract\input.html `
@@ -83,3 +87,8 @@ python benchmarks\frontend-parity\tools\verify_ir.py `
 3. **Build time vs runtime.** El frontend puede correr en build time (AOT) o en
    runtime (R2), pero el `.exe` no depende de Python.
 4. **Paridad medible.** Mismo input → mismo IR → mismos píxeles.
+
+## Licencia
+
+MIT. Ver `LICENSE` y `THIRD_PARTY_NOTICES.md` para las dependencias
+(wgpu-native y Gumbo).
