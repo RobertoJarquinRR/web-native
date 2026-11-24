@@ -55,6 +55,8 @@ typedef struct wn_renderer_ops {
     void (*get_stats)(void *context, wn_renderer_stats *stats);
     /* Offscreen only: copy the last rendered frame into a PNG. 0 on success. */
     int (*readback)(void *context, const char *png_path);
+    /* Optional diagnostics: decoded images currently cached. -1 if unknown. */
+    int (*image_cache_count)(void *context);
 } wn_renderer_ops;
 
 const wn_renderer_ops *wn_renderer_wgpu(void);

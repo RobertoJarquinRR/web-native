@@ -256,9 +256,11 @@ try {
     Write-Host "compile: cl /O2 /TC -> $out\runtime_r2.exe" -ForegroundColor Cyan
     $compile = "cl /nologo /O2 /W3 /std:c17 /TC /D_CRT_SECURE_NO_WARNINGS /DWN_STATIC " +
                "`"$runtimeC`" `"$coreC`" `"$commonC`" " +
+               "`"$root\wn_view.c`" `"$root\wn_app.c`" `"$root\renderer_wgpu.c`" " +
+               "`"$root\renderer_d3d11.c`" `"$root\host_win32.c`" " +
                "/I`"$repo\include`" /I`"$root`" /I`"$wgpu\include`" /I`"$out`" " +
                "/Fo:`"$out\\`" /Fe:`"$out\runtime_r2.exe`" " +
-               "/link `"$wgpu\lib\wgpu_native.dll.lib`" windowscodecs.lib ole32.lib user32.lib gdi32.lib"
+               "/link `"$wgpu\lib\wgpu_native.dll.lib`" d3d11.lib dxgi.lib d3dcompiler.lib windowscodecs.lib ole32.lib user32.lib gdi32.lib"
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     Invoke-Native 'compile' "call `"$vcvars`" >nul && cd /d `"$out`" && $compile"
     $sw.Stop()

@@ -182,7 +182,10 @@ try {
     $runtimeExe = Join-Path $out 'runtime_input.exe'
     $runtimeCmd = $vc + "cd /d `"$here`" && cl $cflags $inc " +
         "`"$(Join-Path $here '..\..\runtime_r2.c')`" `"$(Join-Path $here '..\..\wn_core.c')`" " +
-        "`"$(Join-Path $here '..\..\wn_common.c')`" /Fo:`"$runtimeOut\\`" /Fe:`"$runtimeExe`" " +
+        "`"$(Join-Path $here '..\..\wn_common.c')`" `"$(Join-Path $here '..\..\wn_view.c')`" " +
+        "`"$(Join-Path $here '..\..\wn_app.c')`" `"$(Join-Path $here '..\..\renderer_wgpu.c')`" " +
+        "`"$(Join-Path $here '..\..\renderer_d3d11.c')`" `"$(Join-Path $here '..\..\host_win32.c')`" " +
+        "/Fo:`"$runtimeOut\\`" /Fe:`"$runtimeExe`" " +
         "/link $linkLibs"
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     Invoke-Tool 'compile runtime_input' $runtimeCmd

@@ -37,6 +37,7 @@
 #include "ui_data.h"
 #include "wn_core.h"
 #include "wn_internal.h"
+#include "wn_view.h"
 
 /* ui-tree/3 only emits R2_NODE_INPUT in headers with inputs; the demo helper
  * must compile against v1/v2 headers too. */
@@ -241,6 +242,7 @@ static wn_core *g_core;
 static int g_vertex_count = 0;
 static int g_glyph_vertex_count = 0;
 static int g_image_vertex_count = 0;
+static int g_last_image_cache = -1;
 
 static void layout_page(float viewport_w, float viewport_h)
 {
@@ -1542,6 +1544,177 @@ static void apply_pending_wheel(void)
     fflush(stdout);
 }
 
+/* Render one offscreen frame through the renderer vtable (wn_view). The view
+ * borrows the runtime's core so g_core and the frame are always the same
+ * document state; this replaces the private wgpu stack for --render. */
+static int render_offscreen_vt(int width, int height, const wchar_t *path,
+                               double *layout_ms_out, double *frame_ms_out,
+                               int *vertices_out, int *glyphs_out, int *images_out)
+{
+    wn_view *view;
+    wn_view_stats stats;
+    char narrow[MAX_PATH];
+    double t0, t1;
+    int wheel_x = 0;
+    int wheel_y = 0;
+    int wheel_dy = 0;
+    int wheel_active = g_wheel_active;
+
+    if (width <= 0 || height <= 0) {
+        fprintf(stderr, "error: bad render size %dx%d\n", width, height);
+        return 1;
+    }
+    if (wheel_active) {
+        wheel_x = (int)g_wheel_x;
+        wheel_y = (int)g_wheel_y;
+        wheel_dy = (int)g_wheel_dy;
+        g_wheel_active = 0;
+    }
+    t0 = now_ms();
+    view = wn_view_create_offscreen_with_core(g_core, width, height);
+    if (view == NULL) {
+        fprintf(stderr, "error: %s\n", wn_last_error());
+        return 1;
+    }
+    if (wn_view_load(view, "", NULL, NULL) != WN_OK) {
+        fprintf(stderr, "error: %s\n", wn_last_error());
+        wn_view_destroy(view);
+        return 1;
+    }
+    if (g_hover >= 0) wn_view_set_state(view, g_hover, WN_STATE_HOVER, 1);
+    if (g_press >= 0) wn_view_set_state(view, g_press, WN_STATE_PRESS, 1);
+    if (g_selected >= 0) wn_view_set_state(view, g_selected, WN_STATE_SELECTED, 1);
+    if (wheel_active) {
+        /* Hit testing needs the first layout, so lay out once before wheeling. */
+        int container;
+        if (wn_view_render(view) != 0) {
+            fprintf(stderr, "error: %s\n", wn_last_error());
+            wn_view_destroy(view);
+            return 1;
+        }
+        container = wn_view_wheel_node(view, (float)wheel_x, (float)wheel_y, 0.0f,
+                                       (float)wheel_dy);
+        if (container >= 0) {
+            printf("wheel: (%d,%d) delta_y=%d -> node=%d %s scroll=%.1f/%.1f\n", wheel_x,
+                   wheel_y, wheel_dy, container, kUiNodeNames[container],
+                   wn_core_scroll_offset(g_core, container),
+                   wn_core_scroll_max(g_core, container));
+        } else {
+            printf("wheel: (%d,%d) delta_y=%d -> no scrollable container\n", wheel_x,
+                   wheel_y, wheel_dy);
+        }
+        fflush(stdout);
+    }
+    if (wn_view_render(view) != 0) {
+        fprintf(stderr, "error: %s\n", wn_last_error());
+        wn_view_destroy(view);
+        return 1;
+    }
+    t1 = now_ms();
+    if (frame_ms_out != NULL) *frame_ms_out = t1 - t0;
+
+    memset(&stats, 0, sizeof(stats));
+    if (wn_view_get_stats(view, &stats) == 0) {
+        if (layout_ms_out != NULL) *layout_ms_out = stats.last_layout_ms;
+    } else if (layout_ms_out != NULL) {
+        *layout_ms_out = 0.0;
+    }
+    wn_view_display_counts(view, vertices_out, glyphs_out, images_out);
+
+    if (WideCharToMultiByte(CP_ACP, 0, path, -1, narrow, MAX_PATH, NULL, NULL) <= 0) {
+        wn_view_destroy(view);
+        return 1;
+    }
+    if (wn_view_readback(view, narrow) != WN_OK) {
+        fprintf(stderr, "error: %s\n", wn_last_error());
+        wn_view_destroy(view);
+        return 1;
+    }
+    printf("adapter: backend=%s\n",
+           wn_view_backend(view) != NULL ? wn_view_backend(view) : "(unknown)");
+    printf("adapter: device=%s\n",
+           wn_view_device(view) != NULL ? wn_view_device(view) : "(unknown)");
+    wn_view_destroy(view);
+    return 0;
+}
+
+/* Persistent offscreen view for the multi-stage suites: the renderer (and its
+ * image cache) survives across stages, like the old single-GPU loop. */
+static wn_view *g_core_view = NULL;
+static int g_core_view_w = 0;
+static int g_core_view_h = 0;
+
+static int core_view_open(int width, int height)
+{
+    if (g_core_view != NULL && g_core_view_w == width && g_core_view_h == height) {
+        return 0;
+    }
+    if (g_core_view != NULL) {
+        wn_view_destroy(g_core_view);
+        g_core_view = NULL;
+    }
+    g_core_view = wn_view_create_offscreen_with_core(g_core, width, height);
+    if (g_core_view == NULL) {
+        fprintf(stderr, "error: %s\n", wn_last_error());
+        return 1;
+    }
+    if (wn_view_load(g_core_view, "", NULL, NULL) != WN_OK) {
+        fprintf(stderr, "error: %s\n", wn_last_error());
+        wn_view_destroy(g_core_view);
+        g_core_view = NULL;
+        return 1;
+    }
+    g_core_view_w = width;
+    g_core_view_h = height;
+    return 0;
+}
+
+static void core_view_close(void)
+{
+    if (g_core_view != NULL) {
+        wn_view_destroy(g_core_view);
+        g_core_view = NULL;
+        g_core_view_w = 0;
+        g_core_view_h = 0;
+    }
+}
+
+/* Render the current g_core state to a PNG through the vtable, without touching
+ * hover/press/selected (the caller already set them). */
+static int render_core_png(int width, int height, const wchar_t *path,
+                           double *layout_ms_out, double *frame_ms_out)
+{
+    wn_view_stats stats;
+    char narrow[MAX_PATH];
+
+    if (width <= 0 || height <= 0) {
+        return 1;
+    }
+    if (core_view_open(width, height) != 0) {
+        return 1;
+    }
+    if (wn_view_render(g_core_view) != 0) {
+        fprintf(stderr, "error: %s\n", wn_last_error());
+        return 1;
+    }
+    memset(&stats, 0, sizeof(stats));
+    if (wn_view_get_stats(g_core_view, &stats) == 0 && layout_ms_out != NULL) {
+        *layout_ms_out = stats.last_layout_ms;
+    }
+    if (frame_ms_out != NULL) {
+        *frame_ms_out = stats.frame_total_ms;
+    }
+    if (WideCharToMultiByte(CP_ACP, 0, path, -1, narrow, MAX_PATH, NULL, NULL) <= 0 ||
+        wn_view_readback(g_core_view, narrow) != WN_OK) {
+        fprintf(stderr, "error: %s\n", wn_last_error());
+        return 1;
+    }
+    wn_view_display_counts(g_core_view, &g_vertex_count, &g_glyph_vertex_count,
+                           &g_image_vertex_count);
+    g_last_image_cache = wn_view_image_cache_count(g_core_view);
+    return 0;
+}
+
 static int render_offscreen(Gpu *gpu, int width, int height, const wchar_t *path,
                             double *layout_ms_out, double *frame_ms_out)
 {
@@ -1881,18 +2054,12 @@ static int first_input_node(void)
 
 static int run_states(const char *prefix, int node, int width, int height)
 {
-    Gpu gpu;
     char path[MAX_PATH];
     double layout_ms = 0.0, frame_ms = 0.0;
     const char *suffixes[4] = {"normal", "hover", "press", "selected"};
 
-    if (gpu_init(&gpu, NULL, 0, WGPUTextureFormat_RGBA8Unorm, "r2-states-device") != 0) {
-        gpu_release(&gpu);
-        return 1;
-    }
     if (node < 0 || node >= UI_NODE_COUNT || kUiNodes[node].action == ACTION_NONE) {
         fprintf(stderr, "error: node %d is not interactive\n", node);
-        gpu_release(&gpu);
         return 1;
     }
 
@@ -1906,8 +2073,7 @@ static int run_states(const char *prefix, int node, int width, int height)
         snprintf(path, sizeof(path), "%s_%s.png", prefix, suffixes[state]);
         wchar_t wide[MAX_PATH];
         MultiByteToWideChar(CP_ACP, 0, path, -1, wide, MAX_PATH);
-        if (render_offscreen(&gpu, width, height, wide, &layout_ms, &frame_ms) != 0) {
-            gpu_release(&gpu);
+        if (render_core_png(width, height, wide, &layout_ms, &frame_ms) != 0) {
             return 1;
         }
         printf("state %-8s node=%d %-40s layout=%.3fms frame=%.3fms -> %s\n",
@@ -1939,7 +2105,7 @@ static int run_states(const char *prefix, int node, int width, int height)
         printf("states: wrote %s_states.json\n", prefix);
     }
 
-    gpu_release(&gpu);
+    core_view_close();
     return 0;
 }
 
@@ -2720,7 +2886,7 @@ static int dynamic_rect_json(FILE *f, int node)
     return alive;
 }
 
-static int dynamic_stage(Gpu *gpu, FILE *report, const char *prefix, int stage,
+static int dynamic_stage(FILE *report, const char *prefix, int stage,
                          const char *action, int card0, int card1, int clone)
 {
     char path[MAX_PATH];
@@ -2728,18 +2894,20 @@ static int dynamic_stage(Gpu *gpu, FILE *report, const char *prefix, int stage,
     double layout_ms = 0.0;
     double frame_ms = 0.0;
     int node_count;
+    int image_cache = -1;
 
     snprintf(path, sizeof(path), "%s_%02d.png", prefix, stage);
     MultiByteToWideChar(CP_ACP, 0, path, -1, wide, MAX_PATH);
-    if (render_offscreen(gpu, 400, 300, wide, &layout_ms, &frame_ms) != 0) {
+    if (render_core_png(400, 300, wide, &layout_ms, &frame_ms) != 0) {
         fprintf(stderr, "error: dynamic stage %d render failed\n", stage);
         return 1;
     }
+    image_cache = g_last_image_cache;
     node_count = wn_core_live_node_count(g_core);
     printf("dynamic: stage=%d action=%s live=%d vertices=%d glyphs=%d images=%d "
            "cache=%d layout=%.3fms frame=%.3fms\n",
            stage, action, node_count, g_vertex_count, g_glyph_vertex_count,
-           g_image_vertex_count, gpu->image_count, layout_ms, frame_ms);
+           g_image_vertex_count, image_cache, layout_ms, frame_ms);
     fflush(stdout);
 
     fprintf(report, "%s{\"stage\":%d,\"action\":\"%s\",\"live\":%d,"
@@ -2747,7 +2915,7 @@ static int dynamic_stage(Gpu *gpu, FILE *report, const char *prefix, int stage,
                     "\"image_cache\":%d,\"layout_ms\":%.3f,\"frame_ms\":%.3f,",
             stage == 0 ? "" : ",\n    ", stage, action, node_count,
             g_vertex_count, g_glyph_vertex_count, g_image_vertex_count,
-            gpu->image_count, layout_ms, frame_ms);
+            image_cache, layout_ms, frame_ms);
     fputs("\"card0\":", report);
     dynamic_rect_json(report, card0);
     fputs(",\"card1\":", report);
@@ -2789,7 +2957,6 @@ static int dynamic_stage(Gpu *gpu, FILE *report, const char *prefix, int stage,
 
 static int run_dynamic(const char *prefix)
 {
-    Gpu gpu;
     FILE *report = NULL;
     char report_path[MAX_PATH];
     int cards;
@@ -2832,23 +2999,16 @@ static int run_dynamic(const char *prefix)
         fprintf(stderr, "error: cannot create %s\n", report_path);
         return 1;
     }
-    memset(&gpu, 0, sizeof(gpu));
-    if (gpu_init(&gpu, NULL, 0, WGPUTextureFormat_RGBA8Unorm,
-                 "r2-dynamic-device") != 0) {
-        gpu_release(&gpu);
-        fclose(report);
-        return 1;
-    }
     fprintf(report, "{\n  \"fixture\": \"tests/dynamic/page\",\n  "
                     "\"viewport\": {\"width\": 400, \"height\": 300},\n  "
                     "\"cards\": %d, \"card0\": %d, \"card1\": %d,\n  "
                     "\"stages\": [\n    ", cards, card0, card1);
 
-    if (dynamic_stage(&gpu, report, prefix, 0, "initial", card0, card1, clone) != 0) goto done;
+    if (dynamic_stage(report, prefix, 0, "initial", card0, card1, clone) != 0) goto done;
     if (wn_core_set_visible(g_core, card0, 0) != 0) goto done;
-    if (dynamic_stage(&gpu, report, prefix, 1, "hide card0", card0, card1, clone) != 0) goto done;
+    if (dynamic_stage(report, prefix, 1, "hide card0", card0, card1, clone) != 0) goto done;
     if (wn_core_set_visible(g_core, card0, 1) != 0) goto done;
-    if (dynamic_stage(&gpu, report, prefix, 2, "show card0", card0, card1, clone) != 0) goto done;
+    if (dynamic_stage(report, prefix, 2, "show card0", card0, card1, clone) != 0) goto done;
 
     clone = wn_core_clone(g_core, card0, cards);
     if (clone < 0) {
@@ -2858,43 +3018,43 @@ static int run_dynamic(const char *prefix)
     clone_image = wn_core_node_first_child(g_core, clone);
     clone_label = wn_core_node_next_sibling(g_core, clone_image);
     clone_text = wn_core_node_first_child(g_core, clone_label);
-    if (dynamic_stage(&gpu, report, prefix, 3, "clone card0", card0, card1, clone) != 0) goto done;
+    if (dynamic_stage(report, prefix, 3, "clone card0", card0, card1, clone) != 0) goto done;
 
     if (wn_core_set_image(g_core, clone_image, "images/b.png") != 0) {
         fprintf(stderr, "error: set_image(clone) failed\n");
         goto done;
     }
-    if (dynamic_stage(&gpu, report, prefix, 4, "set_image clone b", card0, card1, clone) != 0) goto done;
+    if (dynamic_stage(report, prefix, 4, "set_image clone b", card0, card1, clone) != 0) goto done;
 
     if (wn_core_set_text(g_core, clone_text, "Beta") != 0) {
         fprintf(stderr, "error: set_text(clone) failed\n");
         goto done;
     }
-    if (dynamic_stage(&gpu, report, prefix, 5, "set_text clone Beta", card0, card1, clone) != 0) goto done;
+    if (dynamic_stage(report, prefix, 5, "set_text clone Beta", card0, card1, clone) != 0) goto done;
 
     if (wn_core_remove(g_core, clone) != 0) {
         fprintf(stderr, "error: remove(clone) failed\n");
         goto done;
     }
-    if (dynamic_stage(&gpu, report, prefix, 6, "remove clone", card0, card1, -1) != 0) goto done;
+    if (dynamic_stage(report, prefix, 6, "remove clone", card0, card1, -1) != 0) goto done;
     clone = -1;
 
     if (wn_core_append(g_core, cards, card1) != 0) {
         fprintf(stderr, "error: append(card1) failed\n");
         goto done;
     }
-    if (dynamic_stage(&gpu, report, prefix, 7, "append card1 last", card0, card1, clone) != 0) goto done;
+    if (dynamic_stage(report, prefix, 7, "append card1 last", card0, card1, clone) != 0) goto done;
 
     if (wn_core_set_image(g_core, image0, "images/b.png") != 0) {
         fprintf(stderr, "error: set_image(card0) failed\n");
         goto done;
     }
-    if (dynamic_stage(&gpu, report, prefix, 8, "set_image card0 b", card0, card1, clone) != 0) goto done;
+    if (dynamic_stage(report, prefix, 8, "set_image card0 b", card0, card1, clone) != 0) goto done;
     if (wn_core_set_image(g_core, image0, "images/a.png") != 0) {
         fprintf(stderr, "error: set_image(card0 a) failed\n");
         goto done;
     }
-    if (dynamic_stage(&gpu, report, prefix, 9, "set_image card0 a", card0, card1, clone) != 0) goto done;
+    if (dynamic_stage(report, prefix, 9, "set_image card0 a", card0, card1, clone) != 0) goto done;
 
     if (wn_core_set_text(g_core, text0, "\xce\xa9") == 1) {
         printf("dynamic: set_text(Omega) -> unsupported (expected)\n");
@@ -2906,7 +3066,7 @@ static int run_dynamic(const char *prefix)
         fprintf(stderr, "error: clear_children(cards) failed\n");
         goto done;
     }
-    if (dynamic_stage(&gpu, report, prefix, 10, "clear cards", card0, card1, clone) != 0) goto done;
+    if (dynamic_stage(report, prefix, 10, "clear cards", card0, card1, clone) != 0) goto done;
 
     fprintf(report, "\n  ]\n}\n");
     rc = 0;
@@ -2919,13 +3079,13 @@ done:
         fprintf(report, "\n  ]\n}\n");
         fclose(report);
     }
-    gpu_release(&gpu);
+    core_view_close();
     return rc;
 }
 
 /* ---------------------------------------------------------------- input v1 */
 
-static int input_stage(Gpu *gpu, FILE *report, const char *prefix, int stage,
+static int input_stage(FILE *report, const char *prefix, int stage,
                        const char *action, int node, int value_changes)
 {
     char path[MAX_PATH];
@@ -2937,7 +3097,7 @@ static int input_stage(Gpu *gpu, FILE *report, const char *prefix, int stage,
 
     snprintf(path, sizeof(path), "%s_%02d.png", prefix, stage);
     MultiByteToWideChar(CP_ACP, 0, path, -1, wide, MAX_PATH);
-    if (render_offscreen(gpu, 480, 240, wide, &layout_ms, &frame_ms) != 0) {
+    if (render_core_png(480, 240, wide, &layout_ms, &frame_ms) != 0) {
         fprintf(stderr, "error: input stage %d render failed\n", stage);
         return 1;
     }
@@ -3005,7 +3165,7 @@ static int input_key(int node, int key, uint32_t mods, int *value_changes)
 
 static int run_input(const char *prefix)
 {
-    Gpu gpu;
+
     FILE *report = NULL;
     char report_path[MAX_PATH];
     int node;
@@ -3036,13 +3196,6 @@ static int run_input(const char *prefix)
         fprintf(stderr, "error: cannot create %s\n", report_path);
         return 1;
     }
-    memset(&gpu, 0, sizeof(gpu));
-    if (gpu_init(&gpu, NULL, 0, WGPUTextureFormat_RGBA8Unorm,
-                 "r2-input-device") != 0) {
-        gpu_release(&gpu);
-        fclose(report);
-        return 1;
-    }
     {
         wn_rect content;
         if (wn_core_input_state(g_core, node, &state) != 0) {
@@ -3058,15 +3211,15 @@ static int run_input(const char *prefix)
         (void)content;
     }
 
-    if (input_stage(&gpu, report, prefix, 0, "initial", node, value_changes) != 0) goto done;
+    if (input_stage(report, prefix, 0, "initial", node, value_changes) != 0) goto done;
 
     rect = wn_core_rects(g_core, NULL)[node];
     wn_core_pointer_down(g_core, rect.x + rect.w - 12.0f, rect.y + rect.h * 0.5f);
     wn_core_pointer_up(g_core, rect.x + rect.w - 12.0f, rect.y + rect.h * 0.5f);
-    if (input_stage(&gpu, report, prefix, 1, "click focuses", node, value_changes) != 0) goto done;
+    if (input_stage(report, prefix, 1, "click focuses", node, value_changes) != 0) goto done;
 
     if (input_type(node, "abc", &value_changes) < 0) goto done;
-    if (input_stage(&gpu, report, prefix, 2, "type abc", node, value_changes) != 0) goto done;
+    if (input_stage(report, prefix, 2, "type abc", node, value_changes) != 0) goto done;
 
     /* Caret by click: Home+Right leaves the caret after 'a'; click 6 px past
      * that boundary to land after 'b', then insert X -> "abXc". */
@@ -3076,16 +3229,16 @@ static int run_input(const char *prefix)
     wn_core_pointer_down(g_core, state.caret_x + 6.0f, rect.y + rect.h * 0.5f);
     wn_core_pointer_up(g_core, state.caret_x + 6.0f, rect.y + rect.h * 0.5f);
     if (input_type(node, "X", &value_changes) < 0) goto done;
-    if (input_stage(&gpu, report, prefix, 3, "click caret + insert X", node,
+    if (input_stage(report, prefix, 3, "click caret + insert X", node,
                     value_changes) != 0) goto done;
 
     if (input_key(node, WN_KEY_BACKSPACE, 0, &value_changes) < 0) goto done;
-    if (input_stage(&gpu, report, prefix, 4, "backspace", node, value_changes) != 0) goto done;
+    if (input_stage(report, prefix, 4, "backspace", node, value_changes) != 0) goto done;
 
     if (input_key(node, WN_KEY_HOME, 0, &value_changes) < 0) goto done;
     if (input_key(node, WN_KEY_RIGHT, WN_KEY_MOD_SHIFT, &value_changes) < 0) goto done;
     if (input_key(node, WN_KEY_RIGHT, WN_KEY_MOD_SHIFT, &value_changes) < 0) goto done;
-    if (input_stage(&gpu, report, prefix, 5, "shift selection", node,
+    if (input_stage(report, prefix, 5, "shift selection", node,
                     value_changes) != 0) goto done;
 
     copied = wn_core_input_copy(g_core, clipboard, (int)sizeof(clipboard));
@@ -3096,20 +3249,20 @@ static int run_input(const char *prefix)
     if (paste_changed) {
         ++value_changes;
     }
-    if (input_stage(&gpu, report, prefix, 6, "copy + paste", node,
+    if (input_stage(report, prefix, 6, "copy + paste", node,
                     value_changes) != 0) goto done;
 
     if (wn_core_input_select_all(g_core, NULL) < 0) goto done;
     if (input_key(node, WN_KEY_DELETE, 0, &value_changes) < 0) goto done;
-    if (input_stage(&gpu, report, prefix, 7, "select all + delete", node,
+    if (input_stage(report, prefix, 7, "select all + delete", node,
                     value_changes) != 0) goto done;
 
     if (input_type(node, "0123456789abcd", &value_changes) < 0) goto done;
-    if (input_stage(&gpu, report, prefix, 8, "max_length clamps at 12", node,
+    if (input_stage(report, prefix, 8, "max_length clamps at 12", node,
                     value_changes) != 0) goto done;
 
     if (input_key(node, WN_KEY_ESCAPE, 0, &value_changes) < 0) goto done;
-    if (input_stage(&gpu, report, prefix, 9, "escape blurs", node,
+    if (input_stage(report, prefix, 9, "escape blurs", node,
                     value_changes) != 0) goto done;
 
     fprintf(report, "\n  ]\n}\n");
@@ -3122,7 +3275,7 @@ done:
     if (report != NULL) {
         fclose(report);
     }
-    gpu_release(&gpu);
+    core_view_close();
     return rc;
 }
 
@@ -3321,33 +3474,26 @@ int main(int argc, char **argv)
     }
 
     if (mode_render) {
-        Gpu gpu;
         double layout_ms = 0.0, frame_ms = 0.0;
+        int vertices = 0, glyphs = 0, images = 0;
         wchar_t wide[MAX_PATH];
         if (render_w <= 0 || render_h <= 0) {
             fprintf(stderr, "error: bad render size %dx%d\n", render_w, render_h);
             return 1;
         }
-        if (gpu_init(&gpu, NULL, 0, WGPUTextureFormat_RGBA8Unorm, "r2-offscreen-device") != 0) {
-            gpu_release(&gpu);
-            return 1;
-        }
         MultiByteToWideChar(CP_ACP, 0, render_path, -1, wide, MAX_PATH);
-        if (render_offscreen(&gpu, render_w, render_h, wide, &layout_ms, &frame_ms) != 0) {
-            gpu_release(&gpu);
+        if (render_offscreen_vt(render_w, render_h, wide, &layout_ms, &frame_ms,
+                                &vertices, &glyphs, &images) != 0) {
             return 1;
         }
-        gpu_release(&gpu);
         print_layout_summary((float)render_w, (float)render_h);
         print_scroll_summary();
         printf("render: %s %dx%d nodes=%d vertices=%d glyph_vertices=%d "
                "image_vertices=%d layout=%.3fms frame=%.3fms\n",
-               render_path, render_w, render_h, UI_NODE_COUNT, g_vertex_count,
-               g_glyph_vertex_count, g_image_vertex_count, layout_ms, frame_ms);
+               render_path, render_w, render_h, UI_NODE_COUNT, vertices, glyphs, images,
+               layout_ms, frame_ms);
         printf("timings: layout=%.3fms | frame(build+upload+pass+readback+png)=%.3fms\n",
                layout_ms, frame_ms);
-        printf("timings: gpu(encode+submit)=%.3fms | readback(map)=%.3fms | png=%.3fms\n",
-               g_last_pass_ms, g_last_readback_ms, g_last_png_ms);
         exit_code = 0;
         goto done;
     }

@@ -1481,6 +1481,12 @@ static int renderer_readback(void *context, const char *path)
     return 0;
 }
 
+static int renderer_image_cache_count(void *context)
+{
+    WnD3D11 *gpu = (WnD3D11 *)context;
+    return gpu != NULL ? gpu->image_count : -1;
+}
+
 static const wn_renderer_ops g_d3d11_ops = {
     "d3d11",
     renderer_init,
@@ -1491,7 +1497,8 @@ static const wn_renderer_ops g_d3d11_ops = {
     renderer_last_error,
     renderer_get_info,
     renderer_get_stats,
-    renderer_readback
+    renderer_readback,
+    renderer_image_cache_count
 };
 
 const wn_renderer_ops *wn_renderer_d3d11(void)

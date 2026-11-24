@@ -1743,6 +1743,12 @@ static void renderer_get_stats(void *context, wn_renderer_stats *stats)
     }
 }
 
+static int renderer_image_cache_count(void *context)
+{
+    WnWgpu *gpu = (WnWgpu *)context;
+    return gpu != NULL ? gpu->image_count : -1;
+}
+
 static const wn_renderer_ops g_wgpu_ops = {
     "wgpu-native",
     renderer_init,
@@ -1753,7 +1759,8 @@ static const wn_renderer_ops g_wgpu_ops = {
     renderer_last_error,
     renderer_get_info,
     renderer_get_stats,
-    renderer_readback
+    renderer_readback,
+    renderer_image_cache_count
 };
 
 const wn_renderer_ops *wn_renderer_wgpu(void)

@@ -7,6 +7,7 @@
 #define WN_VIEW_H
 
 #include "webnative.h"
+#include "wn_core.h"
 
 #if defined(__cplusplus)
 extern "C" {
@@ -26,9 +27,16 @@ int wn_view_get_stats(const wn_view *view, wn_view_stats *stats);
 int wn_view_needs_render(const wn_view *view);
 /* Texture target without a window (tooling, tests, offscreen PNG). */
 wn_view *wn_view_create_offscreen(int32_t width, int32_t height);
+/* Same, but borrowing an existing core (the caller keeps ownership). */
+wn_view *wn_view_create_offscreen_with_core(wn_core *core, int32_t width, int32_t height);
 /* Copy the last offscreen frame to a PNG. WN_OK on success. */
 wn_status wn_view_readback(wn_view *view, const char *png_path);
-const char *wn_view_backend(const wn_view *view);
+/* Tooling/test surface: states and wheel on the view's own core. */
+wn_status wn_view_set_state(wn_view *view, int node, int state, int enabled);
+/* Applies the wheel and returns the scroll container node, or -1. */
+int wn_view_wheel_node(wn_view *view, float x, float y, float delta_x, float delta_y);
+void wn_view_display_counts(const wn_view *view, int *vertices, int *glyphs, int *images);
+int wn_view_image_cache_count(const wn_view *view);const char *wn_view_backend(const wn_view *view);
 const char *wn_view_device(const wn_view *view);
 int wn_view_render_width(const wn_view *view);
 int wn_view_render_height(const wn_view *view);

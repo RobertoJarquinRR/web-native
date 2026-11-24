@@ -130,10 +130,12 @@ try {
             $compile = "call `"$vcvars`" >nul && cd /d `"$buildDir`" && cl /nologo /O2 /W4 /WX " +
                 "/std:c17 /TC /D_CRT_SECURE_NO_WARNINGS /DWN_STATIC " +
                 "`"$(Join-Path $runtime 'runtime_r2.c')`" `"$(Join-Path $runtime 'wn_core.c')`" " +
-                "`"$(Join-Path $runtime 'wn_common.c')`" " +
+                "`"$(Join-Path $runtime 'wn_common.c')`" `"$(Join-Path $runtime 'wn_view.c')`" " +
+                "`"$(Join-Path $runtime 'wn_app.c')`" `"$(Join-Path $runtime 'renderer_wgpu.c')`" " +
+                "`"$(Join-Path $runtime 'renderer_d3d11.c')`" `"$(Join-Path $runtime 'host_win32.c')`" " +
                 "/I`"$(Join-Path $repo 'include')`" /I`"$runtime`" /I`"$(Join-Path $wgpu 'include')`" " +
                 "/I`"$emitDir`" /Fo:`"$buildDir\\`" /Fe:`"$buildDir\runtime_css_$name.exe`" " +
-                "/link `"$(Join-Path $wgpu 'lib\wgpu_native.dll.lib')`" windowscodecs.lib ole32.lib user32.lib gdi32.lib"
+                "/link `"$(Join-Path $wgpu 'lib\wgpu_native.dll.lib')`" d3d11.lib dxgi.lib d3dcompiler.lib windowscodecs.lib ole32.lib user32.lib gdi32.lib"
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
             Invoke-Command "compile $name" $compile
             $sw.Stop()
@@ -150,12 +152,16 @@ try {
     }
 
     Write-Host 'css: layout report + offscreen renders (400x240)' -ForegroundColor Cyan
+    # The pixel goldens (and the pre-CSS control) were captured with the wgpu
+    # renderer. Pin it here: this suite checks CSS semantics, not a backend.
+    $env:WN_RENDERER = 'wgpu'
     Invoke-Runtime 'layout_card' $cardExe @('--report', (Join-Path $out 'layout_card.json'),
         '--sizes', '400x240') | Out-Null
     Invoke-Runtime 'render_card' $cardExe @('--render', '400', '240',
         (Join-Path $out 'render_card.png')) | Out-Null
     Invoke-Runtime 'render_control' $controlExe @('--render', '400', '240',
         (Join-Path $out 'render_control.png')) | Out-Null
+    Remove-Item Env:\WN_RENDERER -ErrorAction SilentlyContinue
 
     Write-Host 'css: verify fields + exact pixels' -ForegroundColor Cyan
     $sw = [System.Diagnostics.Stopwatch]::StartNew()

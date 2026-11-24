@@ -145,10 +145,12 @@ try {
     $report.checks['standalone_d3d11_hardware'] = $true
 
     # ------------------------------------------- base fixture: wgpu reference
+    # --render goes through the vtable now, so pin the reference backend to wgpu;
+    # otherwise the comparison would be D3D11 against itself.
     $reference = Join-Path $out 'wgpu_960x640.png'
     Remove-Item -LiteralPath $reference -Force -ErrorAction SilentlyContinue
     $wgpuRender = Invoke-Process 'wgpu-offscreen-reference' (Join-Path $build 'runtime_r2.exe') `
-        @('--render', '960', '640', $reference) $build $null
+        @('--render', '960', '640', $reference) $build @{ 'WN_RENDERER' = 'wgpu' }
     if ($wgpuRender.exit -ne 0) { Stop-Fail "runtime_r2.exe --render exited $($wgpuRender.exit)" }
     if (-not (Test-Path -LiteralPath $reference)) { Stop-Fail "missing reference $reference" }
     $report.checks['wgpu_reference'] = $true

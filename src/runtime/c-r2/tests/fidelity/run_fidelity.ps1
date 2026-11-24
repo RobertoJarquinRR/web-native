@@ -190,9 +190,12 @@ try {
         $runtimeExe = Join-Path $out 'runtime_fidelity.exe'
         $runtimeCmd = "call `"$vcvars`" >nul && cd /d `"$out`" && cl $cflags $runtimeInc " +
             "`"$(Join-Path $runtime 'runtime_r2.c')`" `"$(Join-Path $runtime 'wn_core.c')`" " +
-            "`"$(Join-Path $runtime 'wn_common.c')`" /Fo:`"$runtimeOut\\`" /Fe:`"$runtimeExe`" " +
+            "`"$(Join-Path $runtime 'wn_common.c')`" `"$(Join-Path $runtime 'wn_view.c')`" " +
+            "`"$(Join-Path $runtime 'wn_app.c')`" `"$(Join-Path $runtime 'renderer_wgpu.c')`" " +
+            "`"$(Join-Path $runtime 'renderer_d3d11.c')`" `"$(Join-Path $runtime 'host_win32.c')`" " +
+            "/Fo:`"$runtimeOut\\`" /Fe:`"$runtimeExe`" " +
             "/link `"$(Join-Path $wgpu 'lib\wgpu_native.dll.lib')`" " +
-            "windowscodecs.lib ole32.lib user32.lib gdi32.lib"
+            "d3d11.lib dxgi.lib d3dcompiler.lib windowscodecs.lib ole32.lib user32.lib gdi32.lib"
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         Invoke-Command 'compile runtime' $runtimeCmd
         $sw.Stop()

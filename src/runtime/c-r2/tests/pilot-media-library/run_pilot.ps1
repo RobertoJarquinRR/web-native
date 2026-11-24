@@ -116,10 +116,12 @@ try {
         $compile = "call `"$vcvars`" >nul && cd /d `"$out`" && cl /nologo /O2 /W3 /std:c17 /TC " +
             "/D_CRT_SECURE_NO_WARNINGS /DWN_STATIC " +
             "`"$(Join-Path $runtime 'runtime_r2.c')`" `"$(Join-Path $runtime 'wn_core.c')`" " +
-            "`"$(Join-Path $runtime 'wn_common.c')`" " +
+            "`"$(Join-Path $runtime 'wn_common.c')`" `"$(Join-Path $runtime 'wn_view.c')`" " +
+            "`"$(Join-Path $runtime 'wn_app.c')`" `"$(Join-Path $runtime 'renderer_wgpu.c')`" " +
+            "`"$(Join-Path $runtime 'renderer_d3d11.c')`" `"$(Join-Path $runtime 'host_win32.c')`" " +
             "/I`"$(Join-Path $repo 'include')`" /I`"$runtime`" /I`"$(Join-Path $wgpu 'include')`" " +
             "/I`"$out`" /Fo:`"$out\\`" /Fe:`"$out\runtime_r2_pilot.exe`" " +
-            "/link `"$(Join-Path $wgpu 'lib\wgpu_native.dll.lib')`" windowscodecs.lib ole32.lib user32.lib gdi32.lib"
+            "/link `"$(Join-Path $wgpu 'lib\wgpu_native.dll.lib')`" d3d11.lib dxgi.lib d3dcompiler.lib windowscodecs.lib ole32.lib user32.lib gdi32.lib"
         $sw = [System.Diagnostics.Stopwatch]::StartNew()
         Invoke-Command 'compile' $compile
         $sw.Stop()
@@ -129,6 +131,9 @@ try {
     }
 
     Write-Host 'pilot: layout report (1280x800, 800x600)' -ForegroundColor Cyan
+    # Pixel goldens were captured with the wgpu renderer; this suite checks the
+    # page, not a backend. (The D3D11/offscreen suites cover the vtable.)
+    $env:WN_RENDERER = 'wgpu'
     Invoke-Render 'layout_report' @('--report', 'pilot_layout.json',
         '--sizes', '1280x800,800x600') 'layout.log' | Out-Null
 
@@ -149,6 +154,7 @@ try {
     Write-Host 'pilot: wheel outside the scroll container' -ForegroundColor Cyan
     Invoke-Render 'wheel_outside' @('--render', '800', '600', 'wheel_outside.png',
         '--wheel', '400', '560', '240') 'wheel_outside.log' | Out-Null
+    Remove-Item Env:\WN_RENDERER -ErrorAction SilentlyContinue
 
     Write-Host 'pilot: verify grid/object-fit/clip/wheel' -ForegroundColor Cyan
     $sw = [System.Diagnostics.Stopwatch]::StartNew()

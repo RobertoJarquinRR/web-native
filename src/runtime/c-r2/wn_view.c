@@ -25,6 +25,7 @@ struct wn_view {
     int width;
     int height;
     float dpi_scale;
+    int owns_core;   /* 0 when the core is borrowed (tooling/tests) */
     int loaded;
     int closed;
     int geometry_dirty;
@@ -283,7 +284,8 @@ static int view_init_renderer(wn_view *view, const wn_surface_desc *surface,
 
 /* Common constructor: the surface decides window vs offscreen. */
 static wn_view *view_create_with_surface(const wn_surface_desc *surface,
-                                         int32_t width, int32_t height)
+                                         int32_t width, int32_t height,
+                                         wn_core *borrowed_core)
 {
     wn_view *view;
     char renderer_errors[512];
@@ -293,7 +295,13 @@ static wn_view *view_create_with_surface(const wn_surface_desc *surface,
         wn_set_error("wn_view_create: out of memory");
         return NULL;
     }
-    view->core = wn_core_create(wn_document_builtin());
+    if (borrowed_core != NULL) {
+        view->core = borrowed_core;
+        view->owns_core = 0;
+    } else {
+        view->core = wn_core_create(wn_document_builtin());
+        view->owns_core = 1;
+    }
     if (view->core == NULL) {
         wn_set_error("wn_view_create: core creation failed");
         free(view);
@@ -344,7 +352,30 @@ wn_view *wn_view_create(void *native_window_handle, int32_t width, int32_t heigh
     surface.instance_handle = NULL;
     surface.width = width;
     surface.height = height;
-    return view_create_with_surface(&surface, width, height);
+    return view_create_with_surface(&surface, width, height, NULL);
+}
+
+wn_view *wn_view_create_offscreen_with_core(wn_core *core, int32_t width, int32_t height)
+{
+    wn_surface_desc surface;
+
+    wn_clear_error();
+    if (core == NULL) {
+        wn_set_error("wn_view_create_offscreen_with_core: core is NULL");
+        return NULL;
+    }
+    if (width <= 0 || height <= 0) {
+        wn_set_error("wn_view_create_offscreen_with_core: bad size %dx%d",
+                     (int)width, (int)height);
+        return NULL;
+    }
+    memset(&surface, 0, sizeof(surface));
+    surface.kind = WN_SURFACE_OFFSCREEN;
+    surface.handle = NULL;
+    surface.instance_handle = NULL;
+    surface.width = width;
+    surface.height = height;
+    return view_create_with_surface(&surface, width, height, core);
 }
 
 wn_view *wn_view_create_offscreen(int32_t width, int32_t height)
@@ -363,13 +394,69 @@ wn_view *wn_view_create_offscreen(int32_t width, int32_t height)
     surface.instance_handle = NULL;
     surface.width = width;
     surface.height = height;
-    return view_create_with_surface(&surface, width, height);
+    return view_create_with_surface(&surface, width, height, NULL);
+}
+
+/* Tooling/test surface: states, wheel and counts on the view's own core. */
+wn_status wn_view_set_state(wn_view *view, int node, int state, int enabled)
+{
+    wn_clear_error();
+    if (view == NULL || view->core == NULL) {
+        wn_set_error("wn_view_set_state: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    wn_core_set_state(view->core, node, state, enabled);
+    view->geometry_dirty = 1;
+    view->upload_dirty = 1;
+    return WN_OK;
+}
+
+int wn_view_wheel_node(wn_view *view, float x, float y, float delta_x, float delta_y)
+{
+    int container;
+    wn_clear_error();
+    if (view == NULL || view->core == NULL) {
+        wn_set_error("wn_view_wheel: view is NULL");
+        return -1;
+    }
+    container = wn_core_wheel(view->core, x, y, delta_x, delta_y);
+    if (container >= 0) {
+        view->geometry_dirty = 1;
+        view->upload_dirty = 1;
+    }
+    return container;
+}
+
+void wn_view_display_counts(const wn_view *view, int *vertices, int *glyphs, int *images)
+{
+    const wn_display_list *list;
+    if (vertices != NULL) *vertices = 0;
+    if (glyphs != NULL) *glyphs = 0;
+    if (images != NULL) *images = 0;
+    if (view == NULL || view->core == NULL) {
+        return;
+    }
+    list = wn_core_display_list(view->core);
+    if (list == NULL) {
+        return;
+    }
+    if (vertices != NULL) *vertices = list->vertex_count;
+    if (glyphs != NULL) *glyphs = list->glyph_vertex_count;
+    if (images != NULL) *images = list->image_vertex_count;
+}
+
+int wn_view_image_cache_count(const wn_view *view)
+{
+    if (view == NULL || view->ops == NULL || view->renderer == NULL ||
+        view->ops->image_cache_count == NULL) {
+        return -1;
+    }
+    return view->ops->image_cache_count(view->renderer);
 }
 
 wn_status wn_view_readback(wn_view *view, const char *png_path)
 {
     const wn_renderer_ops *ops;
-
     wn_clear_error();
     if (view == NULL) {
         wn_set_error("wn_view_readback: view is NULL");
@@ -644,7 +731,9 @@ void wn_view_destroy(wn_view *view)
     if (view->ops != NULL && view->renderer != NULL) {
         view->ops->destroy(view->renderer);
     }
-    wn_core_destroy(view->core);
+    if (view->owns_core) {
+        wn_core_destroy(view->core);
+    }
     wn_free_(view->html);
     wn_free_(view->base_url);
     wn_free_(view->css);
