@@ -41,6 +41,27 @@ typedef struct {
     uint8_t r, g, b, a;
 } wn_glyph_vertex;
 
+/* Image vertex: vec2 clip position + vec2 uv (16 bytes). */
+typedef struct {
+    float x, y, u, v;
+} wn_image_vertex;
+
+/* One scissored draw range into the solid/glyph vertex arrays. `clip` is the
+ * pixel-space clip rect; a full-viewport rect means "no scissor". */
+typedef struct {
+    int first;
+    int count;
+    float clip_x, clip_y, clip_w, clip_h;
+} wn_draw_batch;
+
+/* One image draw: 6 vertices (two triangles) for a single texture + clip. */
+typedef struct {
+    int first;
+    int count;
+    float clip_x, clip_y, clip_w, clip_h;
+    const char *src;
+} wn_image_batch;
+
 /* Immutable atlas description attached to a document. */
 typedef struct {
     const unsigned char *pixels;   /* R8 coverage */
@@ -55,8 +76,16 @@ typedef struct {
 typedef struct {
     const wn_vertex *vertices;
     int vertex_count;
+    const wn_draw_batch *solid_batches;
+    int solid_batch_count;
     const wn_glyph_vertex *glyph_vertices;
     int glyph_vertex_count;
+    const wn_draw_batch *glyph_batches;
+    int glyph_batch_count;
+    const wn_image_vertex *image_vertices;
+    int image_vertex_count;
+    const wn_image_batch *image_batches;
+    int image_batch_count;
     wn_atlas_view atlas;
     float clear_color[4];
     int width, height;
@@ -92,6 +121,24 @@ const wn_rect *wn_core_rects(const wn_core *core, int *count);
 
 /* Hit testing in view coordinates. Returns an interactive node or -1. */
 int wn_core_hit_test(const wn_core *core, float x, float y);
+
+/* Topmost node whose clipped box contains the point (any node, -1 none).
+ * Used by the wheel router and diagnostics. */
+int wn_core_node_at(const wn_core *core, float x, float y);
+
+/* Wheel/trackpad scroll: finds the nearest ancestor scroll container under the
+ * pointer and applies (delta_x ignored in v2, delta_y in px; positive scrolls
+ * content down). Re-runs layout and clamps to [0, content_h - view_h].
+ * Returns the scroll container node when the offset changed, -1 otherwise. */
+int wn_core_wheel(wn_core *core, float x, float y, float delta_x, float delta_y);
+
+/* Scroll diagnostics. Return -1 for an invalid/non-scrollable node. */
+float wn_core_scroll_offset(const wn_core *core, int node);
+float wn_core_scroll_max(const wn_core *core, int node);
+
+/* Effective paint clip for a node (viewport ∩ overflow ancestors). Returns 0
+ * on success, -1 for an invalid node. Diagnostic/testing hook. */
+int wn_core_node_clip(const wn_core *core, int node, wn_rect *out);
 
 /* Pointer state machine. All return the hit node (or -1). pointer_up applies
  * the v0 click rule: press and release on the same ACTION_SELECT node selects

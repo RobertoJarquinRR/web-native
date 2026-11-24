@@ -1,0 +1,67 @@
+{
+  "schema": "webnative.ui-tree/2",
+  "viewport": {
+    "width": 800,
+    "height": 600
+  },
+  "source": {
+    "html": "pilot-media-library/emitter-escapes/ui.json",
+    "css": ""
+  },
+  "node_count": 3,
+  "rule_count": 0,
+  "nodes": [
+    {
+      "id": 0,
+      "parent": -1,
+      "children": [1, 2],
+      "kind": "block",
+      "name": "body.root",
+      "tag": "body",
+      "style": {
+        "display": "block",
+        "width_px": 800.0,
+        "height_px": 600.0,
+        "background": "#0b0e14"
+      }
+    },
+    {
+      "id": 1,
+      "parent": 0,
+      "children": [],
+      "kind": "text",
+      "name": "text.geometría",
+      "tag": "#text",
+      "style": {
+        "width_px": 420.0,
+        "height_px": 20.0,
+        "font_size": 16.0,
+        "color": "#e8ecf4"
+      },
+      "text": {
+        "content": "Geometría Órbita tecnología montaña geografía astronomía",
+        "baseline": 12.0,
+        "glyphs": []
+      }
+    },
+    {
+      "id": 2,
+      "parent": 0,
+      "children": [],
+      "kind": "text",
+      "name": "text.video",
+      "tag": "#text",
+      "style": {
+        "width_px": 200.0,
+        "height_px": 20.0,
+        "font_size": 16.0,
+        "color": "#9aa7ba"
+      },
+      "text": {
+        "content": "3840×2160 · 8×8",
+        "baseline": 12.0,
+        "glyphs": []
+      }
+    }
+  ]
+}

@@ -62,7 +62,7 @@ def display_path(path: Path) -> str:
 
 # ----------------------------------------------------------------- constants
 
-KIND_BLOCK, KIND_FLEX, KIND_TEXT = 0, 1, 2
+KIND_BLOCK, KIND_FLEX, KIND_TEXT, KIND_GRID, KIND_IMAGE = 0, 1, 2, 3, 4
 JUSTIFY = {"flex-start": 0, "start": 0, "normal": 0,
            "center": 1,
            "flex-end": 2, "end": 2,
@@ -72,6 +72,9 @@ ALIGN = {"flex-start": 0, "start": 0, "normal": 0,
          "flex-end": 2, "end": 2,
          "stretch": 3}
 ACTION = {"select": 1}
+GRID_NONE, GRID_AUTO_FILL = 0, 1
+OVERFLOW = {"visible": 0, "hidden": 1, "auto": 2, "scroll": 2}
+OBJECT_FIT = {"fill": 0, "cover": 1, "contain": 2}
 DEFAULT_FAMILY = "Segoe UI"
 DEFAULT_SIZE = 16.0
 
@@ -126,16 +129,146 @@ def c_string(value: str | None) -> str:
         return "NULL"
     out = ['"']
     for ch in value:
+        code = ord(ch)
         if ch in ('"', "\\"):
             out.append("\\" + ch)
         elif ch == "\n":
             out.append("\\n")
-        elif 32 <= ord(ch) < 127:
+        elif 32 <= code < 127:
             out.append(ch)
         else:
-            out.append(f"\\x{ord(ch):02x}" if ord(ch) < 256 else "?")
+            # UTF-8 bytes as three-digit octal escapes: unlike \xNN they can
+            # never absorb a following hex digit ("\xd72160" bug).
+            for byte in ch.encode("utf-8"):
+                out.append(f"\\{byte:03o}")
     out.append('"')
     return "".join(out)
+
+
+# ------------------------------------------------------- v2 style (grid/image)
+
+def _as_float(value) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        px, pct = dim(value)
+        if px >= 0.0:
+            return px
+        match = _LEN.fullmatch(value.strip().lower())
+        if match:
+            return float(match.group(1))
+    return None
+
+
+def grid_columns(value) -> tuple[int, float]:
+    """grid-template-columns -> (mode, size_px). Only auto-fill in v2."""
+    if value is None:
+        return GRID_NONE, 0.0
+    if isinstance(value, dict):
+        mode = str(value.get("mode", "")).strip().lower()
+        size = _as_float(value.get("size_px"))
+        if mode == "auto_fill" and size is not None and size > 0:
+            return GRID_AUTO_FILL, float(size)
+        return GRID_NONE, 0.0
+    text = str(value).strip().lower()
+    match = re.fullmatch(r"repeat\(\s*auto-fill\s*,\s*([0-9.]+)px\s*\)", text)
+    if match:
+        return GRID_AUTO_FILL, float(match.group(1))
+    return GRID_NONE, 0.0
+
+
+def auto_rows(value) -> float:
+    """grid-auto-rows -> px or -1 for auto. Accepts 320, "320px" or {"px":320}."""
+    if value is None:
+        return -1.0
+    if isinstance(value, dict):
+        number = _as_float(value.get("px"))
+        return -1.0 if number is None else max(0.0, number)
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in ("", "auto"):
+            return -1.0
+        number = _as_float(text)
+        return -1.0 if number is None else number
+    number = _as_float(value)
+    return -1.0 if number is None else number
+
+
+def overflow_value(value) -> int:
+    if value is None:
+        return 0
+    return OVERFLOW.get(str(value).strip().lower(), 0)
+
+
+def object_fit_value(value) -> int:
+    if value is None:
+        return 0
+    return OBJECT_FIT.get(str(value).strip().lower(), 0)
+
+
+def _png_size(data: bytes) -> tuple[int, int] | None:
+    if len(data) >= 24 and data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR":
+        width = int.from_bytes(data[16:20], "big")
+        height = int.from_bytes(data[20:24], "big")
+        if width > 0 and height > 0:
+            return width, height
+    return None
+
+
+def _jpeg_size(data: bytes) -> tuple[int, int] | None:
+    if len(data) < 4 or data[0:2] != b"\xff\xd8":
+        return None
+    index = 2
+    while index + 9 < len(data):
+        if data[index] != 0xFF:
+            index += 1
+            continue
+        marker = data[index + 1]
+        index += 2
+        while index < len(data) and data[index] == 0xFF:
+            index += 1
+        if index >= len(data) or marker in (0xD8, 0xD9):
+            continue
+        length = int.from_bytes(data[index:index + 2], "big")
+        if length < 2:
+            return None
+        if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+            if index + 7 > len(data):
+                return None
+            height = int.from_bytes(data[index + 3:index + 5], "big")
+            width = int.from_bytes(data[index + 5:index + 7], "big")
+            if width > 0 and height > 0:
+                return width, height
+            return None
+        index += length
+    return None
+
+
+def image_size(path_text: str | None, base_dir: Path | None) -> tuple[float, float]:
+    """PNG/JPEG intrinsic size resolved at build time (0,0 if unknown)."""
+    if not path_text or base_dir is None:
+        return 0.0, 0.0
+    path = Path(path_text)
+    if not path.is_absolute():
+        path = base_dir / path
+    try:
+        data = path.read_bytes()[:65536]
+    except OSError:
+        return 0.0, 0.0
+    size = _png_size(data) or _jpeg_size(data)
+    if size is None:
+        return 0.0, 0.0
+    return float(size[0]), float(size[1])
+
+
+def first_gap(raw: dict, specific: str, fallback: float) -> float:
+    value = _as_float(raw.get(specific))
+    if value is None:
+        value = _as_float((raw.get("gap") or None))
+    if value is None:
+        value = fallback
+    return max(0.0, float(value))
+
 
 
 # --------------------------------------------------------------- text metrics
@@ -231,10 +364,12 @@ class TextMetrics:
 # ------------------------------------------------------------------ emitter
 
 class Emitter:
-    def __init__(self, root: Node, styles: dict[Node, object], metrics: TextMetrics | None):
+    def __init__(self, root: Node, styles: dict[Node, object], metrics: TextMetrics | None,
+                 base_dir: Path | None = None):
         self.root = root
         self.styles = styles
         self.metrics = metrics
+        self.base_dir = base_dir
         self.nodes: list[dict] = []
         self.meta: list[dict] = []
         self.name_counts: dict[str, int] = {}
@@ -258,7 +393,7 @@ class Emitter:
     def run(self) -> None:
         body = next(node for node in self.root.walk() if node.tag == "body")
         body_style = self.styles[body]
-        if body_style.display not in ("block", "flex"):
+        if body_style.display not in ("block", "flex", "grid"):
             raise SystemExit("body is not renderable")
         self._emit_element(body, -1, "body.root", is_root=True)
 
@@ -278,10 +413,28 @@ class Emitter:
         wrap_raw = (raw.get("flex-wrap") or "").strip().lower()
         wrap = 1 if wrap_raw in ("wrap", "wrap-reverse") else 0
         action_raw = (node.attrs.get("data-action") or "").strip().lower()
+        if node.tag == "img":
+            kind = KIND_IMAGE
+        elif style.display == "grid":
+            kind = KIND_GRID
+        elif style.display == "flex":
+            kind = KIND_FLEX
+        else:
+            kind = KIND_BLOCK
+        grid_mode, grid_column_px = grid_columns(raw.get("grid-template-columns"))
+        grid_rows = auto_rows(raw.get("grid-auto-rows"))
+        overflow = overflow_value(raw.get("overflow"))
+        computed_gap = float(style.gap or 0.0)
+        row_gap = first_gap(raw, "row-gap", computed_gap)
+        column_gap = first_gap(raw, "column-gap", computed_gap)
+        image_src = node.attrs.get("src") if kind == KIND_IMAGE else None
+        image_alt = node.attrs.get("alt") if kind == KIND_IMAGE else None
+        object_fit = object_fit_value(raw.get("object-fit"))
+        image_w, image_h = image_size(image_src, self.base_dir)
         index = len(self.nodes)
         self.nodes.append({
             "parent": parent,
-            "kind": KIND_FLEX if style.display == "flex" else KIND_BLOCK,
+            "kind": kind,
             "direction": 1 if style.flex_direction == "column" else 0,
             "justify": JUSTIFY.get(style.justify_content, 0),
             "align": ALIGN.get(style.align_items, 3),
@@ -298,20 +451,45 @@ class Emitter:
             "press_bg": argb(node.attrs.get("data-press")),
             "selected_bg": argb(node.attrs.get("data-selected")),
             "action": ACTION.get(action_raw, 0),
-            "gap": float(style.gap or 0.0),
+            "gap": computed_gap,
             "font_size": float(style.font_size or DEFAULT_SIZE),
             "text_color": argb(style.color) or 0xFF000000,
+            "grid_mode": grid_mode,
+            "grid_column_px": grid_column_px,
+            "grid_auto_rows": grid_rows,
+            "row_gap": row_gap,
+            "column_gap": column_gap,
+            "overflow": overflow,
+            "image_width": image_w,
+            "image_height": image_h,
+            "image_src": image_src,
+            "image_alt": image_alt,
+            "object_fit": object_fit,
         })
         self.meta.append({
             "id": index, "name": name, "tag": node.tag,
             "classes": (node.attrs.get("class") or "").split(),
             "element_id": node.attrs.get("id"),
-            "kind": "flex" if style.display == "flex" else "block",
+            "kind": "image" if kind == KIND_IMAGE else (
+                "grid" if kind == KIND_GRID else ("flex" if kind == KIND_FLEX else "block")),
             "direction": "column" if style.flex_direction == "column" else "row",
             "wrap": bool(wrap),
             "background": f"#{style.background[1:]}" if style.background else None,
             "interactive": bool(action_raw),
             "text": None,
+            "grid": {
+                "mode": "auto_fill" if grid_mode == GRID_AUTO_FILL else None,
+                "column_px": grid_column_px,
+                "row_px": grid_rows,
+            },
+            "overflow": overflow,
+            "image": {
+                "src": image_src,
+                "alt": image_alt,
+                "object_fit": object_fit,
+                "width": image_w,
+                "height": image_h,
+            } if kind == KIND_IMAGE else None,
         })
 
         # Own text first, exactly like exp09's "texto propio antes de hijos".
@@ -322,7 +500,8 @@ class Emitter:
         child_index = 0
         for child in node.children:
             child_style = self.styles.get(child)
-            if child_style is None or child_style.display not in ("block", "flex"):
+            if child_style is None or (child.tag != "img" and
+                                       child_style.display not in ("block", "flex", "grid")):
                 continue
             base = self._base_name(child)
             child_name = self._unique_name(base)
@@ -358,6 +537,17 @@ class Emitter:
             "gap": 0.0,
             "font_size": size,
             "text_color": argb(style.color) or 0xFF000000,
+            "grid_mode": GRID_NONE,
+            "grid_column_px": 0.0,
+            "grid_auto_rows": -1.0,
+            "row_gap": 0.0,
+            "column_gap": 0.0,
+            "overflow": 0,
+            "image_width": 0.0,
+            "image_height": 0.0,
+            "image_src": None,
+            "image_alt": None,
+            "object_fit": 0,
         })
         if self.metrics is not None:
             self.metrics.bake(index, text, family, size)
@@ -379,10 +569,13 @@ def write_header(nodes: list[dict], meta: list[dict], out: Path,
     lines.append("#ifndef UI_DATA_H")
     lines.append("#define UI_DATA_H")
     lines.append("")
-    lines.append("typedef enum { R2_NODE_BLOCK, R2_NODE_FLEX, R2_NODE_TEXT } NodeKind;")
+    lines.append("typedef enum { R2_NODE_BLOCK, R2_NODE_FLEX, R2_NODE_TEXT, R2_NODE_GRID, R2_NODE_IMAGE } NodeKind;")
     lines.append("typedef enum { JUSTIFY_START, JUSTIFY_CENTER, JUSTIFY_END, JUSTIFY_SPACE_BETWEEN } Justify;")
     lines.append("typedef enum { ALIGN_START, ALIGN_CENTER, ALIGN_END, ALIGN_STRETCH } Align;")
     lines.append("typedef enum { ACTION_NONE = 0, ACTION_SELECT = 1 } Action;")
+    lines.append("typedef enum { R2_GRID_NONE = 0, R2_GRID_AUTO_FILL = 1 } GridMode;")
+    lines.append("typedef enum { R2_OVERFLOW_VISIBLE = 0, R2_OVERFLOW_HIDDEN = 1, R2_OVERFLOW_SCROLL = 2 } OverflowMode;")
+    lines.append("typedef enum { R2_OBJECT_FIT_FILL = 0, R2_OBJECT_FIT_COVER = 1, R2_OBJECT_FIT_CONTAIN = 2 } ObjectFit;")
     lines.append("")
     lines.append("typedef struct {")
     lines.append("    int parent;                 /* -1 root */")
@@ -400,6 +593,16 @@ def write_header(nodes: list[dict], meta: list[dict], out: Path,
     lines.append("    float gap;                  /* main-axis gap, px */")
     lines.append("    float font_size;            /* text nodes, build-time metric */")
     lines.append("    unsigned int text_color;    /* text nodes, 0xAARRGGBB */")
+    lines.append("    /* ui-tree/2: grid, scroll and images */")
+    lines.append("    int grid_mode;              /* R2_GRID_* */")
+    lines.append("    float grid_column_px;       /* repeat(auto-fill, <px>) */")
+    lines.append("    float grid_auto_rows;       /* px, -1 auto */")
+    lines.append("    float row_gap, column_gap;  /* resolved gaps, px */")
+    lines.append("    int overflow;               /* R2_OVERFLOW_* */")
+    lines.append("    float image_width, image_height; /* intrinsic px, 0 unknown */")
+    lines.append("    const char *image_src;      /* local path, NODE_IMAGE only */")
+    lines.append("    const char *image_alt;")
+    lines.append("    int object_fit;             /* R2_OBJECT_FIT_* */")
     lines.append("} UiNode;")
     lines.append("")
     lines.append(f"#define UI_NODE_COUNT {len(nodes)}")
@@ -412,7 +615,8 @@ def write_header(nodes: list[dict], meta: list[dict], out: Path,
         padding = ", ".join(c_float(v) for v in node["padding"])
         lines.append(
             "    { %d, %d, %d, %d, %d, %d, %s, %s, %s, %s, "
-            "{ %s }, { %s }, 0x%08Xu, %s, 0x%08Xu, 0x%08Xu, 0x%08Xu, %d, %s, %s, 0x%08Xu },"
+            "{ %s }, { %s }, 0x%08Xu, %s, 0x%08Xu, 0x%08Xu, 0x%08Xu, %d, %s, %s, 0x%08Xu, "
+            "%d, %s, %s, %s, %s, %d, %s, %s, %s, %s, %d },"
             % (node["parent"], node["kind"], node["direction"], node["justify"],
                node["align"], node["wrap"],
                c_float(node["width"]), c_float(node["height"]),
@@ -420,7 +624,13 @@ def write_header(nodes: list[dict], meta: list[dict], out: Path,
                margin, padding, node["background"], c_string(node["text"]),
                node["hover_bg"], node["press_bg"], node["selected_bg"],
                node["action"], c_float(node["gap"]), c_float(node["font_size"]),
-               node["text_color"]))
+               node["text_color"],
+               node["grid_mode"], c_float(node["grid_column_px"]),
+               c_float(node["grid_auto_rows"]), c_float(node["row_gap"]),
+               c_float(node["column_gap"]), node["overflow"],
+               c_float(node["image_width"]), c_float(node["image_height"]),
+               c_string(node["image_src"]), c_string(node["image_alt"]),
+               node["object_fit"]))
     lines.append("};")
     lines.append("")
     lines.append("static const char *const kUiNodeNames[UI_NODE_COUNT] = {")
@@ -572,14 +782,40 @@ def emit_from_ui_json(ui_path: Path, out_path: Path, meta_path: Path) -> int:
         kind_name = item.get("kind", "block")
         if kind_name == "text":
             kind = KIND_TEXT
+        elif kind_name == "grid":
+            kind = KIND_GRID
+        elif kind_name == "image":
+            kind = KIND_IMAGE
         elif kind_name == "flex":
             kind = KIND_FLEX
         else:
             kind = KIND_BLOCK
+        if kind_name not in ("text", "grid", "image", "flex", "block"):
+            display = str(style.get("display", "")).strip().lower()
+            if display == "grid":
+                kind = KIND_GRID
+                kind_name = "grid"
+            elif display == "image":
+                kind = KIND_IMAGE
+                kind_name = "image"
         attributes = item.get("data") or {}
         action_raw = (attributes.get("action") or "").strip().lower()
         text = item.get("text")
         content = text["content"] if text else None
+        image = item.get("image") or {}
+        image_src = image.get("src")
+        image_alt = image.get("alt")
+        object_fit = object_fit_value(image.get("object_fit", style.get("object_fit")))
+        image_w, image_h = image_size(image_src, ui_path.parent)
+        grid_mode, grid_column_px = grid_columns(style.get("grid_template_columns"))
+        grid_rows = auto_rows(style.get("grid_auto_rows"))
+        gap = _as_float(style.get("gap")) or 0.0
+        row_gap = _as_float(style.get("row_gap"))
+        column_gap = _as_float(style.get("column_gap"))
+        if row_gap is None:
+            row_gap = gap
+        if column_gap is None:
+            column_gap = gap
         nodes.append({
             "parent": int(item.get("parent", -1)),
             "kind": kind,
@@ -599,9 +835,20 @@ def emit_from_ui_json(ui_path: Path, out_path: Path, meta_path: Path) -> int:
             "press_bg": argb(attributes.get("press")),
             "selected_bg": argb(attributes.get("selected")),
             "action": ACTION.get(action_raw, 0),
-            "gap": float(style.get("gap", 0.0)),
+            "gap": float(gap),
             "font_size": float(style.get("font_size", DEFAULT_SIZE)),
             "text_color": argb(style.get("color")) or 0xFF000000,
+            "grid_mode": grid_mode,
+            "grid_column_px": grid_column_px,
+            "grid_auto_rows": grid_rows,
+            "row_gap": float(row_gap),
+            "column_gap": float(column_gap),
+            "overflow": overflow_value(style.get("overflow")),
+            "image_width": image_w,
+            "image_height": image_h,
+            "image_src": image_src,
+            "image_alt": image_alt,
+            "object_fit": object_fit,
         })
         meta.append({
             "id": item.get("id", len(meta)),
@@ -615,6 +862,19 @@ def emit_from_ui_json(ui_path: Path, out_path: Path, meta_path: Path) -> int:
             "background": None if kind == KIND_TEXT else style.get("background"),
             "interactive": False if kind == KIND_TEXT else bool(action_raw),
             "text": content,
+            "grid": {
+                "mode": "auto_fill" if grid_mode == GRID_AUTO_FILL else None,
+                "column_px": grid_column_px,
+                "row_px": grid_rows,
+            },
+            "overflow": overflow_value(style.get("overflow")),
+            "image": {
+                "src": image_src,
+                "alt": image_alt,
+                "object_fit": object_fit,
+                "width": image_w,
+                "height": image_h,
+            } if kind == KIND_IMAGE else None,
         })
         if text:
             first = len(glyphs)
@@ -684,7 +944,11 @@ NODE_FIELDS = ("parent", "kind", "direction", "justify", "align", "wrap",
                "width", "height", "width_pct", "height_pct",
                "margin", "padding", "background", "text",
                "hover_bg", "press_bg", "selected_bg", "action",
-               "gap", "font_size", "text_color")
+               "gap", "font_size", "text_color",
+               "grid_mode", "grid_column_px", "grid_auto_rows",
+               "row_gap", "column_gap", "overflow",
+               "image_width", "image_height", "image_src", "image_alt",
+               "object_fit")
 
 GLYPH_FIELDS = ("x", "y", "w", "h", "u0", "v0", "u1", "v1")
 RUN_FIELDS = ("node", "first", "count", "baseline")
@@ -695,7 +959,10 @@ _NODE_RE = re.compile(
     r"\{\s*([^}]*)\}\s*,\s*\{\s*([^}]*)\}\s*,\s*(0x[0-9A-Fa-f]+)u,\s*"
     r'(NULL|"(?:[^"\\]|\\.)*"),\s*'
     r"(0x[0-9A-Fa-f]+)u,\s*(0x[0-9A-Fa-f]+)u,\s*(0x[0-9A-Fa-f]+)u,\s*"
-    r"(-?\d+),\s*(-?[\d.]+)f,\s*(-?[\d.]+)f,\s*(0x[0-9A-Fa-f]+)u\s*\}"
+    r"(-?\d+),\s*(-?[\d.]+)f,\s*(-?[\d.]+)f,\s*(0x[0-9A-Fa-f]+)u,\s*"
+    r"(-?\d+),\s*(-?[\d.]+)f,\s*(-?[\d.]+)f,\s*(-?[\d.]+)f,\s*(-?[\d.]+)f,\s*"
+    r"(-?\d+),\s*(-?[\d.]+)f,\s*(-?[\d.]+)f,\s*"
+    r'(NULL|"(?:[^"\\]|\\.)*"),\s*(NULL|"(?:[^"\\]|\\.)*"),\s*(-?\d+)\s*\}'
 )
 
 _NUM_RE = re.compile(r"-?\d+\.?\d*(?:[eE][-+]?\d+)?")
@@ -711,12 +978,12 @@ def _c_string(token: str) -> str | None:
     if token == "NULL":
         return None
     body = token[1:-1]
-    out = []
+    out = bytearray()
     index = 0
     while index < len(body):
         char = body[index]
         if char != "\\":
-            out.append(char)
+            out.extend(char.encode("utf-8"))
             index += 1
             continue
         index += 1
@@ -724,15 +991,23 @@ def _c_string(token: str) -> str | None:
             break
         escape = body[index]
         if escape == "n":
-            out.append("\n")
+            out.append(10)
             index += 1
         elif escape == "x":
-            out.append(chr(int(body[index + 1:index + 3], 16)))
+            out.append(int(body[index + 1:index + 3], 16))
             index += 3
+        elif escape in "01234567":
+            value = 0
+            digits = 0
+            while index < len(body) and digits < 3 and body[index] in "01234567":
+                value = value * 8 + int(body[index])
+                index += 1
+                digits += 1
+            out.append(value & 0xFF)
         else:
-            out.append(escape)
+            out.extend(escape.encode("utf-8"))
             index += 1
-    return "".join(out)
+    return bytes(out).decode("utf-8", errors="replace")
 
 
 def parse_header(path: Path) -> dict:
@@ -762,6 +1037,14 @@ def parse_header(path: Path) -> dict:
             "selected_bg": int(values[16], 16), "action": int(values[17]),
             "gap": float(values[18]), "font_size": float(values[19]),
             "text_color": int(values[20], 16),
+            "grid_mode": int(values[21]),
+            "grid_column_px": float(values[22]),
+            "grid_auto_rows": float(values[23]),
+            "row_gap": float(values[24]), "column_gap": float(values[25]),
+            "overflow": int(values[26]),
+            "image_width": float(values[27]), "image_height": float(values[28]),
+            "image_src": _c_string(values[29]), "image_alt": _c_string(values[30]),
+            "object_fit": int(values[31]),
         })
 
     glyphs = []
@@ -976,7 +1259,7 @@ def main() -> int:
     styles = compute_styles(root, rules)
 
     metrics = None if args.no_text_metrics else TextMetrics()
-    emitter = Emitter(root, styles, metrics)
+    emitter = Emitter(root, styles, metrics, base_dir=html_path.parent)
     emitter.run()
     write_header(emitter.nodes, emitter.meta, Path(args.out), args.width, args.height, metrics)
 

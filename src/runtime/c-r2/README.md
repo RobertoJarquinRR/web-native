@@ -8,6 +8,11 @@ wgpu-native / D3D12. Sin navegador, sin WebView, sin Skia, sin Electron. El
 (`--emit-ui`); `emit_ui.py` solo lo traduce a `ui_data.h`. Python sigue siendo
 build-time y el frontend Python queda como oráculo/fallback.
 
+**ui-tree/2 (piloto):** grid `auto-fill`, scroll vertical con clipping, imágenes
+locales PNG/JPEG y `WN_EVENT_WHEEL` (ABI v2). El piloto
+`tests/pilot-media-library` pasa **38/38**; el fixture v1 conserva **69/69** y
+`build_abi.ps1` queda en PASS (§14).
+
 Este directorio es la promoción canónica de `experiments/15-runtime-r2-c`. Con
 el árbol Python (`-UsePythonTree`) el `ui_data.h` generado sigue siendo
 **byte-idéntico** al de exp15. Con el árbol Rust (por defecto) los 28 nodos,
@@ -35,8 +40,9 @@ R2 es el núcleo de un runtime nativo de HTML+CSS:
 
 Lo que **no** es: no es un navegador, no parsea HTML/CSS en runtime, no tiene
 DOM mutable, no implementa el algoritmo completo de CSS Flexbox, no tiene
-scroll, ni bordes, ni sombras, ni transformaciones, ni eventos de teclado más
-allá de Esc.
+bordes, sombras, transformaciones ni eventos de teclado más allá de Esc. Desde
+ui-tree/2 sí tiene un subconjunto de **grid auto-fill, scroll vertical con
+clipping e imágenes locales** (§14).
 
 ---
 
@@ -69,9 +75,11 @@ build/runtime_r2.exe
         ├── geometría
         │     N rects × 6 vértices (pos + unorm8x4)
         │     N glyphs × 6 vértices (pos + uv + unorm8x4)
+        │     N imágenes × 6 vértices (pos + uv) + batches por clip
         └── wgpu-native
               surface swapchain (ventana) o textura RGBA8 (offscreen)
-              pipeline sólida + pipeline texturizada R8
+              pipeline sólida + R8 de texto + RGBA8 de imágenes
+              scissor por batch (clip del scroll) · WIC PNG/JPEG → RGBA8
               readback → buffer → WIC → PNG (solo offscreen)
 ```
 
@@ -105,8 +113,9 @@ Esquema `webnative.ui-tree/1`; el detalle completo está en
 | Campo | Contenido |
 |---|---|
 | `nodes[].parent` / `children[]` | Índices planos; raíz `parent=-1` |
-| `nodes[].kind` | `block` \| `flex` \| `text` |
-| `nodes[].style` | `display`, `direction`, `justify`, `align`, `wrap`, `gap`, `width_px/pct`, `height_px/pct`, `margin[4]`, `padding[4]`, `background`, `color`, `font_size`, `font_family`, `font_weight` |
+| `nodes[].kind` | `block` \| `flex` \| `grid` \| `text` \| `image` |
+| `nodes[].style` | `display`, `direction`, `justify`, `align`, `wrap`, `gap`, `width_px/pct`, `height_px/pct`, `margin[4]`, `padding[4]`, `background`, `color`, `font_size`, `font_family`, `font_weight`; v2: `grid_template_columns`, `grid_auto_rows`, `row_gap`, `column_gap`, `overflow`, `object_fit` |
+| `nodes[].image` | v2: `src`, `alt`, `object_fit` |
 | `nodes[].data` | `hover`, `press`, `selected`, `action` (atributos `data-*` crudos) |
 | `nodes[].argb` | Los mismos colores como `0xAARRGGBB` |
 | `nodes[].text` | `content`, `baseline`, `glyphs[] {gid, advance, x, y, w, h, u0..v1}` |
@@ -163,6 +172,15 @@ typedef struct {
     float gap;                    /* extensión R2 */
     float font_size;
     unsigned int text_color;
+    /* ui-tree/2 */
+    int grid_mode;                /* R2_GRID_AUTO_FILL */
+    float grid_column_px;
+    float grid_auto_rows;         /* -1 = auto */
+    float row_gap, column_gap;
+    int overflow;                 /* VISIBLE|HIDDEN|SCROLL */
+    float image_width, image_height;
+    const char *image_src, *image_alt;
+    int object_fit;               /* FILL|COVER|CONTAIN */
 } UiNode;
 ```
 
@@ -185,6 +203,22 @@ Reglas implementadas (portadas de `exp09/webnative/layout.py` y ampliadas):
 - **wrap**: packing por líneas. **Decisión R2**: una línea puede encoger sus
   items hasta un 20 % para mantenerse; si no, se rompe. Es lo que produce 2+1
   cards a 560 y 720 con cards de 180 px y padding 24 px.
+- **grid (v2)**: solo `repeat(auto-fill, <px>)`.
+  `columnas = max(1, floor((content_w + column_gap) / (size + column_gap)))`,
+  items en orden row-major, ancho de track = `size` (no se estira), altura de
+  fila = `grid_auto_rows` o el máximo de los hijos de la fila, y
+  `row_gap`/`column_gap` (o `gap`). Sin `fr`, `minmax`, `auto-fit`, `span` ni
+  grid anidado.
+- **scroll (v2)**: contenedor con altura definida y `overflow: scroll|auto`.
+  Guarda `scroll_y` por nodo, desplaza sus hijos y recorta al content box;
+  `WN_EVENT_WHEEL` aplica `delta_y` y hace clamp `[0, content_h - view_h]`.
+  Solo vertical; sin scroll anidado real (el más interno con overflow gana).
+- **imágenes (v2)**: `kind=image` con `src` local. El tamaño intrínseco
+  (PNG/JPEG) se resuelve en build time en `emit_ui.py`; el layout lo usa si
+  faltan `width/height`. `object-fit` se resuelve en el core (UVs y caja).
+- **clipping (v2)**: cada nodo guarda su clip efectivo (intersección de los
+  content boxes con overflow de sus ancestros y el viewport). El core agrupa
+  draws por clip (`wn_draw_batch`) y el renderer aplica scissor por batch.
 
 ---
 
@@ -229,10 +263,14 @@ subpixel positioning, hinting dependiente del DPI, emoji/COLR, selección/IME.
 - `Gpu` encapsula instance/adapter/device/queue, formato, pipeline sólida,
   pipeline de texto, buffers, atlas, sampler, bind group y bind group layout.
 - Pipeline sólida: `Float32x2` clip-space + `Unorm8x4` color (12 bytes).
-  Una draw call para todos los rects (84 vértices = 14 rects × 6).
+  Un batch por clip (en la página v1: una draw call para 84 vértices = 14
+  rects × 6).
 - Pipeline de texto: `Float32x2` pos + `Float32x2` uv + `Unorm8x4` color
   (20 bytes), atlas R8, sampler lineal, blend `SrcAlpha/OneMinusSrcAlpha`.
-  Una draw call para todos los glyphs (210 vértices = 35 glyphs × 6).
+  Un batch por clip (v1: 210 vértices = 35 glyphs × 6).
+- Pipeline de imágenes: `Float32x2` pos + `Float32x2` uv (16 bytes), textura
+  RGBA8 por ruta (caché WIC), mismo bind group layout que el atlas; scissor
+  por batch (`SetScissorRect`).
 - Offscreen: textura `RGBA8Unorm` + copia a buffer con filas alineadas a 256
   bytes + `mapAsync` + WIC PNG.
 - En ventana se elige un formato **no sRGB** para que los colores coincidan
@@ -261,6 +299,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build.ps1 -
 
 # sin recompilar Rust ni comparar contra el oráculo
 powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build.ps1 -SkipRustBuild -SkipParityCheck
+
+# fixture canónico del piloto (benchmarks/pilot-media-library, 1280x800)
+# → build_pilot\ + verify.py del piloto (48 checks)
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build.ps1 -Pilot -SkipRustBuild
+
+# regresión del escaping C no-ASCII del emisor
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\emitter-escapes\run_test.ps1
 ```
 
 Emisión manual (misma secuencia que `build.ps1`):
@@ -295,6 +340,20 @@ CLI del ejecutable (desde `src/runtime/c-r2/build`):
 .\runtime_r2.exe --frames 30 --resize-demo --input-demo
 .\runtime_r2.exe                     # ventana interactiva hasta cerrar/Esc
 ```
+
+Piloto ui-tree/2 (grid + scroll + imágenes), desde la raíz del repo:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass `
+    -File src\runtime\c-r2\tests\pilot-media-library\run_pilot.ps1
+```
+
+Genera `out\posters\*.png` y `ui.json`, emite `out\ui_data.h`, compila
+`out\runtime_r2_pilot.exe`, renderiza 1280×800 y 800×600, aplica wheel
+(`--wheel X Y DY`), verifica 38 checks y compila además `out\abi\abi_pilot.exe`
+contra `renderer_wgpu.c` (ventana, 20 frames). Evidencia en
+`tests\pilot-media-library\out\` (`render_1280.png`, `render_800.png`,
+`wheel_*.png`, `pilot_layout.json`, `pilot_verify_report.json`).
 
 `build.ps1` usa el binario `src/frontend/rust/target/release/frontend-rust.exe`,
 el venv canónico `src/frontend/python/.venv`, `src/emitter/python/emit_ui.py`,
@@ -479,9 +538,13 @@ El modo `--emit-ui` no toca el camino R1. Verificado tras los cambios:
 6. **Stretch de caja**: al estirar un hijo no se re-layoutan sus
    descendientes. Afecta a hijos con `%` de altura o `justify` dentro de un
    contenedor estirado; el fixture no lo usa.
-7. **Sin scroll ni clipping**: el overflow se dibuja fuera de la ventana.
+7. **Scroll v2 solo vertical** y con un contenedor efectivo por punto (gana el
+   más interno); no hay scroll horizontal real (`delta_x` se ignora), momentum,
+   scrollbars dibujadas, ruedas anidadas ni rueda sobre `overflow:hidden`.
 8. **Sin bordes, radios, sombras, opacidad, transformaciones, gradientes,
-   imágenes, pseudo-elementos, `display:inline` real, tablas ni grid.**
+   pseudo-elementos, `display:inline` real, tablas ni grid completo.** El grid
+   v2 es solo `auto-fill` con tracks fijos; las imágenes son locales (sin red),
+   PNG/JPEG vía WIC, sin `srcset`, lazy loading ni animación.
 9. **Cascada en build time**: no hay DOM/CSS mutable en runtime ni hot reload.
    Cambiar HTML/CSS exige re-ejecutar `emit_ui.py` y recompilar.
 10. **Una ventana, un surface**, sin multi-ventana, accesibilidad, clipboard ni
@@ -595,6 +658,12 @@ Si falta `build/ui_data.h`, `build_abi.ps1` llama a
   `WN_EVENT_CLICK`. La regla R2 es: si down y up caen en el mismo nodo con
   `data-action="select"`, el nodo queda `selected`. El callback recibe
   `WN_EVENT_POINTER_UP` con su `target_id`.
+- **Wheel (ABI v2)**: `WN_EVENT_WHEEL = 10` con `float delta_x, delta_y` al
+  final de `wn_event`; `WN_ABI_VERSION = 2`. `host_win32.c` mapea
+  `WM_MOUSEWHEEL`/`WM_MOUSEHWHEEL` (1 notch = 120 px; rueda hacia delante =
+  `delta_y = -120`). `wn_view_event` enruta al contenedor con scroll más
+  cercano bajo `(x,y)` y devuelve su nombre en `target_id`; `wn_app` reenvía el
+  evento tal cual. Solo se consume `delta_y`.
 - **`set_class`**: `"hover"`, `"press"` y `"selected"` cambian los colores de
   estado R2. Otras clases se recuerdan por nodo pero los estilos están horneados
   en build time (no hay cascada en runtime).
@@ -665,8 +734,9 @@ press > hover > selected > background.
    por handle. Una instancia por hilo de UI.
 6. **Sin invalidación incremental**: cambiar estado/texto reconstruye toda la
    display list; un resize re-layouta todo el documento.
-7. **Sin scroll/clipping**: el overflow se dibuja fuera de la ventana, igual
-   que R2.
+7. **Scroll/clipping**: desde ABI v2 el core soporta scroll vertical y scissor
+   por contenedor; `wn_view_event` reenvía `WN_EVENT_WHEEL` al core. Sigue sin
+   scroll horizontal ni barras.
 8. **DPI**: `dpi_scale` se guarda, pero el layout trabaja en píxeles de cliente
    y no hay escalado por monitor.
 9. **Offscreen/PNG**: no forma parte de la ABI; sigue disponible en el CLI de
@@ -691,3 +761,145 @@ press > hover > selected > background.
   `-SkipRustBuild` y sigue en **69/69**.
 - La capa ABI es un conjunto de fuentes nuevo (`wn_*.c/h`, `renderer_wgpu.c`,
   `host_win32.c`) compilado por `build_abi.ps1`; comparte `wn_core.c` con R2.
+
+---
+
+## 14. ui-tree/2: grid, scroll vertical e imágenes
+
+Contrato congelado en `docs/ui-tree-v2.md`. El emisor acepta `…/1` (páginas
+existentes, sin cambios de layout) y `…/2`. R2 y la capa ABI consumen el mismo
+`ui_data.h`; todo lo nuevo es aditivo y el fixture v1 conserva **69/69**.
+
+### 14.1 Campos nuevos de `UiNode`
+
+| Campo | Tipo | Valores |
+|---|---|---|
+| `kind` | enum | `R2_NODE_GRID`, `R2_NODE_IMAGE` (además de block/flex/text) |
+| `grid_mode` | int | `R2_GRID_NONE`, `R2_GRID_AUTO_FILL` |
+| `grid_column_px` | float | tamaño del track en `repeat(auto-fill, <px>)` |
+| `grid_auto_rows` | float | px, o `-1` = auto (máximo de la fila) |
+| `row_gap`, `column_gap` | float | gaps resueltos (specific o `gap`) |
+| `overflow` | int | `VISIBLE`, `HIDDEN`, `SCROLL` (`auto`/`scroll`) |
+| `image_width`, `image_height` | float | tamaño intrínseco PNG/JPEG (0 = desconocido) |
+| `image_src`, `image_alt` | string | ruta local; nunca red |
+| `object_fit` | int | `FILL`, `COVER`, `CONTAIN` |
+
+El emisor (`emit_ui.py --ui-json`) además resuelve el tamaño intrínseco de
+PNG/JPEG en build time (cabeceras IHDR/SOF, sin PIL) y lo escribe en
+`image_width/image_height`; el runtime lo usa si faltan `width_px/height_px`.
+`ui_meta.json` incluye `grid` e `image` por nodo para el verificador.
+`grid_auto_rows` acepta `240`, `"240px"` o `{"px":240}`. Las cadenas no ASCII
+se emiten como UTF-8 con escapes octales de 3 dígitos (`"\303\227"`), sin la
+ambigüedad de `\xNN` seguido de un dígito hex.
+
+### 14.2 Display list y renderer
+
+`wn_display_list` añade:
+
+- `solid_batches[]` / `glyph_batches[]`: `{first, count, clip_x/y/w/h}`.
+  El core agrupa vértices consecutivos con el mismo clip efectivo.
+- `image_vertices[]` (`vec2 pos + vec2 uv`, 16 B) e `image_batches[]`
+  (`{first, count, clip, src}`); una imagen = 6 vértices.
+
+Ambos renderers (`renderer_wgpu.c` y el de `runtime_r2.c`) aplican
+`SetScissorRect` por batch antes de cada draw, en este orden: sólidos →
+imágenes → glyphs. El atlas de texto y las imágenes comparten el bind group
+layout `texture_2d<f32> + sampler`; cada imagen tiene su textura RGBA8 y bind
+group. WIC decodifica PNG/JPEG a RGBA8 con caché por ruta; las filas se
+padding a 256 B antes de `QueueWriteTexture`. Se enlaza `windowscodecs.lib`.
+
+Con clip = viewport (página v1) hay un único batch y el dibujo es idéntico al
+anterior: 84 vértices sólidos + 210 de glyph, una draw call cada uno.
+
+### 14.3 Scroll y wheel
+
+- Estado `scroll_y` y `scroll_max` por nodo. `layout_node` desplaza los hijos
+  del contenedor y `compute_clips` propaga el clip (content box ∩ ancestros ∩
+  viewport). El hit testing exige punto dentro de rect **y** clip.
+- `wn_core_wheel(core, x, y, dx, dy)` busca el ancestro con `overflow:scroll`
+  bajo el puntero, aplica `dy`, hace clamp y re-ejecuta layout. Devuelve el
+  nodo contenedor o `-1`.
+- ABI v2: `WN_EVENT_WHEEL = 10`, `delta_x/delta_y` al final de `wn_event`,
+  `WN_ABI_VERSION = 2`. `host_win32.c` traduce `WM_MOUSEWHEEL` (1 notch =
+  120 px) y `WM_MOUSEHWHEEL`; `wn_view_event` lo enruta y `wn_app` lo reenvía.
+- CLI de referencia: `--wheel X Y DY` antes de `--render`, y
+  `scroll: node=… offset=… max=…` en la salida para verificación.
+
+### 14.4 Evidencia (última ejecución)
+
+`tests/pilot-media-library/run_pilot.ps1` termina con **38/38** y compila
+también la variante ABI (ventana, `renderer_wgpu.c`) con 20 frames y D3D12.
+Página: header, contenedor `overflow:scroll` 1232×420 con padding 16, grid
+`repeat(auto-fill,180px)` gap 16 y 18 imágenes 180×240 (temas warm/cool/purple,
+fuente 120×90).
+
+| Comprobación | Resultado |
+|---|---|
+| Columnas 1280×800 | **6** (x = 40, 236, 432, 628, 824, 1020) |
+| Columnas 800×600 | **3** (x = 40, 236, 432) |
+| Filas | row-major, pitch 240+16 = 256 |
+| `object-fit: cover` | llena la caja y recorta el source en horizontal |
+| `object-fit: fill` | estira las 3 bandas a todo el ancho |
+| `object-fit: contain` | 180×135 centrado, letterbox `#1a1f2a` arriba/abajo |
+| Clip | el footer y el gap bajo el contenedor no reciben píxeles del grid |
+| Wheel 800 (+240) | offset 0 → **240** (max 1132); 263 520 px cambian solo dentro del clip |
+| Wheel 1280 (+200) | offset 0 → **200** (max 364); 985 740 px cambian solo dentro del clip |
+| Wheel clamp (+4000) | offset → **1132 = max**; footer/gap intactos |
+| Wheel fuera del contenedor (400,560) | 0 px de cambio; runtime informa "no scrollable container" |
+| Imágenes | 18 batches × 6 = 108 vértices; caché WIC por ruta |
+| Timings (VM WARP) | layout 0.007–0.010 ms; frame offscreen 87–158 ms (readback/PNG) |
+| ABI ventana | `abi_pilot.exe --frames 20` exit 0, D3D12, 17.3 ms/frame |
+| Piloto benchmark (301 nodos/30 posters) | **48/48 PASS** con build fresco (5 columnas a 1280, 3 a 800, wheel/clamp) |
+
+El piloto de `benchmarks/pilot-media-library` (fixture de 30 posters, texto
+pre-shapeado y `grid` con `overflow:auto`) se compiló contra estas fuentes y se
+verificó con su `verify.py` redirigiendo la salida fuera del benchmark
+(`--out`); reporte y PNGs copiados a `out/benchmark/` como evidencia. Confirma
+la compatibilidad con el contrato real del piloto, incluido el clamp y el
+`object-fit: cover`.
+
+`build.ps1 -Pilot -SkipRustBuild` es el camino canónico: emite con
+`frontend-rust --pilot` a `build_pilot\ui.json`, compila allí el runtime y
+ejecuta el `verify.py` del benchmark con `--out build_pilot\verify`.
+Resultado de la última ejecución: **48/48**, 1280×800/800×600, grid 5/3
+columnas, clamp 1248/2792 y wheel de 100 px, sin el workaround
+`tools/split_c_escapes.py`.
+
+Artefactos: `tests/pilot-media-library/out/render_1280.png`,
+`render_800.png`, `wheel_1280.png`, `wheel_800.png`, `wheel_max.png`,
+`wheel_outside.png`, `pilot_layout.json`, `pilot_verify_report.json`,
+`pilot_report.json`, `abi_pilot.log`.
+
+### 14.5 Límites v2 (honestos)
+
+1. **Solo scroll vertical**: `delta_x` se ignora; sin scroll horizontal,
+   momentum, scrollbars dibujadas ni ruedas anidadas reales.
+2. **Solo `repeat(auto-fill, <px>)`**: sin `fr`, `minmax`, `auto-fit`, `span`,
+   `grid-area`, alineación por celda ni grid anidado. El track no se estira:
+   el espacio sobrante queda a la derecha.
+3. **Solo imágenes locales** (PNG/JPEG vía WIC): sin red, `srcset`, lazy
+   loading, animación ni SVG. La ruta relativa se resuelve contra el CWD del
+   proceso; el piloto copia `posters/` junto al ejecutable/lanzador.
+4. **Tamaño intrínseco en build time**: si la imagen no existe al emitir,
+   `image_width/height` quedan 0 y el layout usa `width/height` o el content
+   box. El runtime no re-layouta a partir del tamaño WIC.
+5. **Orden de pintado global**: sólidos → imágenes → texto; no hay stacking
+   contexts ni z-index. En el piloto las imágenes no se solapan con texto.
+6. **El clip se aplica por batch consecutivo**, no se ordenan draws por clip;
+   con muchos clips intercalados aumentan las draw calls, no la corrección. La
+   caché de imágenes (WIC → RGBA8) no tiene evicción: una textura por ruta
+   única durante la vida del renderer.
+7. **Wheel en ventana**: `runtime_r2.exe` y `host_win32.c` lo mapean. La demo
+   `abi_pilot.exe --wheel-demo` envía un `WM_MOUSEWHEEL` real y verifica que el
+   callback recibe `target=body.root/div.scroll` (host → app → view → core);
+   los píxeles desplazados se verifican en los renders offscreen del piloto.
+
+### 14.6 Escaping C de texto no-ASCII
+
+`emit_ui.py` escribe los bytes UTF-8 con escapes **octales de 3 dígitos**
+(`"3840\303\2272160"`, `"Geometr\303\255a"`), no con `\xNN`. Así el escape
+nunca absorbe un dígito hexadecimal siguiente (el bug `\xd72160` /
+`C7744: escape sequence out of range`). `tests/emitter-escapes/run_test.ps1`
+emite un `ui.json` con `×`, `í`, `Ó` y `ñ`, compila un `.c` que incluye el
+header y compara los bytes UTF-8; ya no hace falta el workaround
+`benchmarks/pilot-media-library/tools/split_c_escapes.py`.

@@ -6,7 +6,9 @@
  */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <wincodec.h>
 
+#include <math.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -20,6 +22,17 @@
 
 _Static_assert(sizeof(wn_vertex) == 12, "wn_vertex must stay 12 bytes");
 _Static_assert(sizeof(wn_glyph_vertex) == 20, "wn_glyph_vertex must stay 20 bytes");
+_Static_assert(sizeof(wn_image_vertex) == 16, "wn_image_vertex must stay 16 bytes");
+
+/* Decoded local image cached by path (PNG/JPEG via WIC -> RGBA8). */
+typedef struct {
+    char *path;
+    WGPUTexture texture;
+    WGPUTextureView view;
+    WGPUBindGroup bind;
+    int width;
+    int height;
+} WnImageTexture;
 
 typedef struct {
     WGPUAdapter adapter;
@@ -66,8 +79,20 @@ typedef struct {
     int atlas_height;
     const unsigned char *atlas_ptr;
 
+    /* ui-tree/2 images (WIC -> RGBA8, cache by path). */
+    WGPUShaderModule image_shader;
+    WGPURenderPipeline image_pipeline;
+    WGPUBuffer image_buffer;
+    size_t image_capacity;
+    WnImageTexture *images;
+    int image_count;
+    int image_cache_capacity;
+    IWICImagingFactory *wic;
+    int com_initialized;
+
     int uploaded_vertices;
     int uploaded_glyphs;
+    int uploaded_images;
 
     wn_renderer_info info;
     wn_renderer_stats stats;
@@ -244,6 +269,28 @@ static const char *kTextShaderWGSL =
     "fn fs_main(in: VSOut) -> @location(0) vec4<f32> {\n"
     "  let coverage = textureSample(atlas_texture, atlas_sampler, in.uv).r;\n"
     "  return vec4<f32>(in.color.rgb, in.color.a * coverage);\n"
+    "}\n";
+
+static const char *kImageShaderWGSL =
+    "@group(0) @binding(0) var image_texture: texture_2d<f32>;\n"
+    "@group(0) @binding(1) var image_sampler: sampler;\n"
+    "\n"
+    "struct VSOut {\n"
+    "  @builtin(position) position: vec4<f32>,\n"
+    "  @location(0) uv: vec2<f32>,\n"
+    "};\n"
+    "\n"
+    "@vertex\n"
+    "fn vs_main(@location(0) position: vec2<f32>, @location(1) uv: vec2<f32>) -> VSOut {\n"
+    "  var out: VSOut;\n"
+    "  out.position = vec4<f32>(position, 0.0, 1.0);\n"
+    "  out.uv = uv;\n"
+    "  return out;\n"
+    "}\n"
+    "\n"
+    "@fragment\n"
+    "fn fs_main(in: VSOut) -> @location(0) vec4<f32> {\n"
+    "  return textureSample(image_texture, image_sampler, in.uv);\n"
     "}\n";
 
 static void configure_surface(WnWgpu *gpu)
@@ -507,6 +554,86 @@ static int create_pipelines(WnWgpu *gpu)
             return 1;
         }
     }
+
+    {
+        WGPUShaderModuleDescriptor descriptor;
+        WGPUShaderSourceWGSL wgsl;
+        memset(&descriptor, 0, sizeof(descriptor));
+        memset(&wgsl, 0, sizeof(wgsl));
+        wgsl.chain.sType = WGPUSType_ShaderSourceWGSL;
+        wgsl.code = wsv(kImageShaderWGSL);
+        descriptor.label = wsv("wn-image-shader");
+        descriptor.nextInChain = &wgsl.chain;
+        gpu->image_shader = wgpuDeviceCreateShaderModule(gpu->device, &descriptor);
+        if (gpu->image_shader == NULL) {
+            set_error(gpu, "image shader creation failed");
+            return 1;
+        }
+    }
+
+    {
+        WGPUVertexAttribute attributes[2];
+        WGPUVertexBufferLayout buffer_layout;
+        WGPUColorTargetState target;
+        WGPUBlendState blend;
+        WGPUFragmentState fragment;
+        WGPUVertexState vertex;
+        WGPUPrimitiveState primitive;
+        WGPUMultisampleState multisample;
+        WGPURenderPipelineDescriptor descriptor;
+        memset(attributes, 0, sizeof(attributes));
+        attributes[0].format = WGPUVertexFormat_Float32x2;
+        attributes[0].offset = 0;
+        attributes[0].shaderLocation = 0;
+        attributes[1].format = WGPUVertexFormat_Float32x2;
+        attributes[1].offset = 8;
+        attributes[1].shaderLocation = 1;
+        memset(&buffer_layout, 0, sizeof(buffer_layout));
+        buffer_layout.stepMode = WGPUVertexStepMode_Vertex;
+        buffer_layout.arrayStride = sizeof(wn_image_vertex);
+        buffer_layout.attributeCount = 2;
+        buffer_layout.attributes = attributes;
+        memset(&blend, 0, sizeof(blend));
+        blend.color.operation = WGPUBlendOperation_Add;
+        blend.color.srcFactor = WGPUBlendFactor_SrcAlpha;
+        blend.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+        blend.alpha.operation = WGPUBlendOperation_Add;
+        blend.alpha.srcFactor = WGPUBlendFactor_One;
+        blend.alpha.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+        memset(&target, 0, sizeof(target));
+        target.format = gpu->format;
+        target.blend = &blend;
+        target.writeMask = WGPUColorWriteMask_All;
+        memset(&fragment, 0, sizeof(fragment));
+        fragment.module = gpu->image_shader;
+        fragment.entryPoint = wsv("fs_main");
+        fragment.targetCount = 1;
+        fragment.targets = &target;
+        memset(&vertex, 0, sizeof(vertex));
+        vertex.module = gpu->image_shader;
+        vertex.entryPoint = wsv("vs_main");
+        vertex.bufferCount = 1;
+        vertex.buffers = &buffer_layout;
+        memset(&primitive, 0, sizeof(primitive));
+        primitive.topology = WGPUPrimitiveTopology_TriangleList;
+        primitive.frontFace = WGPUFrontFace_CCW;
+        primitive.cullMode = WGPUCullMode_None;
+        memset(&multisample, 0, sizeof(multisample));
+        multisample.count = 1;
+        multisample.mask = 0xFFFFFFFFu;
+        memset(&descriptor, 0, sizeof(descriptor));
+        descriptor.label = wsv("wn-image-pipeline");
+        descriptor.layout = gpu->text_pl; /* same texture+sampler layout */
+        descriptor.vertex = vertex;
+        descriptor.primitive = primitive;
+        descriptor.multisample = multisample;
+        descriptor.fragment = &fragment;
+        gpu->image_pipeline = wgpuDeviceCreateRenderPipeline(gpu->device, &descriptor);
+        if (gpu->image_pipeline == NULL) {
+            set_error(gpu, "image pipeline creation failed");
+            return 1;
+        }
+    }
     return 0;
 }
 
@@ -533,6 +660,11 @@ static int renderer_init(void **out, const wn_surface_desc *surface, int width, 
     gpu->format = WGPUTextureFormat_BGRA8Unorm;
     gpu->info.width = gpu->width;
     gpu->info.height = gpu->height;
+
+    {
+        HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+        gpu->com_initialized = SUCCEEDED(hr) ? 1 : 0;
+    }
 
     wgpuSetLogLevel(WGPULogLevel_Warn);
 
@@ -661,6 +793,11 @@ static int renderer_init(void **out, const wn_surface_desc *surface, int width, 
                       "wn-glyph-vertices") != 0) {
         goto fail;
     }
+    if (ensure_buffer(gpu, &gpu->image_buffer, &gpu->image_capacity, 1024,
+                      WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst,
+                      "wn-image-vertices") != 0) {
+        goto fail;
+    }
 
     *out = gpu;
     return 0;
@@ -780,6 +917,239 @@ static int upload_atlas(WnWgpu *gpu, const wn_atlas_view *atlas)
     return 0;
 }
 
+static int decode_image_rgba(WnWgpu *gpu, const char *path, unsigned char **pixels_out,
+                             int *width_out, int *height_out)
+{
+    wchar_t wide[1024];
+    IWICBitmapDecoder *decoder = NULL;
+    IWICBitmapFrameDecode *frame = NULL;
+    IWICFormatConverter *converter = NULL;
+    UINT width = 0, height = 0;
+    unsigned char *pixels = NULL;
+    HRESULT hr;
+
+    *pixels_out = NULL;
+    *width_out = 0;
+    *height_out = 0;
+    if (gpu->wic == NULL) {
+        hr = CoCreateInstance(&CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER,
+                              &IID_IWICImagingFactory, (void **)&gpu->wic);
+        if (FAILED(hr) || gpu->wic == NULL) {
+            set_error(gpu, "WIC factory creation failed (hr=0x%08lX)", (unsigned long)hr);
+            return 1;
+        }
+    }
+    if (MultiByteToWideChar(CP_UTF8, 0, path, -1, wide,
+                            (int)(sizeof(wide) / sizeof(wide[0]))) <= 0) {
+        set_error(gpu, "image path is not valid UTF-8: %s", path);
+        return 1;
+    }
+    hr = gpu->wic->lpVtbl->CreateDecoderFromFilename(
+        gpu->wic, wide, NULL, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder);
+    if (FAILED(hr) || decoder == NULL) {
+        set_error(gpu, "cannot decode image '%s' (hr=0x%08lX)", path, (unsigned long)hr);
+        return 1;
+    }
+    hr = decoder->lpVtbl->GetFrame(decoder, 0, &frame);
+    if (FAILED(hr) || frame == NULL) {
+        set_error(gpu, "image '%s' has no frame 0 (hr=0x%08lX)", path, (unsigned long)hr);
+        goto fail;
+    }
+    hr = frame->lpVtbl->GetSize(frame, &width, &height);
+    if (FAILED(hr) || width == 0 || height == 0 || width > 16384 || height > 16384) {
+        set_error(gpu, "image '%s' has invalid size %ux%u", path, width, height);
+        goto fail;
+    }
+    hr = gpu->wic->lpVtbl->CreateFormatConverter(gpu->wic, &converter);
+    if (FAILED(hr) || converter == NULL) {
+        set_error(gpu, "WIC converter creation failed for '%s'", path);
+        goto fail;
+    }
+    hr = converter->lpVtbl->Initialize(converter, (IWICBitmapSource *)frame,
+                                       &GUID_WICPixelFormat32bppRGBA,
+                                       WICBitmapDitherTypeNone, NULL, 0.0,
+                                       WICBitmapPaletteTypeCustom);
+    if (FAILED(hr)) {
+        set_error(gpu, "WIC RGBA conversion failed for '%s' (hr=0x%08lX)",
+                  path, (unsigned long)hr);
+        goto fail;
+    }
+    {
+        const UINT stride = width * 4u;
+        const UINT bytes = stride * height;
+        pixels = (unsigned char *)malloc(bytes);
+        if (pixels == NULL) {
+            set_error(gpu, "out of memory decoding image '%s'", path);
+            goto fail;
+        }
+        hr = converter->lpVtbl->CopyPixels(converter, NULL, stride, bytes, pixels);
+        if (FAILED(hr)) {
+            set_error(gpu, "WIC CopyPixels failed for '%s' (hr=0x%08lX)",
+                      path, (unsigned long)hr);
+            goto fail;
+        }
+    }
+    converter->lpVtbl->Release(converter);
+    frame->lpVtbl->Release(frame);
+    decoder->lpVtbl->Release(decoder);
+    *pixels_out = pixels;
+    *width_out = (int)width;
+    *height_out = (int)height;
+    return 0;
+
+fail:
+    free(pixels);
+    if (converter != NULL) converter->lpVtbl->Release(converter);
+    if (frame != NULL) frame->lpVtbl->Release(frame);
+    if (decoder != NULL) decoder->lpVtbl->Release(decoder);
+    return 1;
+}
+
+static WnImageTexture *find_cached_image(WnWgpu *gpu, const char *path)
+{
+    int i;
+    for (i = 0; i < gpu->image_count; ++i) {
+        if (strcmp(gpu->images[i].path, path) == 0) {
+            return &gpu->images[i];
+        }
+    }
+    return NULL;
+}
+
+static WnImageTexture *ensure_image_texture(WnWgpu *gpu, const char *path)
+{
+    WnImageTexture *entry;
+    WGPUTextureDescriptor texture_desc;
+    WGPUTexelCopyTextureInfo destination;
+    WGPUTexelCopyBufferLayout layout;
+    WGPUExtent3D extent;
+    WGPUBindGroupEntry bind_entries[2];
+    WGPUBindGroupDescriptor bind_desc;
+    unsigned char *pixels = NULL;
+    unsigned char *padded = NULL;
+    int width = 0, height = 0;
+    uint32_t stride;
+
+    entry = find_cached_image(gpu, path);
+    if (entry != NULL) {
+        return entry;
+    }
+    if (decode_image_rgba(gpu, path, &pixels, &width, &height) != 0) {
+        return NULL;
+    }
+    if (gpu->image_count >= gpu->image_cache_capacity) {
+        int capacity = gpu->image_cache_capacity > 0 ? gpu->image_cache_capacity * 2 : 8;
+        WnImageTexture *grown = (WnImageTexture *)realloc(
+            gpu->images, (size_t)capacity * sizeof(WnImageTexture));
+        if (grown == NULL) {
+            free(pixels);
+            set_error(gpu, "out of memory growing the image cache");
+            return NULL;
+        }
+        gpu->images = grown;
+        gpu->image_cache_capacity = capacity;
+    }
+
+    stride = (uint32_t)width * 4u;
+    {
+        uint32_t aligned = (stride + 255u) & ~255u;
+        if (aligned != stride && height > 1) {
+            uint32_t y;
+            padded = (unsigned char *)malloc((size_t)aligned * (size_t)height);
+            if (padded == NULL) {
+                free(pixels);
+                set_error(gpu, "out of memory padding image '%s'", path);
+                return NULL;
+            }
+            for (y = 0; y < (uint32_t)height; ++y) {
+                memcpy(padded + (size_t)y * aligned,
+                       pixels + (size_t)y * stride, stride);
+            }
+        } else {
+            padded = pixels;
+            aligned = stride;
+        }
+        stride = aligned;
+    }
+
+    memset(&texture_desc, 0, sizeof(texture_desc));
+    texture_desc.label = wsv("wn-image");
+    texture_desc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+    texture_desc.dimension = WGPUTextureDimension_2D;
+    texture_desc.size.width = (uint32_t)width;
+    texture_desc.size.height = (uint32_t)height;
+    texture_desc.size.depthOrArrayLayers = 1;
+    texture_desc.format = WGPUTextureFormat_RGBA8Unorm;
+    texture_desc.mipLevelCount = 1;
+    texture_desc.sampleCount = 1;
+    entry = &gpu->images[gpu->image_count];
+    memset(entry, 0, sizeof(*entry));
+    entry->texture = wgpuDeviceCreateTexture(gpu->device, &texture_desc);
+    if (entry->texture == NULL) {
+        free(padded);
+        if (padded != pixels) free(pixels);
+        set_error(gpu, "image texture creation failed for '%s'", path);
+        return NULL;
+    }
+    entry->view = wgpuTextureCreateView(entry->texture, NULL);
+    if (entry->view == NULL) {
+        wgpuTextureRelease(entry->texture);
+        free(padded);
+        if (padded != pixels) free(pixels);
+        set_error(gpu, "image texture view creation failed for '%s'", path);
+        return NULL;
+    }
+
+    memset(&destination, 0, sizeof(destination));
+    destination.texture = entry->texture;
+    destination.mipLevel = 0;
+    destination.aspect = WGPUTextureAspect_All;
+    memset(&layout, 0, sizeof(layout));
+    layout.offset = 0;
+    layout.bytesPerRow = stride;
+    layout.rowsPerImage = (uint32_t)height;
+    memset(&extent, 0, sizeof(extent));
+    extent.width = (uint32_t)width;
+    extent.height = (uint32_t)height;
+    extent.depthOrArrayLayers = 1;
+    wgpuQueueWriteTexture(gpu->queue, &destination, padded,
+                          (size_t)stride * (size_t)height, &layout, &extent);
+    if (padded != pixels) {
+        free(padded);
+    }
+    free(pixels);
+
+    memset(bind_entries, 0, sizeof(bind_entries));
+    bind_entries[0].binding = 0;
+    bind_entries[0].textureView = entry->view;
+    bind_entries[1].binding = 1;
+    bind_entries[1].sampler = gpu->sampler;
+    memset(&bind_desc, 0, sizeof(bind_desc));
+    bind_desc.label = wsv("wn-image-bind-group");
+    bind_desc.layout = gpu->text_bgl;
+    bind_desc.entryCount = 2;
+    bind_desc.entries = bind_entries;
+    entry->bind = wgpuDeviceCreateBindGroup(gpu->device, &bind_desc);
+    if (entry->bind == NULL) {
+        wgpuTextureViewRelease(entry->view);
+        wgpuTextureRelease(entry->texture);
+        set_error(gpu, "image bind group creation failed for '%s'", path);
+        return NULL;
+    }
+    entry->path = wn_strdup_(path);
+    if (entry->path == NULL) {
+        wgpuBindGroupRelease(entry->bind);
+        wgpuTextureViewRelease(entry->view);
+        wgpuTextureRelease(entry->texture);
+        set_error(gpu, "out of memory caching image '%s'", path);
+        return NULL;
+    }
+    entry->width = width;
+    entry->height = height;
+    ++gpu->image_count;
+    return entry;
+}
+
 static int renderer_upload(void *context, const wn_display_list *list)
 {
     WnWgpu *gpu = (WnWgpu *)context;
@@ -790,6 +1160,7 @@ static int renderer_upload(void *context, const wn_display_list *list)
     }
     gpu->uploaded_vertices = 0;
     gpu->uploaded_glyphs = 0;
+    gpu->uploaded_images = 0;
 
     if (list->atlas.pixels != NULL) {
         if (upload_atlas(gpu, &list->atlas) != 0) {
@@ -819,7 +1190,51 @@ static int renderer_upload(void *context, const wn_display_list *list)
                              list->glyph_vertices, glyph_bytes);
         gpu->uploaded_glyphs = list->glyph_vertex_count;
     }
+
+    if (list->image_vertex_count > 0) {
+        size_t image_bytes = (size_t)list->image_vertex_count * sizeof(wn_image_vertex);
+        int b;
+        if (ensure_buffer(gpu, &gpu->image_buffer, &gpu->image_capacity, image_bytes,
+                          WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst,
+                          "wn-image-vertices") != 0) {
+            return 1;
+        }
+        wgpuQueueWriteBuffer(gpu->queue, gpu->image_buffer, 0,
+                             list->image_vertices, image_bytes);
+        gpu->uploaded_images = list->image_vertex_count;
+        for (b = 0; b < list->image_batch_count; ++b) {
+            const wn_image_batch *batch = &list->image_batches[b];
+            if (batch->src == NULL) {
+                continue;
+            }
+            if (ensure_image_texture(gpu, batch->src) == NULL) {
+                return 1;
+            }
+        }
+    } else {
+        gpu->uploaded_images = 0;
+    }
     return 0;
+}
+
+static int set_scissor(WGPURenderPassEncoder pass, float x, float y, float w, float h,
+                       int view_w, int view_h)
+{
+    int left = (int)floorf(x);
+    int top = (int)floorf(y);
+    int right = (int)ceilf(x + w);
+    int bottom = (int)ceilf(y + h);
+    if (left < 0) left = 0;
+    if (top < 0) top = 0;
+    if (right > view_w) right = view_w;
+    if (bottom > view_h) bottom = view_h;
+    if (right <= left || bottom <= top) {
+        return 0;
+    }
+    wgpuRenderPassEncoderSetScissorRect(pass, (uint32_t)left, (uint32_t)top,
+                                        (uint32_t)(right - left),
+                                        (uint32_t)(bottom - top));
+    return 1;
 }
 
 static int renderer_render(void *context, const wn_display_list *list)
@@ -909,18 +1324,68 @@ static int renderer_render(void *context, const wn_display_list *list)
     pass = wgpuCommandEncoderBeginRenderPass(encoder, &pass_desc);
     if (pass != NULL) {
         if (gpu->uploaded_vertices > 0) {
+            int b;
             wgpuRenderPassEncoderSetPipeline(pass, gpu->pipeline);
             wgpuRenderPassEncoderSetVertexBuffer(pass, 0, gpu->vertex_buffer, 0,
                                                  WGPU_WHOLE_SIZE);
-            wgpuRenderPassEncoderDraw(pass, (uint32_t)gpu->uploaded_vertices, 1, 0, 0);
+            if (list != NULL && list->solid_batch_count > 0) {
+                for (b = 0; b < list->solid_batch_count; ++b) {
+                    const wn_draw_batch *batch = &list->solid_batches[b];
+                    if (set_scissor(pass, batch->clip_x, batch->clip_y,
+                                    batch->clip_w, batch->clip_h,
+                                    gpu->width, gpu->height)) {
+                        wgpuRenderPassEncoderDraw(pass, (uint32_t)batch->count, 1,
+                                                  (uint32_t)batch->first, 0);
+                    }
+                }
+            } else {
+                wgpuRenderPassEncoderDraw(pass, (uint32_t)gpu->uploaded_vertices, 1, 0, 0);
+            }
+        }
+        if (gpu->uploaded_images > 0 && gpu->image_pipeline != NULL && list != NULL &&
+            list->image_batch_count > 0) {
+            int b;
+            wgpuRenderPassEncoderSetPipeline(pass, gpu->image_pipeline);
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, gpu->image_buffer, 0,
+                                                 WGPU_WHOLE_SIZE);
+            for (b = 0; b < list->image_batch_count; ++b) {
+                const wn_image_batch *batch = &list->image_batches[b];
+                WnImageTexture *texture = batch->src != NULL
+                                              ? find_cached_image(gpu, batch->src)
+                                              : NULL;
+                if (texture == NULL || texture->bind == NULL) {
+                    continue;
+                }
+                if (!set_scissor(pass, batch->clip_x, batch->clip_y,
+                                 batch->clip_w, batch->clip_h,
+                                 gpu->width, gpu->height)) {
+                    continue;
+                }
+                wgpuRenderPassEncoderSetBindGroup(pass, 0, texture->bind, 0, NULL);
+                wgpuRenderPassEncoderDraw(pass, (uint32_t)batch->count, 1,
+                                          (uint32_t)batch->first, 0);
+            }
         }
         if (gpu->uploaded_glyphs > 0 && gpu->text_pipeline != NULL &&
             gpu->text_bg != NULL) {
+            int b;
             wgpuRenderPassEncoderSetPipeline(pass, gpu->text_pipeline);
             wgpuRenderPassEncoderSetVertexBuffer(pass, 0, gpu->glyph_buffer, 0,
                                                  WGPU_WHOLE_SIZE);
             wgpuRenderPassEncoderSetBindGroup(pass, 0, gpu->text_bg, 0, NULL);
-            wgpuRenderPassEncoderDraw(pass, (uint32_t)gpu->uploaded_glyphs, 1, 0, 0);
+            if (list != NULL && list->glyph_batch_count > 0) {
+                for (b = 0; b < list->glyph_batch_count; ++b) {
+                    const wn_draw_batch *batch = &list->glyph_batches[b];
+                    if (set_scissor(pass, batch->clip_x, batch->clip_y,
+                                    batch->clip_w, batch->clip_h,
+                                    gpu->width, gpu->height)) {
+                        wgpuRenderPassEncoderDraw(pass, (uint32_t)batch->count, 1,
+                                                  (uint32_t)batch->first, 0);
+                    }
+                }
+            } else {
+                wgpuRenderPassEncoderDraw(pass, (uint32_t)gpu->uploaded_glyphs, 1, 0, 0);
+            }
         }
         wgpuRenderPassEncoderEnd(pass);
         wgpuRenderPassEncoderRelease(pass);
@@ -960,17 +1425,29 @@ static int renderer_render(void *context, const wn_display_list *list)
 static void renderer_destroy(void *context)
 {
     WnWgpu *gpu = (WnWgpu *)context;
+    int i;
     if (gpu == NULL) {
         return;
     }
     if (gpu->vertex_buffer != NULL) wgpuBufferRelease(gpu->vertex_buffer);
     if (gpu->glyph_buffer != NULL) wgpuBufferRelease(gpu->glyph_buffer);
+    if (gpu->image_buffer != NULL) wgpuBufferRelease(gpu->image_buffer);
+    for (i = 0; i < gpu->image_count; ++i) {
+        if (gpu->images[i].bind != NULL) wgpuBindGroupRelease(gpu->images[i].bind);
+        if (gpu->images[i].view != NULL) wgpuTextureViewRelease(gpu->images[i].view);
+        if (gpu->images[i].texture != NULL) wgpuTextureRelease(gpu->images[i].texture);
+        wn_free_(gpu->images[i].path);
+    }
+    wn_free_(gpu->images);
+    if (gpu->wic != NULL) gpu->wic->lpVtbl->Release(gpu->wic);
     if (gpu->text_bg != NULL) wgpuBindGroupRelease(gpu->text_bg);
     if (gpu->text_pl != NULL) wgpuPipelineLayoutRelease(gpu->text_pl);
     if (gpu->text_bgl != NULL) wgpuBindGroupLayoutRelease(gpu->text_bgl);
     if (gpu->sampler != NULL) wgpuSamplerRelease(gpu->sampler);
     if (gpu->atlas_view != NULL) wgpuTextureViewRelease(gpu->atlas_view);
     if (gpu->atlas_texture != NULL) wgpuTextureRelease(gpu->atlas_texture);
+    if (gpu->image_pipeline != NULL) wgpuRenderPipelineRelease(gpu->image_pipeline);
+    if (gpu->image_shader != NULL) wgpuShaderModuleRelease(gpu->image_shader);
     if (gpu->text_pipeline != NULL) wgpuRenderPipelineRelease(gpu->text_pipeline);
     if (gpu->text_shader != NULL) wgpuShaderModuleRelease(gpu->text_shader);
     if (gpu->pipeline != NULL) wgpuRenderPipelineRelease(gpu->pipeline);
@@ -980,6 +1457,7 @@ static void renderer_destroy(void *context)
     if (gpu->device != NULL) wgpuDeviceRelease(gpu->device);
     if (gpu->adapter != NULL) wgpuAdapterRelease(gpu->adapter);
     if (gpu->instance != NULL) wgpuInstanceRelease(gpu->instance);
+    if (gpu->com_initialized) CoUninitialize();
     free(gpu);
 }
 

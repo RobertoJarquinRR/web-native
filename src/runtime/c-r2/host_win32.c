@@ -70,6 +70,33 @@ static void emit_pointer(WnHostWin32 *host, wn_event_type type, LPARAM lparam)
     emit_event(host, type, NULL, (float)x, (float)y, 0, 0, 0, 0);
 }
 
+/* WM_MOUSEWHEEL/MOUSEHWHEEL carry screen coordinates. One notch is mapped to
+ * 120 px; wheel-forward (away from the user) scrolls content up = delta_y < 0,
+ * matching DOM wheel conventions. */
+static void emit_wheel(WnHostWin32 *host, LPARAM lparam, int32_t wheel_delta,
+                       int horizontal)
+{
+    wn_event event;
+    POINT point;
+    if (host == NULL || host->on_event == NULL) {
+        return;
+    }
+    point.x = (int)(short)LOWORD(lparam);
+    point.y = (int)(short)HIWORD(lparam);
+    ScreenToClient(host->hwnd, &point);
+    memset(&event, 0, sizeof(event));
+    event.type = WN_EVENT_WHEEL;
+    event.x = (float)point.x;
+    event.y = (float)point.y;
+    event.modifiers = current_modifiers();
+    if (horizontal) {
+        event.delta_x = (float)wheel_delta * (120.0f / (float)WHEEL_DELTA);
+    } else {
+        event.delta_y = -(float)wheel_delta * (120.0f / (float)WHEEL_DELTA);
+    }
+    host->on_event(host->userdata, &event);
+}
+
 static LRESULT CALLBACK host_wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
     WnHostWin32 *host = (WnHostWin32 *)GetWindowLongPtrW(hwnd, GWLP_USERDATA);
@@ -134,6 +161,12 @@ static LRESULT CALLBACK host_wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     case WM_LBUTTONUP:
         emit_pointer(host, WN_EVENT_POINTER_UP, lparam);
         ReleaseCapture();
+        return 0;
+    case WM_MOUSEWHEEL:
+        emit_wheel(host, lparam, GET_WHEEL_DELTA_WPARAM(wparam), 0);
+        return 0;
+    case WM_MOUSEHWHEEL:
+        emit_wheel(host, lparam, GET_WHEEL_DELTA_WPARAM(wparam), 1);
         return 0;
     case WM_KEYDOWN:
         emit_event(host, WN_EVENT_KEY_DOWN, NULL, 0.0f, 0.0f,

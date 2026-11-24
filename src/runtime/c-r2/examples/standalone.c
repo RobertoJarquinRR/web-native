@@ -57,6 +57,11 @@ static void on_event(void *userdata, const wn_event *event)
     case WN_EVENT_RESIZE:
         printf("standalone: RESIZE %dx%d\n", event->width, event->height);
         break;
+    case WN_EVENT_WHEEL:
+        printf("standalone: WHEEL (%.0f,%.0f) dy=%.0f target=%s\n",
+               event->x, event->y, event->delta_y,
+               event->target_id != NULL ? event->target_id : "(none)");
+        break;
     case WN_EVENT_KEY_DOWN:
         printf("standalone: KEY_DOWN key=%d\n", (int)event->key);
         break;
@@ -88,6 +93,7 @@ int main(int argc, char **argv)
     int width = 960;
     int height = 640;
     int resize_demo = 0;
+    int wheel_demo = 0;
     int i;
     int rc;
     char html_path[MAX_PATH];
@@ -112,9 +118,11 @@ int main(int argc, char **argv)
             height = parse_int(argv[++i], height);
         } else if (strcmp(argv[i], "--resize-demo") == 0) {
             resize_demo = 1;
+        } else if (strcmp(argv[i], "--wheel-demo") == 0) {
+            wheel_demo = 1;
         } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
             printf("usage: standalone.exe [--frames N] [--width W] [--height H] "
-                   "[--resize-demo]\n");
+                   "[--resize-demo] [--wheel-demo]\n");
             return 0;
         } else {
             fprintf(stderr, "warning: ignoring argument '%s'\n", argv[i]);
@@ -185,6 +193,25 @@ int main(int argc, char **argv)
     }
     if (resize_demo) {
         wn_app_set_resize_demo(g_app, 1);
+    }
+    if (wheel_demo) {
+        /* Queue a real WM_MOUSEWHEEL before the loop starts: it exercises
+         * host_win32.c -> wn_app -> wn_view_event -> wn_core_wheel. */
+        HWND hwnd = FindWindowW(NULL, L"webnative standalone (C ABI v0)");
+        if (hwnd != NULL) {
+            RECT client;
+            POINT point;
+            GetClientRect(hwnd, &client);
+            point.x = (client.right - client.left) / 2;
+            point.y = (client.bottom - client.top) / 2;
+            ClientToScreen(hwnd, &point);
+            PostMessageW(hwnd, WM_MOUSEWHEEL, MAKEWPARAM(0, (WORD)(-WHEEL_DELTA)),
+                         MAKELPARAM(point.x, point.y));
+            printf("standalone: queued WM_MOUSEWHEEL (scroll down) at (%ld,%ld)\n",
+                   point.x, point.y);
+        } else {
+            printf("standalone: wheel-demo could not find the host window\n");
+        }
     }
 
     rc = wn_app_run(g_app);

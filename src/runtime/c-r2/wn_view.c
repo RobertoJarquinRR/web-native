@@ -235,6 +235,11 @@ wn_status wn_view_event(wn_view *view, const wn_event *event)
         hit = wn_core_pointer_up(view->core, event->x, event->y);
         changed = 1;
         break;
+    case WN_EVENT_WHEEL:
+        hit = wn_core_wheel(view->core, event->x, event->y,
+                            event->delta_x, event->delta_y);
+        changed = hit >= 0;
+        break;
     case WN_EVENT_RESIZE:
         view_resize_internal(view, event->width, event->height, 0.0f);
         break;

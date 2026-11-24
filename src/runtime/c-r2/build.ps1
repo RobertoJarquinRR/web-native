@@ -7,15 +7,22 @@
 # build\ui_data.h. -UsePythonTree keeps the Python frontend as the oracle
 # fallback (emit_ui.py --html/--css, HarfBuzz/FreeType text).
 #
+# -Pilot switches to the canonical media-library pilot
+# (benchmarks\pilot-media-library\page, 1280x800, ui-tree/2 with grid, scroll,
+# images and accented text): it emits with frontend-rust --pilot, builds into
+# build_pilot\ and runs the benchmark's verify.py (48 checks). The default
+# 28-node fixture keeps its 69/69 acceptance untouched.
+#
 # runtime_r2.exe contains the layout engine, Win32 loop, hit testing and
-# wgpu-native renderer. Everything generated stays under src\runtime\c-r2\build\.
+# wgpu-native renderer. Everything generated stays under src\runtime\c-r2\.
 [CmdletBinding()]
 param(
     [switch]$SkipEmit,
     [switch]$SkipRun,
     [switch]$UsePythonTree,
     [switch]$SkipRustBuild,
-    [switch]$SkipParityCheck
+    [switch]$SkipParityCheck,
+    [switch]$Pilot
 )
 
 $ErrorActionPreference = 'Stop'
@@ -24,22 +31,37 @@ Push-Location $root
 
 # c-r2 -> runtime -> src -> repo root
 $repo = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $root))
-$out = Join-Path $root 'build'
+$benchmark = Join-Path $repo 'benchmarks\pilot-media-library'
+if ($Pilot) {
+    $out = Join-Path $root 'build_pilot'
+} else {
+    $out = Join-Path $root 'build'
+}
 New-Item -ItemType Directory -Force -Path $out | Out-Null
-$fixtureHtml = Join-Path $root 'page\index.html'
-$fixtureCss = Join-Path $root 'page\style.css'
+if ($Pilot) {
+    $fixtureHtml = Join-Path $benchmark 'page\index.html'
+    $fixtureCss = Join-Path $benchmark 'page\style.css'
+    $runtimeCwd = Join-Path $benchmark 'page'
+} else {
+    $fixtureHtml = Join-Path $root 'page\index.html'
+    $fixtureCss = Join-Path $root 'page\style.css'
+    $runtimeCwd = $out
+}
 $runtimeC = Join-Path $root 'runtime_r2.c'
 $coreC = Join-Path $root 'wn_core.c'
 $commonC = Join-Path $root 'wn_common.c'
 $verifyPy = Join-Path $root 'verify.py'
+$pilotVerifyPy = Join-Path $benchmark 'verify.py'
+$fixtureLabel = if ($Pilot) { 'benchmarks/pilot-media-library/page/index.html' } else { 'src/runtime/c-r2/page/index.html' }
 $emitter = Join-Path $repo 'src\emitter\python\emit_ui.py'
 $py = Join-Path $repo 'src\frontend\python\.venv\Scripts\python.exe'
 $rustDir = Join-Path $repo 'src\frontend\rust'
 $rustExe = Join-Path $rustDir 'target\release\frontend-rust.exe'
 $wgpu = Join-Path $repo 'third_party\wgpu-native'
 $report = [ordered]@{
-    runtime    = 'c-r2'
+    runtime    = if ($Pilot) { 'c-r2-pilot' } else { 'c-r2' }
     tree       = if ($UsePythonTree) { 'python' } else { 'rust' }
+    fixture    = $fixtureLabel
     started    = (Get-Date).ToString('o')
     timings_ms = [ordered]@{}
     steps      = [ordered]@{}
@@ -95,7 +117,7 @@ function Invoke-Runtime([string]$title, [string[]]$arguments) {
     $psi.Arguments = ($arguments | ForEach-Object {
         if ("$_" -match '\s') { '"' + $_ + '"' } else { $_ }
     }) -join ' '
-    $psi.WorkingDirectory = $out
+    $psi.WorkingDirectory = $runtimeCwd
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow = $true
     $psi.RedirectStandardOutput = $true
@@ -123,6 +145,14 @@ try {
     foreach ($required in @($py, $emitter, $runtimeC, $coreC, $commonC, $verifyPy, $fixtureHtml, $fixtureCss)) {
         if (-not (Test-Path -LiteralPath $required)) { Stop-Fail "missing required path: $required" }
     }
+    if ($Pilot) {
+        if ($UsePythonTree) {
+            Stop-Fail '-Pilot requires the Rust tree (the Python oracle does not emit ui-tree/2 for this fixture)'
+        }
+        foreach ($required in @($pilotVerifyPy, (Join-Path $benchmark 'expected.json'))) {
+            if (-not (Test-Path -LiteralPath $required)) { Stop-Fail "missing required path: $required" }
+        }
+    }
     if (-not (Test-Path -LiteralPath (Join-Path $wgpu 'include\wgpu.h'))) {
         Stop-Fail "wgpu-native headers not found under $wgpu"
     }
@@ -130,6 +160,8 @@ try {
         Stop-Fail "wgpu_native.dll not found under $wgpu"
     }
 
+    $emitWidth = if ($Pilot) { 1280 } else { 960 }
+    $emitHeight = if ($Pilot) { 800 } else { 640 }
     if (-not $SkipEmit) {
         $uiJson = Join-Path $out 'ui.json'
         if ($UsePythonTree) {
@@ -158,9 +190,13 @@ try {
                 Stop-Fail "missing $rustExe (run cargo build --release or -UsePythonTree)"
             }
 
-            Write-Host 'emit (rust tree): page/index.html -> build\ui.json + atlas' -ForegroundColor Cyan
+            Write-Host "emit (rust tree): $fixtureHtml -> $uiJson + atlas" -ForegroundColor Cyan
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
-            & $rustExe --html $fixtureHtml --css $fixtureCss --width 960 --height 640 --emit-ui $uiJson
+            $rustArgs = @('--html', $fixtureHtml, '--css', $fixtureCss,
+                          '--width', "$emitWidth", '--height', "$emitHeight",
+                          '--emit-ui', $uiJson)
+            if ($Pilot) { $rustArgs += '--pilot' }
+            & $rustExe @rustArgs
             $sw.Stop()
             if ($LASTEXITCODE -ne 0) { Stop-Fail 'frontend-rust --emit-ui failed' }
             $report.timings_ms['rust_emit'] = [math]::Round($sw.Elapsed.TotalMilliseconds, 2)
@@ -173,7 +209,7 @@ try {
             if ($LASTEXITCODE -ne 0) { Stop-Fail 'emit_ui.py --ui-json failed' }
             $report.timings_ms['emit'] = [math]::Round($sw.Elapsed.TotalMilliseconds, 2)
 
-            if (-not $SkipParityCheck) {
+            if (-not $SkipParityCheck -and -not $Pilot) {
                 $oracleDir = Join-Path $out 'oracle'
                 New-Item -ItemType Directory -Force -Path $oracleDir | Out-Null
                 Write-Host 'parity: python oracle tree vs rust tree -> build\oracle\ui_data.h' -ForegroundColor Cyan
@@ -198,10 +234,10 @@ try {
     }
 
     if (-not (Test-Path -LiteralPath (Join-Path $out 'ui_data.h'))) {
-        Stop-Fail 'build\ui_data.h is missing (run without -SkipEmit first)'
+        Stop-Fail "$out\ui_data.h is missing (run without -SkipEmit first)"
     }
 
-    Write-Host 'compile: cl /O2 /TC -> build\runtime_r2.exe' -ForegroundColor Cyan
+    Write-Host "compile: cl /O2 /TC -> $out\runtime_r2.exe" -ForegroundColor Cyan
     $compile = "cl /nologo /O2 /W3 /std:c17 /TC /D_CRT_SECURE_NO_WARNINGS /DWN_STATIC " +
                "`"$runtimeC`" `"$coreC`" `"$commonC`" " +
                "/I`"$repo\include`" /I`"$root`" /I`"$wgpu\include`" /I`"$out`" " +
@@ -219,6 +255,69 @@ try {
         -Destination (Join-Path $out 'wgpu_native.dll') -Force
 
     if (-not $SkipRun) {
+        if ($Pilot) {
+            $pilotLayout = Join-Path $out 'pilot_layout.json'
+            Write-Host 'run: pilot layout report (1280x800, 800x600)' -ForegroundColor Cyan
+            $reportRun = Invoke-Runtime 'pilot layout report' @('--report', $pilotLayout,
+                '--sizes', '1280x800,800x600')
+
+            Write-Host 'run: pilot offscreen renders' -ForegroundColor Cyan
+            $runs = [ordered]@{}
+            $runs['1280'] = Invoke-Runtime 'render 1280x800' @('--render', '1280', '800',
+                (Join-Path $out 'out_1280.png'))
+            $runs['800'] = Invoke-Runtime 'render 800x600' @('--render', '800', '600',
+                (Join-Path $out 'out_800.png'))
+            $runs['scroll'] = Invoke-Runtime 'render scroll 800x600' @('--render', '800', '600',
+                (Join-Path $out 'out_800_scroll.png'), '--wheel', '400', '300', '100')
+
+            Write-Host 'verify: benchmarks/pilot-media-library (canonical pilot)' -ForegroundColor Cyan
+            $verifyOut = Join-Path $out 'verify'
+            New-Item -ItemType Directory -Force -Path $verifyOut | Out-Null
+            $sw = [System.Diagnostics.Stopwatch]::StartNew()
+            & $py $pilotVerifyPy --runtime (Join-Path $out 'runtime_r2.exe') --out $verifyOut |
+                Tee-Object -FilePath $script:logPath -Append | Write-Host
+            $sw.Stop()
+            if ($LASTEXITCODE -ne 0) { Stop-Fail 'benchmark pilot verify.py failed' }
+            $report.timings_ms['verify'] = [math]::Round($sw.Elapsed.TotalMilliseconds, 2)
+
+            $adapterLine = ($runs['1280'] | Where-Object { "$_" -match '^adapter: backend=' } | Select-Object -First 1)
+            $deviceLine = ($runs['1280'] | Where-Object { "$_" -match '^adapter: device=' } | Select-Object -First 1)
+            $report['adapter'] = [ordered]@{
+                backend = "$adapterLine"
+                device  = "$deviceLine"
+            }
+            $renderStats = [ordered]@{}
+            foreach ($key in @('1280', '800', 'scroll')) {
+                $line = ($runs["$key"] | Where-Object { "$_" -match '^render: ' } | Select-Object -First 1)
+                $layoutMs = $null
+                $frameMs = $null
+                if ("$line" -match 'layout=([0-9.]+)ms frame=([0-9.]+)ms') {
+                    $layoutMs = [double]$matches[1]
+                    $frameMs = [double]$matches[2]
+                }
+                $renderStats["$key"] = [ordered]@{
+                    layout_ms = $layoutMs
+                    frame_ms  = $frameMs
+                    log       = "$line"
+                }
+            }
+            $report['render'] = $renderStats
+
+            $pilotReport = Join-Path $verifyOut 'verify_report.json'
+            if (-not (Test-Path -LiteralPath $pilotReport)) {
+                Stop-Fail 'pilot verify_report.json is missing'
+            }
+            $pv = Get-Content -LiteralPath $pilotReport -Raw | ConvertFrom-Json
+            $pilotFailed = @($pv.checks | Where-Object { -not $_.ok }).Count
+            $report['verify'] = [ordered]@{
+                ok     = ($pv.result -eq 'PASS')
+                passed = $pv.checks.Count - $pilotFailed
+                total  = $pv.checks.Count
+                failed = $pilotFailed
+                report = 'verify/verify_report.json'
+            }
+            if ($pv.result -ne 'PASS') { Stop-Fail 'pilot verify reported FAIL' }
+        } else {
         Write-Host 'run: layout report (960/720/560)' -ForegroundColor Cyan
         $reportRun = Invoke-Runtime 'layout report' @('--report', 'layout_report.json',
             '--sizes', '960x640,720x640,560x640')
@@ -297,6 +396,7 @@ try {
                 total  = $verify.total_checks
                 failed = $verify.failed_checks
             }
+        }
         }
     }
 

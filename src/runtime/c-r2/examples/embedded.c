@@ -78,6 +78,11 @@ static void on_view_event(void *userdata, const wn_event *event)
     case WN_EVENT_RESIZE:
         printf("embedded: event RESIZE %dx%d\n", event->width, event->height);
         break;
+    case WN_EVENT_WHEEL:
+        printf("embedded: event WHEEL (%.0f,%.0f) dy=%.0f target=%s\n",
+               event->x, event->y, event->delta_y,
+               event->target_id != NULL ? event->target_id : "(none)");
+        break;
     case WN_EVENT_CLOSE:
         printf("embedded: event CLOSE\n");
         break;
@@ -122,6 +127,28 @@ static void forward_pointer(UINT msg, LPARAM lparam)
     }
 }
 
+static void forward_wheel(WPARAM wparam, LPARAM lparam)
+{
+    wn_event event;
+    POINT point;
+    wn_status status;
+    if (g_view == NULL) {
+        return;
+    }
+    point.x = (int)(short)LOWORD(lparam);
+    point.y = (int)(short)HIWORD(lparam);
+    ScreenToClient(g_child, &point);
+    memset(&event, 0, sizeof(event));
+    event.type = WN_EVENT_WHEEL;
+    event.x = (float)point.x;
+    event.y = (float)point.y;
+    event.delta_y = -(float)GET_WHEEL_DELTA_WPARAM(wparam) * (120.0f / (float)WHEEL_DELTA);
+    event.modifiers = demo_modifiers();
+    status = wn_view_event(g_view, &event);
+    printf("embedded: WM_MOUSEWHEEL (%ld,%ld) dy=%.0f forwarded -> %s\n",
+           point.x, point.y, event.delta_y, status == WN_OK ? "WN_OK" : "error");
+}
+
 static LRESULT CALLBACK child_wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
     switch (msg) {
@@ -147,6 +174,9 @@ static LRESULT CALLBACK child_wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARA
                 g_child_tracking = 1;
             }
         }
+        return 0;
+    case WM_MOUSEWHEEL:
+        forward_wheel(wparam, lparam);
         return 0;
     case WM_MOUSELEAVE: {
         wn_event event;
@@ -219,6 +249,13 @@ static void run_input_demo(void)
         SendMessageW(g_child, WM_LBUTTONUP, 0, MAKELPARAM(76, 67));
     } else if (g_frames == 12) {
         SendMessageW(g_child, WM_MOUSEMOVE, 0, MAKELPARAM(width - 20, height - 20));
+    } else if (g_frames == 13) {
+        POINT point;
+        point.x = 200;
+        point.y = 200;
+        ClientToScreen(g_child, &point);
+        SendMessageW(g_child, WM_MOUSEWHEEL, MAKEWPARAM(0, WHEEL_DELTA),
+                     MAKELPARAM(point.x, point.y));
     }
 }
 

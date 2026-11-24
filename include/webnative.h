@@ -35,7 +35,7 @@ extern "C" {
 #  define WN_API __attribute__((visibility("default")))
 #endif
 
-#define WN_ABI_VERSION 1u
+#define WN_ABI_VERSION 2u
 
 /* Modifier bits for wn_event.modifiers. */
 #define WN_MOD_SHIFT 0x01u
@@ -71,7 +71,8 @@ typedef enum wn_event_type {
     WN_EVENT_RESIZE       = 6,
     WN_EVENT_FOCUS_IN     = 7,
     WN_EVENT_FOCUS_OUT    = 8,
-    WN_EVENT_CLOSE        = 9
+    WN_EVENT_CLOSE        = 9,
+    WN_EVENT_WHEEL        = 10
 } wn_event_type;
 
 typedef struct wn_event {
@@ -82,6 +83,10 @@ typedef struct wn_event {
     uint32_t codepoint;      /* UTF-32 codepoint (WN_EVENT_CHAR) */
     int32_t width, height;   /* client size (WN_EVENT_RESIZE) */
     uint32_t modifiers;      /* WN_MOD_* */
+    /* ABI v2: WN_EVENT_WHEEL. deltas are px; positive delta_y scrolls the
+     * content down (the host maps WM_MOUSEWHEEL wheel-forward to negative y).
+     * v2 only consumes delta_y (vertical scroll); delta_x is reserved. */
+    float delta_x, delta_y;
 } wn_event;
 
 typedef void (*wn_event_cb)(void *userdata, const wn_event *event);

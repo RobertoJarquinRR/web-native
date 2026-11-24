@@ -34,6 +34,7 @@
 
 #include "ui_data.h"
 #include "wn_core.h"
+#include "wn_internal.h"
 
 #define ARRAY_LEN(a) ((size_t)(sizeof(a) / sizeof((a)[0])))
 #define MAX_FLEX_ITEMS UI_NODE_COUNT
@@ -227,9 +228,11 @@ static wn_core *g_core;
 #define g_selected (wn_core_selected(g_core))
 #define g_vertices (wn_core_display_list(g_core)->vertices)
 #define g_glyph_vertices (wn_core_display_list(g_core)->glyph_vertices)
+#define g_image_vertices (wn_core_display_list(g_core)->image_vertices)
 
 static int g_vertex_count = 0;
 static int g_glyph_vertex_count = 0;
+static int g_image_vertex_count = 0;
 
 static void layout_page(float viewport_w, float viewport_h)
 {
@@ -246,6 +249,7 @@ static void build_geometry(float viewport_w, float viewport_h)
     list = wn_core_display_list(g_core);
     g_vertex_count = list != NULL ? list->vertex_count : 0;
     g_glyph_vertex_count = list != NULL ? list->glyph_vertex_count : 0;
+    g_image_vertex_count = list != NULL ? list->image_vertex_count : 0;
 }
 
 static void set_state_from_arg(int state, int node)
@@ -258,6 +262,15 @@ static void set_state_from_arg(int state, int node)
 }
 
 /* ------------------------------------------------------------------- wgpu */
+
+typedef struct {
+    char *path;
+    WGPUTexture texture;
+    WGPUTextureView view;
+    WGPUBindGroup bind;
+    int width;
+    int height;
+} R2ImageTexture;
 
 typedef struct {
     WGPUInstance instance;
@@ -280,6 +293,17 @@ typedef struct {
     WGPUBindGroupLayout text_bgl;
     WGPUPipelineLayout text_pl;
     WGPUBindGroup text_bg;
+    /* RGBA8 local images (ui-tree/2) */
+    WGPUShaderModule image_shader;
+    WGPURenderPipeline image_pipeline;
+    WGPUBuffer image_buffer;
+    size_t image_capacity;
+    R2ImageTexture *images;
+    int image_count;
+    int image_cache_capacity;
+    IWICImagingFactory *wic;
+    int image_width_hint;
+    int image_height_hint;
 } Gpu;
 
 static const char *kShaderWGSL =
@@ -330,16 +354,50 @@ static const char *kTextShaderWGSL =
     "  return vec4<f32>(in.color.rgb, in.color.a * coverage);\n"
     "}\n";
 
+static const char *kImageShaderWGSL =
+    "@group(0) @binding(0) var image_texture: texture_2d<f32>;\n"
+    "@group(0) @binding(1) var image_sampler: sampler;\n"
+    "\n"
+    "struct VSOut {\n"
+    "  @builtin(position) position: vec4<f32>,\n"
+    "  @location(0) uv: vec2<f32>,\n"
+    "};\n"
+    "\n"
+    "@vertex\n"
+    "fn vs_main(@location(0) position: vec2<f32>, @location(1) uv: vec2<f32>) -> VSOut {\n"
+    "  var out: VSOut;\n"
+    "  out.position = vec4<f32>(position, 0.0, 1.0);\n"
+    "  out.uv = uv;\n"
+    "  return out;\n"
+    "}\n"
+    "\n"
+    "@fragment\n"
+    "fn fs_main(in: VSOut) -> @location(0) vec4<f32> {\n"
+    "  return textureSample(image_texture, image_sampler, in.uv);\n"
+    "}\n";
+
 static void gpu_release(Gpu *gpu)
 {
+    int i;
     if (gpu->vertex_buffer) wgpuBufferRelease(gpu->vertex_buffer);
     if (gpu->glyph_buffer) wgpuBufferRelease(gpu->glyph_buffer);
+    if (gpu->image_buffer) wgpuBufferRelease(gpu->image_buffer);
+    for (i = 0; i < gpu->image_count; ++i) {
+        if (gpu->images[i].bind) wgpuBindGroupRelease(gpu->images[i].bind);
+        if (gpu->images[i].view) wgpuTextureViewRelease(gpu->images[i].view);
+        if (gpu->images[i].texture) wgpuTextureRelease(gpu->images[i].texture);
+        free(gpu->images[i].path);
+    }
+    free(gpu->images);
+    if (gpu->wic) gpu->wic->lpVtbl->Release(gpu->wic);
     if (gpu->text_bg) wgpuBindGroupRelease(gpu->text_bg);
     if (gpu->text_pl) wgpuPipelineLayoutRelease(gpu->text_pl);
     if (gpu->text_bgl) wgpuBindGroupLayoutRelease(gpu->text_bgl);
     if (gpu->sampler) wgpuSamplerRelease(gpu->sampler);
     if (gpu->atlas_view) wgpuTextureViewRelease(gpu->atlas_view);
     if (gpu->atlas_texture) wgpuTextureRelease(gpu->atlas_texture);
+    if (gpu->image_pipeline) wgpuRenderPipelineRelease(gpu->image_pipeline);
+    if (gpu->image_shader) wgpuShaderModuleRelease(gpu->image_shader);
     if (gpu->text_pipeline) wgpuRenderPipelineRelease(gpu->text_pipeline);
     if (gpu->text_shader) wgpuShaderModuleRelease(gpu->text_shader);
     if (gpu->pipeline) wgpuRenderPipelineRelease(gpu->pipeline);
@@ -352,6 +410,7 @@ static void gpu_release(Gpu *gpu)
 }
 
 static int gpu_create_text(Gpu *gpu);
+static int gpu_create_images(Gpu *gpu);
 
 static int gpu_init(Gpu *gpu, WGPUSurface compatible_surface,
                     int request_surface_format, WGPUTextureFormat forced_format,
@@ -554,7 +613,7 @@ static int gpu_init(Gpu *gpu, WGPUSurface compatible_surface,
             return 1;
         }
     }
-    return gpu_create_text(gpu);
+    return gpu_create_text(gpu) == 0 && gpu_create_images(gpu) == 0 ? 0 : 1;
 }
 
 /* R8 glyph atlas + textured pipeline. Created once; the atlas is immutable. */
@@ -786,6 +845,105 @@ static int gpu_create_text(Gpu *gpu)
     return 0;
 }
 
+/* RGBA8 image pipeline; shares the texture+sampler bind group layout with the
+ * glyph atlas. Local PNG/JPEG only (WIC, no network). */
+static int gpu_create_images(Gpu *gpu)
+{
+    {
+        WGPUShaderModuleDescriptor descriptor;
+        WGPUShaderSourceWGSL wgsl;
+        memset(&descriptor, 0, sizeof(descriptor));
+        memset(&wgsl, 0, sizeof(wgsl));
+        wgsl.chain.sType = WGPUSType_ShaderSourceWGSL;
+        wgsl.code = sv(kImageShaderWGSL);
+        descriptor.label = sv("r2-image-shader");
+        descriptor.nextInChain = &wgsl.chain;
+        gpu->image_shader = wgpuDeviceCreateShaderModule(gpu->device, &descriptor);
+        if (gpu->image_shader == NULL) {
+            fprintf(stderr, "error: image shader creation failed\n");
+            return 1;
+        }
+    }
+    {
+        WGPUVertexAttribute attributes[2];
+        WGPUVertexBufferLayout buffer_layout;
+        WGPUColorTargetState target;
+        WGPUBlendState blend;
+        WGPUFragmentState fragment;
+        WGPUVertexState vertex;
+        WGPUPrimitiveState primitive;
+        WGPUMultisampleState multisample;
+        WGPURenderPipelineDescriptor descriptor;
+        memset(attributes, 0, sizeof(attributes));
+        attributes[0].format = WGPUVertexFormat_Float32x2;
+        attributes[0].offset = 0;
+        attributes[0].shaderLocation = 0;
+        attributes[1].format = WGPUVertexFormat_Float32x2;
+        attributes[1].offset = 8;
+        attributes[1].shaderLocation = 1;
+        memset(&buffer_layout, 0, sizeof(buffer_layout));
+        buffer_layout.stepMode = WGPUVertexStepMode_Vertex;
+        buffer_layout.arrayStride = sizeof(wn_image_vertex);
+        buffer_layout.attributeCount = 2;
+        buffer_layout.attributes = attributes;
+        memset(&blend, 0, sizeof(blend));
+        blend.color.operation = WGPUBlendOperation_Add;
+        blend.color.srcFactor = WGPUBlendFactor_SrcAlpha;
+        blend.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+        blend.alpha.operation = WGPUBlendOperation_Add;
+        blend.alpha.srcFactor = WGPUBlendFactor_One;
+        blend.alpha.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+        memset(&target, 0, sizeof(target));
+        target.format = gpu->format;
+        target.blend = &blend;
+        target.writeMask = WGPUColorWriteMask_All;
+        memset(&fragment, 0, sizeof(fragment));
+        fragment.module = gpu->image_shader;
+        fragment.entryPoint = sv("fs_main");
+        fragment.targetCount = 1;
+        fragment.targets = &target;
+        memset(&vertex, 0, sizeof(vertex));
+        vertex.module = gpu->image_shader;
+        vertex.entryPoint = sv("vs_main");
+        vertex.bufferCount = 1;
+        vertex.buffers = &buffer_layout;
+        memset(&primitive, 0, sizeof(primitive));
+        primitive.topology = WGPUPrimitiveTopology_TriangleList;
+        primitive.frontFace = WGPUFrontFace_CCW;
+        primitive.cullMode = WGPUCullMode_None;
+        memset(&multisample, 0, sizeof(multisample));
+        multisample.count = 1;
+        multisample.mask = 0xFFFFFFFFu;
+        memset(&descriptor, 0, sizeof(descriptor));
+        descriptor.label = sv("r2-image-pipeline");
+        descriptor.layout = gpu->text_pl;
+        descriptor.vertex = vertex;
+        descriptor.primitive = primitive;
+        descriptor.multisample = multisample;
+        descriptor.fragment = &fragment;
+        gpu->image_pipeline = wgpuDeviceCreateRenderPipeline(gpu->device, &descriptor);
+        if (gpu->image_pipeline == NULL) {
+            fprintf(stderr, "error: image pipeline creation failed\n");
+            return 1;
+        }
+    }
+    {
+        WGPUBufferDescriptor descriptor;
+        size_t images = UI_NODE_COUNT > 0 ? (size_t)UI_NODE_COUNT : 1u;
+        gpu->image_capacity = images * 6u * sizeof(wn_image_vertex);
+        memset(&descriptor, 0, sizeof(descriptor));
+        descriptor.label = sv("r2-image-vertices");
+        descriptor.usage = WGPUBufferUsage_Vertex | WGPUBufferUsage_CopyDst;
+        descriptor.size = gpu->image_capacity;
+        gpu->image_buffer = wgpuDeviceCreateBuffer(gpu->device, &descriptor);
+        if (gpu->image_buffer == NULL) {
+            fprintf(stderr, "error: image vertex buffer creation failed\n");
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static void gpu_upload_geometry(Gpu *gpu)
 {
     size_t bytes = (size_t)g_vertex_count * sizeof(Vertex);
@@ -796,6 +954,266 @@ static void gpu_upload_geometry(Gpu *gpu)
     if (glyph_bytes > 0) {
         wgpuQueueWriteBuffer(gpu->queue, gpu->glyph_buffer, 0, g_glyph_vertices, glyph_bytes);
     }
+    size_t image_bytes = (size_t)g_image_vertex_count * sizeof(wn_image_vertex);
+    if (image_bytes > 0) {
+        wgpuQueueWriteBuffer(gpu->queue, gpu->image_buffer, 0, g_image_vertices, image_bytes);
+    }
+}
+
+/* -------------------------------------------------------- WIC image cache */
+
+static int decode_image_rgba(Gpu *gpu, const char *path, unsigned char **pixels_out,
+                             int *width_out, int *height_out)
+{
+    wchar_t wide[MAX_PATH * 4];
+    IWICBitmapDecoder *decoder = NULL;
+    IWICBitmapFrameDecode *frame = NULL;
+    IWICFormatConverter *converter = NULL;
+    UINT width = 0, height = 0;
+    unsigned char *pixels = NULL;
+    HRESULT hr;
+
+    *pixels_out = NULL;
+    *width_out = 0;
+    *height_out = 0;
+    if (gpu->wic == NULL) {
+        hr = CoCreateInstance(&CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER,
+                              &IID_IWICImagingFactory, (void **)&gpu->wic);
+        if (FAILED(hr) || gpu->wic == NULL) {
+            fprintf(stderr, "error: WIC factory creation failed (hr=0x%08lX)\n",
+                    (unsigned long)hr);
+            return 1;
+        }
+    }
+    if (MultiByteToWideChar(CP_UTF8, 0, path, -1, wide,
+                            (int)(sizeof(wide) / sizeof(wide[0]))) <= 0) {
+        fprintf(stderr, "error: image path is not valid UTF-8: %s\n", path);
+        return 1;
+    }
+    hr = gpu->wic->lpVtbl->CreateDecoderFromFilename(
+        gpu->wic, wide, NULL, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &decoder);
+    if (FAILED(hr) || decoder == NULL) {
+        fprintf(stderr, "error: cannot decode image '%s' (hr=0x%08lX)\n",
+                path, (unsigned long)hr);
+        return 1;
+    }
+    hr = decoder->lpVtbl->GetFrame(decoder, 0, &frame);
+    if (FAILED(hr) || frame == NULL) {
+        fprintf(stderr, "error: image '%s' has no frame 0 (hr=0x%08lX)\n",
+                path, (unsigned long)hr);
+        goto fail;
+    }
+    hr = frame->lpVtbl->GetSize(frame, &width, &height);
+    if (FAILED(hr) || width == 0 || height == 0 || width > 16384 || height > 16384) {
+        fprintf(stderr, "error: image '%s' has invalid size %ux%u\n", path, width, height);
+        goto fail;
+    }
+    hr = gpu->wic->lpVtbl->CreateFormatConverter(gpu->wic, &converter);
+    if (FAILED(hr) || converter == NULL) {
+        fprintf(stderr, "error: WIC converter creation failed for '%s'\n", path);
+        goto fail;
+    }
+    hr = converter->lpVtbl->Initialize(converter, (IWICBitmapSource *)frame,
+                                       &GUID_WICPixelFormat32bppRGBA,
+                                       WICBitmapDitherTypeNone, NULL, 0.0,
+                                       WICBitmapPaletteTypeCustom);
+    if (FAILED(hr)) {
+        fprintf(stderr, "error: WIC RGBA conversion failed for '%s' (hr=0x%08lX)\n",
+                path, (unsigned long)hr);
+        goto fail;
+    }
+    {
+        const UINT stride = width * 4u;
+        const UINT bytes = stride * height;
+        pixels = (unsigned char *)malloc(bytes);
+        if (pixels == NULL) {
+            fprintf(stderr, "error: out of memory decoding image '%s'\n", path);
+            goto fail;
+        }
+        hr = converter->lpVtbl->CopyPixels(converter, NULL, stride, bytes, pixels);
+        if (FAILED(hr)) {
+            fprintf(stderr, "error: WIC CopyPixels failed for '%s' (hr=0x%08lX)\n",
+                    path, (unsigned long)hr);
+            goto fail;
+        }
+    }
+    converter->lpVtbl->Release(converter);
+    frame->lpVtbl->Release(frame);
+    decoder->lpVtbl->Release(decoder);
+    *pixels_out = pixels;
+    *width_out = (int)width;
+    *height_out = (int)height;
+    return 0;
+
+fail:
+    free(pixels);
+    if (converter != NULL) converter->lpVtbl->Release(converter);
+    if (frame != NULL) frame->lpVtbl->Release(frame);
+    if (decoder != NULL) decoder->lpVtbl->Release(decoder);
+    return 1;
+}
+
+static R2ImageTexture *find_cached_image(Gpu *gpu, const char *path)
+{
+    int i;
+    for (i = 0; i < gpu->image_count; ++i) {
+        if (strcmp(gpu->images[i].path, path) == 0) {
+            return &gpu->images[i];
+        }
+    }
+    return NULL;
+}
+
+static R2ImageTexture *ensure_image_texture(Gpu *gpu, const char *path)
+{
+    R2ImageTexture *entry;
+    WGPUTextureDescriptor texture_desc;
+    WGPUTexelCopyTextureInfo destination;
+    WGPUTexelCopyBufferLayout layout;
+    WGPUExtent3D extent;
+    WGPUBindGroupEntry bind_entries[2];
+    WGPUBindGroupDescriptor bind_desc;
+    unsigned char *pixels = NULL;
+    unsigned char *padded = NULL;
+    int width = 0, height = 0;
+    uint32_t stride;
+
+    entry = find_cached_image(gpu, path);
+    if (entry != NULL) {
+        return entry;
+    }
+    if (decode_image_rgba(gpu, path, &pixels, &width, &height) != 0) {
+        return NULL;
+    }
+    if (gpu->image_count >= gpu->image_cache_capacity) {
+        int capacity = gpu->image_cache_capacity > 0 ? gpu->image_cache_capacity * 2 : 8;
+        R2ImageTexture *grown = (R2ImageTexture *)realloc(
+            gpu->images, (size_t)capacity * sizeof(R2ImageTexture));
+        if (grown == NULL) {
+            free(pixels);
+            fprintf(stderr, "error: out of memory growing the image cache\n");
+            return NULL;
+        }
+        gpu->images = grown;
+        gpu->image_cache_capacity = capacity;
+    }
+    stride = (uint32_t)width * 4u;
+    {
+        uint32_t aligned = (stride + 255u) & ~255u;
+        if (aligned != stride && height > 1) {
+            uint32_t y;
+            padded = (unsigned char *)malloc((size_t)aligned * (size_t)height);
+            if (padded == NULL) {
+                free(pixels);
+                fprintf(stderr, "error: out of memory padding image '%s'\n", path);
+                return NULL;
+            }
+            for (y = 0; y < (uint32_t)height; ++y) {
+                memcpy(padded + (size_t)y * aligned,
+                       pixels + (size_t)y * stride, stride);
+            }
+        } else {
+            padded = pixels;
+            aligned = stride;
+        }
+        stride = aligned;
+    }
+
+    memset(&texture_desc, 0, sizeof(texture_desc));
+    texture_desc.label = sv("r2-image");
+    texture_desc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+    texture_desc.dimension = WGPUTextureDimension_2D;
+    texture_desc.size.width = (uint32_t)width;
+    texture_desc.size.height = (uint32_t)height;
+    texture_desc.size.depthOrArrayLayers = 1;
+    texture_desc.format = WGPUTextureFormat_RGBA8Unorm;
+    texture_desc.mipLevelCount = 1;
+    texture_desc.sampleCount = 1;
+    entry = &gpu->images[gpu->image_count];
+    memset(entry, 0, sizeof(*entry));
+    entry->texture = wgpuDeviceCreateTexture(gpu->device, &texture_desc);
+    if (entry->texture == NULL) {
+        if (padded != pixels) free(padded);
+        free(pixels);
+        fprintf(stderr, "error: image texture creation failed for '%s'\n", path);
+        return NULL;
+    }
+    entry->view = wgpuTextureCreateView(entry->texture, NULL);
+    if (entry->view == NULL) {
+        wgpuTextureRelease(entry->texture);
+        if (padded != pixels) free(padded);
+        free(pixels);
+        fprintf(stderr, "error: image texture view creation failed for '%s'\n", path);
+        return NULL;
+    }
+
+    memset(&destination, 0, sizeof(destination));
+    destination.texture = entry->texture;
+    destination.mipLevel = 0;
+    destination.aspect = WGPUTextureAspect_All;
+    memset(&layout, 0, sizeof(layout));
+    layout.offset = 0;
+    layout.bytesPerRow = stride;
+    layout.rowsPerImage = (uint32_t)height;
+    memset(&extent, 0, sizeof(extent));
+    extent.width = (uint32_t)width;
+    extent.height = (uint32_t)height;
+    extent.depthOrArrayLayers = 1;
+    wgpuQueueWriteTexture(gpu->queue, &destination, padded,
+                          (size_t)stride * (size_t)height, &layout, &extent);
+    if (padded != pixels) {
+        free(padded);
+    }
+    free(pixels);
+
+    memset(bind_entries, 0, sizeof(bind_entries));
+    bind_entries[0].binding = 0;
+    bind_entries[0].textureView = entry->view;
+    bind_entries[1].binding = 1;
+    bind_entries[1].sampler = gpu->sampler;
+    memset(&bind_desc, 0, sizeof(bind_desc));
+    bind_desc.label = sv("r2-image-bind-group");
+    bind_desc.layout = gpu->text_bgl;
+    bind_desc.entryCount = 2;
+    bind_desc.entries = bind_entries;
+    entry->bind = wgpuDeviceCreateBindGroup(gpu->device, &bind_desc);
+    if (entry->bind == NULL) {
+        wgpuTextureViewRelease(entry->view);
+        wgpuTextureRelease(entry->texture);
+        fprintf(stderr, "error: image bind group creation failed for '%s'\n", path);
+        return NULL;
+    }
+    entry->path = wn_strdup_(path);
+    if (entry->path == NULL) {
+        wgpuBindGroupRelease(entry->bind);
+        wgpuTextureViewRelease(entry->view);
+        wgpuTextureRelease(entry->texture);
+        return NULL;
+    }
+    entry->width = width;
+    entry->height = height;
+    ++gpu->image_count;
+    return entry;
+}
+
+static int set_scissor(WGPURenderPassEncoder pass, float x, float y, float w, float h,
+                       int view_w, int view_h)
+{
+    int left = (int)floorf(x);
+    int top = (int)floorf(y);
+    int right = (int)ceilf(x + w);
+    int bottom = (int)ceilf(y + h);
+    if (left < 0) left = 0;
+    if (top < 0) top = 0;
+    if (right > view_w) right = view_w;
+    if (bottom > view_h) bottom = view_h;
+    if (right <= left || bottom <= top) {
+        return 0;
+    }
+    wgpuRenderPassEncoderSetScissorRect(pass, (uint32_t)left, (uint32_t)top,
+                                        (uint32_t)(right - left),
+                                        (uint32_t)(bottom - top));
+    return 1;
 }
 
 static void gpu_draw(Gpu *gpu, WGPUCommandEncoder encoder, WGPUTextureView view,
@@ -823,16 +1241,70 @@ static void gpu_draw(Gpu *gpu, WGPUCommandEncoder encoder, WGPUTextureView view,
     if (pass == NULL) {
         return;
     }
-    wgpuRenderPassEncoderSetPipeline(pass, gpu->pipeline);
-    wgpuRenderPassEncoderSetVertexBuffer(pass, 0, gpu->vertex_buffer, 0, WGPU_WHOLE_SIZE);
-    if (g_vertex_count > 0) {
-        wgpuRenderPassEncoderDraw(pass, (uint32_t)g_vertex_count, 1, 0, 0);
-    }
-    if (g_glyph_vertex_count > 0 && gpu->text_pipeline != NULL) {
-        wgpuRenderPassEncoderSetPipeline(pass, gpu->text_pipeline);
-        wgpuRenderPassEncoderSetVertexBuffer(pass, 0, gpu->glyph_buffer, 0, WGPU_WHOLE_SIZE);
-        wgpuRenderPassEncoderSetBindGroup(pass, 0, gpu->text_bg, 0, NULL);
-        wgpuRenderPassEncoderDraw(pass, (uint32_t)g_glyph_vertex_count, 1, 0, 0);
+    {
+        const wn_display_list *list = wn_core_display_list(g_core);
+        if (g_vertex_count > 0) {
+            int b;
+            wgpuRenderPassEncoderSetPipeline(pass, gpu->pipeline);
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, gpu->vertex_buffer, 0,
+                                                 WGPU_WHOLE_SIZE);
+            if (list != NULL && list->solid_batch_count > 0) {
+                for (b = 0; b < list->solid_batch_count; ++b) {
+                    const wn_draw_batch *batch = &list->solid_batches[b];
+                    if (set_scissor(pass, batch->clip_x, batch->clip_y,
+                                    batch->clip_w, batch->clip_h,
+                                    gpu->image_width_hint, gpu->image_height_hint)) {
+                        wgpuRenderPassEncoderDraw(pass, (uint32_t)batch->count, 1,
+                                                  (uint32_t)batch->first, 0);
+                    }
+                }
+            } else {
+                wgpuRenderPassEncoderDraw(pass, (uint32_t)g_vertex_count, 1, 0, 0);
+            }
+        }
+        if (g_image_vertex_count > 0 && gpu->image_pipeline != NULL && list != NULL) {
+            int b;
+            wgpuRenderPassEncoderSetPipeline(pass, gpu->image_pipeline);
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, gpu->image_buffer, 0,
+                                                 WGPU_WHOLE_SIZE);
+            for (b = 0; b < list->image_batch_count; ++b) {
+                const wn_image_batch *batch = &list->image_batches[b];
+                R2ImageTexture *texture = batch->src != NULL
+                                              ? ensure_image_texture(gpu, batch->src)
+                                              : NULL;
+                if (texture == NULL || texture->bind == NULL) {
+                    continue;
+                }
+                if (!set_scissor(pass, batch->clip_x, batch->clip_y,
+                                 batch->clip_w, batch->clip_h,
+                                 gpu->image_width_hint, gpu->image_height_hint)) {
+                    continue;
+                }
+                wgpuRenderPassEncoderSetBindGroup(pass, 0, texture->bind, 0, NULL);
+                wgpuRenderPassEncoderDraw(pass, (uint32_t)batch->count, 1,
+                                          (uint32_t)batch->first, 0);
+            }
+        }
+        if (g_glyph_vertex_count > 0 && gpu->text_pipeline != NULL && gpu->text_bg != NULL) {
+            int b;
+            wgpuRenderPassEncoderSetPipeline(pass, gpu->text_pipeline);
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, gpu->glyph_buffer, 0,
+                                                 WGPU_WHOLE_SIZE);
+            wgpuRenderPassEncoderSetBindGroup(pass, 0, gpu->text_bg, 0, NULL);
+            if (list != NULL && list->glyph_batch_count > 0) {
+                for (b = 0; b < list->glyph_batch_count; ++b) {
+                    const wn_draw_batch *batch = &list->glyph_batches[b];
+                    if (set_scissor(pass, batch->clip_x, batch->clip_y,
+                                    batch->clip_w, batch->clip_h,
+                                    gpu->image_width_hint, gpu->image_height_hint)) {
+                        wgpuRenderPassEncoderDraw(pass, (uint32_t)batch->count, 1,
+                                                  (uint32_t)batch->first, 0);
+                    }
+                }
+            } else {
+                wgpuRenderPassEncoderDraw(pass, (uint32_t)g_glyph_vertex_count, 1, 0, 0);
+            }
+        }
     }
     wgpuRenderPassEncoderEnd(pass);
     wgpuRenderPassEncoderRelease(pass);
@@ -981,6 +1453,31 @@ static double g_last_pass_ms = 0.0;
 static double g_last_readback_ms = 0.0;
 static double g_last_png_ms = 0.0;
 
+static int g_wheel_active = 0;
+static float g_wheel_x = 0.0f;
+static float g_wheel_y = 0.0f;
+static float g_wheel_dy = 0.0f;
+
+static void apply_pending_wheel(void)
+{
+    int container;
+    if (!g_wheel_active) {
+        return;
+    }
+    g_wheel_active = 0;
+    container = wn_core_wheel(g_core, g_wheel_x, g_wheel_y, 0.0f, g_wheel_dy);
+    if (container >= 0) {
+        printf("wheel: (%g,%g) delta_y=%g -> node=%d %s scroll=%.1f/%.1f\n",
+               g_wheel_x, g_wheel_y, g_wheel_dy, container, kUiNodeNames[container],
+               wn_core_scroll_offset(g_core, container),
+               wn_core_scroll_max(g_core, container));
+    } else {
+        printf("wheel: (%g,%g) delta_y=%g -> no scrollable container\n",
+               g_wheel_x, g_wheel_y, g_wheel_dy);
+    }
+    fflush(stdout);
+}
+
 static int render_offscreen(Gpu *gpu, int width, int height, const wchar_t *path,
                             double *layout_ms_out, double *frame_ms_out)
 {
@@ -993,7 +1490,7 @@ static int render_offscreen(Gpu *gpu, int width, int height, const wchar_t *path
     const unsigned char *mapped = NULL;
     unsigned int bytes_per_row;
     uint64_t readback_size;
-    const float clear[4] = {0.043137f, 0.054902f, 0.078431f, 1.0f};
+    float clear[4] = {0.043137f, 0.054902f, 0.078431f, 1.0f};
     int exit_code = 1;
     double t0, t1;
 
@@ -1001,8 +1498,20 @@ static int render_offscreen(Gpu *gpu, int width, int height, const wchar_t *path
     layout_page((float)width, (float)height);
     t1 = now_ms();
     if (layout_ms_out) *layout_ms_out = t1 - t0;
+    apply_pending_wheel();
     build_geometry((float)width, (float)height);
     gpu_upload_geometry(gpu);
+    gpu->image_width_hint = width;
+    gpu->image_height_hint = height;
+    {
+        const wn_display_list *list = wn_core_display_list(g_core);
+        if (list != NULL) {
+            clear[0] = list->clear_color[0];
+            clear[1] = list->clear_color[1];
+            clear[2] = list->clear_color[2];
+            clear[3] = list->clear_color[3];
+        }
+    }
 
     t0 = now_ms();
     {
@@ -1144,7 +1653,13 @@ static void json_escape(FILE *f, const char *text)
 
 static const char *kind_name(int kind)
 {
-    return kind == R2_NODE_FLEX ? "flex" : (kind == R2_NODE_TEXT ? "text" : "block");
+    switch (kind) {
+    case R2_NODE_FLEX: return "flex";
+    case R2_NODE_TEXT: return "text";
+    case R2_NODE_GRID: return "grid";
+    case R2_NODE_IMAGE: return "image";
+    default: return "block";
+    }
 }
 
 static int parse_size(const char *text, int *w, int *h)
@@ -1258,6 +1773,22 @@ static void print_layout_summary(float w, float h)
         printf("%s%.1f", i ? "," : "", g_rects[cards[i]].w);
     }
     printf("\n");
+}
+
+/* One line per scroll container, machine-readable for the pilot verifier. */
+static void print_scroll_summary(void)
+{
+    for (int i = 0; i < UI_NODE_COUNT; ++i) {
+        if (kUiNodes[i].overflow != R2_OVERFLOW_SCROLL) {
+            continue;
+        }
+        printf("scroll: node=%d name=%s rect=[%.1f,%.1f,%.1f,%.1f] "
+               "offset=%.2f max=%.2f\n",
+               i, kUiNodeNames[i], g_rects[i].x, g_rects[i].y,
+               g_rects[i].w, g_rects[i].h,
+               wn_core_scroll_offset(g_core, i),
+               wn_core_scroll_max(g_core, i));
+    }
 }
 
 /* ------------------------------------------------------------------ states */
@@ -1379,7 +1910,8 @@ static void log_reflow(const char *why)
     if (c0 >= 0 && c2 >= 0) {
         printf(" card0_y=%.1f card2_y=%.1f", g_rects[c0].y, g_rects[c2].y);
     }
-    printf(" vertices=%d glyph_vertices=%d\n", g_vertex_count, g_glyph_vertex_count);
+    printf(" vertices=%d glyph_vertices=%d image_vertices=%d\n",
+           g_vertex_count, g_glyph_vertex_count, g_image_vertex_count);
     fflush(stdout);
 }
 
@@ -1436,6 +1968,29 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
             g_need_geometry = 1;
         }
         return 0;
+    case WM_MOUSEWHEEL: {
+        POINT point;
+        int notches;
+        int container;
+        point.x = (int)(short)LOWORD(lparam);
+        point.y = (int)(short)HIWORD(lparam);
+        ScreenToClient(hwnd, &point);
+        notches = (int)GET_WHEEL_DELTA_WPARAM(wparam) / WHEEL_DELTA;
+        if (notches == 0) {
+            notches = GET_WHEEL_DELTA_WPARAM(wparam) > 0 ? 1 : -1;
+        }
+        container = wn_core_wheel(g_core, (float)point.x, (float)point.y,
+                                  0.0f, (float)(-notches * 120));
+        if (container >= 0) {
+            g_need_geometry = 1;
+            printf("wheel: (%ld,%ld) notches=%d -> node=%d %s scroll=%.1f/%.1f\n",
+                   point.x, point.y, notches, container, kUiNodeNames[container],
+                   wn_core_scroll_offset(g_core, container),
+                   wn_core_scroll_max(g_core, container));
+            fflush(stdout);
+        }
+        return 0;
+    }
     case WM_LBUTTONDOWN: {
         int x = (int)(short)LOWORD(lparam);
         int y = (int)(short)HIWORD(lparam);
@@ -1732,6 +2287,10 @@ static int run_window(void)
             fprintf(stderr, "error: text pipeline creation failed\n");
             goto cleanup;
         }
+        if (gpu_create_images(&gpu) != 0) {
+            fprintf(stderr, "error: image pipeline creation failed\n");
+            goto cleanup;
+        }
     }
 
     t_ready = now_ms();
@@ -1774,6 +2333,8 @@ static int run_window(void)
             fflush(stdout);
         }
         gpu_upload_geometry(&gpu);
+        gpu.image_width_hint = g_window_width;
+        gpu.image_height_hint = g_window_height;
 
         memset(&surface_texture, 0, sizeof(surface_texture));
         wgpuSurfaceGetCurrentTexture(surface, &surface_texture);
@@ -1999,6 +2560,12 @@ int main(int argc, char **argv)
             g_resize_demo = 1;
         } else if (strcmp(argv[i], "--input-demo") == 0) {
             g_input_demo = 1;
+        } else if (strcmp(argv[i], "--wheel") == 0 && i + 3 < argc) {
+            g_wheel_active = 1;
+            g_wheel_x = (float)atof(argv[i + 1]);
+            g_wheel_y = (float)atof(argv[i + 2]);
+            g_wheel_dy = (float)atof(argv[i + 3]);
+            i += 3;
         } else if (strcmp(argv[i], "--width") == 0 && i + 1 < argc) {
             width_arg = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--height") == 0 && i + 1 < argc) {
@@ -2068,10 +2635,11 @@ int main(int argc, char **argv)
         }
         gpu_release(&gpu);
         print_layout_summary((float)render_w, (float)render_h);
+        print_scroll_summary();
         printf("render: %s %dx%d nodes=%d vertices=%d glyph_vertices=%d "
-               "layout=%.3fms frame=%.3fms\n",
+               "image_vertices=%d layout=%.3fms frame=%.3fms\n",
                render_path, render_w, render_h, UI_NODE_COUNT, g_vertex_count,
-               g_glyph_vertex_count, layout_ms, frame_ms);
+               g_glyph_vertex_count, g_image_vertex_count, layout_ms, frame_ms);
         printf("timings: layout=%.3fms | frame(build+upload+pass+readback+png)=%.3fms\n",
                layout_ms, frame_ms);
         printf("timings: gpu(encode+submit)=%.3fms | readback(map)=%.3fms | png=%.3fms\n",
