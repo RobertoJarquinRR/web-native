@@ -28,7 +28,7 @@
 | Install size (wgpu) | ≤ 15 MB | ~9.6 MB (9.1 DLL + 0.15–0.3 exe + atlas) |
 | Engine size | ≤ 1 MB | 154–299 KB |
 | Startup | ≤ 150 ms | 128–133 ms (R2) / ~100–150 ms (R1) |
-| RSS | ≤ 30 MB | por medir |
+| RSS | ≤ 30 MB en hardware (WARP informativo) | 53.47 MB (WARP) |
 | CPU frame | ≤ 2 ms | 0.46–0.70 ms |
 | Layout 28 nodos | ≤ 0.5 ms | ~0.001 ms |
 | Layout 100 nodos | ≤ 0.5 ms | por medir |
@@ -41,6 +41,10 @@
 3. WARP vs hardware se reporta por separado.
 4. El harness debe ser reproducible con un comando.
 5. Los resultados se guardan con fecha, commit y backend.
+6. **RSS no es gate en WARP**: el baseline (~53 MB) está dominado por wgpu/D3D12/WARP.
+   El objetivo de ≤30 MB se evalúa en hardware; el número de WARP es informativo.
+   Si en hardware tampoco se cumple, se decide entre aceptar el footprint o priorizar
+   un backend D2D/D3D11.
 
 ## Harness
 

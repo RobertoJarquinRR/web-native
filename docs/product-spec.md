@@ -47,7 +47,7 @@ Sin navegador, sin WebView, sin motor JS en el core.
 | Métrica | Objetivo |
 |---|---:|
 | Instalación total (engine + wgpu DLL + assets) | ≤ 15 MB |
-| RAM (RSS) | ≤ 30 MB |
+| RAM (RSS) | ≤ 30 MB en hardware (WARP informativo) |
 | Arranque a primer frame | ≤ 150 ms |
 | CPU por frame (sin vsync) | ≤ 2 ms |
 | Layout, 100 nodos | ≤ 0.5 ms |
