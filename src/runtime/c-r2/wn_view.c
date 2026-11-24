@@ -12,6 +12,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(_WIN32)
+#  define WIN32_LEAN_AND_MEAN
+#  include <windows.h>
+#endif
+
 struct wn_view {
     wn_core *core;
     const wn_renderer_ops *ops;
@@ -30,6 +35,7 @@ struct wn_view {
     char *html;
     char *base_url;
     char *css;
+    char *value_scratch;      /* wn_view_get_value result, freed on next call */
     wn_event_cb callback;
     void *userdata;
     wn_view_stats stats;
@@ -63,6 +69,136 @@ static void set_renderer_error(wn_view *view, const char *fallback)
         message = view->ops->last_error(view->renderer);
     }
     wn_set_error("%s", message != NULL ? message : fallback);
+}
+
+/* ---------------------------------------------------- clipboard (Win32) */
+/*
+ * The core is platform independent: copy/cut/paste only move text between the
+ * value buffer and caller-owned strings. The OS clipboard lives here, so both
+ * the embedded host (WN_EVENT_KEY_DOWN through wn_view_event) and the
+ * standalone window get Ctrl+C/X/V without extra ABI.
+ */
+static void view_clipboard_set(const char *text)
+{
+#if defined(_WIN32)
+    int length;
+    HGLOBAL memory;
+    wchar_t *wide;
+    if (text == NULL || !OpenClipboard(NULL)) {
+        return;
+    }
+    EmptyClipboard();
+    length = MultiByteToWideChar(CP_UTF8, 0, text, -1, NULL, 0);
+    if (length > 0) {
+        memory = GlobalAlloc(GMEM_MOVEABLE, (SIZE_T)length * sizeof(wchar_t));
+        if (memory != NULL) {
+            wide = (wchar_t *)GlobalLock(memory);
+            if (wide != NULL) {
+                MultiByteToWideChar(CP_UTF8, 0, text, -1, wide, length);
+                GlobalUnlock(memory);
+                if (SetClipboardData(CF_UNICODETEXT, memory) == NULL) {
+                    GlobalFree(memory);
+                }
+            } else {
+                GlobalFree(memory);
+            }
+        }
+    }
+    CloseClipboard();
+#else
+    (void)text;
+#endif
+}
+
+static int view_clipboard_get(char *out, int capacity)
+{
+    int copied = 0;
+    if (out == NULL || capacity <= 0) {
+        return 0;
+    }
+    out[0] = '\0';
+#if defined(_WIN32)
+    if (!IsClipboardFormatAvailable(CF_UNICODETEXT) || !OpenClipboard(NULL)) {
+        return 0;
+    }
+    {
+        HANDLE handle = GetClipboardData(CF_UNICODETEXT);
+        if (handle != NULL) {
+            const wchar_t *wide = (const wchar_t *)GlobalLock(handle);
+            if (wide != NULL) {
+                int bytes = WideCharToMultiByte(CP_UTF8, 0, wide, -1, NULL, 0, NULL, NULL);
+                if (bytes > 1) {
+                    char *utf8 = (char *)malloc((size_t)bytes);
+                    if (utf8 != NULL) {
+                        if (WideCharToMultiByte(CP_UTF8, 0, wide, -1, utf8, bytes,
+                                                NULL, NULL) > 0) {
+                            copied = (int)strlen(utf8);
+                            if (copied >= capacity) {
+                                copied = capacity - 1;
+                            }
+                            memcpy(out, utf8, (size_t)copied);
+                            out[copied] = '\0';
+                        }
+                        free(utf8);
+                    }
+                }
+                GlobalUnlock(handle);
+            }
+        }
+    }
+    CloseClipboard();
+#endif
+    return copied;
+}
+
+/* Keyboard editing for the focused input. Ctrl+A/C/X/V use the OS clipboard;
+ * everything else is core logic. Returns the focused node (or -1). */
+static int view_input_key(wn_view *view, const wn_event *event,
+                          int *value_changed, int *visual_changed)
+{
+    char buffer[256];
+    int node;
+    int copied;
+    if (value_changed != NULL) {
+        *value_changed = 0;
+    }
+    if (visual_changed != NULL) {
+        *visual_changed = 0;
+    }
+    node = wn_core_input_focused(view->core);
+    if (node < 0) {
+        return -1;
+    }
+    if ((event->modifiers & WN_MOD_CTRL) != 0u) {
+        if (event->key == WN_KEY_A) {
+            return wn_core_input_select_all(view->core, visual_changed);
+        }
+        if (event->key == WN_KEY_C) {
+            copied = wn_core_input_copy(view->core, buffer, (int)sizeof(buffer));
+            if (copied > 0) {
+                view_clipboard_set(buffer);
+            }
+            return node;
+        }
+        if (event->key == WN_KEY_X) {
+            copied = wn_core_input_cut(view->core, buffer, (int)sizeof(buffer),
+                                       value_changed, visual_changed);
+            if (copied > 0) {
+                view_clipboard_set(buffer);
+            }
+            return node;
+        }
+        if (event->key == WN_KEY_V) {
+            if (view_clipboard_get(buffer, (int)sizeof(buffer)) > 0) {
+                return wn_core_input_paste(view->core, buffer,
+                                           value_changed, visual_changed);
+            }
+            return node;
+        }
+        return -1;
+    }
+    return wn_core_input_key(view->core, event->key, event->modifiers,
+                             value_changed, visual_changed);
 }
 
 wn_view *wn_view_create(void *native_window_handle, int32_t width, int32_t height,
@@ -209,6 +345,8 @@ wn_status wn_view_event(wn_view *view, const wn_event *event)
     const char *target = NULL;
     int hit = -1;
     int changed = 0;
+    int input_value_changed = 0;
+    int input_visual_changed = 0;
 
     wn_clear_error();
     if (view == NULL) {
@@ -240,17 +378,29 @@ wn_status wn_view_event(wn_view *view, const wn_event *event)
                             event->delta_x, event->delta_y);
         changed = hit >= 0;
         break;
+    case WN_EVENT_CHAR:
+        hit = wn_core_input_char(view->core, event->codepoint,
+                                 &input_value_changed, &input_visual_changed);
+        changed = input_visual_changed;
+        break;
+    case WN_EVENT_KEY_DOWN:
+        hit = view_input_key(view, event, &input_value_changed,
+                             &input_visual_changed);
+        changed = input_visual_changed;
+        break;
+    case WN_EVENT_FOCUS_OUT:
+        if (wn_core_blur_input(view->core) == 0) {
+            changed = 1;
+        }
+        break;
     case WN_EVENT_RESIZE:
         view_resize_internal(view, event->width, event->height, 0.0f);
         break;
     case WN_EVENT_CLOSE:
         view->closed = 1;
         break;
-    case WN_EVENT_KEY_DOWN:
     case WN_EVENT_KEY_UP:
-    case WN_EVENT_CHAR:
     case WN_EVENT_FOCUS_IN:
-    case WN_EVENT_FOCUS_OUT:
     default:
         break;
     }
@@ -263,6 +413,12 @@ wn_status wn_view_event(wn_view *view, const wn_event *event)
     }
     if (view->callback != NULL) {
         view->callback(view->userdata, &out);
+        if (input_value_changed) {
+            wn_event semantic = out;
+            semantic.type = WN_EVENT_INPUT;
+            semantic.target_id = target;
+            view->callback(view->userdata, &semantic);
+        }
     }
     return WN_OK;
 }
@@ -358,6 +514,7 @@ void wn_view_destroy(wn_view *view)
     wn_free_(view->html);
     wn_free_(view->base_url);
     wn_free_(view->css);
+    wn_free_(view->value_scratch);
     free(view);
 }
 
@@ -755,4 +912,92 @@ wn_status wn_view_append(wn_view *view, wn_node_id parent, wn_node_id child)
     }
     view_mark_geometry(view);
     return WN_OK;
+}
+
+/* ------------------------------------------------------ text input (v4) */
+
+int wn_view_input_focused(const wn_view *view)
+{
+    if (view == NULL) {
+        return 0;
+    }
+    return wn_core_input_focused(view->core) >= 0;
+}
+
+wn_status wn_view_set_value(wn_view *view, wn_node_id node, const char *utf8)
+{
+    int index;
+    int result;
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_node_set_value: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    index = view_node_index(view, node);
+    if (index < 0) {
+        wn_set_error("wn_node_set_value: invalid node handle %llu",
+                     (unsigned long long)node);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    if (utf8 == NULL) {
+        wn_set_error("wn_node_set_value: utf8 is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    if (!wn_core_node_is_input(view->core, index)) {
+        wn_set_error("wn_node_set_value: node handle %llu is not a text input",
+                     (unsigned long long)node);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    result = wn_core_set_input_value(view->core, index, utf8);
+    if (result == 1) {
+        wn_set_error("wn_node_set_value: '%s' is not printable ASCII (32..126); "
+                     "runtime shaping/IME are out of ABI v4", utf8);
+        return WN_ERR_UNSUPPORTED;
+    }
+    if (result == 2) {
+        wn_set_error("wn_node_set_value: '%s' exceeds the input max_length", utf8);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    if (result != 0) {
+        wn_set_error("wn_node_set_value: invalid input node %llu",
+                     (unsigned long long)node);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    view_mark_geometry(view);
+    return WN_OK;
+}
+
+const char *wn_view_get_value(wn_view *view, wn_node_id node)
+{
+    int index;
+    const char *value;
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_node_get_value: view is NULL");
+        return NULL;
+    }
+    index = view_node_index(view, node);
+    if (index < 0) {
+        wn_set_error("wn_node_get_value: invalid node handle %llu",
+                     (unsigned long long)node);
+        return NULL;
+    }
+    if (!wn_core_node_is_input(view->core, index)) {
+        wn_set_error("wn_node_get_value: node handle %llu is not a text input",
+                     (unsigned long long)node);
+        return NULL;
+    }
+    value = wn_core_input_value(view->core, index);
+    if (value == NULL) {
+        wn_set_error("wn_node_get_value: input %llu has no value",
+                     (unsigned long long)node);
+        return NULL;
+    }
+    wn_free_(view->value_scratch);
+    view->value_scratch = wn_strdup_(value);
+    if (view->value_scratch == NULL) {
+        wn_set_error("wn_node_get_value: out of memory");
+        return NULL;
+    }
+    return view->value_scratch;
 }

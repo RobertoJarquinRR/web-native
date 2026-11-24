@@ -9,9 +9,15 @@ wgpu-native / D3D12. Sin navegador, sin WebView, sin Skia, sin Electron. El
 build-time y el frontend Python queda como oráculo/fallback.
 
 **ui-tree/2 (piloto):** grid `auto-fill`, scroll vertical con clipping, imágenes
-locales PNG/JPEG y `WN_EVENT_WHEEL` (ABI v2). El piloto
-`tests/pilot-media-library` pasa **38/38**; el fixture v1 conserva **69/69** y
+locales PNG/JPEG y `WN_EVENT_WHEEL` (ABI v2). El piloto canónico
+(`benchmarks/pilot-media-library`) pasa **48/48**, el fixture local
+`tests/pilot-media-library` **38/38** y el fixture v1 conserva **69/69**;
 `build_abi.ps1` queda en PASS (§14).
+
+**ui-tree/3 + ABI v4 (text input):** `<input type="text">` de una línea con
+piscina ASCII imprimible horneada en el atlas, caret/selección, teclado,
+clipboard Win32, `maxlength`, `WN_EVENT_INPUT`, `wn_node_set_value` y
+`wn_node_get_value` (§16). El fixture nuevo pasa **111/111** checks.
 
 Este directorio es la promoción canónica de `experiments/15-runtime-r2-c`. Con
 el árbol Python (`-UsePythonTree`) el `ui_data.h` generado sigue siendo
@@ -40,9 +46,10 @@ R2 es el núcleo de un runtime nativo de HTML+CSS:
 
 Lo que **no** es: no es un navegador, no parsea HTML/CSS en runtime, no tiene
 DOM mutable, no implementa el algoritmo completo de CSS Flexbox, no tiene
-bordes, sombras, transformaciones ni eventos de teclado más allá de Esc. Desde
-ui-tree/2 sí tiene un subconjunto de **grid auto-fill, scroll vertical con
-clipping e imágenes locales** (§14).
+bordes, sombras ni transformaciones. Desde ui-tree/2 sí tiene un subconjunto de
+**grid auto-fill, scroll vertical con clipping e imágenes locales** (§14) y
+desde ui-tree/3 un **text input ASCII de una línea** (§16); no hay IME, shaping
+en runtime, wrapping, password ni undo.
 
 ---
 
@@ -597,6 +604,10 @@ mismo algoritmo extraído a `wn_core.c` y se compila aparte.
 > **ABI v3 (aditiva)**: la UI dinámica de la sección 15 añade `wn_node_id`,
 > visibilidad, `set_image`, `set_text`, clonado y borrado. Los structs y eventos
 > v2 (`wn_event`, `wn_config`, wheel) no cambian.
+>
+> **ABI v4 (aditiva)**: la sección 16 añade `WN_EVENT_INPUT = 11`,
+> `wn_node_set_value` y `wn_node_get_value`; `wn_event` conserva tamaño y
+> layout. `wn_abi_version()` devuelve 4.
 
 ### 13.1 Módulos
 
@@ -1055,9 +1066,8 @@ Evidencia en `tests/dynamic/out/`: `stage_00.png` … `stage_10.png`,
 1. **Texto dinámico real**: no hay shaping runtime (HarfBuzz/FreeType), métricas
    nuevas, wrapping ni reflow por longitud. `set_text` es un override de
    glifos pre-shaped; no crea runs ni actualiza `width/height`.
-2. **Input**: no hay foco, teclado/IME, selección de texto, clipboard ni
-   formularios. La API dinámica es host-driven (el host llama), no un sistema de
-   eventos de contenido.
+2. **Input**: resuelto para single-line ASCII en la sección 16. Siguen fuera
+   IME, bidi, password, undo/redo, multilínea y drag de texto.
 3. **Virtualización/reciclado**: clonar/borrar es O(subárbol) y la arena es fija
    (4096 nodos, error claro al agotarse). No hay pooling de items visibles,
    `key`/reconciliación, lazy lists ni reciclado de texturas.
@@ -1073,3 +1083,302 @@ Evidencia en `tests/dynamic/out/`: `stage_00.png` … `stage_10.png`,
    `z-index`/stacking contexts; el arena garantiza el orden de hijos, no capas
    arbitrarias.
 
+---
+
+## 16. Text input v1 (`ui-tree/3`, ABI v4)
+
+Input de texto **de una línea, ASCII, sin IME y sin shaping en runtime**. El
+frontend hornea una piscina ASCII imprimible por cada tamaño de fuente; el core
+mantiene el buffer de edición, caret y selección, y compone el texto sumando
+avances. El host ve eventos semánticos (`WN_EVENT_INPUT`) y puede leer/escribir
+el valor con la ABI. Es la base de la búsqueda del piloto de biblioteca.
+
+### 16.1 Schema `webnative.ui-tree/3`
+
+`/3` es **aditivo sobre `/2`** (hereda todos sus campos de estilo). Solo se emite
+cuando la página tiene al menos un nodo `kind:"input"`; las páginas `/1` y `/2`
+conservan exactamente sus bytes y su schema. Un `<input>` dentro de
+`display:none` no cuenta.
+
+```json
+{
+  "id": 2,
+  "parent": 1,
+  "children": [],
+  "kind": "input",
+  "name": "body.root/div.bar/input#search.search",
+  "tag": "input",
+  "element_id": "search",
+  "classes": ["search"],
+  "style": {
+    "display": "block",
+    "width_px": 320.0,
+    "height_px": 34.0,
+    "padding": [7.0, 9.0, 7.0, 9.0],
+    "font_size": 20.0,
+    "color": "#f2f5f8",
+    "background": "#1c2430"
+  },
+  "text": null,
+  "input": {
+    "value": "",
+    "placeholder": "Buscar...",
+    "max_length": 12,
+    "password": false,
+    "baseline": 22.0,
+    "line_height": 28.0,
+    "glyphs": [
+      { "cp": 32, "gid": 3, "advance": 5.484375, "x": 0.0, "y": 22.0,
+        "w": 0, "h": 0, "u0": 0.0, "v0": 0.0, "u1": 0.0, "v1": 0.0 },
+      { "cp": 97, "gid": 68, "advance": 10.171875, "x": 0.0, "y": 12.0,
+        "w": 9, "h": 10, "u0": 0.449, "v0": 0.041, "u1": 0.466, "v1": 0.060 }
+    ]
+  }
+}
+```
+
+| Campo | Regla |
+|---|---|
+| `kind` | `"input"`; nodo hoja (void, sin hijos). |
+| `value` | Valor inicial, solo ASCII imprimible (32..126). El frontend descarta el resto y recorta a `maxlength`. |
+| `placeholder` | Texto de ayuda; se pinta cuando `value` está vacío, con color atenuado. ASCII. |
+| `max_length` | 1..255; `0` o ausente = sin límite (tope duro 255). |
+| `password` | Reservado; siempre `false` en v1. |
+| `baseline` | Ascender en px desde el top del content box. |
+| `line_height` | Ascender + descender; altura por defecto si el CSS no fija `height`. |
+| `glyphs[]` | Piscina ASCII **completa y ordenada** 32..126 (95 entradas), ver §16.2. |
+
+HTML aceptado (extensión del piloto v2; sin `--pilot` avisa y `--strict-subset`
+falla):
+
+```html
+<input id="search" type="text" placeholder="Buscar..." value="abc" maxlength="12">
+```
+
+- `type` ausente o `text`; cualquier otro tipo se emite como bloque normal y el
+  subset avisa (no hay checkbox/radio/password en v1).
+- `disabled`/`readonly` se aceptan y se ignoran: el widget v1 es siempre
+  editable (el host decide no enfocarlo).
+- `value`/`placeholder` no ASCII: se descartan y el subset avisa.
+- `maxlength` inválido se ignora.
+- Sin `width`/`height` CSS: ancho por defecto 200 px (o estimado por
+  `maxlength`, 80..480) y alto = padding + línea de la fuente.
+- R1 (`--out` sin `--emit-ui`) no edita ni compone texto: imprime
+  `warning[r1] ... <input> es el widget text input de R2`.
+
+### 16.2 Piscina ASCII y atlas
+
+`emit_ui.py --ui-json` copia la piscina del `ui.json` a dos tablas del header:
+
+```c
+typedef struct {
+    int cp; int gid;
+    float advance;
+    float x, y, w, h;        /* caja relativa al content box */
+    float u0, v0, u1, v1;    /* UVs del atlas R8 */
+} UiInputGlyph;
+
+typedef struct {
+    int node;
+    const char *value;
+    const char *placeholder;
+    int max_length;
+    int password;
+    float baseline, line_height;
+    int glyph_first, glyph_count;
+} UiInput;
+
+#define UI_INPUT_COUNT n
+#define UI_INPUT_GLYPH_COUNT m
+```
+
+- Una piscina por `(familia, tamaño)` usada por los inputs; el atlas deduplica
+  por `(path, gid, size)` y `emit_ui.py` deduplica bloques idénticos.
+- Las páginas con input usan un atlas **512×512** (la piscina son ~95 glyphs por
+  tamaño). Las páginas sin input siguen en 256×256, byte-idénticas.
+- `space` (32) tiene `w = h = 0` pero `advance > 0`; el core solo avanza el pen.
+- **Sin shaping en runtime**: nada de HarfBuzz/FreeType en el core. El ancho de
+  una cadena es la suma de avances aislados, así que los pares con kerning
+  (`AV`) pueden diferir del shaping de un nodo de texto normal. Es una decisión
+  de contrato, no un bug.
+- El core copia las tablas a `WnInputRecord`/`WnInputGlyph` y construye
+  `input_map[node] -> piscina`; `input_record()` es la única puerta. Un clone
+  comparte la piscina del template y recibe su propia copia del valor.
+- Buffer de edición: `255 + 1` bytes por input, asignado al crear; el caret es
+  un offset de byte (ASCII: bytes == caracteres).
+- El modo oráculo `emit_ui.py --html/--css` **no** soporta input (no hornea la
+  piscina): aborta con un mensaje. El camino válido es `frontend-rust
+  --emit-ui --pilot` + `emit_ui.py --ui-json`.
+
+### 16.3 ABI v4
+
+`WN_ABI_VERSION` pasa a **4**. Todo es aditivo: `wn_event` conserva tamaño,
+orden y semántica.
+
+```c
+#define WN_ABI_VERSION 4u
+
+typedef enum wn_event_type {
+    /* ... v0..v2 sin cambios ... */
+    WN_EVENT_WHEEL = 10,
+    WN_EVENT_INPUT = 11
+} wn_event_type;
+
+WN_API wn_status wn_node_set_value(wn_app *app, wn_node_id node, const char *utf8);
+WN_API const char *wn_node_get_value(wn_app *app, wn_node_id node);
+```
+
+- `WN_EVENT_INPUT`: `target_id` es el input; el valor nuevo se lee con
+  `wn_node_get_value()` **dentro del callback**. Se emite en cada cambio de
+  valor provocado por el usuario (CHAR, Backspace/Delete, paste/cut). No se
+  emite por mover el caret/selección, por foco/blur ni por
+  `wn_node_set_value()` (el caller ya conoce el valor).
+- `wn_node_set_value`:
+  - `WN_OK` y caret al final, selección limpia, sin evento.
+  - `WN_ERR_UNSUPPORTED` si hay un byte fuera de 32..126 (no hay shaping/IME).
+  - `WN_ERR_INVALID_ARGUMENT` si supera `maxlength` (o 255) o el nodo no es un
+    input.
+  - El valor anterior se conserva si falla.
+- `wn_node_get_value`: string **del engine**, válido hasta la siguiente llamada
+  webnative en ese hilo; `NULL` + `wn_last_error()` para un nodo inválido. No
+  reserva memoria nueva en cada llamada (buffer scratch del view).
+- Handles: `wn_app_find` resuelve nombres compilados completos
+  (`body.root/div.bar/input#search.search`). El sufijo de clase forma parte del
+  nombre; usa el valor de `ui_meta.json` o el `element_id` si es único.
+- En v4 la API de valor es **app-level** (igual que la UI dinámica v3). Un host
+  embedded recibe `WN_EVENT_INPUT` y puede mantener su propio modelo; las
+  funciones `wn_view_set_value`/`wn_view_get_value` existen como superficie
+  interna (`wn_view.h`) para tests/demos, no están en `include/webnative.h`.
+
+### 16.4 Teclado, foco y clipboard
+
+| Entrada | Comportamiento |
+|---|---|
+| Click en el input | Enfoca y coloca el caret en el límite más cercano del click. Click fuera: blur. |
+| ASCII imprimible (`WM_CHAR`) | Inserta en el caret; si hay selección, la reemplaza. |
+| `Backspace` / `Delete` | Borra selección o el carácter anterior/siguiente. |
+| `←` / `→` | Mueve el caret; con selección, colapsa al extremo. |
+| `Shift+←/→/Home/End` | Extiende la selección desde el ancla. |
+| `Home` / `End` | Inicio/fin del valor. |
+| `Ctrl+A` | Selecciona todo. |
+| `Ctrl+C` / `Ctrl+X` | Copia/corta la selección a `CF_UNICODETEXT` (Win32). |
+| `Ctrl+V` | Pega ASCII imprimible hasta `maxlength` (trunca el resto). |
+| `Esc` | Suelta el foco sin borrar el valor. |
+| `Enter` | **No** lo consume el engine (no hay formularios/submit en v4); el host decide. |
+| `Tab` | No lo consume el engine; el host gestiona el orden de foco. |
+
+- **Esc y cierre**: `host_win32.c` ya no cierra con Esc. `wn_app.c` cierra solo
+  si **ningún** input tiene foco; con foco, reenvía el evento y el view hace
+  blur. `runtime_r2.exe` aplica la misma regla en su `WM_KEYDOWN`.
+- El cursor horizontal auto-scroll mantiene visible el caret; el texto se
+  recorta al content box y la línea se centra verticalmente (si el content box
+  es más bajo que la línea, se recorta simétricamente).
+- Colores fijos v1: anillo de foco `#3b82f6` (2 px), selección
+  `#3b82f6` al 40 %, placeholder `#6b7785`. El caret usa el `color` del nodo.
+- `WM_KILLFOCUS` (ventana sin foco) también hace blur.
+- El caret es **fijo** (sin parpadeo) en v1 para que los PNG de aceptación sean
+  deterministas. El blink es una mejora de host/tiempo, no de layout.
+- El placeholder se pinta en el pase de glyphs (encima del caret); el caret
+  sigue siendo visible a los lados/arriba del glyph.
+
+### 16.5 Demo y tests
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\input\run_input.ps1
+# re-emitir page\ui.json + fixture\ui_data.h (frontend-rust --pilot + --ui-json):
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\input\run_input.ps1 -Regenerate
+```
+
+Cuatro capas contra `tests/input/page` (480×240, dos inputs: `search` 320×34
+con `maxlength=12` y `empty` 220×28 con `maxlength=5`):
+
+1. `input_core_test.exe` (solo core): lookup, layout, click/caret, typing,
+   inserción en el caret, Backspace/Delete, Home/End, selección Shift,
+   copy/cut/paste con buffer, `maxlength`, `set_value`/`get_value` (rechazos),
+   blur con Esc, cambio de foco y clone independiente.
+2. `runtime_input.exe --input out\stage`: 10 PNGs offscreen deterministas.
+   `stage_report.json` registra por stage `value`, `cursor`, `anchor`,
+   `focused`, `caret_x`, `selection_x0/x1`, `scroll`, rects, baseline y
+   `glyph_vertices`.
+3. `input.exe` (ABI v4): `set_value`/`get_value`, rechazos, `WN_EVENT_INPUT`
+   con lectura dentro del callback, typing/Backspace, Home+Shift+Right,
+   `Ctrl+C/X/V` reales, Esc blur y la política "Esc no cierra con foco".
+4. `runtime_input.exe --frames 16 --input-demo --width 480 --height 240`:
+   ventana Win32 real; el demo sintetiza `WM_LBUTTONDOWN/UP`, `WM_CHAR 'a'/'b'`
+   y `VK_BACK` a través del `wnd_proc` y registra `value="a" focused=1`.
+
+`verify_input.py` comprueba valores/cursores/anchors, píxeles de placeholder,
+texto, anillo, caret y selección, y los logs. Evidencia en
+`tests/input/out/`: `stage_00.png` … `stage_09.png`, `stage_report.json`,
+`core_events.jsonl`, `runtime_input.log`, `window_input.log`, `abi_input.log`,
+`input_verify_report.json` y `run_report.json`.
+
+Resultado de la última ejecución: **111/111 checks PASS**, 0 fallos.
+
+### 16.6 Limitaciones (honestas)
+
+1. **Solo ASCII imprimible (32..126)**. No hay IME, composición, bidi, CJK,
+   emoji ni shaping en runtime; el host debe filtrar/convertir la entrada.
+2. **Sin wrapping ni multilínea**: un input es una línea; el texto sobrante se
+   recorta y se desplaza en horizontal.
+3. **Sin password real**: `password` está en el schema pero siempre `false`;
+   `type="password"` no se emite como input.
+4. **Sin undo/redo** ni `Ctrl+Z/Y`; tampoco `Ctrl+←/→` (palabra),
+   `Ctrl+Backspace`, drag-select, doble-click-select ni autoscroll por drag.
+5. **Caret sin blink** y sin animación; selección de un solo rango.
+6. **Sin formularios**: no hay `submit`, validación, `change`/commit ni
+   autofill. `Enter` queda para el host.
+7. **Sin kerning en la composición** (avances aislados de la piscina).
+8. **Tope 255 bytes** por input (además de `maxlength`), un `value` por nodo.
+9. **Atlas 512×512**: caben ~4-5 tamaños de fuente de input por página; si se
+   desborda, el frontend falla con un error claro (no hay atlas múltiple).
+10. **API de valor app-level**: el host embedded no tiene `wn_node_get_value`;
+   usa el evento y su propio modelo (o la superficie interna de `wn_view.h`).
+11. **Sin accesibilidad/UIA** todavía (rol textbox, valor, selección).
+
+### 16.7 Integración con el host C# (WPF/WinForms)
+
+1. **Compila el árbol con input**: `frontend-rust --emit-ui --pilot` y
+   `emit_ui.py --ui-json`. El `ui_data.h` resultante expone
+   `R2_NODE_INPUT`, `kUiInputs` y `kUiInputGlyphs`; el runtime debe compilarse
+   contra ese header (no contra el fixture por defecto).
+2. **P/Invoke** (ABI v4, UTF-8, `PublishAot` o JIT):
+   ```csharp
+   [LibraryImport("webnative", StringMarshalling = StringMarshalling.Utf8)]
+   private static partial nint wn_app_create(in wn_config config);
+
+   [LibraryImport("webnative", StringMarshalling = StringMarshalling.Utf8)]
+   private static partial wn_status wn_node_set_value(nint app, ulong node, string value);
+
+   [LibraryImport("webnative")]
+   private static partial nint wn_node_get_value(nint app, ulong node);
+   ```
+   `wn_node_get_value` devuelve un puntero del engine: conviértelo con
+   `Marshal.PtrToStringUTF8` **inmediatamente** (válido hasta la siguiente
+   llamada webnative en ese hilo).
+3. **Callback de eventos**: registra `wn_app_on_event`. En `WN_EVENT_INPUT (11)`
+   lee `wn_node_get_value(app, node)` y actualiza el binding de la UI; no
+   vuelvas a llamar a `set_value` desde el callback (bucle).
+4. **Reenvía teclado**: `KeyDown` → `wn_event.type = WN_EVENT_KEY_DOWN`,
+   `key = (int)KeyInterop.VirtualKeyFromKey(e.Key)`, `modifiers` con
+   `WN_MOD_SHIFT/CTRL/ALT`; `TextInput`/`PreviewTextInput` → `WN_EVENT_CHAR` con
+   el codepoint (solo 32..126). El engine hace el resto (caret, selección,
+   Backspace, Ctrl+A/C/X/V).
+5. **Foco**: un `WN_EVENT_POINTER_DOWN` sobre el input lo enfoca y coloca el
+   caret; `WN_EVENT_POINTER_UP` completa el click. `Esc` hace blur; cierra la
+   ventana solo si tú lo decides cuando no hay foco.
+6. **Nombre del nodo**: `wn_app_find(app, "body.root/div.bar/input#search.search")`
+   (nombre compilado completo). Si usas el `element_id`, recuerda que el nombre
+   incluye `tag#id.clase`; el id suelto no resuelve si hay clase.
+7. **Valor**: el engine es la fuente de verdad del buffer de edición. El host
+   refleja `WN_EVENT_INPUT`; para cambios programáticos usa `set_value` (no
+   emite evento) y refresca el binding.
+8. **Clipboard**: no implementes Ctrl+C/X/V en C# si reenvías las teclas al
+   engine; `wn_view_event` usa el clipboard del sistema (Win32). Si tu host
+   intercepta esos atajos, desactívalos para el input.
+9. **Hilos**: todo en el hilo de UI; no reentrar en `wn_app_run`/render desde el
+   callback.
+10. **Comprueba `wn_abi_version() == 4`** al arrancar y degrada a solo lectura si
+    el runtime es anterior.
+
+---

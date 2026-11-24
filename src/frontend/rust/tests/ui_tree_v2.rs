@@ -843,3 +843,185 @@ fn r1_warns_about_border_radius_and_shadow_without_invalid_rects() {
         assert_eq!(op.get("h").and_then(Json::as_f64), Some(240.0));
     }
 }
+
+// ------------------------------------------------------- ui-tree/3 (input)
+
+const INPUT_PAGE: &str = r##"<!doctype html>
+<html>
+<head>
+<style>
+body { margin: 0; }
+.bar { display: flex; flex-direction: column; gap: 10px; }
+.search { width: 320px; height: 34px; padding: 7px 9px; font-size: 20px; color: #f2f5f8; background: #1c2430; }
+.empty { width: 220px; height: 28px; font-size: 16px; color: #f2f5f8; }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <input id="search" class="search" type="text" placeholder="Buscar..." value="abc" maxlength="5">
+    <input id="empty" class="empty" placeholder="Otro" value="abcdef" maxlength="5">
+  </div>
+</body>
+</html>
+"##;
+
+fn inputs(doc: &Json) -> Vec<&Json> {
+    nodes(doc)
+        .iter()
+        .filter(|node| node.get("kind").and_then(Json::as_str) == Some("input"))
+        .collect()
+}
+
+#[test]
+fn input_emits_schema_3_with_ascii_pool() {
+    let dir = temp_dir("input-v3");
+    write(&dir.join("page.html"), INPUT_PAGE);
+
+    let output = emit_ui(&dir, "page.html", "ui.json", &["--pilot"]);
+    assert!(
+        output.status.success(),
+        "exit {:?}\n{}",
+        output.status.code(),
+        stderr(&output)
+    );
+    let doc = read_json(&dir.join("ui.json"));
+    assert_eq!(
+        doc.get("schema").and_then(Json::as_str),
+        Some("webnative.ui-tree/3")
+    );
+    assert_eq!(nodes(&doc).len(), 4, "{doc:#?}");
+
+    let search = node_with_id(&doc, "search");
+    assert_eq!(node_str(search, "kind"), Some("input"));
+    assert_eq!(node_str(search, "tag"), Some("input"));
+    let input = search.get("input").expect("input object");
+    assert_eq!(input.get("value").and_then(Json::as_str), Some("abc"));
+    assert_eq!(
+        input.get("placeholder").and_then(Json::as_str),
+        Some("Buscar...")
+    );
+    assert_eq!(input.get("max_length").and_then(Json::as_f64), Some(5.0));
+    assert_eq!(input.get("password"), Some(&Json::Bool(false)));
+    let baseline = input.get("baseline").and_then(Json::as_f64).unwrap();
+    let line_height = input.get("line_height").and_then(Json::as_f64).unwrap();
+    assert!(baseline > 0.0 && line_height > baseline, "{input:#?}");
+
+    let glyphs = input
+        .get("glyphs")
+        .and_then(Json::as_array)
+        .expect("glyph pool");
+    assert_eq!(glyphs.len(), 95, "ASCII imprimible 32..126");
+    for (index, glyph) in glyphs.iter().enumerate() {
+        assert_eq!(
+            glyph.get("cp").and_then(Json::as_f64),
+            Some((index + 32) as f64)
+        );
+    }
+    let space = &glyphs[0];
+    assert!(space.get("advance").and_then(Json::as_f64).unwrap() > 0.0);
+    assert_eq!(space.get("w").and_then(Json::as_f64), Some(0.0));
+    let letter = glyphs.iter().find(|glyph| {
+        glyph.get("cp").and_then(Json::as_f64) == Some(f64::from(b'a'))
+    }).unwrap();
+    assert!(letter.get("w").and_then(Json::as_f64).unwrap() > 0.0);
+    assert!(letter.get("advance").and_then(Json::as_f64).unwrap() > 0.0);
+    assert!(letter.get("u1").and_then(Json::as_f64).unwrap() > 0.0);
+    assert!(letter.get("v1").and_then(Json::as_f64).unwrap() > 0.0);
+
+    // El atlas incluye la piscina (512) aunque la pagina no tenga texto.
+    let atlas = doc.get("atlas").expect("atlas");
+    assert_eq!(atlas.get("width").and_then(Json::as_f64), Some(512.0));
+    assert!(atlas.get("glyph_count").and_then(Json::as_f64).unwrap() >= 180.0);
+    assert!(
+        dir.join("atlas.bin").is_file(),
+        "atlas.bin must be written for input pages"
+    );
+
+    // /3 hereda los campos v2 del estilo (aditivo, no regresivo).
+    assert_eq!(style_f64(search, "width_px"), 320.0);
+    assert_eq!(style_f64(search, "height_px"), 34.0);
+    assert_eq!(style_f64(search, "gap"), 0.0);
+    assert!(
+        search
+            .get("style")
+            .and_then(|style| style.get("row_gap"))
+            .is_some(),
+        "/3 keeps the v2 style fields"
+    );
+
+    // maxlength recorta el valor inicial; sin `type` se asume text.
+    let empty = node_with_id(&doc, "empty");
+    let empty_input = empty.get("input").expect("input object");
+    assert_eq!(empty_input.get("value").and_then(Json::as_str), Some("abcde"));
+    assert_eq!(empty_input.get("max_length").and_then(Json::as_f64), Some(5.0));
+    assert_eq!(
+        empty_input.get("placeholder").and_then(Json::as_str),
+        Some("Otro")
+    );
+
+    // Solo los nodos input llevan `input`.
+    for node in nodes(&doc) {
+        let is_input = node.get("kind").and_then(Json::as_str) == Some("input");
+        assert_eq!(node.get("input").is_some(), is_input, "{node:#?}");
+    }
+}
+
+#[test]
+fn input_is_a_pilot_extension_and_r1_warns() {
+    let dir = temp_dir("input-subset");
+    write(&dir.join("page.html"), INPUT_PAGE);
+
+    let strict = emit_ui(&dir, "page.html", "strict.json", &["--strict-subset"]);
+    assert!(!strict.status.success(), "sin --pilot debe fallar");
+    let strict_err = stderr(&strict);
+    assert!(strict_err.contains("error[subset]"), "{strict_err}");
+    assert!(strict_err.contains("piloto v2"), "{strict_err}");
+    assert!(strict_err.contains("<input>"), "{strict_err}");
+
+    let allowed = emit_ui(
+        &dir,
+        "page.html",
+        "allowed.json",
+        &["--strict-subset", "--pilot"],
+    );
+    assert!(
+        allowed.status.success(),
+        "con --pilot debe pasar: {}",
+        stderr(&allowed)
+    );
+    assert!(!stderr(&allowed).contains("[subset]"));
+
+    let r1 = run(&dir, "page.html", &["--out", "page.ir.json"]);
+    assert!(r1.status.success(), "{}", stderr(&r1));
+    let err = stderr(&r1);
+    assert!(err.contains("warning[r1]"), "{err}");
+    assert!(err.contains("widget text input"), "{err}");
+}
+
+#[test]
+fn input_does_not_leak_into_v1_or_v2_pages() {
+    let dir = temp_dir("input-no-leak");
+    let v1 = r##"<!doctype html>
+<html><head><style>body { background: #ffffff; }</style></head>
+<body><div style="width: 10px; height: 10px; background: #111111"></div></body></html>
+"##;
+    write(&dir.join("v1.html"), v1);
+    let first = emit_ui(&dir, "v1.html", "v1-a.json", &[]);
+    assert!(first.status.success(), "{}", stderr(&first));
+    let text = fs::read_to_string(dir.join("v1-a.json")).unwrap();
+    assert!(text.contains("webnative.ui-tree/1"), "{text}");
+    assert!(!text.contains("\"input\""), "{text}");
+    assert!(!text.contains("row_gap"), "{text}");
+
+    let v2 = r##"<!doctype html>
+<html><head><style>.g { display: grid; grid-template-columns: repeat(auto-fill, 80px); }</style></head>
+<body><div class="g"><div style="width: 80px; height: 40px"></div></div></body></html>
+"##;
+    write(&dir.join("v2.html"), v2);
+    let second = emit_ui(&dir, "v2.html", "v2.json", &["--pilot"]);
+    assert!(second.status.success(), "{}", stderr(&second));
+    let text = fs::read_to_string(dir.join("v2.json")).unwrap();
+    assert!(text.contains("webnative.ui-tree/2"), "{text}");
+    assert!(!text.contains("\"input\""), "{text}");
+    assert!(text.contains("row_gap"), "{text}");
+}

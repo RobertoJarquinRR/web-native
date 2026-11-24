@@ -78,8 +78,15 @@ pub fn collect(dom: &Dom, styles: &[Option<ComputedStyle>]) -> Vec<Warning> {
         }
         if node.tag == "img" {
             out.push(Warning {
-                context: name,
+                context: name.clone(),
                 message: "<img> no se renderiza en el IR de R1; R2 (--emit-ui) emite kind:image"
+                    .to_string(),
+            });
+        }
+        if node.tag == "input" {
+            out.push(Warning {
+                context: name,
+                message: "<input> es el widget text input de R2 (ui-tree/3, --emit-ui); el IR de R1 no edita ni compone texto"
                     .to_string(),
             });
         }

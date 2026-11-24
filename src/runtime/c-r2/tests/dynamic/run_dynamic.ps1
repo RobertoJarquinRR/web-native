@@ -210,7 +210,7 @@ try {
     $abiRun = Invoke-Run $abiExe @('--frames', '8', '--image-b', $imageB) $page (Join-Path $out 'abi_dynamic.log')
     if ($abiRun.exit -ne 0) { Stop-Fail "dynamic.exe exited $($abiRun.exit)" }
     foreach ($needle in @(
-        'ABI 3',
+        'ABI 4',
         'dynamic: PASS',
         'clone(card,cards)=',
         'nodes=21',

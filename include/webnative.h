@@ -1,5 +1,5 @@
 /*
- * webnative.h — C ABI v0
+ * webnative.h — C ABI v4
  *
  * Public contract between the webnative engine and host applications.
  *
@@ -35,7 +35,7 @@ extern "C" {
 #  define WN_API __attribute__((visibility("default")))
 #endif
 
-#define WN_ABI_VERSION 3u
+#define WN_ABI_VERSION 4u
 
 /* Modifier bits for wn_event.modifiers. */
 #define WN_MOD_SHIFT 0x01u
@@ -79,7 +79,13 @@ typedef enum wn_event_type {
     WN_EVENT_FOCUS_IN     = 7,
     WN_EVENT_FOCUS_OUT    = 8,
     WN_EVENT_CLOSE        = 9,
-    WN_EVENT_WHEEL        = 10
+    WN_EVENT_WHEEL        = 10,
+    /* ABI v4: the focused text input changed value. `target_id` is the input
+     * node; read the new value with wn_node_get_value(). Emitted for typing,
+     * Backspace/Delete and paste/cut. It is NOT emitted for
+     * wn_node_set_value() (the caller already knows) nor for
+     * caret/selection-only moves. */
+    WN_EVENT_INPUT        = 11
 } wn_event_type;
 
 typedef struct wn_event {
@@ -189,6 +195,26 @@ WN_API wn_status wn_node_clear_children(wn_app *app, wn_node_id node);
 /* Re-parent `child` (and its subtree) as the last child of `parent`. The
  * document root cannot be moved and `parent` must not be inside `child`. */
 WN_API wn_status wn_node_append(wn_app *app, wn_node_id parent, wn_node_id child);
+
+/* -------------------------------------------------- text input (ABI v4) */
+/*
+ * Single-line ASCII text input. `node` must be a compiled `kind:"input"`
+ * node (or a clone of one). Values are engine-owned copies of ASCII printable
+ * text (32..126); non-ASCII returns WN_ERR_UNSUPPORTED. The length is capped
+ * by the compiled `maxlength` (or 255 when absent); longer values return
+ * WN_ERR_INVALID_ARGUMENT. set_value places the caret at the end, clears the
+ * selection and does NOT emit WN_EVENT_INPUT (the caller already knows).
+ * get_value returns an engine-owned string valid until the next webnative
+ * call on this thread; NULL (and wn_last_error) for an invalid node.
+ *
+ * Editing happens through wn_view_event()/the window loop: click focuses and
+ * places the caret, WN_EVENT_CHAR inserts printable ASCII, KEY_DOWN handles
+ * Backspace/Delete/Left/Right/Home/End (+Shift selection) and Ctrl+A/C/X/V.
+ * Esc releases focus. Enter is left to the host (no form/submit in v4).
+ * Every user-driven value change emits WN_EVENT_INPUT.
+ */
+WN_API wn_status wn_node_set_value(wn_app *app, wn_node_id node, const char *utf8);
+WN_API const char *wn_node_get_value(wn_app *app, wn_node_id node);
 
 /* ----------------------------------------------------------- embedded view */
 

@@ -171,9 +171,8 @@ static LRESULT CALLBACK host_wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
     case WM_KEYDOWN:
         emit_event(host, WN_EVENT_KEY_DOWN, NULL, 0.0f, 0.0f,
                    (int32_t)wparam, 0, 0, 0);
-        if (wparam == VK_ESCAPE) {
-            host->running = 0;
-        }
+        /* Esc does not close here: wn_app closes only when no text input owns
+         * the focus (ABI v4). With focus, the view consumes it. */
         return 0;
     case WM_KEYUP:
         emit_event(host, WN_EVENT_KEY_UP, NULL, 0.0f, 0.0f,

@@ -17,8 +17,9 @@
  *   runtime_r2.exe --states out_prefix [--node ID] [--size 960x640]
  *   runtime_r2.exe --report layout_report.json [--sizes 960x640,720x640,560x640]
  *   runtime_r2.exe --dynamic out_prefix        (11-stage Dynamic UI v0 demo)
- *   runtime_r2.exe --frames 30 [--resize-demo]
- *   runtime_r2.exe                      (window, close with Esc)
+ *   runtime_r2.exe --input out_prefix          (10-stage text input v1 demo)
+ *   runtime_r2.exe --frames 30 [--resize-demo] [--input-demo]
+ *   runtime_r2.exe                      (window; Esc blurs an input, else closes)
  */
 
 #define WIN32_LEAN_AND_MEAN
@@ -36,6 +37,12 @@
 #include "ui_data.h"
 #include "wn_core.h"
 #include "wn_internal.h"
+
+/* ui-tree/3 only emits R2_NODE_INPUT in headers with inputs; the demo helper
+ * must compile against v1/v2 headers too. */
+#ifndef R2_NODE_INPUT
+#define R2_NODE_INPUT 5
+#endif
 
 #define ARRAY_LEN(a) ((size_t)(sizeof(a) / sizeof((a)[0])))
 #define MAX_FLEX_ITEMS UI_NODE_COUNT
@@ -1862,6 +1869,16 @@ static int first_interactive_node(void)
     return -1;
 }
 
+static int first_input_node(void)
+{
+    for (int i = 0; i < UI_NODE_COUNT; ++i) {
+        if (kUiNodes[i].kind == R2_NODE_INPUT) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 static int run_states(const char *prefix, int node, int width, int height)
 {
     Gpu gpu;
@@ -1984,6 +2001,134 @@ static void set_client_size(HWND hwnd, int client_w, int client_h)
                  SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
+/* ------------------------------------------------ window text input (v4) */
+
+static uint32_t input_modifiers(void)
+{
+    uint32_t mods = 0;
+    if (GetKeyState(VK_SHIFT) & 0x8000) mods |= WN_KEY_MOD_SHIFT;
+    if (GetKeyState(VK_CONTROL) & 0x8000) mods |= 0x02u;
+    if (GetKeyState(VK_MENU) & 0x8000) mods |= 0x04u;
+    return mods;
+}
+
+static void r2_clipboard_set(const char *text)
+{
+    int length;
+    HGLOBAL memory;
+    wchar_t *wide;
+    if (text == NULL || !OpenClipboard(NULL)) {
+        return;
+    }
+    EmptyClipboard();
+    length = MultiByteToWideChar(CP_UTF8, 0, text, -1, NULL, 0);
+    if (length > 0) {
+        memory = GlobalAlloc(GMEM_MOVEABLE, (SIZE_T)length * sizeof(wchar_t));
+        if (memory != NULL) {
+            wide = (wchar_t *)GlobalLock(memory);
+            if (wide != NULL) {
+                MultiByteToWideChar(CP_UTF8, 0, text, -1, wide, length);
+                GlobalUnlock(memory);
+                if (SetClipboardData(CF_UNICODETEXT, memory) == NULL) {
+                    GlobalFree(memory);
+                }
+            } else {
+                GlobalFree(memory);
+            }
+        }
+    }
+    CloseClipboard();
+}
+
+static int r2_clipboard_get(char *out, int capacity)
+{
+    int copied = 0;
+    if (out == NULL || capacity <= 0) {
+        return 0;
+    }
+    out[0] = '\0';
+    if (!IsClipboardFormatAvailable(CF_UNICODETEXT) || !OpenClipboard(NULL)) {
+        return 0;
+    }
+    {
+        HANDLE handle = GetClipboardData(CF_UNICODETEXT);
+        if (handle != NULL) {
+            const wchar_t *wide = (const wchar_t *)GlobalLock(handle);
+            if (wide != NULL) {
+                int bytes = WideCharToMultiByte(CP_UTF8, 0, wide, -1, NULL, 0, NULL, NULL);
+                if (bytes > 1) {
+                    char *utf8 = (char *)malloc((size_t)bytes);
+                    if (utf8 != NULL) {
+                        if (WideCharToMultiByte(CP_UTF8, 0, wide, -1, utf8, bytes,
+                                                NULL, NULL) > 0) {
+                            copied = (int)strlen(utf8);
+                            if (copied >= capacity) {
+                                copied = capacity - 1;
+                            }
+                            memcpy(out, utf8, (size_t)copied);
+                            out[copied] = '\0';
+                        }
+                        free(utf8);
+                    }
+                }
+                GlobalUnlock(handle);
+            }
+        }
+    }
+    CloseClipboard();
+    return copied;
+}
+
+static void log_input_value(const char *why, int node)
+{
+    const char *value = wn_core_input_value(g_core, node);
+    printf("input: %s node=%d value=\"%s\"\n", why, node, value != NULL ? value : "");
+    fflush(stdout);
+}
+
+/* Returns 1 when the key was consumed. */
+static int window_input_key(int key)
+{
+    char buffer[256];
+    uint32_t mods = input_modifiers();
+    int node = wn_core_input_focused(g_core);
+    int value_changed = 0;
+    int visual_changed = 0;
+    if (node < 0) {
+        return 0;
+    }
+    if (mods & 0x02u) {
+        if (key == WN_KEY_A) {
+            wn_core_input_select_all(g_core, &visual_changed);
+        } else if (key == WN_KEY_C) {
+            int copied = wn_core_input_copy(g_core, buffer, (int)sizeof(buffer));
+            if (copied > 0) r2_clipboard_set(buffer);
+            log_input_value("copy", node);
+        } else if (key == WN_KEY_X) {
+            int copied = wn_core_input_cut(g_core, buffer, (int)sizeof(buffer),
+                                           &value_changed, &visual_changed);
+            if (copied > 0) r2_clipboard_set(buffer);
+            if (value_changed) log_input_value("cut", node);
+        } else if (key == WN_KEY_V) {
+            if (r2_clipboard_get(buffer, (int)sizeof(buffer)) > 0) {
+                wn_core_input_paste(g_core, buffer, &value_changed, &visual_changed);
+            }
+            if (value_changed) log_input_value("paste", node);
+        } else {
+            return 0;
+        }
+    } else {
+        if (wn_core_input_key(g_core, key, mods, &value_changed, &visual_changed) < 0) {
+            return 0;
+        }
+        if (value_changed) log_input_value("key", node);
+    }
+    if (visual_changed || value_changed) {
+        g_need_geometry = 1;
+    }
+    return 1;
+}
+
 static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
     switch (msg) {
@@ -2000,11 +2145,28 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
         g_need_configure = 1;
         return 0;
     case WM_KEYDOWN:
-        if (wparam == VK_ESCAPE) {
+        if (window_input_key((int)wparam)) {
+            return 0;
+        }
+        if (wparam == VK_ESCAPE && wn_core_input_focused(g_core) < 0) {
             g_running = 0;
             return 0;
         }
         return 0;
+    case WM_CHAR: {
+        int value_changed = 0;
+        int visual_changed = 0;
+        if (wn_core_input_char(g_core, (uint32_t)wparam,
+                               &value_changed, &visual_changed) >= 0) {
+            if (value_changed) {
+                log_input_value("char", wn_core_input_focused(g_core));
+            }
+            if (value_changed || visual_changed) {
+                g_need_geometry = 1;
+            }
+        }
+        return 0;
+    }
     case WM_MOUSEMOVE: {
         int x = (int)(short)LOWORD(lparam);
         int y = (int)(short)HIWORD(lparam);
@@ -2455,9 +2617,16 @@ static int run_window(void)
         }
 
         /* Real Win32 input path: synthetic WM_MOUSEMOVE / LBUTTONDOWN / UP
-         * are dispatched through the window procedure and hit testing. */
+         * are dispatched through the window procedure and hit testing. When
+         * the fixture has no action node, the demo targets the first text
+         * input and adds WM_CHAR / VK_BACK. */
         if (g_input_demo) {
             int node = first_interactive_node();
+            int input_mode = 0;
+            if (node < 0) {
+                node = first_input_node();
+                input_mode = node >= 0;
+            }
             if (node >= 0) {
                 int cx = (int)(g_rects[node].x + g_rects[node].w * 0.5f);
                 int cy = (int)(g_rects[node].y + g_rects[node].h * 0.5f);
@@ -2477,7 +2646,25 @@ static int run_window(void)
                     printf("input-demo: WM_LBUTTONUP -> selected=%d %s\n",
                            g_selected, g_selected >= 0 ? kUiNodeNames[g_selected] : "(none)");
                     fflush(stdout);
-                } else if (g_frame_index == 12) {
+                } else if (input_mode && g_frame_index == 12) {
+                    SendMessageW(hwnd, WM_CHAR, (WPARAM)'a', 0);
+                    printf("input-demo: WM_CHAR 'a'\n");
+                    fflush(stdout);
+                } else if (input_mode && g_frame_index == 13) {
+                    SendMessageW(hwnd, WM_CHAR, (WPARAM)'b', 0);
+                    printf("input-demo: WM_CHAR 'b'\n");
+                    fflush(stdout);
+                } else if (input_mode && g_frame_index == 14) {
+                    SendMessageW(hwnd, WM_KEYDOWN, VK_BACK, 0);
+                    printf("input-demo: WM_KEYDOWN VK_BACK\n");
+                    fflush(stdout);
+                } else if (input_mode && g_frame_index == 15) {
+                    const char *value = wn_core_input_value(g_core, node);
+                    printf("input-demo: value=\"%s\" focused=%d\n",
+                           value != NULL ? value : "(null)",
+                           wn_core_input_focused(g_core) == node ? 1 : 0);
+                    fflush(stdout);
+                } else if (!input_mode && g_frame_index == 12) {
                     SendMessageW(hwnd, WM_MOUSEMOVE, 0, MAKELPARAM(900, 600));
                     printf("input-demo: WM_MOUSEMOVE away -> hover=%d\n", g_hover);
                     fflush(stdout);
@@ -2736,6 +2923,209 @@ done:
     return rc;
 }
 
+/* ---------------------------------------------------------------- input v1 */
+
+static int input_stage(Gpu *gpu, FILE *report, const char *prefix, int stage,
+                       const char *action, int node, int value_changes)
+{
+    char path[MAX_PATH];
+    wchar_t wide[MAX_PATH];
+    double layout_ms = 0.0;
+    double frame_ms = 0.0;
+    wn_input_state state;
+    const wn_display_list *list;
+
+    snprintf(path, sizeof(path), "%s_%02d.png", prefix, stage);
+    MultiByteToWideChar(CP_ACP, 0, path, -1, wide, MAX_PATH);
+    if (render_offscreen(gpu, 480, 240, wide, &layout_ms, &frame_ms) != 0) {
+        fprintf(stderr, "error: input stage %d render failed\n", stage);
+        return 1;
+    }
+    if (wn_core_input_state(g_core, node, &state) != 0) {
+        fprintf(stderr, "error: input state failed\n");
+        return 1;
+    }
+    list = wn_core_display_list(g_core);
+    printf("input: stage=%d action=%s value=\"%s\" cursor=%d anchor=%d focus=%d "
+           "caret=%.2f sel=(%.2f,%.2f) scroll=%.2f glyphs=%d layout=%.3fms\n",
+           stage, action, state.value, state.cursor, state.anchor, state.focused,
+           state.caret_x, state.selection_x0, state.selection_x1, state.scroll,
+           list != NULL ? list->glyph_vertex_count : 0, layout_ms);
+    fflush(stdout);
+    fprintf(report,
+            "%s{\"stage\":%d,\"action\":\"%s\",\"value\":",
+            stage == 0 ? "" : ",\n    ", stage, action);
+    json_escape(report, state.value);
+    fprintf(report,
+            ",\"cursor\":%d,\"anchor\":%d,\"focused\":%d,"
+            "\"caret_x\":%.3f,\"selection_x0\":%.3f,\"selection_x1\":%.3f,"
+            "\"scroll\":%.3f,\"baseline\":%.3f,\"line_height\":%.3f,"
+            "\"rect\":{\"x\":%.2f,\"y\":%.2f,\"w\":%.2f,\"h\":%.2f},"
+            "\"content\":{\"x\":%.2f,\"y\":%.2f,\"w\":%.2f,\"h\":%.2f},"
+            "\"value_changes\":%d,\"glyph_vertices\":%d,\"png\":",
+            state.cursor, state.anchor, state.focused, state.caret_x,
+            state.selection_x0, state.selection_x1, state.scroll, state.baseline,
+            state.line_height, state.rect.x, state.rect.y, state.rect.w, state.rect.h,
+            state.content.x, state.content.y, state.content.w, state.content.h,
+            value_changes, list != NULL ? list->glyph_vertex_count : 0);
+    json_escape(report, path);
+    fputc('}', report);
+    return 0;
+}
+
+static int input_type(int node, const char *text, int *value_changes)
+{
+    int i;
+    for (i = 0; text[i] != '\0'; ++i) {
+        int changed = 0;
+        int visual = 0;
+        if (wn_core_input_char(g_core, (uint32_t)(unsigned char)text[i],
+                               &changed, &visual) < 0) {
+            return -1;
+        }
+        if (changed) {
+            ++*value_changes;
+        }
+    }
+    return node;
+}
+
+static int input_key(int node, int key, uint32_t mods, int *value_changes)
+{
+    int changed = 0;
+    int visual = 0;
+    if (wn_core_input_key(g_core, key, mods, &changed, &visual) < 0) {
+        return -1;
+    }
+    if (changed) {
+        ++*value_changes;
+    }
+    return node;
+}
+
+static int run_input(const char *prefix)
+{
+    Gpu gpu;
+    FILE *report = NULL;
+    char report_path[MAX_PATH];
+    int node;
+    int value_changes = 0;
+    wn_rect rect;
+    wn_input_state state;
+    char clipboard[256];
+    int copied;
+    int paste_changed = 0;
+    int paste_visual = 0;
+    int rc = 1;
+
+    if (g_core == NULL || prefix == NULL || prefix[0] == '\0') {
+        fprintf(stderr, "error: --input needs an output prefix\n");
+        return 1;
+    }
+    node = wn_core_find_node(g_core, "body.root/div.bar/input#search.search");
+    if (node < 0) {
+        node = wn_core_find_node(g_core, "input#search.search");
+    }
+    if (node < 0 || !wn_core_node_is_input(g_core, node)) {
+        fprintf(stderr, "error: --input fixture has no input#search\n");
+        return 1;
+    }
+    snprintf(report_path, sizeof(report_path), "%s_report.json", prefix);
+    report = fopen(report_path, "wb");
+    if (report == NULL) {
+        fprintf(stderr, "error: cannot create %s\n", report_path);
+        return 1;
+    }
+    memset(&gpu, 0, sizeof(gpu));
+    if (gpu_init(&gpu, NULL, 0, WGPUTextureFormat_RGBA8Unorm,
+                 "r2-input-device") != 0) {
+        gpu_release(&gpu);
+        fclose(report);
+        return 1;
+    }
+    {
+        wn_rect content;
+        if (wn_core_input_state(g_core, node, &state) != 0) {
+            goto done;
+        }
+        content = state.content;
+        fprintf(report,
+                "{\n  \"fixture\": \"tests/input/page\",\n"
+                "  \"viewport\": {\"width\": 480, \"height\": 240},\n"
+                "  \"node\": %d,\n  \"field\": \"input#search\",\n"
+                "  \"max_length\": %d,\n  \"stages\": [\n    ",
+                node, state.max_length);
+        (void)content;
+    }
+
+    if (input_stage(&gpu, report, prefix, 0, "initial", node, value_changes) != 0) goto done;
+
+    rect = wn_core_rects(g_core, NULL)[node];
+    wn_core_pointer_down(g_core, rect.x + rect.w - 12.0f, rect.y + rect.h * 0.5f);
+    wn_core_pointer_up(g_core, rect.x + rect.w - 12.0f, rect.y + rect.h * 0.5f);
+    if (input_stage(&gpu, report, prefix, 1, "click focuses", node, value_changes) != 0) goto done;
+
+    if (input_type(node, "abc", &value_changes) < 0) goto done;
+    if (input_stage(&gpu, report, prefix, 2, "type abc", node, value_changes) != 0) goto done;
+
+    /* Caret by click: Home+Right leaves the caret after 'a'; click 6 px past
+     * that boundary to land after 'b', then insert X -> "abXc". */
+    if (input_key(node, WN_KEY_HOME, 0, &value_changes) < 0) goto done;
+    if (input_key(node, WN_KEY_RIGHT, 0, &value_changes) < 0) goto done;
+    if (wn_core_input_state(g_core, node, &state) != 0) goto done;
+    wn_core_pointer_down(g_core, state.caret_x + 6.0f, rect.y + rect.h * 0.5f);
+    wn_core_pointer_up(g_core, state.caret_x + 6.0f, rect.y + rect.h * 0.5f);
+    if (input_type(node, "X", &value_changes) < 0) goto done;
+    if (input_stage(&gpu, report, prefix, 3, "click caret + insert X", node,
+                    value_changes) != 0) goto done;
+
+    if (input_key(node, WN_KEY_BACKSPACE, 0, &value_changes) < 0) goto done;
+    if (input_stage(&gpu, report, prefix, 4, "backspace", node, value_changes) != 0) goto done;
+
+    if (input_key(node, WN_KEY_HOME, 0, &value_changes) < 0) goto done;
+    if (input_key(node, WN_KEY_RIGHT, WN_KEY_MOD_SHIFT, &value_changes) < 0) goto done;
+    if (input_key(node, WN_KEY_RIGHT, WN_KEY_MOD_SHIFT, &value_changes) < 0) goto done;
+    if (input_stage(&gpu, report, prefix, 5, "shift selection", node,
+                    value_changes) != 0) goto done;
+
+    copied = wn_core_input_copy(g_core, clipboard, (int)sizeof(clipboard));
+    printf("input: copy selection = \"%s\" (%d bytes)\n", clipboard, copied);
+    fflush(stdout);
+    if (input_key(node, WN_KEY_END, 0, &value_changes) < 0) goto done;
+    if (wn_core_input_paste(g_core, clipboard, &paste_changed, &paste_visual) < 0) goto done;
+    if (paste_changed) {
+        ++value_changes;
+    }
+    if (input_stage(&gpu, report, prefix, 6, "copy + paste", node,
+                    value_changes) != 0) goto done;
+
+    if (wn_core_input_select_all(g_core, NULL) < 0) goto done;
+    if (input_key(node, WN_KEY_DELETE, 0, &value_changes) < 0) goto done;
+    if (input_stage(&gpu, report, prefix, 7, "select all + delete", node,
+                    value_changes) != 0) goto done;
+
+    if (input_type(node, "0123456789abcd", &value_changes) < 0) goto done;
+    if (input_stage(&gpu, report, prefix, 8, "max_length clamps at 12", node,
+                    value_changes) != 0) goto done;
+
+    if (input_key(node, WN_KEY_ESCAPE, 0, &value_changes) < 0) goto done;
+    if (input_stage(&gpu, report, prefix, 9, "escape blurs", node,
+                    value_changes) != 0) goto done;
+
+    fprintf(report, "\n  ]\n}\n");
+    rc = 0;
+
+done:
+    if (rc != 0 && report != NULL) {
+        fprintf(report, "\n  ]\n}\n");
+    }
+    if (report != NULL) {
+        fclose(report);
+    }
+    gpu_release(&gpu);
+    return rc;
+}
+
 /* -------------------------------------------------------------------- main */
 
 static int parse_size_list(const char *text, int *widths, int *heights, int max_count)
@@ -2764,7 +3154,9 @@ int main(int argc, char **argv)
 {
     int exit_code = 1;
     int mode_render = 0, mode_states = 0, mode_report = 0, mode_dump = 0, mode_dynamic = 0;
+    int mode_input = 0;
     const char *dynamic_prefix = "dynamic";
+    const char *input_prefix = "input";
     int render_w = UI_VIEWPORT_WIDTH, render_h = UI_VIEWPORT_HEIGHT;
     const char *render_path = "out.png";
     const char *states_prefix = "state";
@@ -2836,6 +3228,11 @@ int main(int argc, char **argv)
             if (i + 1 < argc && argv[i + 1][0] != '-') {
                 dynamic_prefix = argv[++i];
             }
+        } else if (strcmp(argv[i], "--input") == 0) {
+            mode_input = 1;
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                input_prefix = argv[++i];
+            }
         } else if (strcmp(argv[i], "--report") == 0) {
             mode_report = 1;
             if (i + 1 < argc && argv[i + 1][0] != '-') {
@@ -2868,7 +3265,8 @@ int main(int argc, char **argv)
             height_arg = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
             printf("usage: runtime_r2.exe [--render W H out.png] [--states PREFIX] "
-                   "[--report FILE] [--dynamic PREFIX] [--frames N] [--resize-demo]\n");
+                   "[--report FILE] [--dynamic PREFIX] [--input PREFIX] [--frames N] "
+                   "[--resize-demo]\n");
             CoUninitialize();
             return 0;
         } else {
@@ -2906,6 +3304,11 @@ int main(int argc, char **argv)
 
     if (mode_dynamic) {
         exit_code = run_dynamic(dynamic_prefix);
+        goto done;
+    }
+
+    if (mode_input) {
+        exit_code = run_input(input_prefix);
         goto done;
     }
 

@@ -44,6 +44,17 @@ static void app_host_event(void *userdata, const wn_event *event)
     if (event->type == WN_EVENT_CLOSE) {
         app->closed = 1;
     }
+    /* Esc closes the window only when no text input owns the focus. With an
+     * input focused the view consumes Esc to release focus (ABI v4). */
+    if (event->type == WN_EVENT_KEY_DOWN && event->key == 27 &&
+        app->view != NULL && !wn_view_input_focused(app->view)) {
+        app->closed = 1;
+        if (app->host_ops != NULL && app->host != NULL &&
+            app->host_ops->request_close != NULL) {
+            app->host_ops->request_close(app->host);
+        }
+        return;
+    }
     if (app->view != NULL) {
         (void)wn_view_event(app->view, event);
     }
@@ -319,6 +330,35 @@ wn_status wn_node_append(wn_app *app, wn_node_id parent, wn_node_id child)
     return wn_view_append(app->view, parent, child);
 }
 
+/* ------------------------------------------------------ text input (v4) */
+
+wn_status wn_node_set_value(wn_app *app, wn_node_id node, const char *utf8)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_set_value: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_set_value(app->view, node, utf8);
+}
+
+const char *wn_node_get_value(wn_app *app, wn_node_id node)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_get_value: app is NULL");
+        return NULL;
+    }
+    return wn_view_get_value(app->view, node);
+}
+
+/* Internal (wn_app.h): lets demos/tests inject wn_view_event() without a real
+ * keyboard. Not part of the public ABI. */
+wn_view *wn_app_view(wn_app *app)
+{
+    return app != NULL ? app->view : NULL;
+}
+
 int wn_app_run(wn_app *app)
 {
     wn_clear_error();
@@ -353,6 +393,9 @@ void wn_app_destroy(wn_app *app)
     wn_clear_error();
     if (app->view != NULL) {
         wn_view_destroy(app->view);
+        /* DestroyWindow() may still deliver WM_KILLFOCUS/WM_SIZE to the host;
+         * app_host_event must not touch the freed view. */
+        app->view = NULL;
     }
     if (app->host_ops != NULL && app->host != NULL) {
         app->host_ops->destroy(app->host);

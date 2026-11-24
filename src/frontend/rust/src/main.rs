@@ -257,8 +257,13 @@ fn run() -> Result<bool, String> {
             .atlas
             .map(|(width, height)| format!(", atlas {width}x{height}"))
             .unwrap_or_default();
+        let inputs = if summary.input_glyphs > 0 {
+            format!(", {} input glyphs", summary.input_glyphs)
+        } else {
+            String::new()
+        };
         println!(
-            "emit-ui: {} nodes, {} glyphs, {} runs{} -> {}{}",
+            "emit-ui: {} nodes, {} glyphs, {} runs{} -> {}{}{}",
             summary.nodes,
             summary.glyphs,
             summary.runs,
@@ -268,7 +273,8 @@ fn run() -> Result<bool, String> {
                 .atlas_path
                 .as_ref()
                 .map(|path| format!(", {}", path.display()))
-                .unwrap_or_default()
+                .unwrap_or_default(),
+            inputs
         );
         if let Some(path) = &args.timings {
             let timings = emit::Timings {

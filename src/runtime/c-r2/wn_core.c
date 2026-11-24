@@ -84,6 +84,37 @@ typedef struct {
     int glyph; /* index into the document glyph array, -1 for a space */
 } RunChar;
 
+/* ui-tree/3 text input. The generated header (input pages only) carries a
+ * fixed ASCII pool per unique font size; the core copies it into this compact
+ * form so the rest of the engine compiles identically for pages without
+ * inputs. */
+typedef struct {
+    float advance;
+    float x, y, w, h;
+    float u0, v0, u1, v1;
+} WnInputGlyph;
+
+typedef struct {
+    int node;
+    const char *placeholder;
+    int max_length;
+    float baseline;
+    float line_height;
+    const WnInputGlyph *glyphs;
+    int glyph_count;
+    short cp_index[128]; /* codepoint -> pool index, -1 none */
+} WnInputRecord;
+
+#define WN_INPUT_MAX_BYTES 255
+#define WN_INPUT_FOCUS_COLOR 0xFF3B82F6u
+#define WN_INPUT_SELECTION_COLOR 0x663B82F6u
+#define WN_INPUT_PLACEHOLDER_COLOR 0xFF6B7785u
+#define WN_INPUT_CARET_WIDTH 2.0f
+
+#ifndef R2_NODE_INPUT
+#define R2_NODE_INPUT 5
+#endif
+
 struct wn_core {
     const wn_document *doc;
 
@@ -157,6 +188,19 @@ struct wn_core {
     GlyphSet *glyph_sets;
     int glyph_set_count;
 
+    /* ui-tree/3 text input state. `input_map[node]` indexes input_records
+     * (shared by clones); -1 means "not an input". */
+    WnInputRecord *input_records;
+    int input_record_count;
+    WnInputGlyph *input_pool;
+    int input_pool_count;
+    int *input_map;
+    char **input_value;
+    int *input_cursor;
+    int *input_anchor;
+    float *input_scroll;
+    int input_focus;
+
     int *paint_order;
     int paint_count;
 
@@ -171,6 +215,10 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
                          float available_w, float parent_content_h,
                          int is_root, float forced_w);
 static void layout_page(wn_core *c, float viewport_w, float viewport_h);
+static const WnInputRecord *input_record(const wn_core *c, int node);
+static float input_line_height(const wn_core *c, int node);
+static void input_update_scroll(wn_core *c, int node);
+static char *input_alloc_value(const char *text);
 
 static void ensure_vertex_capacity(wn_core *c, int needed)
 {
@@ -528,6 +576,17 @@ static float intrinsic_width(wn_core *c, int node, float available)
     if (n->kind == R2_NODE_GRID && n->grid_mode == R2_GRID_AUTO_FILL &&
         n->grid_column_px > 0.0f) {
         return n->grid_column_px + n->padding[1] + n->padding[3];
+    }
+    if (n->kind == R2_NODE_INPUT) {
+        /* Ancho por defecto de un campo sin CSS: 20 caracteres aproximados,
+         * acotado por max_length cuando existe. */
+        const WnInputRecord *rec = input_record(c, node);
+        float width = 200.0f;
+        if (rec != NULL && rec->max_length > 0) {
+            float estimated = (float)rec->max_length * n->font_size * 0.62f;
+            width = fmaxf(80.0f, fminf(estimated, 480.0f));
+        }
+        return width + n->padding[1] + n->padding[3];
     }
     float content = 0.0f;
     if (n->kind == R2_NODE_FLEX && n->direction == 0) {
@@ -1045,6 +1104,25 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
         c->rects[node].h = h;
         return h + n->margin[2];
     }
+    if (n->kind == R2_NODE_INPUT) {
+        /* Editor de una linea: hoja sin hijos. Sin CSS la altura es la linea
+         * de la fuente (ascender + descender) mas el padding. */
+        float h;
+        if (n->height >= 0.0f) {
+            h = n->height;
+        } else if (n->height_pct > 0.0f && parent_content_h >= 0.0f) {
+            h = parent_content_h * n->height_pct * 0.01f;
+        } else {
+            h = pad_t + pad_b + fmaxf(input_line_height(c, node), 1.0f);
+        }
+        c->rects[node].x = x;
+        c->rects[node].y = y;
+        c->rects[node].w = w;
+        c->rects[node].h = h;
+        c->scroll_max[node] = 0.0f;
+        c->scroll[node] = 0.0f;
+        return h + n->margin[2];
+    }
 
     float cursor = content_y;
     if (n->kind == R2_NODE_FLEX) {
@@ -1280,7 +1358,8 @@ int wn_core_hit_test(const wn_core *core, float px, float py)
         if (!core->visible_eff[node]) {
             continue;
         }
-        if (core->nodes[node].action != ACTION_NONE &&
+        if ((core->nodes[node].action != ACTION_NONE ||
+             core->nodes[node].kind == R2_NODE_INPUT) &&
             point_in_rect(px, py, &core->rects[node]) &&
             point_in_rect(px, py, &core->clips[node])) {
             return node;
@@ -1374,6 +1453,11 @@ int wn_core_pointer_down(wn_core *core, float px, float py)
     hit = wn_core_hit_test(core, px, py);
     core->hover = hit;
     core->press = hit;
+    if (hit >= 0 && input_record(core, hit) != NULL) {
+        wn_core_focus_input(core, hit, px);
+    } else {
+        wn_core_blur_input(core);
+    }
     return hit;
 }
 
@@ -1398,6 +1482,687 @@ void wn_core_pointer_leave(wn_core *core)
     if (core != NULL) {
         core->hover = -1;
     }
+}
+
+/* ---------------------------------------------------------- text input v4 */
+
+static const WnInputRecord *input_record(const wn_core *c, int node)
+{
+    int index;
+    if (c == NULL || node < 0 || node >= c->node_count || c->input_map == NULL ||
+        c->input_records == NULL) {
+        return NULL;
+    }
+    index = c->input_map[node];
+    if (index < 0 || index >= c->input_record_count) {
+        return NULL;
+    }
+    return &c->input_records[index];
+}
+
+static const char *input_text(const wn_core *c, int node)
+{
+    if (c->input_value == NULL || node < 0 || node >= c->node_count ||
+        c->input_value[node] == NULL) {
+        return "";
+    }
+    return c->input_value[node];
+}
+
+static int input_length(const wn_core *c, int node)
+{
+    return (int)strlen(input_text(c, node));
+}
+
+static int input_limit(const WnInputRecord *record)
+{
+    if (record != NULL && record->max_length > 0) {
+        return record->max_length;
+    }
+    return WN_INPUT_MAX_BYTES;
+}
+
+static const WnInputGlyph *input_glyph(const WnInputRecord *record, unsigned char ch)
+{
+    int index;
+    if (record == NULL || ch >= 128) {
+        return NULL;
+    }
+    index = record->cp_index[ch];
+    if (index < 0 || index >= record->glyph_count) {
+        return NULL;
+    }
+    return &record->glyphs[index];
+}
+
+static float input_prefix_width(const WnInputRecord *record, const char *text, int upto)
+{
+    float pen = 0.0f;
+    int i;
+    if (record == NULL || text == NULL) {
+        return 0.0f;
+    }
+    for (i = 0; i < upto && text[i] != '\0'; ++i) {
+        const WnInputGlyph *glyph = input_glyph(record, (unsigned char)text[i]);
+        if (glyph != NULL) {
+            pen += glyph->advance;
+        }
+    }
+    return pen;
+}
+
+static float input_line_height(const wn_core *c, int node)
+{
+    const WnInputRecord *record = input_record(c, node);
+    if (record != NULL && record->line_height > 0.0f) {
+        return record->line_height;
+    }
+    return c->nodes[node].font_size * 1.35f;
+}
+
+static wn_rect input_content_rect(const wn_core *c, int node)
+{
+    const UiNode *n = &c->nodes[node];
+    const wn_rect *r = &c->rects[node];
+    wn_rect box;
+    box.x = r->x + n->padding[3];
+    box.y = r->y + n->padding[0];
+    box.w = fmaxf(r->w - n->padding[1] - n->padding[3], 0.0f);
+    box.h = fmaxf(r->h - n->padding[0] - n->padding[2], 0.0f);
+    return box;
+}
+
+static int input_has_selection(const wn_core *c, int node)
+{
+    return c->input_anchor[node] >= 0 &&
+           c->input_anchor[node] != c->input_cursor[node];
+}
+
+static void input_selection_bounds(const wn_core *c, int node, int *start, int *end)
+{
+    int anchor = c->input_anchor[node];
+    int cursor = c->input_cursor[node];
+    if (anchor < 0 || anchor == cursor) {
+        *start = cursor;
+        *end = cursor;
+        return;
+    }
+    *start = anchor < cursor ? anchor : cursor;
+    *end = anchor < cursor ? cursor : anchor;
+}
+
+static void input_delete_range(wn_core *c, int node, int start, int end)
+{
+    char *value = c->input_value != NULL ? c->input_value[node] : NULL;
+    int len;
+    if (value == NULL) {
+        return;
+    }
+    len = (int)strlen(value);
+    if (start < 0) {
+        start = 0;
+    }
+    if (end > len) {
+        end = len;
+    }
+    if (start >= end) {
+        return;
+    }
+    memmove(value + start, value + end, (size_t)(len - end) + 1u);
+    c->input_cursor[node] = start;
+    c->input_anchor[node] = -1;
+}
+
+static void input_move_cursor(wn_core *c, int node, int position, int extend)
+{
+    int len = input_length(c, node);
+    if (position < 0) {
+        position = 0;
+    }
+    if (position > len) {
+        position = len;
+    }
+    if (extend) {
+        if (c->input_anchor[node] < 0) {
+            c->input_anchor[node] = c->input_cursor[node];
+        }
+    } else {
+        c->input_anchor[node] = -1;
+    }
+    c->input_cursor[node] = position;
+}
+
+static void input_update_scroll(wn_core *c, int node)
+{
+    const WnInputRecord *record = input_record(c, node);
+    const char *value;
+    wn_rect content;
+    float caret;
+    float scroll;
+    float text_width;
+    float max_scroll;
+    if (record == NULL || c->input_scroll == NULL) {
+        return;
+    }
+    content = input_content_rect(c, node);
+    if (content.w <= 0.0f) {
+        c->input_scroll[node] = 0.0f;
+        return;
+    }
+    value = input_text(c, node);
+    caret = input_prefix_width(record, value, c->input_cursor[node]);
+    scroll = c->input_scroll[node];
+    if (caret - scroll > content.w - WN_INPUT_CARET_WIDTH) {
+        scroll = caret - content.w + WN_INPUT_CARET_WIDTH;
+    }
+    if (caret - scroll < 0.0f) {
+        scroll = caret;
+    }
+    text_width = input_prefix_width(record, value, (int)strlen(value));
+    max_scroll = text_width + WN_INPUT_CARET_WIDTH - content.w;
+    if (max_scroll < 0.0f) {
+        max_scroll = 0.0f;
+    }
+    if (scroll > max_scroll) {
+        scroll = max_scroll;
+    }
+    if (scroll < 0.0f) {
+        scroll = 0.0f;
+    }
+    c->input_scroll[node] = scroll;
+}
+
+int wn_core_node_is_input(const wn_core *core, int node)
+{
+    return input_record(core, node) != NULL;
+}
+
+int wn_core_input_focused(const wn_core *core)
+{
+    return core != NULL ? core->input_focus : -1;
+}
+
+int wn_core_focus_input(wn_core *core, int node, float pointer_x)
+{
+    const WnInputRecord *record;
+    const char *value;
+    wn_rect content;
+    float pen;
+    int len;
+    int caret;
+    int i;
+    if (core == NULL) {
+        return -1;
+    }
+    record = input_record(core, node);
+    if (record == NULL) {
+        return -1;
+    }
+    ensure_layout_for_hit(core);
+    if (core->input_focus >= 0 && core->input_focus != node) {
+        core->input_anchor[core->input_focus] = -1;
+    }
+    core->input_focus = node;
+    core->input_anchor[node] = -1;
+    input_update_scroll(core, node);
+    content = input_content_rect(core, node);
+    value = input_text(core, node);
+    len = (int)strlen(value);
+    pen = content.x - core->input_scroll[node];
+    caret = len;
+    for (i = 0; i < len; ++i) {
+        const WnInputGlyph *glyph = input_glyph(record, (unsigned char)value[i]);
+        float advance = glyph != NULL ? glyph->advance : 0.0f;
+        if (pointer_x < pen + advance * 0.5f) {
+            caret = i;
+            break;
+        }
+        pen += advance;
+    }
+    core->input_cursor[node] = caret;
+    core->dirty = 1;
+    return node;
+}
+
+int wn_core_blur_input(wn_core *core)
+{
+    int node;
+    if (core == NULL) {
+        return -1;
+    }
+    node = core->input_focus;
+    if (node < 0) {
+        return -1;
+    }
+    core->input_anchor[node] = -1;
+    core->input_focus = -1;
+    core->dirty = 1;
+    return 0;
+}
+
+int wn_core_input_char(wn_core *core, uint32_t codepoint,
+                       int *value_changed, int *visual_changed)
+{
+    const WnInputRecord *record;
+    char *value;
+    int node;
+    int len;
+    int limit;
+    int cursor;
+    if (value_changed != NULL) {
+        *value_changed = 0;
+    }
+    if (visual_changed != NULL) {
+        *visual_changed = 0;
+    }
+    if (core == NULL || codepoint < 32u || codepoint > 126u) {
+        return -1;
+    }
+    node = core->input_focus;
+    record = input_record(core, node);
+    if (record == NULL || core->input_value == NULL) {
+        return -1;
+    }
+    value = core->input_value[node];
+    if (value == NULL) {
+        return -1;
+    }
+    if (input_has_selection(core, node)) {
+        int start;
+        int end;
+        input_selection_bounds(core, node, &start, &end);
+        input_delete_range(core, node, start, end);
+    }
+    len = (int)strlen(value);
+    limit = input_limit(record);
+    cursor = core->input_cursor[node];
+    if (cursor < 0) {
+        cursor = 0;
+    }
+    if (cursor > len) {
+        cursor = len;
+    }
+    if (len >= limit) {
+        /* Consumido pero sin cambio: el host no debe hacer beep al teclear
+         * sobre un campo lleno. */
+        return node;
+    }
+    memmove(value + cursor + 1, value + cursor, (size_t)(len - cursor) + 1u);
+    value[cursor] = (char)codepoint;
+    core->input_cursor[node] = cursor + 1;
+    core->input_anchor[node] = -1;
+    core->dirty = 1;
+    if (value_changed != NULL) {
+        *value_changed = 1;
+    }
+    if (visual_changed != NULL) {
+        *visual_changed = 1;
+    }
+    return node;
+}
+
+int wn_core_input_key(wn_core *core, int key, uint32_t modifiers,
+                      int *value_changed, int *visual_changed)
+{
+    const WnInputRecord *record;
+    char *value;
+    int node;
+    int len;
+    int cursor;
+    int extend = (modifiers & WN_KEY_MOD_SHIFT) != 0u;
+    if (value_changed != NULL) {
+        *value_changed = 0;
+    }
+    if (visual_changed != NULL) {
+        *visual_changed = 0;
+    }
+    if (core == NULL) {
+        return -1;
+    }
+    node = core->input_focus;
+    record = input_record(core, node);
+    if (record == NULL || core->input_value == NULL) {
+        return -1;
+    }
+    value = core->input_value[node];
+    if (value == NULL) {
+        return -1;
+    }
+    len = (int)strlen(value);
+    cursor = core->input_cursor[node];
+    switch (key) {
+    case WN_KEY_ESCAPE:
+        wn_core_blur_input(core);
+        if (visual_changed != NULL) {
+            *visual_changed = 1;
+        }
+        return node;
+    case WN_KEY_LEFT:
+        if (!extend && input_has_selection(core, node)) {
+            int start;
+            int end;
+            input_selection_bounds(core, node, &start, &end);
+            input_move_cursor(core, node, start, 0);
+            (void)end;
+        } else {
+            input_move_cursor(core, node, cursor - 1, extend);
+        }
+        core->dirty = 1;
+        if (visual_changed != NULL) {
+            *visual_changed = 1;
+        }
+        return node;
+    case WN_KEY_RIGHT:
+        if (!extend && input_has_selection(core, node)) {
+            int start;
+            int end;
+            input_selection_bounds(core, node, &start, &end);
+            input_move_cursor(core, node, end, 0);
+            (void)start;
+        } else {
+            input_move_cursor(core, node, cursor + 1, extend);
+        }
+        core->dirty = 1;
+        if (visual_changed != NULL) {
+            *visual_changed = 1;
+        }
+        return node;
+    case WN_KEY_HOME:
+        input_move_cursor(core, node, 0, extend);
+        core->dirty = 1;
+        if (visual_changed != NULL) {
+            *visual_changed = 1;
+        }
+        return node;
+    case WN_KEY_END:
+        input_move_cursor(core, node, len, extend);
+        core->dirty = 1;
+        if (visual_changed != NULL) {
+            *visual_changed = 1;
+        }
+        return node;
+    case WN_KEY_BACKSPACE:
+        if (input_has_selection(core, node)) {
+            int start;
+            int end;
+            input_selection_bounds(core, node, &start, &end);
+            input_delete_range(core, node, start, end);
+        } else if (cursor > 0) {
+            input_delete_range(core, node, cursor - 1, cursor);
+        } else {
+            return node;
+        }
+        core->dirty = 1;
+        if (value_changed != NULL) {
+            *value_changed = 1;
+        }
+        if (visual_changed != NULL) {
+            *visual_changed = 1;
+        }
+        return node;
+    case WN_KEY_DELETE:
+        if (input_has_selection(core, node)) {
+            int start;
+            int end;
+            input_selection_bounds(core, node, &start, &end);
+            input_delete_range(core, node, start, end);
+        } else if (cursor < len) {
+            input_delete_range(core, node, cursor, cursor + 1);
+        } else {
+            return node;
+        }
+        core->dirty = 1;
+        if (value_changed != NULL) {
+            *value_changed = 1;
+        }
+        if (visual_changed != NULL) {
+            *visual_changed = 1;
+        }
+        return node;
+    default:
+        return -1;
+    }
+}
+
+int wn_core_input_select_all(wn_core *core, int *visual_changed)
+{
+    int node;
+    if (visual_changed != NULL) {
+        *visual_changed = 0;
+    }
+    if (core == NULL) {
+        return -1;
+    }
+    node = core->input_focus;
+    if (input_record(core, node) == NULL) {
+        return -1;
+    }
+    core->input_anchor[node] = 0;
+    core->input_cursor[node] = input_length(core, node);
+    core->dirty = 1;
+    if (visual_changed != NULL) {
+        *visual_changed = 1;
+    }
+    return node;
+}
+
+int wn_core_input_copy(wn_core *core, char *out, int capacity)
+{
+    int node;
+    int start;
+    int end;
+    int count;
+    const char *value;
+    if (core == NULL || out == NULL || capacity <= 0) {
+        return -1;
+    }
+    node = core->input_focus;
+    if (input_record(core, node) == NULL) {
+        return -1;
+    }
+    out[0] = '\0';
+    input_selection_bounds(core, node, &start, &end);
+    if (start >= end) {
+        return 0;
+    }
+    value = input_text(core, node);
+    count = end - start;
+    if (count >= capacity) {
+        count = capacity - 1;
+    }
+    memcpy(out, value + start, (size_t)count);
+    out[count] = '\0';
+    return count;
+}
+
+int wn_core_input_cut(wn_core *core, char *out, int capacity,
+                      int *value_changed, int *visual_changed)
+{
+    int node;
+    int copied;
+    int start;
+    int end;
+    if (value_changed != NULL) {
+        *value_changed = 0;
+    }
+    if (visual_changed != NULL) {
+        *visual_changed = 0;
+    }
+    copied = wn_core_input_copy(core, out, capacity);
+    if (copied <= 0) {
+        return copied;
+    }
+    node = core->input_focus;
+    input_selection_bounds(core, node, &start, &end);
+    input_delete_range(core, node, start, end);
+    core->dirty = 1;
+    if (value_changed != NULL) {
+        *value_changed = 1;
+    }
+    if (visual_changed != NULL) {
+        *visual_changed = 1;
+    }
+    return copied;
+}
+
+int wn_core_input_paste(wn_core *core, const char *text,
+                        int *value_changed, int *visual_changed)
+{
+    const WnInputRecord *record;
+    char *value;
+    int node;
+    int len;
+    int limit;
+    int cursor;
+    int inserted = 0;
+    int deleted = 0;
+    int i;
+    if (value_changed != NULL) {
+        *value_changed = 0;
+    }
+    if (visual_changed != NULL) {
+        *visual_changed = 0;
+    }
+    if (core == NULL || text == NULL) {
+        return -1;
+    }
+    node = core->input_focus;
+    record = input_record(core, node);
+    if (record == NULL || core->input_value == NULL || core->input_value[node] == NULL) {
+        return -1;
+    }
+    value = core->input_value[node];
+    if (input_has_selection(core, node)) {
+        int start;
+        int end;
+        input_selection_bounds(core, node, &start, &end);
+        input_delete_range(core, node, start, end);
+        deleted = 1;
+    }
+    len = (int)strlen(value);
+    limit = input_limit(record);
+    cursor = core->input_cursor[node];
+    if (cursor < 0) {
+        cursor = 0;
+    }
+    if (cursor > len) {
+        cursor = len;
+    }
+    for (i = 0; text[i] != '\0' && len < limit; ++i) {
+        unsigned char ch = (unsigned char)text[i];
+        if (ch < 32 || ch > 126) {
+            continue;
+        }
+        memmove(value + cursor + 1, value + cursor, (size_t)(len - cursor) + 1u);
+        value[cursor] = (char)ch;
+        ++cursor;
+        ++len;
+        ++inserted;
+    }
+    if (inserted <= 0 && !deleted) {
+        return node;
+    }
+    core->input_cursor[node] = cursor;
+    core->input_anchor[node] = -1;
+    core->dirty = 1;
+    if (value_changed != NULL) {
+        *value_changed = 1;
+    }
+    if (visual_changed != NULL) {
+        *visual_changed = 1;
+    }
+    return node;
+}
+
+int wn_core_set_input_value(wn_core *core, int node, const char *text)
+{
+    const WnInputRecord *record;
+    const unsigned char *p;
+    char *copy;
+    int len;
+    int limit;
+    if (core == NULL || text == NULL) {
+        return -1;
+    }
+    record = input_record(core, node);
+    if (record == NULL || core->input_value == NULL) {
+        return -1;
+    }
+    for (p = (const unsigned char *)text; *p != '\0'; ++p) {
+        if (*p < 32u || *p > 126u) {
+            return 1;
+        }
+    }
+    len = (int)strlen(text);
+    limit = input_limit(record);
+    if (len > limit) {
+        return 2;
+    }
+    copy = input_alloc_value(text);
+    if (copy == NULL) {
+        return -1;
+    }
+    wn_free_(core->input_value[node]);
+    core->input_value[node] = copy;
+    core->input_cursor[node] = len;
+    core->input_anchor[node] = -1;
+    core->dirty = 1;
+    return 0;
+}
+
+const char *wn_core_input_value(const wn_core *core, int node)
+{
+    if (input_record(core, node) == NULL) {
+        return NULL;
+    }
+    return input_text(core, node);
+}
+
+int wn_core_input_state(const wn_core *core, int node, wn_input_state *out)
+{
+    const WnInputRecord *record;
+    const char *value;
+    wn_rect content;
+    float scroll;
+    float caret;
+    int start;
+    int end;
+    if (core == NULL || out == NULL) {
+        return -1;
+    }
+    record = input_record(core, node);
+    if (record == NULL) {
+        return -1;
+    }
+    ensure_layout_for_hit((wn_core *)core);
+    input_update_scroll((wn_core *)core, node);
+    value = input_text(core, node);
+    content = input_content_rect(core, node);
+    scroll = core->input_scroll[node];
+    caret = content.x + input_prefix_width(record, value, core->input_cursor[node]) - scroll;
+    memset(out, 0, sizeof(*out));
+    out->value = value;
+    out->cursor = core->input_cursor[node];
+    out->anchor = core->input_anchor[node];
+    out->focused = core->input_focus == node;
+    out->max_length = record->max_length;
+    out->scroll = scroll;
+    out->baseline = record->baseline;
+    out->line_height = record->line_height;
+    out->caret_x = caret;
+    out->rect = core->rects[node];
+    out->content = content;
+    input_selection_bounds(core, node, &start, &end);
+    if (start < end) {
+        float x0 = content.x + input_prefix_width(record, value, start) - scroll;
+        float x1 = content.x + input_prefix_width(record, value, end) - scroll;
+        out->selection_x0 = x0;
+        out->selection_x1 = x1;
+    } else {
+        out->selection_x0 = caret;
+        out->selection_x1 = caret;
+    }
+    return 0;
 }
 
 int wn_core_hover(const wn_core *core)
@@ -2037,6 +2802,155 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
     }
 }
 
+static void build_input_text_geometry(wn_core *c, float viewport_w, float viewport_h)
+{
+    int order_index;
+    for (order_index = 0; order_index < c->paint_count; ++order_index) {
+        int node = c->paint_order[order_index];
+        const UiNode *n = &c->nodes[node];
+        const WnInputRecord *record = input_record(c, node);
+        const char *value;
+        const char *text;
+        unsigned int color;
+        uint8_t a, cr, cg, cb;
+        wn_rect content;
+        wn_rect clip;
+        float pen;
+        float scroll;
+        float line_offset;
+        int use_placeholder;
+        if (!c->visible_eff[node] || n->kind != R2_NODE_INPUT || record == NULL) {
+            continue;
+        }
+        value = input_text(c, node);
+        use_placeholder = value[0] == '\0' && record->placeholder[0] != '\0';
+        text = use_placeholder ? record->placeholder : value;
+        if (text[0] == '\0') {
+            continue;
+        }
+        color = use_placeholder ? WN_INPUT_PLACEHOLDER_COLOR : n->text_color;
+        a = (uint8_t)((color >> 24) & 0xFFu);
+        if (a == 0u) {
+            continue;
+        }
+        content = input_content_rect(c, node);
+        clip = rect_intersection(c->clips[node], content);
+        if (rect_is_empty(clip)) {
+            continue;
+        }
+        input_update_scroll(c, node);
+        scroll = c->input_scroll[node];
+        set_glyph_clip(c, &clip);
+        cr = (uint8_t)((color >> 16) & 0xFFu);
+        cg = (uint8_t)((color >> 8) & 0xFFu);
+        cb = (uint8_t)(color & 0xFFu);
+        /* Single-line inputs center the line box vertically, like a browser
+         * text field; a content box shorter than the line still overflows
+         * symmetrically and is clipped. */
+        line_offset = (content.h - record->line_height) * 0.5f;
+        pen = 0.0f;
+        for (const unsigned char *p = (const unsigned char *)text; *p != '\0'; ++p) {
+            const WnInputGlyph *glyph = input_glyph(record, *p);
+            if (glyph == NULL) {
+                continue;
+            }
+            if (glyph->w > 0.0f && glyph->h > 0.0f) {
+                float x = floorf(content.x + pen + glyph->x - scroll + 0.5f);
+                float y = floorf(content.y + line_offset + glyph->y + 0.5f);
+                push_glyph_quad(c, x, y, glyph->w, glyph->h,
+                                glyph->u0, glyph->v0, glyph->u1, glyph->v1,
+                                viewport_w, viewport_h, cr, cg, cb, a);
+            }
+            pen += glyph->advance;
+        }
+    }
+}
+
+/* Selection quad, focus ring and caret. Solids are painted before glyphs, so
+ * this runs after every background but before build_text_geometry. */
+static void build_input_decorations(wn_core *c)
+{
+    int order_index;
+    for (order_index = 0; order_index < c->paint_count; ++order_index) {
+        int node = c->paint_order[order_index];
+        const UiNode *n = &c->nodes[node];
+        const WnInputRecord *record = input_record(c, node);
+        wn_rect content;
+        wn_rect clip;
+        float scroll;
+        int start;
+        int end;
+        if (!c->visible_eff[node] || n->kind != R2_NODE_INPUT || record == NULL) {
+            continue;
+        }
+        if (rect_is_empty(c->clips[node])) {
+            continue;
+        }
+        content = input_content_rect(c, node);
+        input_update_scroll(c, node);
+        scroll = c->input_scroll[node];
+
+        if (c->input_focus == node) {
+            const wn_rect *r = &c->rects[node];
+            const float ring = 2.0f;
+            set_solid_clip(c, &c->clips[node]);
+            push_quad(c, r->x, r->y, r->w, ring,
+                      (float)c->width, (float)c->height, WN_INPUT_FOCUS_COLOR);
+            push_quad(c, r->x, r->y + r->h - ring, r->w, ring,
+                      (float)c->width, (float)c->height, WN_INPUT_FOCUS_COLOR);
+            push_quad(c, r->x, r->y, ring, r->h,
+                      (float)c->width, (float)c->height, WN_INPUT_FOCUS_COLOR);
+            push_quad(c, r->x + r->w - ring, r->y, ring, r->h,
+                      (float)c->width, (float)c->height, WN_INPUT_FOCUS_COLOR);
+        }
+
+        clip = rect_intersection(c->clips[node], content);
+        if (rect_is_empty(clip)) {
+            continue;
+        }
+        set_solid_clip(c, &clip);
+
+        if (c->input_focus == node && input_has_selection(c, node)) {
+            float x0;
+            float x1;
+            input_selection_bounds(c, node, &start, &end);
+            x0 = content.x + input_prefix_width(record, input_text(c, node), start) - scroll;
+            x1 = content.x + input_prefix_width(record, input_text(c, node), end) - scroll;
+            if (x0 < content.x) {
+                x0 = content.x;
+            }
+            if (x1 > content.x + content.w) {
+                x1 = content.x + content.w;
+            }
+            if (x1 > x0) {
+                push_quad(c, x0, content.y, x1 - x0, content.h,
+                          (float)c->width, (float)c->height,
+                          WN_INPUT_SELECTION_COLOR);
+            }
+        }
+
+        if (c->input_focus == node) {
+            float caret = content.x +
+                          input_prefix_width(record, input_text(c, node),
+                                             c->input_cursor[node]) -
+                          scroll;
+            float max_caret = content.x + content.w - WN_INPUT_CARET_WIDTH;
+            if (caret < content.x) {
+                caret = content.x;
+            }
+            if (caret > max_caret) {
+                caret = max_caret;
+            }
+            caret = floorf(caret + 0.5f);
+            if (content.h > 2.0f) {
+                push_quad(c, caret, content.y + 1.0f, WN_INPUT_CARET_WIDTH,
+                          content.h - 2.0f, (float)c->width, (float)c->height,
+                          n->text_color);
+            }
+        }
+    }
+}
+
 void wn_core_build_display_list(wn_core *core)
 {
     int i;
@@ -2071,6 +2985,7 @@ void wn_core_build_display_list(wn_core *core)
         push_quad(core, r->x, r->y, r->w, r->h,
                   (float)core->width, (float)core->height, color);
     }
+    build_input_decorations(core);
     for (i = 0; i < core->paint_count; ++i) {
         int node = core->paint_order[i];
         if (core->nodes[node].kind == R2_NODE_IMAGE &&
@@ -2079,6 +2994,7 @@ void wn_core_build_display_list(wn_core *core)
         }
     }
     build_text_geometry(core, (float)core->width, (float)core->height);
+    build_input_text_geometry(core, (float)core->width, (float)core->height);
 
     finalize_draw_batches(core->solid_batches, &core->solid_batch_count,
                           core->vertex_count);
@@ -2149,6 +3065,101 @@ double wn_core_last_layout_ms(const wn_core *core)
 
 /* -------------------------------------------------------------- lifecycle */
 
+/* Copy the generated ui-tree/3 input tables into the core's compact state.
+ * Compiled out entirely for pages whose ui_data.h has no input tables. */
+static char *input_alloc_value(const char *text)
+{
+    /* Fixed capacity: editing inserts in place up to WN_INPUT_MAX_BYTES. */
+    char *buffer = (char *)calloc((size_t)WN_INPUT_MAX_BYTES + 1u, 1u);
+    if (buffer != NULL && text != NULL) {
+        size_t length = strlen(text);
+        if (length > WN_INPUT_MAX_BYTES) {
+            length = WN_INPUT_MAX_BYTES;
+        }
+        memcpy(buffer, text, length);
+    }
+    return buffer;
+}
+
+static int build_input_state(wn_core *c)
+{
+#ifdef UI_INPUT_COUNT
+    int i;
+    int j;
+    if (UI_INPUT_COUNT <= 0) {
+        return 0;
+    }
+    c->input_record_count = UI_INPUT_COUNT;
+    c->input_records = (WnInputRecord *)calloc(
+        (size_t)UI_INPUT_COUNT, sizeof(WnInputRecord));
+    c->input_pool_count = UI_INPUT_GLYPH_COUNT;
+    c->input_pool = (WnInputGlyph *)calloc(
+        (size_t)(UI_INPUT_GLYPH_COUNT > 0 ? UI_INPUT_GLYPH_COUNT : 1),
+        sizeof(WnInputGlyph));
+    if (c->input_records == NULL || c->input_pool == NULL) {
+        return -1;
+    }
+    for (i = 0; i < UI_INPUT_GLYPH_COUNT; ++i) {
+        WnInputGlyph *dst = &c->input_pool[i];
+        dst->advance = kUiInputGlyphs[i].advance;
+        dst->x = kUiInputGlyphs[i].x;
+        dst->y = kUiInputGlyphs[i].y;
+        dst->w = kUiInputGlyphs[i].w;
+        dst->h = kUiInputGlyphs[i].h;
+        dst->u0 = kUiInputGlyphs[i].u0;
+        dst->v0 = kUiInputGlyphs[i].v0;
+        dst->u1 = kUiInputGlyphs[i].u1;
+        dst->v1 = kUiInputGlyphs[i].v1;
+    }
+    for (i = 0; i < UI_INPUT_COUNT; ++i) {
+        WnInputRecord *record = &c->input_records[i];
+        int first = kUiInputs[i].glyph_first;
+        int count = kUiInputs[i].glyph_count;
+        int node = kUiInputs[i].node;
+        record->node = node;
+        record->placeholder =
+            kUiInputs[i].placeholder != NULL ? kUiInputs[i].placeholder : "";
+        record->max_length = kUiInputs[i].max_length;
+        if (record->max_length < 0 || record->max_length > WN_INPUT_MAX_BYTES) {
+            record->max_length = WN_INPUT_MAX_BYTES;
+        }
+        record->baseline = kUiInputs[i].baseline;
+        record->line_height = kUiInputs[i].line_height;
+        if (first < 0 || first > c->input_pool_count) {
+            first = 0;
+            count = 0;
+        }
+        if (count < 0 || first + count > c->input_pool_count) {
+            count = c->input_pool_count - first;
+        }
+        record->glyphs = c->input_pool + first;
+        record->glyph_count = count;
+        for (j = 0; j < 128; ++j) {
+            record->cp_index[j] = -1;
+        }
+        for (j = 0; j < count; ++j) {
+            int cp = kUiInputGlyphs[first + j].cp;
+            if (cp >= 0 && cp < 128) {
+                record->cp_index[cp] = (short)j;
+            }
+        }
+        if (node >= 0 && node < c->node_count) {
+            const char *value = kUiInputs[i].value != NULL ? kUiInputs[i].value : "";
+            c->input_map[node] = i;
+            c->input_value[node] = input_alloc_value(value);
+            if (c->input_value[node] == NULL) {
+                return -1;
+            }
+            c->input_cursor[node] = (int)strlen(value);
+            c->input_anchor[node] = -1;
+        }
+    }
+#else
+    (void)c;
+#endif
+    return 0;
+}
+
 wn_core *wn_core_create(const wn_document *document)
 {
     wn_core *c;
@@ -2195,6 +3206,11 @@ wn_core *wn_core_create(const wn_document *document)
     c->paint_order = (int *)calloc(bytes, sizeof(int));
     c->text_override = (char **)calloc(bytes, sizeof(char *));
     c->image_override = (char **)calloc(bytes, sizeof(char *));
+    c->input_map = (int *)calloc(bytes, sizeof(int));
+    c->input_value = (char **)calloc(bytes, sizeof(char *));
+    c->input_cursor = (int *)calloc(bytes, sizeof(int));
+    c->input_anchor = (int *)calloc(bytes, sizeof(int));
+    c->input_scroll = (float *)calloc(bytes, sizeof(float));
     c->class_count = (unsigned char *)calloc(bytes, sizeof(unsigned char));
     c->classes = (char **)calloc(bytes * WN_MAX_CLASSES, sizeof(char *));
     c->glyph_sets = (GlyphSet *)calloc(WN_MAX_GLYPH_SETS, sizeof(GlyphSet));
@@ -2223,6 +3239,8 @@ wn_core *wn_core_create(const wn_document *document)
         c->scroll == NULL || c->scroll_max == NULL || c->first_child == NULL ||
         c->next_sibling == NULL || c->last_child == NULL || c->paint_order == NULL ||
         c->text_override == NULL || c->image_override == NULL ||
+        c->input_map == NULL || c->input_value == NULL || c->input_cursor == NULL ||
+        c->input_anchor == NULL || c->input_scroll == NULL ||
         c->class_count == NULL || c->classes == NULL ||
         c->glyph_sets == NULL || c->vertices == NULL || c->solid_batches == NULL ||
         c->glyph_vertices == NULL || c->glyph_batches == NULL ||
@@ -2244,7 +3262,12 @@ wn_core *wn_core_create(const wn_document *document)
         c->first_child[i] = -1;
         c->next_sibling[i] = -1;
         c->last_child[i] = -1;
+        c->input_map[i] = -1;
+        c->input_cursor[i] = 0;
+        c->input_anchor[i] = -1;
+        c->input_scroll[i] = 0.0f;
     }
+    c->input_focus = -1;
     for (i = 0; i < document->run_count; ++i) {
         const UiTextRun *run = &document->runs[i];
         if (run->node >= 0 && run->node < count && run->count > 0) {
@@ -2256,6 +3279,10 @@ wn_core *wn_core_create(const wn_document *document)
 
     build_hierarchy(c);
     build_glyph_sets(c);
+    if (build_input_state(c) != 0) {
+        wn_core_destroy(c);
+        return NULL;
+    }
     layout_page(c, (float)c->width, (float)c->height);
     wn_core_build_display_list(c);
     return c;
@@ -2277,6 +3304,16 @@ static void free_node_payload(wn_core *c, int node)
     if (c->image_override != NULL) {
         wn_free_(c->image_override[node]);
         c->image_override[node] = NULL;
+    }
+    if (c->input_value != NULL && c->input_value[node] != NULL) {
+        wn_free_(c->input_value[node]);
+        c->input_value[node] = NULL;
+    }
+    if (c->input_map != NULL) {
+        c->input_map[node] = -1;
+    }
+    if (c->input_focus == node) {
+        c->input_focus = -1;
     }
     if (c->classes != NULL && c->class_count != NULL) {
         for (i = 0; i < c->class_count[node] && i < WN_MAX_CLASSES; ++i) {
@@ -2321,6 +3358,11 @@ static int arena_alloc(wn_core *c)
     c->last_child[id] = -1;
     c->text_override[id] = NULL;
     c->image_override[id] = NULL;
+    c->input_map[id] = -1;
+    c->input_value[id] = NULL;
+    c->input_cursor[id] = 0;
+    c->input_anchor[id] = -1;
+    c->input_scroll[id] = 0.0f;
     c->class_count[id] = 0;
     for (i = 0; i < WN_MAX_CLASSES; ++i) {
         c->classes[id * WN_MAX_CLASSES + i] = NULL;
@@ -2398,6 +3440,17 @@ int wn_core_set_visible(wn_core *core, int node, int visible)
                     if (i == 0) core->hover = -1;
                     else if (i == 1) core->press = -1;
                     else core->selected = -1;
+                    break;
+                }
+                walk = core->parent[walk];
+            }
+        }
+        if (core->input_focus >= 0) {
+            int walk = core->input_focus;
+            while (walk >= 0) {
+                if (walk == node) {
+                    core->input_anchor[core->input_focus] = -1;
+                    core->input_focus = -1;
                     break;
                 }
                 walk = core->parent[walk];
@@ -2528,6 +3581,20 @@ int wn_core_clone(wn_core *core, int template_node, int parent)
         if (core->image_override[src] != NULL &&
             (core->image_override[dst] = wn_strdup_(core->image_override[src])) == NULL) {
             oom = 1;
+        }
+        /* Un clon de un input comparte la piscina de glyphs del template pero
+         * recibe su propia copia editable del valor. */
+        core->input_map[dst] = core->input_map[src];
+        if (core->input_map[src] >= 0) {
+            const char *source_value =
+                core->input_value[src] != NULL ? core->input_value[src] : "";
+            core->input_value[dst] = input_alloc_value(source_value);
+            if (core->input_value[dst] == NULL) {
+                oom = 1;
+            }
+            core->input_cursor[dst] = core->input_cursor[src];
+            core->input_anchor[dst] = core->input_anchor[src];
+            core->input_scroll[dst] = core->input_scroll[src];
         }
         core->class_count[dst] = core->class_count[src];
         for (int k = 0; k < core->class_count[src] && k < WN_MAX_CLASSES; ++k) {
@@ -2671,6 +3738,13 @@ void wn_core_destroy(wn_core *core)
     wn_free_(core->paint_order);
     wn_free_(core->text_override);
     wn_free_(core->image_override);
+    wn_free_(core->input_map);
+    wn_free_(core->input_value);
+    wn_free_(core->input_cursor);
+    wn_free_(core->input_anchor);
+    wn_free_(core->input_scroll);
+    wn_free_(core->input_records);
+    wn_free_(core->input_pool);
     wn_free_(core->classes);
     wn_free_(core->class_count);
     wn_free_(core->vertices);

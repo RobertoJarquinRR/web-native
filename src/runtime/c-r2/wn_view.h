@@ -45,6 +45,11 @@ wn_status wn_view_remove(wn_view *view, wn_node_id node);
 wn_status wn_view_clear_children(wn_view *view, wn_node_id node);
 wn_status wn_view_append(wn_view *view, wn_node_id parent, wn_node_id child);
 
+/* Text input (ABI v4) internal surface. */
+int wn_view_input_focused(const wn_view *view);
+wn_status wn_view_set_value(wn_view *view, wn_node_id node, const char *utf8);
+const char *wn_view_get_value(wn_view *view, wn_node_id node);
+
 #if defined(__cplusplus)
 }
 #endif

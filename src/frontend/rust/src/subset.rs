@@ -21,15 +21,16 @@ use cssparser::{Delimiter, ParseError, Parser, ParserInput, Token};
 use crate::grid::{parse_grid_auto_rows, parse_grid_template_columns};
 use crate::style_ext::{box_shadow_is_valid, is_relative_length};
 
-/// Etiquetas del subconjunto v1.
-const SUPPORTED_TAGS: [&str; 19] = [
+/// Etiquetas del subconjunto v1. `input` es la extension del piloto v2
+/// (widget text input, `ui-tree/3`) y se diagnostica sin `--pilot`.
+const SUPPORTED_TAGS: [&str; 20] = [
     "html", "head", "body", "div", "span", "p", "h1", "h2", "h3", "h4", "h5", "h6", "button",
-    "img", "ul", "ol", "li", "link", "style",
+    "img", "input", "ul", "ol", "li", "link", "style",
 ];
 
 /// Etiquetas que el contrato nombra explicitamente como fuera de v1.
-const OUT_OF_V1_TAGS: [&str; 14] = [
-    "script", "iframe", "form", "input", "select", "table", "canvas", "video", "audio", "svg",
+const OUT_OF_V1_TAGS: [&str; 13] = [
+    "script", "iframe", "form", "select", "table", "canvas", "video", "audio", "svg",
     "template", "slot", "object", "embed",
 ];
 
@@ -351,6 +352,15 @@ impl<'a> HtmlScanner<'a> {
             return;
         }
 
+        if tag == "input" && !self.pilot {
+            self.push(
+                line,
+                Some("<input>".to_string()),
+                "<input> es una extension del piloto v2 (widget text input, ui-tree/3); usa --pilot para permitirla"
+                    .to_string(),
+            );
+        }
+
         for (name, value, attr_line) in attrs {
             if !attribute_supported(tag, name) {
                 self.push(
@@ -362,6 +372,37 @@ impl<'a> HtmlScanner<'a> {
             }
             match (tag, name.as_str()) {
                 ("img", "src") => self.check_local_asset("src de <img>", value, *attr_line),
+                ("input", "type") => {
+                    if !value.trim().eq_ignore_ascii_case("text") {
+                        self.push(
+                            *attr_line,
+                            Some("<input>".to_string()),
+                            format!(
+                                "input type '{}' no soportado: el widget v1 solo edita type=\"text\"",
+                                value.trim()
+                            ),
+                        );
+                    }
+                }
+                ("input", "value") | ("input", "placeholder") => {
+                    if !value.is_ascii() {
+                        self.push(
+                            *attr_line,
+                            Some(format!("<input {name}>")),
+                            "el text input v1 solo compone ASCII imprimible (32..126); el resto se descarta"
+                                .to_string(),
+                        );
+                    }
+                }
+                ("input", "maxlength") => {
+                    if value.trim().parse::<u32>().is_err() {
+                        self.push(
+                            *attr_line,
+                            Some("<input maxlength>".to_string()),
+                            format!("maxlength '{value}' no es un entero positivo"),
+                        );
+                    }
+                }
                 ("link", "href") => {
                     self.check_local_asset("href de <link>", value, *attr_line);
                     let is_sheet = attrs.iter().find(|(attr, _, _)| attr == "rel").map_or(
@@ -423,6 +464,11 @@ fn attribute_supported(tag: &str, name: &str) -> bool {
         // runtime necesita el texto alternativo y el tamano intrinseco. Son
         // aditivos al subset v1 (que solo nombra `src`).
         || (tag == "img" && matches!(name, "src" | "alt" | "width" | "height"))
+        || (tag == "input"
+            && matches!(
+                name,
+                "type" | "value" | "placeholder" | "maxlength" | "disabled" | "readonly"
+            ))
         || (tag == "link" && (name == "href" || name == "rel"))
         || (tag == "button" && name == "disabled")
 }

@@ -29,6 +29,10 @@ typedef struct wn_app_stats {
 void wn_app_set_max_frames(wn_app *app, int max_frames);
 void wn_app_set_resize_demo(wn_app *app, int enabled);
 
+/* Internal: the embedded view owned by the app. Used by tests/demos to inject
+ * synthetic wn_view_event() values; not part of the public ABI. */
+wn_view *wn_app_view(wn_app *app);
+
 int wn_app_get_stats(const wn_app *app, wn_app_stats *stats);
 
 #if defined(__cplusplus)

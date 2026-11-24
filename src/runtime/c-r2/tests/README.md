@@ -56,3 +56,27 @@ powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\dynam
 Evidence: `out/stage_00.png` ... `out/stage_10.png`, `out/stage_report.json`,
 `out/core_events.jsonl`, `out/dynamic_verify_report.json`, `out/abi_dynamic.log`
 and `out/run_report.json` (generated, gitignored).
+
+## `input/`
+
+Single-line ASCII text input (`ui-tree/3`, ABI v4): a 480x240 page with two
+inputs (`search` 320x34, `maxlength=12`; `empty` 220x28, `maxlength=5`).
+`page/ui.json` is tracked; `fixture/ui_data.h` is generated (the global
+`.gitignore` ignores `ui_data.h`, so force-add it like `tests/dynamic/fixture`
+if the checkout must run without the Rust binary). `input_core_test.c` is the
+headless core test; `runtime_input.exe --input` renders 10 offscreen PNG stages
+with `stage_report.json` (value/cursor/selection/caret); `examples/input.c` is
+the C ABI v4 demo (set/get value, WN_EVENT_INPUT, clipboard, Esc policy);
+`verify_input.py` checks stage values and text/caret/selection/focus pixels
+(111/111).
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\input\run_input.ps1
+# re-emit page\ui.json + fixture\ui_data.h (frontend-rust --pilot + --ui-json):
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\input\run_input.ps1 -Regenerate
+```
+
+Evidence: `out/stage_00.png` ... `out/stage_09.png`, `out/stage_report.json`,
+`out/core_events.jsonl`, `out/input_verify_report.json`, `out/runtime_input.log`,
+`out/window_input.log`, `out/abi_input.log` and `out/run_report.json`
+(generated, gitignored).

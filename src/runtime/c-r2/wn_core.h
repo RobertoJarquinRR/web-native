@@ -202,6 +202,81 @@ int wn_core_dirty(const wn_core *core);
 int wn_core_needs_layout(const wn_core *core);
 void wn_core_clear_dirty(wn_core *core);
 
+/* Virtual key codes used by the text-input editor (Win32 VK values; the ABI
+ * documents `wn_event.key` as a virtual key). */
+enum {
+    WN_KEY_BACKSPACE = 8,
+    WN_KEY_TAB = 9,
+    WN_KEY_ENTER = 13,
+    WN_KEY_ESCAPE = 27,
+    WN_KEY_END = 35,
+    WN_KEY_HOME = 36,
+    WN_KEY_LEFT = 37,
+    WN_KEY_UP = 38,
+    WN_KEY_RIGHT = 39,
+    WN_KEY_DOWN = 40,
+    WN_KEY_DELETE = 46,
+    WN_KEY_A = 65,
+    WN_KEY_C = 67,
+    WN_KEY_V = 86,
+    WN_KEY_X = 88
+};
+
+/* Shift bit inside wn_event.modifiers (mirrors WN_MOD_SHIFT). */
+#define WN_KEY_MOD_SHIFT 0x01u
+
+/* Snapshot of one editable input for diagnostics/tests. `value`, `caret_x`,
+ * `selection_x0` and `selection_x1` are valid until the next core call. */
+typedef struct {
+    const char *value;
+    int cursor;               /* byte offset 0..len (ASCII: == chars) */
+    int anchor;               /* selection anchor, -1 none */
+    int focused;
+    int max_length;           /* 0 unlimited (hard cap 255) */
+    float scroll;             /* horizontal text offset, px */
+    float baseline;           /* ascender from the content box top */
+    float line_height;
+    float caret_x;            /* view px: text origin + caret - scroll */
+    float selection_x0;       /* view px, == caret_x when empty */
+    float selection_x1;
+    wn_rect rect;             /* border box */
+    wn_rect content;          /* content box (padding removed) */
+} wn_input_state;
+
+/* ------------------------------------------------------ text input (v4) */
+/*
+ * Single-line ASCII editor embedded in the core. The value buffer is engine
+ * owned; hosts read it through the ABI (wn_node_get_value) or the helpers
+ * below. All editing entry points return the affected node (or -1 when the
+ * key/char was not consumed) and report whether the value or only the visual
+ * state (caret/selection/scroll/focus) changed.
+ */
+int wn_core_node_is_input(const wn_core *core, int node);
+int wn_core_input_focused(const wn_core *core);
+int wn_core_focus_input(wn_core *core, int node, float pointer_x);
+int wn_core_blur_input(wn_core *core);
+
+int wn_core_input_char(wn_core *core, uint32_t codepoint,
+                       int *value_changed, int *visual_changed);
+int wn_core_input_key(wn_core *core, int key, uint32_t modifiers,
+                      int *value_changed, int *visual_changed);
+int wn_core_input_select_all(wn_core *core, int *visual_changed);
+/* Copy/cut the selection into a caller buffer (NUL terminated). Returns the
+ * number of bytes copied, 0 when there is no selection, -1 when no input is
+ * focused. */
+int wn_core_input_copy(wn_core *core, char *out, int capacity);
+int wn_core_input_cut(wn_core *core, char *out, int capacity,
+                      int *value_changed, int *visual_changed);
+/* Insert printable ASCII, truncating at max_length. */
+int wn_core_input_paste(wn_core *core, const char *text,
+                        int *value_changed, int *visual_changed);
+
+/* 0 ok, 1 non-ASCII, 2 too long, -1 invalid node/argument (WN_ERR_* mapping
+ * lives in the ABI layer). */
+int wn_core_set_input_value(wn_core *core, int node, const char *text);
+const char *wn_core_input_value(const wn_core *core, int node);
+int wn_core_input_state(const wn_core *core, int node, wn_input_state *out);
+
 /* Test/debug hooks: force a state without going through the pointer machine. */
 void wn_core_set_state(wn_core *core, int node, int state, int enabled);
 

@@ -17,7 +17,9 @@
 //! No ejecuta el pase de layout: no hay x/y/w/h de cajas, solo el estilo.
 //! Emite `webnative.ui-tree/1` si la pagina no usa features v2 y
 //! `webnative.ui-tree/2` si emite grid, scroll (`overflow: auto|scroll`) o
-//! imagenes (`docs/ui-tree-v2.md`).
+//! imagenes (`docs/ui-tree-v2.md`). `webnative.ui-tree/3` es aditivo: la pagina
+//! usa un `<input type="text">` y anade `kind:"input"` + `input{}` con la
+//! piscina ASCII imprimible horneada en el atlas.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -26,23 +28,32 @@ use std::path::{Path, PathBuf};
 
 use crate::cascade::ComputedStyle;
 use crate::color::parse_color;
-use crate::dom::{Dom, NodeId};
+use crate::dom::{Dom, Node, NodeId};
 use crate::emit::{push_json_string, py_float};
 use crate::grid::{GridAutoRows, GridTemplateColumns};
 use crate::sha256;
 use crate::style_ext::{BorderOut, BoxShadow, RelLength, StyleV3, Unit};
-use crate::text::{Atlas, BakedUiText, TextEngine, UiGlyphOut, UiTextBaker};
+use crate::text::{
+    Atlas, BakedInputPool, BakedUiText, TextEngine, UiGlyphOut, UiInputGlyphOut, UiTextBaker,
+    UI_INPUT_ATLAS_SIZE,
+};
 
 /// Schema sin features v2 (grid/scroll/imagenes). Identico al contrato previo.
 pub const SCHEMA_V1: &str = "webnative.ui-tree/1";
 /// Schema v2 cuando la pagina usa grid, scroll o imagenes.
 pub const SCHEMA_V2: &str = "webnative.ui-tree/2";
+/// Schema v3 (aditivo) cuando la pagina usa `<input type="text">`.
+pub const SCHEMA_V3: &str = "webnative.ui-tree/3";
 
 const KIND_BLOCK: u32 = 0;
 const KIND_FLEX: u32 = 1;
 const KIND_TEXT: u32 = 2;
 const KIND_GRID: u32 = 3;
 const KIND_IMAGE: u32 = 4;
+const KIND_INPUT: u32 = 5;
+
+/// Limite duro del buffer de edicion; `maxlength` del HTML puede ser menor.
+pub const INPUT_MAX_BYTES: usize = 255;
 
 const DEFAULT_FAMILY: &str = "Segoe UI";
 const DEFAULT_SIZE: f64 = 16.0;
@@ -82,6 +93,7 @@ fn kind_name(kind: u32) -> &'static str {
         KIND_TEXT => "text",
         KIND_GRID => "grid",
         KIND_IMAGE => "image",
+        KIND_INPUT => "input",
         _ => "block",
     }
 }
@@ -108,6 +120,40 @@ fn argb_from_attr(value: Option<&str>) -> u32 {
 
 fn normalize_text(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// `<input type="text">` es el unico widget de entrada de v3. Sin `type` se
+/// asume `text` (como el navegador); cualquier otro tipo queda fuera.
+fn input_type_is_text(node: &Node) -> bool {
+    match node.attr("type") {
+        None => true,
+        Some(value) => {
+            let kind = value.trim();
+            kind.is_empty() || kind.eq_ignore_ascii_case("text")
+        }
+    }
+}
+
+/// `maxlength` -> 0 (sin limite) o 1..=255. Valores invalidos se ignoran.
+fn input_max_length(value: Option<&str>) -> u32 {
+    value
+        .and_then(|text| text.trim().parse::<u32>().ok())
+        .map(|limit| limit.min(INPUT_MAX_BYTES as u32))
+        .unwrap_or(0)
+}
+
+/// Solo ASCII imprimible (32..126), sin recortar palabras ni normalizar
+/// espacios. `limit == 0` no recorta; el resto se descarta.
+fn sanitize_input_text(text: &str, limit: u32) -> String {
+    let max = if limit == 0 {
+        INPUT_MAX_BYTES
+    } else {
+        (limit as usize).min(INPUT_MAX_BYTES)
+    };
+    text.chars()
+        .filter(|ch| ch.is_ascii() && (32..=126).contains(&(*ch as u32)))
+        .take(max)
+        .collect()
 }
 
 struct StyleOut {
@@ -170,6 +216,17 @@ struct ImageOut {
     object_fit: String,
 }
 
+/// Contenido de un nodo `kind:"input"` (schema `/3`).
+struct InputOut {
+    value: String,
+    placeholder: String,
+    max_length: u32,
+    password: bool,
+    baseline: f64,
+    line_height: f64,
+    glyphs: Vec<UiInputGlyphOut>,
+}
+
 struct NodeOut {
     parent: i64,
     children: Vec<usize>,
@@ -183,6 +240,7 @@ struct NodeOut {
     argb: ArgbOut,
     text: Option<TextOut>,
     image: Option<ImageOut>,
+    input: Option<InputOut>,
 }
 
 /// Resumen para el log del build.
@@ -190,6 +248,7 @@ pub struct UiSummary {
     pub nodes: usize,
     pub glyphs: usize,
     pub runs: usize,
+    pub input_glyphs: usize,
     pub atlas: Option<(u32, u32)>,
     pub atlas_path: Option<PathBuf>,
 }
@@ -201,20 +260,30 @@ struct Builder<'a> {
     baker: UiTextBaker,
     nodes: Vec<NodeOut>,
     name_counts: HashMap<String, usize>,
+    /// Piscina ASCII cacheada por (familia, tamano redondeado).
+    input_pools: HashMap<(String, i32), BakedInputPool>,
     glyph_count: usize,
+    input_glyph_count: usize,
     run_count: usize,
 }
 
 impl<'a> Builder<'a> {
-    fn new(dom: &'a Dom, styles: &'a [Option<ComputedStyle>], engine: &'a TextEngine) -> Self {
+    fn new(
+        dom: &'a Dom,
+        styles: &'a [Option<ComputedStyle>],
+        engine: &'a TextEngine,
+        atlas_size: u32,
+    ) -> Self {
         Builder {
             dom,
             styles,
             engine,
-            baker: UiTextBaker::new(),
+            baker: UiTextBaker::with_size(atlas_size),
             nodes: Vec::new(),
             name_counts: HashMap::new(),
+            input_pools: HashMap::new(),
             glyph_count: 0,
+            input_glyph_count: 0,
             run_count: 0,
         }
     }
@@ -257,6 +326,10 @@ impl<'a> Builder<'a> {
             .as_ref()
             .ok_or_else(|| format!("nodo {} sin estilo computado", id))?;
         let is_image = self.dom.nodes[id].tag == "img";
+        // `<input type="text">` (o sin `type`) es un widget editable de v3.
+        // `password`, `checkbox`, etc. no forman parte de este contrato y se
+        // emiten como bloque normal (subset avisa).
+        let is_input = self.dom.nodes[id].tag == "input" && input_type_is_text(&self.dom.nodes[id]);
         let mut width_px = style.width.unwrap_or(-1.0);
         let mut width_pct = style.width_pct;
         let mut height_px = style.height.unwrap_or(-1.0);
@@ -287,8 +360,8 @@ impl<'a> Builder<'a> {
                 height_pct = 100.0;
             }
         }
-        // Un `<img>` inline si se emite (kind image); el resto de `inline` no.
-        if style.display == "none" || (style.display == "inline" && !is_image) {
+        // Un `<img>`/`<input>` inline si se emite; el resto de `inline` no.
+        if style.display == "none" || (style.display == "inline" && !is_image && !is_input) {
             // El oraculo filtra por block/flex antes de llamar; los nodos no
             // renderizables de la raiz son un error de fixture.
             if is_root {
@@ -298,6 +371,8 @@ impl<'a> Builder<'a> {
         }
         let kind = if is_image {
             KIND_IMAGE
+        } else if is_input {
+            KIND_INPUT
         } else if style.display == "grid" {
             KIND_GRID
         } else if style.display == "flex" {
@@ -317,6 +392,49 @@ impl<'a> Builder<'a> {
                     .object_fit
                     .clone()
                     .unwrap_or_else(|| "fill".to_string()),
+            })
+        } else {
+            None
+        };
+        let input = if is_input {
+            let family = if style.font_family.is_empty() {
+                DEFAULT_FAMILY.to_string()
+            } else {
+                style.font_family.clone()
+            };
+            let size = if style.font_size > 0.0 {
+                style.font_size
+            } else {
+                DEFAULT_SIZE
+            };
+            let key_size = (size.round_ties_even() as i32).max(1);
+            let key = (family.clone(), key_size);
+            let pool = if let Some(pool) = self.input_pools.get(&key) {
+                pool.clone()
+            } else {
+                let baked = self
+                    .baker
+                    .bake_input_pool(self.engine, &family, size)?;
+                self.input_pools.insert(key, baked.clone());
+                baked
+            };
+            let max_length = input_max_length(self.dom.nodes[id].attr("maxlength"));
+            let value = sanitize_input_text(
+                self.dom.nodes[id].attr("value").unwrap_or(""),
+                max_length,
+            );
+            let placeholder = sanitize_input_text(
+                self.dom.nodes[id].attr("placeholder").unwrap_or(""),
+                INPUT_MAX_BYTES as u32,
+            );
+            Some(InputOut {
+                value,
+                placeholder,
+                max_length,
+                password: false,
+                baseline: pool.ascender,
+                line_height: pool.ascender + pool.descender,
+                glyphs: pool.glyphs,
             })
         } else {
             None
@@ -378,10 +496,16 @@ impl<'a> Builder<'a> {
             },
             text: None,
             image,
+            input,
         });
 
-        // `<img>` es void: no tiene texto propio ni hijos.
-        if is_image {
+        // `<img>` y `<input>` son void: no tienen texto propio ni hijos.
+        if is_image || is_input {
+            self.input_glyph_count += self.nodes[index]
+                .input
+                .as_ref()
+                .map(|input| input.glyphs.len())
+                .unwrap_or(0);
             return Ok(index);
         }
 
@@ -408,8 +532,8 @@ impl<'a> Builder<'a> {
         Ok(index)
     }
 
-    /// Hijos que el arbol v2 conserva: block/flex/grid y `<img>` renderizable.
-    /// `inline`, `none` y el resto se descartan igual que antes.
+    /// Hijos que el arbol v2/v3 conserva: block/flex/grid, `<img>` e
+    /// `<input>` renderizables. `inline`, `none` y el resto se descartan.
     fn is_renderable(&self, child: NodeId) -> bool {
         let Some(style) = self.styles[child].as_ref() else {
             return false;
@@ -418,6 +542,9 @@ impl<'a> Builder<'a> {
             return false;
         }
         if self.dom.nodes[child].tag == "img" {
+            return true;
+        }
+        if self.dom.nodes[child].tag == "input" && input_type_is_text(&self.dom.nodes[child]) {
             return true;
         }
         matches!(style.display.as_str(), "block" | "flex" | "grid")
@@ -507,6 +634,7 @@ impl<'a> Builder<'a> {
                 glyphs,
             }),
             image: None,
+            input: None,
         });
         self.glyph_count += self.nodes[index]
             .text
@@ -695,7 +823,7 @@ fn push_style_v3(out: &mut String, css3: &StyleV3) {
     push_box_shadow(out, &css3.box_shadow);
 }
 
-fn push_style(out: &mut String, style: &StyleOut, v2: bool) {
+fn push_style(out: &mut String, style: &StyleOut, detailed: bool) {
     out.push_str("      \"style\": {\n");
     out.push_str("        \"display\": ");
     push_opt_string(out, style.display.as_deref());
@@ -717,9 +845,10 @@ fn push_style(out: &mut String, style: &StyleOut, v2: bool) {
     push_json_string(out, &style.flex_wrap);
     out.push_str(",\n        \"gap\": ");
     push_float(out, style.gap);
-    if v2 {
+    if detailed {
         // Campos v2 (`docs/ui-tree-v2.md`). En `/1` no se escriben para que
-        // las paginas existentes sigan siendo byte a byte identicas.
+        // las paginas existentes sigan siendo byte a byte identicas. `/3` los
+        // hereda de `/2` (es aditivo).
         out.push_str(",\n        \"row_gap\": ");
         push_float(out, style.row_gap);
         out.push_str(",\n        \"column_gap\": ");
@@ -770,13 +899,13 @@ fn push_style(out: &mut String, style: &StyleOut, v2: bool) {
     push_json_string(out, &style.font_family);
     out.push_str(",\n        \"font_weight\": ");
     push_json_string(out, &style.font_weight);
-    if v2 {
+    if detailed {
         push_style_v3(out, &style.css3);
     }
     out.push_str("\n      }");
 }
 
-fn push_nodes_json(out: &mut String, nodes: &[NodeOut], v2: bool) {
+fn push_nodes_json(out: &mut String, nodes: &[NodeOut], detailed: bool) {
     for (index, node) in nodes.iter().enumerate() {
         if index > 0 {
             out.push(',');
@@ -809,7 +938,7 @@ fn push_nodes_json(out: &mut String, nodes: &[NodeOut], v2: bool) {
         out.push_str("],\n      \"element_id\": ");
         push_opt_string(out, node.element_id.as_deref());
         out.push_str(",\n");
-        push_style(out, &node.style, v2);
+        push_style(out, &node.style, detailed);
         out.push_str(",\n      \"data\": {\n        \"hover\": ");
         push_opt_string(out, node.data.hover.as_deref());
         out.push_str(",\n        \"press\": ");
@@ -858,6 +987,42 @@ fn push_nodes_json(out: &mut String, nodes: &[NodeOut], v2: bool) {
                 }
                 out.push_str("\n        ]\n      }");
             }
+        }
+        // Solo los nodos input llevan `input` (schema `/3`).
+        if let Some(input) = &node.input {
+            out.push_str(",\n      \"input\": {\n        \"value\": ");
+            push_json_string(out, &input.value);
+            out.push_str(",\n        \"placeholder\": ");
+            push_json_string(out, &input.placeholder);
+            let _ = write!(
+                out,
+                ",\n        \"max_length\": {},\n        \"password\": {},\n        \"baseline\": {},\n        \"line_height\": {},\n        \"glyphs\": [",
+                input.max_length,
+                if input.password { "true" } else { "false" },
+                py_float(input.baseline),
+                py_float(input.line_height)
+            );
+            for (glyph_index, glyph) in input.glyphs.iter().enumerate() {
+                if glyph_index > 0 {
+                    out.push(',');
+                }
+                let _ = write!(
+                    out,
+                    "\n          {{ \"cp\": {}, \"gid\": {}, \"advance\": {}, \"x\": {}, \"y\": {}, \"w\": {}, \"h\": {}, \"u0\": {}, \"v0\": {}, \"u1\": {}, \"v1\": {} }}",
+                    glyph.cp,
+                    glyph.gid,
+                    py_float(glyph.advance),
+                    py_float(glyph.x),
+                    py_float(glyph.y),
+                    glyph.w,
+                    glyph.h,
+                    py_float(glyph.u0),
+                    py_float(glyph.v0),
+                    py_float(glyph.u1),
+                    py_float(glyph.v1)
+                );
+            }
+            out.push_str("\n        ]\n      }");
         }
         // Solo los nodos imagen llevan `image`; asi `/1` no cambia.
         if let Some(image) = &node.image {
@@ -941,6 +1106,13 @@ fn nodes_use_v2(nodes: &[NodeOut]) -> bool {
     })
 }
 
+/// Una pagina emite `/3` (aditivo sobre `/2`) si algun nodo emitido es un
+/// `<input type="text">`. El schema se decide sobre nodos ya emitidos: un
+/// input dentro de `display:none` no cuenta.
+fn nodes_have_input(nodes: &[NodeOut]) -> bool {
+    nodes.iter().any(|node| node.input.is_some())
+}
+
 /// Emite `ui.json` (+ atlas) desde el DOM y la cascada ya calculados.
 ///
 /// `ui_path` es el fichero `ui.json`; el atlas se escribe al lado con nombres
@@ -969,19 +1141,52 @@ pub fn emit_ui_tree(
         return Err("body is not renderable".to_string());
     }
 
-    let mut builder = Builder::new(dom, styles, engine);
+    // La piscina ASCII de un input necesita mas atlas; las paginas sin input
+    // conservan 256x256 (atlas y UVs byte-identicos a la version anterior).
+    // Un input dentro de display:none no llega a emitirse ni cuenta.
+    let has_input = dom.preorder().into_iter().any(|id| {
+        if dom.nodes[id].tag != "input" || !input_type_is_text(&dom.nodes[id]) {
+            return false;
+        }
+        let mut cursor = Some(id);
+        while let Some(node) = cursor {
+            if let Some(style) = styles.get(node).and_then(Option::as_ref) {
+                if style.display == "none" {
+                    return false;
+                }
+            }
+            cursor = dom.nodes[node].parent;
+        }
+        true
+    });
+    let atlas_size = if has_input {
+        UI_INPUT_ATLAS_SIZE
+    } else {
+        crate::text::UI_ATLAS_SIZE
+    };
+
+    let mut builder = Builder::new(dom, styles, engine, atlas_size);
     builder.emit_element(body, -1, "body.root", true)?;
     let Builder {
         nodes,
         baker,
         glyph_count,
+        input_glyph_count,
         run_count,
         ..
     } = builder;
 
+    let v3 = nodes_have_input(&nodes);
     let v2 = nodes_use_v2(&nodes);
-    let schema = if v2 { SCHEMA_V2 } else { SCHEMA_V1 };
-    let atlas: Option<AtlasRef<'_>> = if run_count > 0 {
+    let detailed = v2 || v3;
+    let schema = if v3 {
+        SCHEMA_V3
+    } else if v2 {
+        SCHEMA_V2
+    } else {
+        SCHEMA_V1
+    };
+    let atlas: Option<AtlasRef<'_>> = if run_count > 0 || input_glyph_count > 0 {
         Some(AtlasRef {
             atlas: baker.atlas(),
             file: "atlas.bin",
@@ -991,7 +1196,9 @@ pub fn emit_ui_tree(
         None
     };
 
-    let mut out = String::with_capacity(4096 + nodes.len() * 768 + glyph_count * 160);
+    let mut out = String::with_capacity(
+        4096 + nodes.len() * 768 + (glyph_count + input_glyph_count) * 160,
+    );
     out.push_str("{\n  \"schema\": ");
     push_json_string(&mut out, schema);
     out.push_str(",\n  \"generator\": \"frontend-rust\",\n  \"source\": {\n    \"html\": ");
@@ -1005,7 +1212,7 @@ pub fn emit_ui_tree(
     );
     push_atlas_json(&mut out, atlas.as_ref());
     out.push_str(",\n  \"nodes\": [");
-    push_nodes_json(&mut out, &nodes, v2);
+    push_nodes_json(&mut out, &nodes, detailed);
     out.push_str("\n  ]\n}\n");
 
     if let Some(parent) = ui_path.parent() {
@@ -1038,6 +1245,7 @@ pub fn emit_ui_tree(
         nodes: nodes.len(),
         glyphs: glyph_count,
         runs: run_count,
+        input_glyphs: input_glyph_count,
         atlas: atlas
             .as_ref()
             .map(|item| (item.atlas.width(), item.atlas.height())),
