@@ -168,13 +168,13 @@ $OutDir = [System.IO.Path]::GetFullPath($OutDir)
 $runStamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $logDir = Join-Path $OutDir "logs\$runStamp"
 foreach ($dir in @(
-    $OutDir,
-    (Join-Path $OutDir 'captures'),
-    (Join-Path $OutDir 'meta'),
-    (Join-Path $OutDir 'diff'),
-    (Join-Path $OutDir 'reports'),
-    $logDir
-)) {
+        $OutDir,
+        (Join-Path $OutDir 'captures'),
+        (Join-Path $OutDir 'meta'),
+        (Join-Path $OutDir 'diff'),
+        (Join-Path $OutDir 'reports'),
+        $logDir
+    )) {
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
 }
 
@@ -243,7 +243,7 @@ if (-not $SkipNative) {
         $message = @"
 Native renderer prerequisites are missing.
 
-Every fixture is compiled by the engine: src\runtime\c-r2\build.ps1 -Html <html>
+Every fixture is compiled by the engine: src\runtime\\build.ps1 -Html <html>
 -Css <css> -Width W -Height H -OutDir out\build\r2-<fixture>, then rendered with
 runtime_r2.exe --render. This needs MSVC, frontend-rust and emit_ui.py.
 If the build breaks, fix the error; do not fall back to a stale binary.
@@ -352,7 +352,7 @@ if (-not $NoArchive) {
     Copy-Item -LiteralPath (Join-Path $OutDir 'report.json') -Destination $archive -Force
     Copy-Item -LiteralPath (Join-Path $OutDir 'report.md') -Destination $archive -Force
     Get-ChildItem -LiteralPath (Join-Path $OutDir 'reports') -Filter '*.report.*' |
-        Copy-Item -Destination $archive -Force
+    Copy-Item -Destination $archive -Force
     $archiveNote = @"
 Visual parity run: $runStamp
 

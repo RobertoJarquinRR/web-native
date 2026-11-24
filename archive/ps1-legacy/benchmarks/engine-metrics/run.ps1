@@ -6,13 +6,13 @@
 #   1. local venv + psutil (only for RSS cross-check; the harness also uses Win32)
 #   2. freeze the current R2 build (exe + wgpu_native.dll + atlas) into snapshot/
 #      and record commit + SHA-256. If the build is missing, build R2 once from
-#      the committed sources (writes only generated src\runtime\c-r2\build files).
+#      the committed sources (writes only generated src\runtime\\build files).
 #   3. build R1 once with src\build.ps1 into work\r1-build (throw-away)
 #   4. build a ~100-node R2 variant into work\layout100 (layout scaling)
 #   5. measure 10 runs per metric and write baseline.json + BASELINE.md
 #
 # Nothing outside benchmarks\engine-metrics\ is modified, except generated
-# artifacts under src\runtime\c-r2\build only when the snapshot is missing.
+# artifacts under src\runtime\\build only when the snapshot is missing.
 [CmdletBinding()]
 param(
     [int]$Runs = 10,
@@ -32,7 +32,7 @@ $vcvars = 'C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Bu
 $canonPy = Join-Path $repo 'src\frontend\python\.venv\Scripts\python.exe'
 $frontRust = Join-Path $repo 'src\frontend\rust\target\release\frontend-rust.exe'
 $emitUi = Join-Path $repo 'src\emitter\python\emit_ui.py'
-$r2Source = Join-Path $repo 'src\runtime\c-r2\runtime_r2.c'
+$r2Source = Join-Path $repo 'src\runtime\\runtime_r2.c'
 $r1Fixture = Join-Path $repo 'benchmarks\frontend-parity\fixtures\flex-page\index.html'
 $r1Dir = Join-Path $root 'work\r1-build'
 $l100Dir = Join-Path $root 'work\layout100'
@@ -95,13 +95,13 @@ $needSnapshot = $ForceSnapshot -or -not (Test-Path -LiteralPath $snapExe) -or `
     -not (Test-Path -LiteralPath $snapDll)
 $needMeta = $needSnapshot -or -not (Test-Path -LiteralPath (Join-Path $snapDir 'snapshot.json'))
 if ($needSnapshot) {
-    $srcBuild = Join-Path $repo 'src\runtime\c-r2\build'
+    $srcBuild = Join-Path $repo 'src\runtime\\build'
     if (-not (Test-Path -LiteralPath (Join-Path $srcBuild 'runtime_r2.exe'))) {
         Write-Host 'snapshot: R2 build missing; building from committed sources' -ForegroundColor Yellow
-        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'src\runtime\c-r2\build.ps1') -SkipParityCheck
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo 'src\runtime\\build.ps1') -SkipParityCheck
         if ($LASTEXITCODE -ne 0) { Fail 'R2 build failed and no snapshot exists' }
     }
-    Write-Host 'snapshot: freezing src\runtime\c-r2\build -> snapshot\' -ForegroundColor Cyan
+    Write-Host 'snapshot: freezing src\runtime\\build -> snapshot\' -ForegroundColor Cyan
     New-Item -ItemType Directory -Force -Path $snapDir, (Join-Path $snapDir 'assets') | Out-Null
     Copy-Item -LiteralPath (Join-Path $srcBuild 'runtime_r2.exe') -Destination $snapExe -Force
     Copy-Item -LiteralPath (Join-Path $srcBuild 'wgpu_native.dll') -Destination $snapDll -Force
@@ -129,10 +129,12 @@ if ($needMeta) {
         dll_sha256      = Get-Sha256 $snapDll
         atlas_bytes     = if (Test-Path -LiteralPath (Join-Path $snapDir 'assets\atlas.bin')) {
             Get-FileLength (Join-Path $snapDir 'assets\atlas.bin')
-        } else { $null }
+        }
+        else { $null }
         atlas_sha256    = if (Test-Path -LiteralPath (Join-Path $snapDir 'assets\atlas.bin')) {
             Get-Sha256 (Join-Path $snapDir 'assets\atlas.bin')
-        } else { $null }
+        }
+        else { $null }
     }
     Write-Utf8 (Join-Path $snapDir 'snapshot.json') ($meta | ConvertTo-Json)
 }
@@ -167,9 +169,9 @@ if (-not $SkipLayout100) {
         Write-Host 'layout100: building ~100-node R2 variant -> work\layout100' -ForegroundColor Cyan
         $ok = $true
         foreach ($required in @($frontRust, $canonPy, $emitUi, $r2Source,
-                               (Join-Path $wgpu 'include\wgpu.h'),
-                               (Join-Path $wgpu 'lib\wgpu_native.dll.lib'),
-                               (Join-Path $wgpu 'bin\wgpu_native.dll'))) {
+                (Join-Path $wgpu 'include\wgpu.h'),
+                (Join-Path $wgpu 'lib\wgpu_native.dll.lib'),
+                (Join-Path $wgpu 'bin\wgpu_native.dll'))) {
             if (-not (Test-Path -LiteralPath $required)) {
                 Write-Host "layout100: missing $required - skipping (R2 28-node layout still measured)" -ForegroundColor Yellow
                 $ok = $false
