@@ -201,11 +201,92 @@ static int view_input_key(wn_view *view, const wn_event *event,
                              value_changed, visual_changed);
 }
 
+/* -------------------------------------------------- renderer selection */
+/*
+ * Default on Windows: D3D11 hardware (the Intel/AMD/NVIDIA D3D11 driver is
+ * present even when the machine's D3D12 support is missing), falling back to
+ * wgpu if init fails. WN_RENDERER=d3d11|wgpu|auto overrides the choice for
+ * A/B testing; an explicit value is strict so a test can prove one backend.
+ */
+static int view_candidates(const wn_renderer_ops **out, int capacity, int *strict)
+{
+    const char *choice = getenv("WN_RENDERER");
+    int count = 0;
+
+    *strict = 0;
+    if (choice != NULL && choice[0] != '\0' && strcmp(choice, "auto") != 0) {
+        if (strcmp(choice, "d3d11") == 0) {
+#if defined(_WIN32)
+            if (count < capacity) out[count++] = wn_renderer_d3d11();
+            *strict = 1;
+            return count;
+#else
+            fprintf(stderr, "wn_view: WN_RENDERER=d3d11 is only available on Windows\n");
+            return 0;
+#endif
+        }
+        if (strcmp(choice, "wgpu") == 0) {
+            if (count < capacity) out[count++] = wn_renderer_wgpu();
+            *strict = 1;
+            return count;
+        }
+        fprintf(stderr, "wn_view: unknown WN_RENDERER='%s' (expected d3d11|wgpu|auto); "
+                        "using auto\n", choice);
+    }
+
+#if defined(_WIN32)
+    if (count < capacity) out[count++] = wn_renderer_d3d11();
+#endif
+    if (count < capacity) out[count++] = wn_renderer_wgpu();
+    return count;
+}
+
+static int view_init_renderer(wn_view *view, const wn_surface_desc *surface,
+                              int width, int height, char *errors, size_t errors_cap)
+{
+    const wn_renderer_ops *candidates[3];
+    int strict = 0;
+    int count;
+    int i;
+
+    count = view_candidates(candidates, 3, &strict);
+    errors[0] = '\0';
+    for (i = 0; i < count; ++i) {
+        const wn_renderer_ops *ops = candidates[i];
+        void *renderer = NULL;
+        if (ops == NULL || ops->init == NULL) {
+            continue;
+        }
+        if (ops->init(&renderer, surface, width, height) == 0 && renderer != NULL) {
+            view->ops = ops;
+            view->renderer = renderer;
+            return 0;
+        }
+        {
+            const char *detail = renderer != NULL && ops->last_error != NULL
+                                     ? ops->last_error(renderer)
+                                     : NULL;
+            size_t used = strlen(errors);
+            snprintf(errors + used, errors_cap - used, "%s%s: %s",
+                     used > 0 ? "; " : "", ops->name,
+                     detail != NULL ? detail : "init failed");
+        }
+        if (renderer != NULL && ops->destroy != NULL) {
+            ops->destroy(renderer);
+        }
+        if (strict) {
+            break;
+        }
+    }
+    return 1;
+}
+
 wn_view *wn_view_create(void *native_window_handle, int32_t width, int32_t height,
                         uint32_t flags)
 {
     wn_view *view;
     wn_surface_desc surface;
+    char renderer_errors[512];
 
     wn_clear_error();
     if (native_window_handle == NULL) {
@@ -233,7 +314,6 @@ wn_view *wn_view_create(void *native_window_handle, int32_t width, int32_t heigh
         free(view);
         return NULL;
     }
-    view->ops = wn_renderer_wgpu();
     view->native_window = native_window_handle;
     view->width = width;
     view->height = height;
@@ -246,17 +326,10 @@ wn_view *wn_view_create(void *native_window_handle, int32_t width, int32_t heigh
     surface.instance_handle = NULL;
     surface.width = width;
     surface.height = height;
-    if (view->ops == NULL || view->ops->init == NULL ||
-        view->ops->init(&view->renderer, &surface, width, height) != 0) {
-        const char *message = view->ops != NULL && view->ops->last_error != NULL &&
-                                      view->renderer != NULL
-                                  ? view->ops->last_error(view->renderer)
-                                  : NULL;
+    if (view_init_renderer(view, &surface, width, height, renderer_errors,
+                           sizeof(renderer_errors)) != 0) {
         wn_set_error("wn_view_create: renderer init failed: %s",
-                     message != NULL ? message : "unknown");
-        if (view->renderer != NULL && view->ops->destroy != NULL) {
-            view->ops->destroy(view->renderer);
-        }
+                     renderer_errors[0] != '\0' ? renderer_errors : "unknown");
         wn_core_destroy(view->core);
         free(view);
         return NULL;

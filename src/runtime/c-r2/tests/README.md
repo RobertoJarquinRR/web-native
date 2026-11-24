@@ -19,10 +19,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\pilot
 
 Evidence: `out/render_1280.png`, `out/render_800.png`, `out/wheel_*.png`,
 `out/pilot_layout.json`, `out/pilot_verify_report.json`, `out/abi_pilot.log`.
-The script also compiles the ABI window renderer (`renderer_wgpu.c`) against
-this tree and runs `standalone --frames 20 --wheel-demo`, asserting that the
-real `WM_MOUSEWHEEL` reaches the scroll container. `out/posters/` and `out/`
-are generated (gitignored); the hand-authored `ui.json` is tracked.
+The script also compiles the ABI window renderers (`renderer_wgpu.c` and
+`renderer_d3d11.c`) against this tree, runs `standalone --frames 20
+--wheel-demo` on the wgpu path (asserting that the real `WM_MOUSEWHEEL` reaches
+the scroll container), then captures the same 1280×800 page through D3D11
+(`out/abi/capture_d3d11_1280.png`) and compares it with `render_1280.png`
+(`out/abi/d3d11_compare_1280.json`). `out/posters/` and `out/` are generated
+(gitignored); the hand-authored `ui.json` is tracked.
 
 ## `emitter-escapes/`
 
@@ -99,3 +102,30 @@ powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\css\r
 Evidence: `out/render_card.png`, `out/render_control.png`,
 `out/layout_card.json`, `out/css_verify_report.json`, `out/run_report.json`
 (generated, gitignored). Result: **41/41 PASS**.
+
+## `d3d11/`
+
+Acceptance for the second renderer backend (`renderer_d3d11.c`). It proves the
+`wn_renderer_ops` vtable is not wgpu-specific:
+
+- `run_d3d11.ps1` builds `build_abi` (both backends linked), captures a D3D11
+  window frame, renders the same compiled document with wgpu offscreen and
+  compares the PNGs (`verify_d3d11.py`: per-channel tolerance, bad-pixel
+  fraction and blank-frame guard). It also runs `standalone` and `embedded` with
+  `WN_RENDERER=wgpu` to keep the original path selectable, and captures the
+  pilot image page (18 WIC images) through D3D11.
+- `measure_cpu.ps1` posts synthetic `WM_MOUSEMOVE` messages over the four
+  interactive nav items and measures process CPU for both renderers.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\d3d11\run_d3d11.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\d3d11\measure_cpu.ps1
+```
+
+Evidence: `out/d3d11_960x640.png`, `out/wgpu_960x640.png`,
+`out/d3d11_compare.json`, `out/d3d11_pilot_1280x800.png`,
+`out/d3d11_compare_pilot.json`, `out/d3d11_run.log`, `out/d3d11_report.json`
+and `out/cpu_measure.json` (generated, gitignored). Last run on this machine:
+base fixture max channel diff **3**, 99.83 % exact; pilot image page max **1**,
+99.76 % exact; hover CPU **0.011–0.033 cores (D3D11)** vs **0.725–0.756 cores
+(wgpu/WARP)**.

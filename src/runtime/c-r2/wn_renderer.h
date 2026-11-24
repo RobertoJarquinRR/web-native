@@ -55,6 +55,11 @@ typedef struct wn_renderer_ops {
 
 const wn_renderer_ops *wn_renderer_wgpu(void);
 
+#if defined(_WIN32)
+/* Native D3D11 backend: hardware first, WARP only as an explicit fallback. */
+const wn_renderer_ops *wn_renderer_d3d11(void);
+#endif
+
 #if defined(__cplusplus)
 }
 #endif

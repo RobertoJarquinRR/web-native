@@ -616,8 +616,9 @@ mismo algoritmo extraído a `wn_core.c` y se compila aparte.
 | `wn_core.h` / `wn_core.c` | Core portable: documento compilado, layout, estados, hit testing y display list (vértices sólidos + glyphs). No conoce OS, GPU ni modo. `runtime_r2.c` lo usa para no duplicar el motor. |
 | `wn_renderer.h` | Vtable `wn_renderer_ops`: `init(surface,w,h)`, `resize`, `upload(display list/atlas)`, `render` (draw+present), `destroy`, `last_error`, `get_info`, `get_stats`. |
 | `renderer_wgpu.c` | Backend wgpu-native (D3D12 aquí): surface desde HWND, swapchain FIFO, pipeline sólida + pipeline de texto R8, atlas bajo demanda. |
+| `renderer_d3d11.c` | Segundo backend, D3D11 nativo: `D3D11CreateDevice` hardware (WARP solo como fallback), swapchain flip-discard DXGI, HLSL con `D3DCompile`, atlas R8, imágenes WIC RGBA8 cacheadas, scissor por batch. Ver sección 18. |
 | `wn_host.h` / `host_win32.c` | Host Win32: ventana, message loop, traducción Win32 → `wn_event`, resize, captura de ratón, cierre. |
-| `wn_view.h` / `wn_view.c` | Modo embedded: core + renderer sobre un HWND del host. El host posee el loop y llama `wn_view_render()` a demanda. |
+| `wn_view.h` / `wn_view.c` | Modo embedded: core + renderer sobre un HWND del host. El host posee el loop y llama `wn_view_render()` a demanda. Elige D3D11 por defecto en Windows (`WN_RENDERER=d3d11|wgpu|auto`). |
 | `wn_app.h` / `wn_app.c` | Modo standalone: host Win32 + `wn_view`. `wn_app_run()` bloquea hasta cerrar. |
 | `wn_common.c` / `wn_internal.h` | Versión, error thread-local y helpers de copia UTF-8. |
 | `examples/standalone.c` | Demo `wn_app_*`; `--frames N` cierra solo. |
@@ -649,6 +650,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build_abi.p
 
 # solo compilar
 powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build_abi.ps1 -SkipRun
+
+# forzar un backend concreto (A/B): D3D11 (por defecto) o wgpu
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build_abi.ps1 -Renderer d3d11
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build_abi.ps1 -Renderer wgpu
+
+# captura + comparación de píxeles D3D11 vs wgpu (fixture base y piloto con imágenes)
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\d3d11\run_d3d11.ps1
+# coste CPU idle/hover (D3D11 hardware vs wgpu/WARP)
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\d3d11\measure_cpu.ps1
 ```
 
 Si falta `build/ui_data.h`, `build_abi.ps1` llama a
@@ -698,34 +708,36 @@ Si falta `build/ui_data.h`, `build_abi.ps1` llama a
 - `include/webnative.h` compila como C17 y C++17 con MSVC `/W4`.
 - Grep proof: no aparecen `WGPU|wgpu|ID3D|D3D12|D3D11|HWND|HINSTANCE|IDXGI`.
 - `abi_smoke.exe`: PASS (versión, error thread-local, argumentos inválidos).
-- `standalone.exe --frames 20`: **exit 0**, adapter **D3D12**, ventana con la
-  página R2, 20 frames presentados.
-- `embedded.exe --frames 20 --input-demo --resize-demo`: **exit 0**, adapter
-  **D3D12**; el padre redimensiona 900×640 → 720×520 → 900×640, el hijo recibe
-  `WM_SIZE`, se reenvían `WM_MOUSEMOVE/WM_LBUTTONDOWN/WM_LBUTTONUP`, el click
-  selecciona `body.root/div.sidebar/div.nav` y `set_text("text[1]","Texto")`
-  devuelve `WN_OK`.
+- `standalone.exe --frames 20`: **exit 0**, `backend=D3D11`,
+  `device=Intel(R) HD Graphics` (hardware, feature level 10_1), 20 frames
+  presentados con swapchain flip-discard.
+- `embedded.exe --frames 20 --input-demo --resize-demo`: **exit 0**,
+  `backend=D3D11` + Intel; el padre redimensiona 900×640 → 720×520 → 900×640,
+  el hijo recibe `WM_SIZE`, se reenvían
+  `WM_MOUSEMOVE/WM_LBUTTONDOWN/WM_LBUTTONUP`, el click selecciona
+  `body.root/div.sidebar/div.nav` y `set_text("text[1]","Texto")` devuelve
+  `WN_OK`.
+- `-Renderer wgpu`: mismo resultado con `backend=D3D12` +
+  `Microsoft Basic Render Driver` (WARP); el camino wgpu sigue intacto.
 
-Timings de la última ejecución (Windows 11 x64, VM, WARP/Basic Render Driver;
-no representativos de GPU real):
+Timings de la última ejecución D3D11 (Windows 11 x64, Intel HD Graphics):
 
 | Métrica | Valor |
 |---|---:|
-| Build ABI completo | ~15.8 s (`cl` + header checks + smoke + demos) |
-| `standalone` startup (proceso→primer frame) | 149.7 ms |
-| `standalone` frame medio (FIFO/vsync) | 15.64 ms |
-| `standalone` CPU frame (upload+encode+submit) | 0.51 ms |
-| `embedded` startup | 153.3 ms |
-| `embedded` frame medio (timer) | 0.74 ms |
-| `embedded` CPU frame | 0.60 ms |
-| `standalone.exe` / `embedded.exe` | 285 184 / 286 720 B |
-| `runtime_r2.exe` (R2 + core) | 377 344 B |
+| Build ABI completo (ambos backends) | ~16.8 s (`cl` + `/W4` D3D11 + header checks + smoke + demos) |
+| `standalone` startup (proceso→primer frame) | 42.4 ms |
+| `standalone` frame medio | 0.67 ms (Present FIFO/vsync) |
+| `standalone` CPU frame (upload+encode+submit) | 0.257 ms |
+| `embedded` startup | 54.5 ms |
+| `embedded` frame medio | 0.75 ms |
+| `embedded` CPU frame | 0.232 ms |
+| `standalone.exe` / `embedded.exe` | 345 088 / 345 600 B |
+| `runtime_r2.exe` (R2 + core, wgpu offscreen) | 377 344 B |
 | R2 regresión (`build.ps1 -SkipRustBuild`) | **69/69 PASS** |
 
-El coste de arranque incluye instancia/adapter/device/surface y el primer
-present; en esta VM varía ~130–180 ms entre ejecuciones (el presupuesto de
-150 ms es orientativo y R2 ya lo roza). El frame embedded no está limitado por
-vsync en la ventana hija; el standalone sí usa `PresentMode::Fifo`.
+El coste de arranque incluye device/swapchain/HLSL y el primer present. En la
+ventana hija embedded `Present(1,0)` también limita a vsync cuando la ventana
+es visible; con la ventana ocluida DXGI devuelve inmediatamente.
 
 ### 13.6 Paridad del core con R2
 
@@ -1462,3 +1474,165 @@ Resultado: **41/41 PASS**. `build.ps1` (69/69), `-Pilot` (48/48),
    `overflow:hidden`. Un hijo sólido puede tapar las esquinas del padre.
 7. Sin scrollbar, `text-align`, `font-weight`, `line-height` ni `margin:auto`;
    siguen siendo gaps de layout/texto.
+
+---
+
+## 18. Backend D3D11 (segundo renderer, Windows)
+
+### 18.1 Objetivo y prueba de la abstracción
+
+`wn_renderer_ops` (sección 13) estaba implementado por un solo backend
+(`renderer_wgpu.c`). Esta máquina tiene una Intel HD Graphics que **no expone
+D3D12**, así que wgpu seleccionaba WARP (Microsoft Basic Render Driver) y el
+coste de rasterizado caía en CPU. `renderer_d3d11.c` implementa **la misma
+vtable completa** (`init`, `resize`, `upload`, `render`, `destroy`,
+`last_error`, `get_info`, `get_stats`) sobre D3D11 nativo, usa la GPU Intel y
+sirve como segunda implementación real de la abstracción: `wn_view.c` elige
+backend sin que el core, la display list ni `include/webnative.h` cambien.
+
+### 18.2 Diseño
+
+| Pieza | Implementación |
+|---|---|
+| Device | `D3D11CreateDevice(D3D_DRIVER_TYPE_HARDWARE)` con feature levels 11_1 → 10_0 y `D3D11_CREATE_DEVICE_BGRA_SUPPORT`; si falla, segundo intento con `D3D_DRIVER_TYPE_WARP` y se registra `driver=warp`. |
+| Superficie | DXGI desde el HWND: `CreateSwapChainForHwnd` con `DXGI_SWAP_EFFECT_FLIP_DISCARD`, 2 buffers, `DXGI_FORMAT_B8G8R8A8_UNORM`, `DXGI_SCALING_STRETCH`, alpha ignore. Fallback a `CreateSwapChain`/`DISCARD` si el flip model no está disponible. |
+| Present | `IDXGISwapChain::Present(1, 0)` (vsync). `ResizeBuffers` + recreación de backbuffer/RTV; si la ventana está ocluida DXGI puede devolver inmediatamente. |
+| Shaders | HLSL embebido compilado en runtime con `D3DCompile` (`vs_5_0/ps_5_0`, o `4_0` si el feature level es 10_x). Sin ficheros aparte ni `fxc` en build time. |
+| Sólidos | `wn_vertex` 12 B: `R32G32_FLOAT` posición NDC + `R8G8B8A8_UNORM` color. Un solo buffer dinámico, scissor por `wn_draw_batch`. |
+| Texto | `wn_glyph_vertex` 20 B: posición + UV + color; atlas `R8_UNORM` y `float4(color.rgb, color.a * atlas.r)`; sampler lineal clamp. |
+| Imágenes | `wn_image_vertex` 16 B: posición + UV; WIC PNG/JPEG → `R8G8B8A8_UNORM` + SRV, caché por ruta sin evicción. |
+| Estado | Blend `SrcAlpha/OneMinusSrcAlpha` (alpha `One/OneMinusSrcAlpha`), cull none, `ScissorEnable`. Mismo orden que wgpu: sólidos → imágenes → glyphs. |
+| Coordenadas | Posiciones ya en NDC con el mismo convenio que WebGPU (+Y arriba), así que no hay flip de Y; los UV también coinciden. Scissor con `floor/ceil` y clamp a la vista, igual que `set_scissor` de wgpu. |
+| Stats/info | `backend="D3D11"`, `device` desde `DXGI_ADAPTER_DESC1.Description` (p. ej. `Intel(R) HD Graphics`), `format=DXGI_FORMAT_B8G8R8A8_UNORM`, frames/CPU/present. |
+| Captura (tests) | `WN_CAPTURE=<png>` + `WN_CAPTURE_FRAME=N`: copia el backbuffer a una staging texture y escribe PNG con WIC. Solo lo usan los tests visuales. |
+
+### 18.3 Selección de backend
+
+- `WN_RENDERER` no definido o `auto`: en Windows intenta **D3D11 hardware** y,
+  si `init` falla, cae a **wgpu**. Los mensajes de error de ambos se agregan en
+  el error de `wn_view_create`.
+- `WN_RENDERER=d3d11`: estricto, solo D3D11 (falla si no inicializa). Es el modo
+  que usan los tests para probar hardware.
+- `WN_RENDERER=wgpu`: estricto, solo wgpu-native (A/B y regresión del camino
+  original).
+- Un valor desconocido imprime un aviso y usa `auto`.
+- Las demos ya existentes reportan el resultado:
+  `standalone: backend=D3D11 device=Intel(R) HD Graphics` y el renderer
+  imprime al arrancar
+  `renderer: backend=D3D11 device=... driver=hardware feature_level=0xA100 swapchain=flip-discard`.
+
+### 18.4 Build y librerías
+
+`build_abi.ps1` compila `renderer_d3d11.c` aparte con **`/W4 /WX`** (sin
+warnings) y mantiene `renderer_wgpu.c` en el mismo binario. Librerías añadidas
+al link (además de wgpu y las existentes):
+
+```
+d3d11.lib dxgi.lib d3dcompiler.lib windowscodecs.lib ole32.lib user32.lib gdi32.lib
+```
+
+`renderer_d3d11.c` incluye `<initguid.h>` para definir en su TU
+`IID_ID3D11Texture2D`/`IID_IDXGIFactory2` (no todas las import libs del SDK las
+exportan).
+
+```powershell
+# ABI completa con D3D11 (por defecto)
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build_abi.ps1
+
+# ABI completa con el camino wgpu original
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build_abi.ps1 -Renderer wgpu
+
+# captura + comparación de píxeles + embedded/standalone en ambos backends
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\d3d11\run_d3d11.ps1
+
+# coste CPU (idle y hover sintético sobre los nav interactivos)
+powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\d3d11\measure_cpu.ps1
+```
+
+`tests/pilot-media-library/run_pilot.ps1`, `tests/dynamic/run_dynamic.ps1` y
+`tests/input/run_input.ps1` enlazan ahora los dos renderers y las mismas
+librerías. El ABI del piloto se ejecuta con `WN_RENDERER=wgpu` para conservar
+la comprobación del camino wgpu; además captura la misma página 1280×800 con
+D3D11 y la compara contra el PNG offscreen del piloto.
+
+### 18.5 Evidencia (última ejecución, esta máquina)
+
+| Prueba | Resultado |
+|---|---|
+| `build_abi.ps1` (auto/D3D11) | **PASS**; `standalone` y `embedded` 20 frames, `backend=D3D11 device=Intel(R) HD Graphics`, exit 0 |
+| `build_abi.ps1 -Renderer wgpu` | **PASS**; `backend=D3D12 device=Microsoft Basic Render Driver` (WARP), exit 0 |
+| `/W4 /WX` `renderer_d3d11.c` | sin warnings |
+| Captura base 960×640 vs wgpu offscreen | **max canal 3**, 99.83 % píxeles idénticos, 0 % fuera de tolerancia (8), contenido 70.2 % |
+| Captura piloto 1280×800 (18 imágenes WIC, glyphs, clips) | **max canal 1**, 99.76 % idénticos, contenido 60.6 % |
+| CPU idle (2 s) | D3D11 ≈ 0.00–0.02 cores; wgpu/WARP ≈ 0.00 cores |
+| CPU hover sintético (5 s sobre los 4 nav) | **D3D11 0.011–0.033 cores** vs **wgpu/WARP 0.725–0.756 cores** (≈23–66× menos) |
+| R2 (`build.ps1 -SkipRustBuild`) | **69/69 PASS** |
+| Piloto canónico (`build.ps1 -Pilot -SkipRustBuild`) | **48/48 PASS** |
+| Dynamic UI | **53/53 PASS** |
+| Text input | **111/111 PASS** |
+| CSS core | **41/41 PASS** |
+| Rust (`cargo test --release`) | **27/27 PASS** |
+
+Artefactos (gitignored): `tests/d3d11/out/d3d11_compare.json`,
+`tests/d3d11/out/d3d11_compare_pilot.json`,
+`tests/d3d11/out/d3d11_960x640.png`,
+`tests/d3d11/out/wgpu_960x640.png`,
+`tests/d3d11/out/cpu_measure.json` y
+`tests/pilot-media-library/out/abi/capture_d3d11_1280.png`.
+
+Sobre el “~3 cores” del hover: el `host_win32.c` actual ya coalesce mensajes y
+solo repinta en dirty (commit `perf(host)`), así que en el fixture 960×640 el
+peor caso medido con WARP es 0.73–0.76 cores. Lo que elimina D3D11 es el coste
+de rasterizado software restante (23–66× en hover, y el frame CPU baja de
+~0.44 ms a ~0.18–0.26 ms). En la app de escritorio, cuyo host puede forzar más
+repintados, la
+diferencia debería ser mayor en la misma dirección.
+
+### 18.6 Limitaciones (honestas)
+
+1. Solo Windows y solo D3D11; no hay backend D3D12 propio (para eso está wgpu).
+2. El binario sigue importando `wgpu_native.dll` porque `renderer_wgpu.c` está
+   enlazado. Mantener la DLL junto al ejecutable/DLL incluso si se usa D3D11.
+3. Sin recuperación automática de device removed/reset: `Present` devuelve
+   error y el frame falla.
+4. Sin mipmaps, sin MSAA y sin sRGB; se usa `B8G8R8A8_UNORM` para que los
+   colores coincidan byte a byte con el render offscreen de wgpu.
+5. Caché de imágenes sin evicción (igual que wgpu v1).
+6. `D3DCompile` necesita `d3dcompiler_47.dll` (incluida en Windows 10/11; en
+   Windows 7/8 hay que redistribuirla).
+7. La captura PNG es un hook de test (`WN_CAPTURE`), no forma parte de la ABI.
+8. Si no hay adaptador hardware, se usa WARP pero `backend` sigue siendo
+   `D3D11`; el string `device` lo delata (`Microsoft Basic Render Driver`).
+
+### 18.7 Integración en la DLL del Desktop (`media-library`)
+
+El proyecto de escritorio consume una copia del runtime en
+`framework\src\runtime\c-r2`. Para reconstruir su `webnative.dll`:
+
+1. Copiar/actualizar desde este repo:
+   - nuevo: `src\runtime\c-r2\renderer_d3d11.c`
+   - modificados: `src\runtime\c-r2\wn_renderer.h`,
+     `src\runtime\c-r2\wn_view.c`
+   (el resto del runtime no cambia).
+2. En `build_dll.ps1`, añadir el fuente a `$sources`:
+
+   ```powershell
+   (Join-Path $runtime 'renderer_wgpu.c'),
+   (Join-Path $runtime 'renderer_d3d11.c'),   # nuevo
+   (Join-Path $root 'host\native_shim.c')
+   ```
+
+3. En la línea de `link`, añadir las librerías:
+
+   ```text
+   "$wgpu\lib\wgpu_native.dll.lib" d3d11.lib dxgi.lib d3dcompiler.lib windowscodecs.lib ole32.lib user32.lib gdi32.lib
+   ```
+
+4. Recompilar (`build_dll.ps1`) y arrancar la app. En stdout debe aparecer
+   `renderer: backend=D3D11 device=Intel...` y el panel de stats
+   `backend=D3D11`. Para A/B: `set WN_RENDERER=wgpu` antes de arrancar.
+5. No hace falta tocar `native_shim.c`, `wn_app_*` ni la ABI: la selección vive
+   en `wn_view_create`. Mantener `wgpu_native.dll` junto a la DLL (punto 2 de
+   limitaciones).
+
+---

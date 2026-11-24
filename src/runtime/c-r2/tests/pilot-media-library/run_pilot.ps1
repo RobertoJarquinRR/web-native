@@ -166,7 +166,7 @@ try {
     $abiDir = Join-Path $out 'abi'
     New-Item -ItemType Directory -Force -Path $abiDir | Out-Null
     $abiObjects = @('wn_common.c', 'wn_core.c', 'renderer_wgpu.c',
-                    'host_win32.c', 'wn_view.c', 'wn_app.c') |
+                    'renderer_d3d11.c', 'host_win32.c', 'wn_view.c', 'wn_app.c') |
         ForEach-Object { Join-Path $runtime $_ }
     $abiList = ($abiObjects | ForEach-Object { "`"$_`"" }) -join ' '
     $abiCmd = "call `"$vcvars`" >nul && cd /d `"$abiDir`" && cl /nologo /O2 /W3 /std:c17 /TC " +
@@ -179,7 +179,8 @@ try {
         (($abiObjects | ForEach-Object {
             "`"$abiDir\$([System.IO.Path]::GetFileNameWithoutExtension($_)).obj`""
         }) -join ' ') +
-        " `"$(Join-Path $wgpu 'lib\wgpu_native.dll.lib')`" windowscodecs.lib ole32.lib user32.lib gdi32.lib"
+        " `"$(Join-Path $wgpu 'lib\wgpu_native.dll.lib')`" d3d11.lib dxgi.lib d3dcompiler.lib " +
+        "windowscodecs.lib ole32.lib user32.lib gdi32.lib"
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     Invoke-Command 'compile abi pilot' $abiCmd
     $sw.Stop()
@@ -195,6 +196,7 @@ try {
     $psi.CreateNoWindow = $true
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
+    $psi.EnvironmentVariables['WN_RENDERER'] = 'wgpu'  # this run proves the wgpu path
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $process = [System.Diagnostics.Process]::Start($psi)
     $stdout = $process.StandardOutput.ReadToEnd()
@@ -219,6 +221,58 @@ try {
         wheel_target = 'body.root/div.scroll'
         log          = 'out/abi_pilot.log'
         exe          = 'out/abi/abi_pilot.exe'
+    }
+
+    # D3D11 image/glyph parity: the same pilot tree captured from the window
+    # (renderer_d3d11.c, WIC image cache, scissor batches) at 1280x800 compared
+    # with the wgpu offscreen reference render_1280.png.
+    Write-Host 'pilot: D3D11 window capture parity (images + glyphs + clips)' -ForegroundColor Cyan
+    $capturePath = Join-Path $abiDir 'capture_d3d11_1280.png'
+    $capturePsi = New-Object System.Diagnostics.ProcessStartInfo
+    $capturePsi.FileName = Join-Path $abiDir 'abi_pilot.exe'
+    $capturePsi.Arguments = '--frames 5 --width 1280 --height 800'
+    $capturePsi.WorkingDirectory = $out
+    $capturePsi.UseShellExecute = $false
+    $capturePsi.CreateNoWindow = $true
+    $capturePsi.RedirectStandardOutput = $true
+    $capturePsi.RedirectStandardError = $true
+    $capturePsi.EnvironmentVariables['WN_RENDERER'] = 'd3d11'
+    $capturePsi.EnvironmentVariables['WN_CAPTURE'] = $capturePath
+    $capturePsi.EnvironmentVariables['WN_CAPTURE_FRAME'] = '3'
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $captureProcess = [System.Diagnostics.Process]::Start($capturePsi)
+    $captureOut = $captureProcess.StandardOutput.ReadToEnd()
+    $captureErr = $captureProcess.StandardError.ReadToEnd()
+    $captureProcess.WaitForExit()
+    $sw.Stop()
+    $captureLines = @()
+    if ($captureOut) { $captureLines += ($captureOut -split "`r?`n" | Where-Object { $_ -ne '' }) }
+    if ($captureErr) { $captureLines += ($captureErr -split "`r?`n" | Where-Object { $_ -ne '' }) }
+    $captureLines | Set-Content -LiteralPath (Join-Path $abiDir 'abi_pilot_d3d11.log') -Encoding utf8
+    foreach ($line in $captureLines) { Write-Host "  $line" }
+    $captureText = $captureLines -join "`n"
+    if ($captureProcess.ExitCode -ne 0) { Stop-Fail "D3D11 capture run exited $($captureProcess.ExitCode)" }
+    if ($captureText -notmatch 'backend=D3D11') { Stop-Fail 'D3D11 capture run did not report backend=D3D11' }
+    if ($captureText -match 'device=Microsoft Basic Render Driver') {
+        Stop-Fail 'D3D11 capture run fell back to WARP'
+    }
+    if ($captureText -notmatch 'captured frame 3') { Stop-Fail 'D3D11 capture run did not write frame 3' }
+    $comparePath = Join-Path $abiDir 'd3d11_compare_1280.json'
+    & $py (Join-Path $runtime 'tests\d3d11\verify_d3d11.py') `
+        --capture $capturePath --reference (Join-Path $out 'render_1280.png') `
+        --report $comparePath --label 'pilot-1280-d3d11-vs-wgpu' | Write-Host
+    if ($LASTEXITCODE -ne 0) { Stop-Fail 'D3D11/wgpu screenshot comparison failed' }
+    $compare = Get-Content -LiteralPath $comparePath -Raw | ConvertFrom-Json
+    $report.timings_ms['d3d11_capture'] = [math]::Round($sw.Elapsed.TotalMilliseconds, 2)
+    $report['d3d11_screenshot'] = [ordered]@{
+        result            = $compare.result
+        capture           = 'out/abi/capture_d3d11_1280.png'
+        reference         = 'out/render_1280.png'
+        max_channel_diff  = $compare.checks.max_channel_diff
+        exact_fraction    = $compare.checks.exact_fraction
+        content_fraction  = $compare.checks.content_fraction
+        log               = 'out/abi/abi_pilot_d3d11.log'
+        report            = 'out/abi/d3d11_compare_1280.json'
     }
 
     $verify = Get-Content -LiteralPath (Join-Path $out 'pilot_verify_report.json') -Raw | ConvertFrom-Json

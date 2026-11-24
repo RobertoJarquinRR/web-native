@@ -2,11 +2,12 @@
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build_abi.ps1
 #
-# Compiles the core/renderer/host/view/app split, the C and C++ header checks,
+# Compiles the core/renderers/host/view/app split, the C and C++ header checks,
 # the error-surface smoke test and the two demos, then runs:
 #   standalone.exe --frames N
 #   embedded.exe   --frames N --input-demo --resize-demo
-# Both must exit 0 with the D3D12 backend and the expected events.
+# The default renderer is D3D11 hardware with a wgpu fallback; -Renderer wgpu
+# re-runs the same acceptance over the original wgpu-native path.
 #
 # This script never runs cargo. If build\ui_data.h is missing it invokes the
 # existing build.ps1 with -SkipRustBuild -SkipParityCheck -SkipRun to reuse the
@@ -14,7 +15,9 @@
 [CmdletBinding()]
 param(
     [int]$Frames = 20,
-    [switch]$SkipRun
+    [switch]$SkipRun,
+    [ValidateSet('auto', 'd3d11', 'wgpu')]
+    [string]$Renderer = 'auto'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -35,6 +38,7 @@ $report = [ordered]@{
     layer      = 'c-r2-abi'
     started    = (Get-Date).ToString('o')
     frames     = $Frames
+    renderer   = $Renderer
     timings_ms = [ordered]@{}
     steps      = [ordered]@{}
     demos      = [ordered]@{}
@@ -117,10 +121,42 @@ function Get-MatchDouble([string]$text, [string]$pattern) {
     return $null
 }
 
+function Get-BackendInfo([string]$text, [string]$prefix) {
+    $match = [regex]::Match($text, "(?m)^${prefix}: backend=(\S+) device=(.+)$")
+    if (-not $match.Success) { return $null }
+    return [ordered]@{
+        backend = $match.Groups[1].Value.Trim()
+        device  = $match.Groups[2].Value.Trim()
+    }
+}
+
+function Assert-Backend([string]$label, $info) {
+    if ($null -eq $info) { Stop-Fail "${label} did not print its backend/device line" }
+    if ($Renderer -eq 'wgpu') {
+        if ($info.backend -notmatch '^D3D(11|12)$' -and $info.backend -ne 'Vulkan') {
+            Stop-Fail "${label}: expected the wgpu path, got backend=$($info.backend)"
+        }
+        return
+    }
+    if ($info.backend -ne 'D3D11') {
+        Stop-Fail "${label}: expected backend=D3D11, got backend=$($info.backend)"
+    }
+    if ($info.device -match 'Basic Render Driver') {
+        Stop-Fail "${label}: D3D11 fell back to WARP ($($info.device)); expected hardware"
+    }
+}
+
 try {
     New-Item -ItemType Directory -Force -Path $out | Out-Null
     New-Item -ItemType Directory -Force -Path $obj | Out-Null
     Set-Content -LiteralPath $logPath -Value "c-r2 ABI build log`r`n" -Encoding utf8
+    if ($Renderer -ne 'auto') {
+        $env:WN_RENDERER = $Renderer
+        Write-Host "renderer selection: WN_RENDERER=$Renderer" -ForegroundColor Cyan
+    } else {
+        Remove-Item Env:\WN_RENDERER -ErrorAction SilentlyContinue
+        Write-Host 'renderer selection: auto (D3D11 hardware, wgpu fallback)' -ForegroundColor Cyan
+    }
     $totalSw = [System.Diagnostics.Stopwatch]::StartNew()
 
     $vcvars = Find-VcVars
@@ -133,6 +169,7 @@ try {
         (Join-Path $root 'wn_core.c'),
         (Join-Path $root 'wn_view.c'),
         (Join-Path $root 'wn_app.c'),
+        (Join-Path $root 'renderer_d3d11.c'),
         (Join-Path $root 'examples\standalone.c'),
         (Join-Path $root 'examples\embedded.c')
     )) {
@@ -172,20 +209,25 @@ try {
         'wn_common.c', 'wn_core.c', 'renderer_wgpu.c',
         'host_win32.c', 'wn_view.c', 'wn_app.c'
     ) | ForEach-Object { Join-Path $root $_ }
+    $d3d11Source = Join-Path $root 'renderer_d3d11.c'
     $abiObjects = @(
         'wn_common.obj', 'wn_core.obj', 'renderer_wgpu.obj',
-        'host_win32.obj', 'wn_view.obj', 'wn_app.obj'
+        'host_win32.obj', 'wn_view.obj', 'wn_app.obj', 'renderer_d3d11.obj'
     ) | ForEach-Object { Join-Path $obj $_ }
     $wgpuLib = Join-Path $wgpu 'lib\wgpu_native.dll.lib'
-    $linkLibs = "`"$wgpuLib`" windowscodecs.lib ole32.lib user32.lib gdi32.lib"
+    $linkLibs = "`"$wgpuLib`" d3d11.lib dxgi.lib d3dcompiler.lib " +
+        "windowscodecs.lib ole32.lib user32.lib gdi32.lib"
 
     # ---------------------------------------------------------------- compile
     $compileSw = [System.Diagnostics.Stopwatch]::StartNew()
     $abiList = ($abiSources | ForEach-Object { "`"$_`"" }) -join ' '
-    $compileCmd = $vc + "cd /d `"$root`" && cl $cflags $inc /c $abiList /Fo:`"$obj\\`""
-    Invoke-Tool 'compile ABI objects (cl /O2 /TC)' $compileCmd $logPath
+    $compileCmd = $vc + "cd /d `"$root`" && cl $cflags $inc /c $abiList /Fo:`"$obj\\`"" +
+        " && cl /nologo /O2 /W4 /WX /std:c17 /TC /D_CRT_SECURE_NO_WARNINGS /DWN_STATIC " +
+        "$inc /c `"$d3d11Source`" /Fo:`"$obj\renderer_d3d11.obj`""
+    Invoke-Tool 'compile ABI objects (cl /W3) + renderer_d3d11.c (cl /W4)' $compileCmd $logPath
     $compileSw.Stop()
     $report.timings_ms['compile_abi'] = [math]::Round($compileSw.Elapsed.TotalMilliseconds, 2)
+    $report.checks['d3d11_w4'] = $true
 
     # ------------------------------------------------------- header C / C++
     $headerSw = [System.Diagnostics.Stopwatch]::StartNew()
@@ -232,13 +274,15 @@ try {
         Write-Host 'run: standalone.exe --frames N' -ForegroundColor Cyan
         $standalone = Invoke-Demo 'standalone' (Join-Path $out 'standalone.exe') @('--frames', "$Frames")
         if ($standalone.exit -ne 0) { Stop-Fail "standalone.exe exited $($standalone.exit)" }
-        if ($standalone.text -notmatch 'backend=D3D12') { Stop-Fail 'standalone did not report the D3D12 adapter' }
+        $standaloneBackend = Get-BackendInfo $standalone.text 'standalone'
+        Assert-Backend 'standalone' $standaloneBackend
         if ($standalone.text -notmatch "exit=0 frames=$Frames") { Stop-Fail "standalone did not present $Frames frames" }
         if ($standalone.text -notmatch 'startup_ms=') { Stop-Fail 'standalone did not report startup_ms' }
         $report.demos['standalone'] = [ordered]@{
             exit          = $standalone.exit
             wall_ms       = $standalone.wall_ms
-            backend       = 'D3D12'
+            backend       = $standaloneBackend.backend
+            device        = $standaloneBackend.device
             frames        = $Frames
             startup_ms    = Get-MatchDouble $standalone.text 'startup_ms=([0-9.]+)'
             frame_avg_ms  = Get-MatchDouble $standalone.text 'frame_avg_ms=([0-9.]+)'
@@ -252,7 +296,8 @@ try {
         Write-Host 'run: embedded.exe --frames N --input-demo --resize-demo' -ForegroundColor Cyan
         $embedded = Invoke-Demo 'embedded' (Join-Path $out 'embedded.exe') @('--frames', "$Frames", '--input-demo', '--resize-demo')
         if ($embedded.exit -ne 0) { Stop-Fail "embedded.exe exited $($embedded.exit)" }
-        if ($embedded.text -notmatch 'backend=D3D12') { Stop-Fail 'embedded did not report the D3D12 adapter' }
+        $embeddedBackend = Get-BackendInfo $embedded.text 'embedded'
+        Assert-Backend 'embedded' $embeddedBackend
         if ($embedded.text -notmatch "exit=0 frames=$Frames") { Stop-Fail "embedded did not present $Frames frames" }
         foreach ($needle in @('WM_SIZE', 'WM_MOUSEMOVE', 'WM_LBUTTONDOWN', 'WM_LBUTTONUP',
                               'resize-demo', 'set_text(text[1], "Texto") -> WN_OK')) {
@@ -265,7 +310,8 @@ try {
         $report.demos['embedded'] = [ordered]@{
             exit         = $embedded.exit
             wall_ms      = $embedded.wall_ms
-            backend      = 'D3D12'
+            backend      = $embeddedBackend.backend
+            device       = $embeddedBackend.device
             frames       = $Frames
             startup_ms   = Get-MatchDouble $embedded.text 'startup_ms=([0-9.]+)'
             frame_avg_ms = Get-MatchDouble $embedded.text 'frame_avg_ms=([0-9.]+)'

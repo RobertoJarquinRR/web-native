@@ -158,7 +158,8 @@ try {
     $inc = "/I`"$include`" /I`"$croot`" /I`"$fixture`" /I`"$(Join-Path $wgpu 'include')`""
     $cflags = "/nologo /O2 /W3 /std:c17 /TC /D_CRT_SECURE_NO_WARNINGS /DWN_STATIC"
     $wgpuLib = Join-Path $wgpu 'lib\wgpu_native.dll.lib'
-    $linkLibs = "`"$wgpuLib`" windowscodecs.lib ole32.lib user32.lib gdi32.lib"
+    $linkLibs = "`"$wgpuLib`" d3d11.lib dxgi.lib d3dcompiler.lib " +
+        "windowscodecs.lib ole32.lib user32.lib gdi32.lib"
 
     # ------------------------------------------------------------ core test
     Write-Host 'compile+run: dynamic_core_test.exe (headless core)' -ForegroundColor Cyan
@@ -204,8 +205,8 @@ try {
     $abiOut = Join-Path $out 'obj_abi'
     New-Item -ItemType Directory -Force -Path $abiOut | Out-Null
     $abiExe = Join-Path $out 'dynamic.exe'
-    $abiSources = @('wn_common.c', 'wn_core.c', 'renderer_wgpu.c', 'host_win32.c',
-                    'wn_view.c', 'wn_app.c', 'examples\dynamic.c') |
+    $abiSources = @('wn_common.c', 'wn_core.c', 'renderer_wgpu.c', 'renderer_d3d11.c',
+                    'host_win32.c', 'wn_view.c', 'wn_app.c', 'examples\dynamic.c') |
         ForEach-Object { "`"$(Join-Path $here ('..\..\' + $_))`"" }
     $abiCmd = $vc + "cd /d `"$here`" && cl $cflags $inc " + ($abiSources -join ' ') +
         " /Fo:`"$abiOut\\`" /Fe:`"$abiExe`" /link $linkLibs"
