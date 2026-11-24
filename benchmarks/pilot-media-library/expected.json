@@ -1,0 +1,1739 @@
+{
+  "schema": "webnative.pilot-media-library.expected/1",
+  "generated_by": "layout math from page/style.css (documented in README.md)",
+  "viewports": [
+    "1280x800",
+    "800x600"
+  ],
+  "css_contract": {
+    "sidebar_width_pct": 20.0,
+    "main_width_pct": 80.0,
+    "main_padding_px": 24.0,
+    "card_width_px": 180.0,
+    "card_height_px": 320.0,
+    "poster_width_px": 180.0,
+    "poster_height_px": 240.0,
+    "grid_gap_px": 16.0,
+    "grid_row_height_px": 320.0
+  },
+  "colors": {
+    "page": "#0b0e14",
+    "sidebar": "#121824",
+    "card": "#171d29"
+  },
+  "poster": {
+    "width": 180,
+    "height": 240,
+    "sample_points": {
+      "bg": [
+        4,
+        4
+      ],
+      "rule": [
+        4,
+        200
+      ],
+      "footer": [
+        4,
+        232
+      ]
+    },
+    "bands": {
+      "rule": [
+        196,
+        204
+      ],
+      "footer": [
+        224,
+        240
+      ]
+    }
+  },
+  "item_count": 30,
+  "runtime_contract": {
+    "grid_node_suffix": "/div.poster-grid",
+    "card_node_suffix": "/div.poster-card",
+    "image_node_suffix": "/img.poster",
+    "grid_kind": "grid",
+    "image_kind": "image",
+    "offscreen_cli": {
+      "render": "--render <W> <H> <out.png>",
+      "report": "--report <file.json> --sizes <WxH,WxH>",
+      "scroll_preferred": "--scroll <grid_node_id> <delta_y>",
+      "scroll_fallback": "--wheel <x> <y> <delta_y> (R2 actual) or --wheel <x> <y> <delta_x> <delta_y> (ABI shape)"
+    }
+  },
+  "sizes": {
+    "1280x800": {
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "sidebar": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 256.0,
+        "h": 800.0
+      },
+      "main": {
+        "x": 256.0,
+        "y": 0.0,
+        "w": 1024.0,
+        "h": 800.0
+      },
+      "grid": {
+        "x": 280.0,
+        "y": 24.0,
+        "w": 976.0,
+        "h": 752.0
+      },
+      "content_width": 976.0,
+      "content_height": 2000.0,
+      "viewport_height": 752.0,
+      "columns": 5,
+      "rows": 6,
+      "column_pitch": 196.0,
+      "row_pitch": 336.0,
+      "scroll_max": 1248.0,
+      "cards": [
+        {
+          "index": 0,
+          "id": "vid-001",
+          "title": "Aurora Boreal",
+          "col": 0,
+          "row": 0,
+          "x": 280.0,
+          "y": 24.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 280.0,
+            "y": 24.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 280.0,
+            "y": 264.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-001.png"
+        },
+        {
+          "index": 1,
+          "id": "vid-002",
+          "title": "Café de Medianoche",
+          "col": 1,
+          "row": 0,
+          "x": 476.0,
+          "y": 24.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 476.0,
+            "y": 24.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 476.0,
+            "y": 264.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-002.png"
+        },
+        {
+          "index": 2,
+          "id": "vid-003",
+          "title": "Circuito Abierto",
+          "col": 2,
+          "row": 0,
+          "x": 672.0,
+          "y": 24.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 672.0,
+            "y": 24.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 672.0,
+            "y": 264.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-003.png"
+        },
+        {
+          "index": 3,
+          "id": "vid-004",
+          "title": "Dunas de Sal",
+          "col": 3,
+          "row": 0,
+          "x": 868.0,
+          "y": 24.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 868.0,
+            "y": 24.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 868.0,
+            "y": 264.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-004.png"
+        },
+        {
+          "index": 4,
+          "id": "vid-005",
+          "title": "El Último Tren",
+          "col": 4,
+          "row": 0,
+          "x": 1064.0,
+          "y": 24.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 1064.0,
+            "y": 24.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 1064.0,
+            "y": 264.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-005.png"
+        },
+        {
+          "index": 5,
+          "id": "vid-006",
+          "title": "Frecuencia Lunar",
+          "col": 0,
+          "row": 1,
+          "x": 280.0,
+          "y": 360.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 280.0,
+            "y": 360.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 280.0,
+            "y": 600.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-006.png"
+        },
+        {
+          "index": 6,
+          "id": "vid-007",
+          "title": "Geometría del Agua",
+          "col": 1,
+          "row": 1,
+          "x": 476.0,
+          "y": 360.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 476.0,
+            "y": 360.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 476.0,
+            "y": 600.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-007.png"
+        },
+        {
+          "index": 7,
+          "id": "vid-008",
+          "title": "Horizonte Rojo",
+          "col": 2,
+          "row": 1,
+          "x": 672.0,
+          "y": 360.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 672.0,
+            "y": 360.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 672.0,
+            "y": 600.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-008.png"
+        },
+        {
+          "index": 8,
+          "id": "vid-009",
+          "title": "Isla Silenciosa",
+          "col": 3,
+          "row": 1,
+          "x": 868.0,
+          "y": 360.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 868.0,
+            "y": 360.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 868.0,
+            "y": 600.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-009.png"
+        },
+        {
+          "index": 9,
+          "id": "vid-010",
+          "title": "Jardín Nocturno",
+          "col": 4,
+          "row": 1,
+          "x": 1064.0,
+          "y": 360.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 1064.0,
+            "y": 360.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 1064.0,
+            "y": 600.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-010.png"
+        },
+        {
+          "index": 10,
+          "id": "vid-011",
+          "title": "Kilómetro Cero",
+          "col": 0,
+          "row": 2,
+          "x": 280.0,
+          "y": 696.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 280.0,
+            "y": 696.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 280.0,
+            "y": 936.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-011.png"
+        },
+        {
+          "index": 11,
+          "id": "vid-012",
+          "title": "Luz de Invierno",
+          "col": 1,
+          "row": 2,
+          "x": 476.0,
+          "y": 696.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 476.0,
+            "y": 696.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 476.0,
+            "y": 936.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-012.png"
+        },
+        {
+          "index": 12,
+          "id": "vid-013",
+          "title": "Mar de Nubes",
+          "col": 2,
+          "row": 2,
+          "x": 672.0,
+          "y": 696.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 672.0,
+            "y": 696.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 672.0,
+            "y": 936.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-013.png"
+        },
+        {
+          "index": 13,
+          "id": "vid-014",
+          "title": "Noche en la Ciudad",
+          "col": 3,
+          "row": 2,
+          "x": 868.0,
+          "y": 696.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 868.0,
+            "y": 696.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 868.0,
+            "y": 936.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-014.png"
+        },
+        {
+          "index": 14,
+          "id": "vid-015",
+          "title": "Órbita Baja",
+          "col": 4,
+          "row": 2,
+          "x": 1064.0,
+          "y": 696.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 1064.0,
+            "y": 696.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 1064.0,
+            "y": 936.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-015.png"
+        },
+        {
+          "index": 15,
+          "id": "vid-016",
+          "title": "Puerto Escondido",
+          "col": 0,
+          "row": 3,
+          "x": 280.0,
+          "y": 1032.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 280.0,
+            "y": 1032.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 280.0,
+            "y": 1272.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-016.png"
+        },
+        {
+          "index": 16,
+          "id": "vid-017",
+          "title": "Química Cotidiana",
+          "col": 1,
+          "row": 3,
+          "x": 476.0,
+          "y": 1032.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 476.0,
+            "y": 1032.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 476.0,
+            "y": 1272.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-017.png"
+        },
+        {
+          "index": 17,
+          "id": "vid-018",
+          "title": "Río de Piedra",
+          "col": 2,
+          "row": 3,
+          "x": 672.0,
+          "y": 1032.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 672.0,
+            "y": 1032.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 672.0,
+            "y": 1272.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-018.png"
+        },
+        {
+          "index": 18,
+          "id": "vid-019",
+          "title": "Selva Alta",
+          "col": 3,
+          "row": 3,
+          "x": 868.0,
+          "y": 1032.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 868.0,
+            "y": 1032.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 868.0,
+            "y": 1272.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-019.png"
+        },
+        {
+          "index": 19,
+          "id": "vid-020",
+          "title": "Tiempo de Cosecha",
+          "col": 4,
+          "row": 3,
+          "x": 1064.0,
+          "y": 1032.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 1064.0,
+            "y": 1032.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 1064.0,
+            "y": 1272.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-020.png"
+        },
+        {
+          "index": 20,
+          "id": "vid-021",
+          "title": "Umbral Eléctrico",
+          "col": 0,
+          "row": 4,
+          "x": 280.0,
+          "y": 1368.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 280.0,
+            "y": 1368.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 280.0,
+            "y": 1608.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-021.png"
+        },
+        {
+          "index": 21,
+          "id": "vid-022",
+          "title": "Viento del Este",
+          "col": 1,
+          "row": 4,
+          "x": 476.0,
+          "y": 1368.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 476.0,
+            "y": 1368.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 476.0,
+            "y": 1608.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-022.png"
+        },
+        {
+          "index": 22,
+          "id": "vid-023",
+          "title": "Waveform",
+          "col": 2,
+          "row": 4,
+          "x": 672.0,
+          "y": 1368.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 672.0,
+            "y": 1368.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 672.0,
+            "y": 1608.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-023.png"
+        },
+        {
+          "index": 23,
+          "id": "vid-024",
+          "title": "Xenón",
+          "col": 3,
+          "row": 4,
+          "x": 868.0,
+          "y": 1368.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 868.0,
+            "y": 1368.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 868.0,
+            "y": 1608.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-024.png"
+        },
+        {
+          "index": 24,
+          "id": "vid-025",
+          "title": "Yoga al Amanecer",
+          "col": 4,
+          "row": 4,
+          "x": 1064.0,
+          "y": 1368.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 1064.0,
+            "y": 1368.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 1064.0,
+            "y": 1608.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-025.png"
+        },
+        {
+          "index": 25,
+          "id": "vid-026",
+          "title": "Zona Azul",
+          "col": 0,
+          "row": 5,
+          "x": 280.0,
+          "y": 1704.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 280.0,
+            "y": 1704.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 280.0,
+            "y": 1944.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-026.png"
+        },
+        {
+          "index": 26,
+          "id": "vid-027",
+          "title": "Bruma",
+          "col": 1,
+          "row": 5,
+          "x": 476.0,
+          "y": 1704.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 476.0,
+            "y": 1704.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 476.0,
+            "y": 1944.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-027.png"
+        },
+        {
+          "index": 27,
+          "id": "vid-028",
+          "title": "Cobalto",
+          "col": 2,
+          "row": 5,
+          "x": 672.0,
+          "y": 1704.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 672.0,
+            "y": 1704.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 672.0,
+            "y": 1944.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-028.png"
+        },
+        {
+          "index": 28,
+          "id": "vid-029",
+          "title": "Delta",
+          "col": 3,
+          "row": 5,
+          "x": 868.0,
+          "y": 1704.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 868.0,
+            "y": 1704.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 868.0,
+            "y": 1944.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-029.png"
+        },
+        {
+          "index": 29,
+          "id": "vid-030",
+          "title": "Eclipse",
+          "col": 4,
+          "row": 5,
+          "x": 1064.0,
+          "y": 1704.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 1064.0,
+            "y": 1704.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 1064.0,
+            "y": 1944.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-030.png"
+        }
+      ]
+    },
+    "800x600": {
+      "viewport": {
+        "width": 800,
+        "height": 600
+      },
+      "sidebar": {
+        "x": 0.0,
+        "y": 0.0,
+        "w": 160.0,
+        "h": 600.0
+      },
+      "main": {
+        "x": 160.0,
+        "y": 0.0,
+        "w": 640.0,
+        "h": 600.0
+      },
+      "grid": {
+        "x": 184.0,
+        "y": 24.0,
+        "w": 592.0,
+        "h": 552.0
+      },
+      "content_width": 592.0,
+      "content_height": 3344.0,
+      "viewport_height": 552.0,
+      "columns": 3,
+      "rows": 10,
+      "column_pitch": 196.0,
+      "row_pitch": 336.0,
+      "scroll_max": 2792.0,
+      "cards": [
+        {
+          "index": 0,
+          "id": "vid-001",
+          "title": "Aurora Boreal",
+          "col": 0,
+          "row": 0,
+          "x": 184.0,
+          "y": 24.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 184.0,
+            "y": 24.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 184.0,
+            "y": 264.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-001.png"
+        },
+        {
+          "index": 1,
+          "id": "vid-002",
+          "title": "Café de Medianoche",
+          "col": 1,
+          "row": 0,
+          "x": 380.0,
+          "y": 24.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 380.0,
+            "y": 24.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 380.0,
+            "y": 264.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-002.png"
+        },
+        {
+          "index": 2,
+          "id": "vid-003",
+          "title": "Circuito Abierto",
+          "col": 2,
+          "row": 0,
+          "x": 576.0,
+          "y": 24.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 576.0,
+            "y": 24.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 576.0,
+            "y": 264.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-003.png"
+        },
+        {
+          "index": 3,
+          "id": "vid-004",
+          "title": "Dunas de Sal",
+          "col": 0,
+          "row": 1,
+          "x": 184.0,
+          "y": 360.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 184.0,
+            "y": 360.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 184.0,
+            "y": 600.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-004.png"
+        },
+        {
+          "index": 4,
+          "id": "vid-005",
+          "title": "El Último Tren",
+          "col": 1,
+          "row": 1,
+          "x": 380.0,
+          "y": 360.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 380.0,
+            "y": 360.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 380.0,
+            "y": 600.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-005.png"
+        },
+        {
+          "index": 5,
+          "id": "vid-006",
+          "title": "Frecuencia Lunar",
+          "col": 2,
+          "row": 1,
+          "x": 576.0,
+          "y": 360.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 576.0,
+            "y": 360.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 576.0,
+            "y": 600.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-006.png"
+        },
+        {
+          "index": 6,
+          "id": "vid-007",
+          "title": "Geometría del Agua",
+          "col": 0,
+          "row": 2,
+          "x": 184.0,
+          "y": 696.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 184.0,
+            "y": 696.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 184.0,
+            "y": 936.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-007.png"
+        },
+        {
+          "index": 7,
+          "id": "vid-008",
+          "title": "Horizonte Rojo",
+          "col": 1,
+          "row": 2,
+          "x": 380.0,
+          "y": 696.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 380.0,
+            "y": 696.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 380.0,
+            "y": 936.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-008.png"
+        },
+        {
+          "index": 8,
+          "id": "vid-009",
+          "title": "Isla Silenciosa",
+          "col": 2,
+          "row": 2,
+          "x": 576.0,
+          "y": 696.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 576.0,
+            "y": 696.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 576.0,
+            "y": 936.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-009.png"
+        },
+        {
+          "index": 9,
+          "id": "vid-010",
+          "title": "Jardín Nocturno",
+          "col": 0,
+          "row": 3,
+          "x": 184.0,
+          "y": 1032.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 184.0,
+            "y": 1032.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 184.0,
+            "y": 1272.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-010.png"
+        },
+        {
+          "index": 10,
+          "id": "vid-011",
+          "title": "Kilómetro Cero",
+          "col": 1,
+          "row": 3,
+          "x": 380.0,
+          "y": 1032.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 380.0,
+            "y": 1032.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 380.0,
+            "y": 1272.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-011.png"
+        },
+        {
+          "index": 11,
+          "id": "vid-012",
+          "title": "Luz de Invierno",
+          "col": 2,
+          "row": 3,
+          "x": 576.0,
+          "y": 1032.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 576.0,
+            "y": 1032.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 576.0,
+            "y": 1272.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-012.png"
+        },
+        {
+          "index": 12,
+          "id": "vid-013",
+          "title": "Mar de Nubes",
+          "col": 0,
+          "row": 4,
+          "x": 184.0,
+          "y": 1368.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 184.0,
+            "y": 1368.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 184.0,
+            "y": 1608.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-013.png"
+        },
+        {
+          "index": 13,
+          "id": "vid-014",
+          "title": "Noche en la Ciudad",
+          "col": 1,
+          "row": 4,
+          "x": 380.0,
+          "y": 1368.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 380.0,
+            "y": 1368.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 380.0,
+            "y": 1608.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-014.png"
+        },
+        {
+          "index": 14,
+          "id": "vid-015",
+          "title": "Órbita Baja",
+          "col": 2,
+          "row": 4,
+          "x": 576.0,
+          "y": 1368.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 576.0,
+            "y": 1368.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 576.0,
+            "y": 1608.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-015.png"
+        },
+        {
+          "index": 15,
+          "id": "vid-016",
+          "title": "Puerto Escondido",
+          "col": 0,
+          "row": 5,
+          "x": 184.0,
+          "y": 1704.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 184.0,
+            "y": 1704.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 184.0,
+            "y": 1944.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-016.png"
+        },
+        {
+          "index": 16,
+          "id": "vid-017",
+          "title": "Química Cotidiana",
+          "col": 1,
+          "row": 5,
+          "x": 380.0,
+          "y": 1704.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 380.0,
+            "y": 1704.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 380.0,
+            "y": 1944.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-017.png"
+        },
+        {
+          "index": 17,
+          "id": "vid-018",
+          "title": "Río de Piedra",
+          "col": 2,
+          "row": 5,
+          "x": 576.0,
+          "y": 1704.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 576.0,
+            "y": 1704.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 576.0,
+            "y": 1944.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-018.png"
+        },
+        {
+          "index": 18,
+          "id": "vid-019",
+          "title": "Selva Alta",
+          "col": 0,
+          "row": 6,
+          "x": 184.0,
+          "y": 2040.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 184.0,
+            "y": 2040.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 184.0,
+            "y": 2280.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-019.png"
+        },
+        {
+          "index": 19,
+          "id": "vid-020",
+          "title": "Tiempo de Cosecha",
+          "col": 1,
+          "row": 6,
+          "x": 380.0,
+          "y": 2040.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 380.0,
+            "y": 2040.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 380.0,
+            "y": 2280.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-020.png"
+        },
+        {
+          "index": 20,
+          "id": "vid-021",
+          "title": "Umbral Eléctrico",
+          "col": 2,
+          "row": 6,
+          "x": 576.0,
+          "y": 2040.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 576.0,
+            "y": 2040.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 576.0,
+            "y": 2280.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-021.png"
+        },
+        {
+          "index": 21,
+          "id": "vid-022",
+          "title": "Viento del Este",
+          "col": 0,
+          "row": 7,
+          "x": 184.0,
+          "y": 2376.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 184.0,
+            "y": 2376.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 184.0,
+            "y": 2616.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-022.png"
+        },
+        {
+          "index": 22,
+          "id": "vid-023",
+          "title": "Waveform",
+          "col": 1,
+          "row": 7,
+          "x": 380.0,
+          "y": 2376.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 380.0,
+            "y": 2376.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 380.0,
+            "y": 2616.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-023.png"
+        },
+        {
+          "index": 23,
+          "id": "vid-024",
+          "title": "Xenón",
+          "col": 2,
+          "row": 7,
+          "x": 576.0,
+          "y": 2376.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 576.0,
+            "y": 2376.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 576.0,
+            "y": 2616.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-024.png"
+        },
+        {
+          "index": 24,
+          "id": "vid-025",
+          "title": "Yoga al Amanecer",
+          "col": 0,
+          "row": 8,
+          "x": 184.0,
+          "y": 2712.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 184.0,
+            "y": 2712.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 184.0,
+            "y": 2952.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-025.png"
+        },
+        {
+          "index": 25,
+          "id": "vid-026",
+          "title": "Zona Azul",
+          "col": 1,
+          "row": 8,
+          "x": 380.0,
+          "y": 2712.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 380.0,
+            "y": 2712.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 380.0,
+            "y": 2952.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-026.png"
+        },
+        {
+          "index": 26,
+          "id": "vid-027",
+          "title": "Bruma",
+          "col": 2,
+          "row": 8,
+          "x": 576.0,
+          "y": 2712.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 576.0,
+            "y": 2712.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 576.0,
+            "y": 2952.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-027.png"
+        },
+        {
+          "index": 27,
+          "id": "vid-028",
+          "title": "Cobalto",
+          "col": 0,
+          "row": 9,
+          "x": 184.0,
+          "y": 3048.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 184.0,
+            "y": 3048.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 184.0,
+            "y": 3288.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-028.png"
+        },
+        {
+          "index": 28,
+          "id": "vid-029",
+          "title": "Delta",
+          "col": 1,
+          "row": 9,
+          "x": 380.0,
+          "y": 3048.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 380.0,
+            "y": 3048.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 380.0,
+            "y": 3288.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-029.png"
+        },
+        {
+          "index": 29,
+          "id": "vid-030",
+          "title": "Eclipse",
+          "col": 2,
+          "row": 9,
+          "x": 576.0,
+          "y": 3048.0,
+          "w": 180.0,
+          "h": 320.0,
+          "image": {
+            "x": 576.0,
+            "y": 3048.0,
+            "w": 180.0,
+            "h": 240.0
+          },
+          "meta": {
+            "x": 576.0,
+            "y": 3288.0,
+            "w": 180.0,
+            "h": 80.0
+          },
+          "poster_src": "../posters/vid-030.png"
+        }
+      ]
+    }
+  },
+  "scroll_contract": {
+    "note": "delta_y is positive downwards; scroll_y clamps to [0, content_height - grid_viewport_height].",
+    "tests": {
+      "1280x800": {
+        "shift": {
+          "delta": 100.0,
+          "card_index": 0,
+          "card_id": "vid-001",
+          "card_x": 280.0,
+          "column_x": 285.0,
+          "before_top": 24.0,
+          "after_top": -76.0,
+          "before_runs": [
+            [
+              220.0,
+              228.0
+            ],
+            [
+              248.0,
+              264.0
+            ]
+          ],
+          "after_runs": [
+            [
+              120.0,
+              128.0
+            ],
+            [
+              148.0,
+              164.0
+            ]
+          ]
+        },
+        "offset": {
+          "delta": 400.0,
+          "card_index": 10,
+          "card_id": "vid-011",
+          "card_x": 280.0,
+          "column_x": 285.0,
+          "before_top": 696.0,
+          "after_top": 296.0,
+          "before_runs": [
+            [
+              892.0,
+              900.0
+            ],
+            [
+              920.0,
+              936.0
+            ]
+          ],
+          "after_runs": [
+            [
+              492.0,
+              500.0
+            ],
+            [
+              520.0,
+              536.0
+            ]
+          ]
+        },
+        "clamp": {
+          "delta": 999999,
+          "effective_scroll": 1248.0,
+          "card_index": 29,
+          "card_id": "vid-030",
+          "card_x": 1064.0,
+          "column_x": 1069.0,
+          "after_top": 456.0,
+          "after_runs": [
+            [
+              652.0,
+              660.0
+            ],
+            [
+              680.0,
+              696.0
+            ]
+          ]
+        }
+      },
+      "800x600": {
+        "shift": {
+          "delta": 100.0,
+          "card_index": 0,
+          "card_id": "vid-001",
+          "card_x": 184.0,
+          "column_x": 189.0,
+          "before_top": 24.0,
+          "after_top": -76.0,
+          "before_runs": [
+            [
+              220.0,
+              228.0
+            ],
+            [
+              248.0,
+              264.0
+            ]
+          ],
+          "after_runs": [
+            [
+              120.0,
+              128.0
+            ],
+            [
+              148.0,
+              164.0
+            ]
+          ]
+        },
+        "offset": {
+          "delta": 400.0,
+          "card_index": 6,
+          "card_id": "vid-007",
+          "card_x": 184.0,
+          "column_x": 189.0,
+          "before_top": 696.0,
+          "after_top": 296.0,
+          "before_runs": [
+            [
+              892.0,
+              900.0
+            ],
+            [
+              920.0,
+              936.0
+            ]
+          ],
+          "after_runs": [
+            [
+              492.0,
+              500.0
+            ],
+            [
+              520.0,
+              536.0
+            ]
+          ]
+        },
+        "clamp": {
+          "delta": 999999,
+          "effective_scroll": 2792.0,
+          "card_index": 29,
+          "card_id": "vid-030",
+          "card_x": 576.0,
+          "column_x": 581.0,
+          "after_top": 256.0,
+          "after_runs": [
+            [
+              452.0,
+              460.0
+            ],
+            [
+              480.0,
+              496.0
+            ]
+          ]
+        }
+      }
+    }
+  }
+}

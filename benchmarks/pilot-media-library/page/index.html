@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>webnative — biblioteca de video (piloto A0)</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="root">
+  <div class="sidebar">
+    <div class="brand">
+      <div class="brand-title">webnative</div>
+      <div class="brand-sub">media pilot</div>
+    </div>
+    <!-- Search is a styled div until the input/IME pilot extension lands (A1). -->
+    <div class="search-field">Buscar títulos</div>
+    <div class="nav-list">
+      <div class="nav-item nav-active" data-hover="#263248" data-press="#2e3c55" data-selected="#22304a" data-action="select">Todos</div>
+      <div class="nav-item" data-hover="#263248" data-press="#2e3c55" data-selected="#22304a" data-action="select">Favoritos</div>
+      <div class="nav-item" data-hover="#263248" data-press="#2e3c55" data-selected="#22304a" data-action="select">Recientes</div>
+      <div class="nav-item" data-hover="#263248" data-press="#2e3c55" data-selected="#22304a" data-action="select">Carpetas</div>
+    </div>
+    <div class="divider"></div>
+    <!-- Detail panel placeholder: the host owns the selected item and metadata (A1). -->
+    <div class="detail-panel">
+      <div class="detail-label">DETALLE</div>
+      <div class="detail-art"></div>
+      <div class="detail-title">Sin selección</div>
+      <div class="detail-meta">1080p · tags</div>
+      <div class="detail-hint">Ficha A1</div>
+    </div>
+  </div>
+  <div class="main">
+    <!-- [pilot-extension: grid node] .poster-grid = kind:grid, auto-fill 180px,
+         fixed 320px rows, vertical overflow:auto. -->
+    <div class="poster-grid">
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-001.png" alt="Aurora Boreal">
+        <div class="poster-meta">
+          <div class="poster-title">Aurora Boreal</div>
+          <div class="poster-info">3:42 · 3840×2160</div>
+          <div class="poster-tags">documental · naturaleza</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-002.png" alt="Café de Medianoche">
+        <div class="poster-meta">
+          <div class="poster-title">Café de Medianoche</div>
+          <div class="poster-info">12:34 · 1920×1080</div>
+          <div class="poster-tags">drama · corto</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-003.png" alt="Circuito Abierto">
+        <div class="poster-meta">
+          <div class="poster-title">Circuito Abierto</div>
+          <div class="poster-info">8:06 · 1920×1080</div>
+          <div class="poster-tags">tecnología · entrevista</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-004.png" alt="Dunas de Sal">
+        <div class="poster-meta">
+          <div class="poster-title">Dunas de Sal</div>
+          <div class="poster-info">2:36 · 3840×2160</div>
+          <div class="poster-tags">viajes · naturaleza</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-005.png" alt="El Último Tren">
+        <div class="poster-meta">
+          <div class="poster-title">El Último Tren</div>
+          <div class="poster-info">1:29:00 · 1920×1080</div>
+          <div class="poster-tags">cine · noir</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-006.png" alt="Frecuencia Lunar">
+        <div class="poster-meta">
+          <div class="poster-title">Frecuencia Lunar</div>
+          <div class="poster-info">5:27 · 1920×1080</div>
+          <div class="poster-tags">ciencia ficción · corto</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-007.png" alt="Geometría del Agua">
+        <div class="poster-meta">
+          <div class="poster-title">Geometría del Agua</div>
+          <div class="poster-info">10:12 · 2560×1440</div>
+          <div class="poster-tags">arte · documental</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-008.png" alt="Horizonte Rojo">
+        <div class="poster-meta">
+          <div class="poster-title">Horizonte Rojo</div>
+          <div class="poster-info">3:18 · 3840×2160</div>
+          <div class="poster-tags">paisaje · timelapse</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-009.png" alt="Isla Silenciosa">
+        <div class="poster-meta">
+          <div class="poster-title">Isla Silenciosa</div>
+          <div class="poster-info">7:21 · 1920×1080</div>
+          <div class="poster-tags">naturaleza · viajes</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-010.png" alt="Jardín Nocturno">
+        <div class="poster-meta">
+          <div class="poster-title">Jardín Nocturno</div>
+          <div class="poster-info">4:36 · 1920×1080</div>
+          <div class="poster-tags">botánica · macro</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-011.png" alt="Kilómetro Cero">
+        <div class="poster-meta">
+          <div class="poster-title">Kilómetro Cero</div>
+          <div class="poster-info">53:00 · 1920×1080</div>
+          <div class="poster-tags">carretera · viaje</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-012.png" alt="Luz de Invierno">
+        <div class="poster-meta">
+          <div class="poster-title">Luz de Invierno</div>
+          <div class="poster-info">3:24 · 2560×1440</div>
+          <div class="poster-tags">clima · paisaje</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-013.png" alt="Mar de Nubes">
+        <div class="poster-meta">
+          <div class="poster-title">Mar de Nubes</div>
+          <div class="poster-info">6:12 · 3840×2160</div>
+          <div class="poster-tags">dron · montaña</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-014.png" alt="Noche en la Ciudad">
+        <div class="poster-meta">
+          <div class="poster-title">Noche en la Ciudad</div>
+          <div class="poster-info">2:28 · 1920×1080</div>
+          <div class="poster-tags">urbano · timelapse</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-015.png" alt="Órbita Baja">
+        <div class="poster-meta">
+          <div class="poster-title">Órbita Baja</div>
+          <div class="poster-info">15:48 · 1920×1080</div>
+          <div class="poster-tags">espacio · ciencia</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-016.png" alt="Puerto Escondido">
+        <div class="poster-meta">
+          <div class="poster-title">Puerto Escondido</div>
+          <div class="poster-info">4:27 · 3840×2160</div>
+          <div class="poster-tags">viajes · costa</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-017.png" alt="Química Cotidiana">
+        <div class="poster-meta">
+          <div class="poster-title">Química Cotidiana</div>
+          <div class="poster-info">22:30 · 1920×1080</div>
+          <div class="poster-tags">ciencia · educación</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-018.png" alt="Río de Piedra">
+        <div class="poster-meta">
+          <div class="poster-title">Río de Piedra</div>
+          <div class="poster-info">12:06 · 1920×1080</div>
+          <div class="poster-tags">geología · documental</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-019.png" alt="Selva Alta">
+        <div class="poster-meta">
+          <div class="poster-title">Selva Alta</div>
+          <div class="poster-info">6:48 · 3840×2160</div>
+          <div class="poster-tags">naturaleza · biodiversidad</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-020.png" alt="Tiempo de Cosecha">
+        <div class="poster-meta">
+          <div class="poster-title">Tiempo de Cosecha</div>
+          <div class="poster-info">28:00 · 1920×1080</div>
+          <div class="poster-tags">campo · documental</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-021.png" alt="Umbral Eléctrico">
+        <div class="poster-meta">
+          <div class="poster-title">Umbral Eléctrico</div>
+          <div class="poster-info">3:39 · 1920×1080</div>
+          <div class="poster-tags">tecnología · arte</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-022.png" alt="Viento del Este">
+        <div class="poster-meta">
+          <div class="poster-title">Viento del Este</div>
+          <div class="poster-info">9:03 · 2560×1440</div>
+          <div class="poster-tags">clima · mar</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-023.png" alt="Waveform">
+        <div class="poster-meta">
+          <div class="poster-title">Waveform</div>
+          <div class="poster-info">4:00 · 1920×1080</div>
+          <div class="poster-tags">música · visualizer</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-024.png" alt="Xenón">
+        <div class="poster-meta">
+          <div class="poster-title">Xenón</div>
+          <div class="poster-info">6:24 · 1920×1080</div>
+          <div class="poster-tags">ciencia · laboratorio</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-025.png" alt="Yoga al Amanecer">
+        <div class="poster-meta">
+          <div class="poster-title">Yoga al Amanecer</div>
+          <div class="poster-info">30:00 · 1920×1080</div>
+          <div class="poster-tags">salud · rutina</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-026.png" alt="Zona Azul">
+        <div class="poster-meta">
+          <div class="poster-title">Zona Azul</div>
+          <div class="poster-info">5:36 · 3840×2160</div>
+          <div class="poster-tags">ciudad · movilidad</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-027.png" alt="Bruma">
+        <div class="poster-meta">
+          <div class="poster-title">Bruma</div>
+          <div class="poster-info">1:36 · 1920×1080</div>
+          <div class="poster-tags">atmosférico · corto</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-028.png" alt="Cobalto">
+        <div class="poster-meta">
+          <div class="poster-title">Cobalto</div>
+          <div class="poster-info">4:48 · 1920×1080</div>
+          <div class="poster-tags">mineral · macro</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-029.png" alt="Delta">
+        <div class="poster-meta">
+          <div class="poster-title">Delta</div>
+          <div class="poster-info">7:48 · 2560×1440</div>
+          <div class="poster-tags">agua · geografía</div>
+        </div>
+      </div>
+      <div class="poster-card" data-hover="#1f2735" data-press="#263043" data-selected="#2b6ef2" data-action="select">
+        <!-- [pilot-extension: image node] local poster; kind=image src is relative to this HTML. -->
+        <img class="poster" src="../posters/vid-030.png" alt="Eclipse">
+        <div class="poster-meta">
+          <div class="poster-title">Eclipse</div>
+          <div class="poster-info">10:30 · 3840×2160</div>
+          <div class="poster-tags">astronomía · evento</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
