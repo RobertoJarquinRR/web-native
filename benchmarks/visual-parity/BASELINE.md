@@ -13,46 +13,43 @@ powershell -NoProfile -ExecutionPolicy Bypass -File benchmarks\visual-parity\run
 
 | Fixture | Viewport | SSIM | Diff % | MAE | Gate | Estado |
 |---|---:|---:|---:|---:|---|---|
-| `flex-page` | 480×320 | 0.898467 | 27.759 | 4.132 | sí | **FAIL** |
+| `flex-page` | 480×320 | 1.000000 | 0.000 | 0.000 | sí | **PASS** |
 | `contract` | 400×300 | 1.000000 | 0.000 | 0.000 | sí | **PASS** |
-| `media-library` | 1280×800 | 0.563605 | 58.752 | 31.058 | no | INFO |
+| `media-library` | 1280×800 | 0.957851 | 2.139 | 1.482 | no | INFO |
 
 Regiones:
 
 | Fixture | Región | SSIM | Diff % |
 |---|---|---:|---:|
-| `flex-page` | topbar | 0.882613 | 15.789 |
-| `flex-page` | cards | 0.867582 | 23.634 |
-| `flex-page` | footer | 0.929352 | 45.152 |
-| `media-library` | sidebar | 0.820332 | 48.547 |
-| `media-library` | grid | 0.470399 | 64.799 |
-| `media-library` | detail | 0.758885 | 76.837 |
+| `flex-page` | topbar / cards / footer | 1.000000 | 0.000 |
+| `media-library` | grid | 0.967271 | 2.262 |
+| `media-library` | sidebar y detail | ≥ 0.990 | 0.000 |
 
-En `media-library` la tinta coincide con IoU 0.8284: el texto está donde debe,
-lo que falla es la caja que lo contiene.
+En `media-library` lo que queda es texto e imágenes (AA de DirectWrite vs
+Skia y remuestreo); la caja, la rejilla y las columnas ya coinciden.
 
-## Hallazgos (no son del harness)
+## Hallazgos (histórico y estado actual)
 
-`contract` da 0 % de diferencia, así que el pipeline de captura/comparación es
-exacto para rects. Las diferencias de los otros dos fixtures son de layout:
+La primera corrida (SSIM 0.898 en `flex-page`, 0.564 en `media-library`) señaló
+dos causas, y ambas están corregidas:
 
-1. **Modelo de caja.** El motor trata siempre `width`/`height` como
-   *border-box*; CSS usa *content-box* por defecto. Con
-   `.card { width: 128px; padding: 12px }`, Chromium mide 152 px y el motor
-   128 px. Con `.footer { height: 44px; padding: 16px }`, Chromium mide 76 px y
-   el motor 44 px.
-2. **Columnas de la rejilla.** En `media-library` Chromium coloca 4 columnas y
-   el motor 5, y la barra lateral cambia de ancho. Es la misma causa: la barra
-   lateral declara `width` y además `padding`, y el motor no suma el padding.
+1. **Modelo de caja.** El motor asumía *border-box*; CSS usa *content-box* por
+   defecto. Ahora `box-sizing` se parsea, viaja en `ui.json` y el motor aplica
+   content-box salvo que la página declare `border-box`.
+2. **Márgenes de bloque.** El flujo avanzaba por la altura del hijo sin sumar
+   su `margin-top`, así que el siguiente hermano quedaba un margen más arriba
+   (`.footer` en y=208 en vez de 232). Corregido en `layout_node`.
 
-`box-sizing: border-box` es lo único que acepta el subset hoy. El motor no
-parsea `box-sizing` para cambiar el cálculo: siempre asume border-box.
+Los fixtures y la app declaran `box-sizing: border-box` donde fueron diseñados
+así, de modo que su layout no cambia.
 
-**Verificación:** si al fixture se le añade `* { box-sizing: border-box; }`, la
-captura de Chromium y la nativa quedan con **SSIM 1.000000 y 0.000 % de
-diferencia**. Es decir, no falta un modelo de caja distinto: falta declararlo.
-Por eso el contrato es border-box y la página debe declararlo explícitamente.
-(El experimento se hizo sobre una copia del fixture, no sobre el original.)
+`box-sizing` acepta `border-box` y `content-box`; el motor aplica content-box
+por defecto (CSS) y border-box cuando se declara.
+
+**Verificación:** el motor ya implementa ambos modelos. `content-box` es el
+default de CSS; las páginas que quieren el comportamiento histórico declaran
+`* { box-sizing: border-box }`. Con esa declaración la paridad es exacta
+(`flex-page` 0.000 %).
 
 ## Entorno de la medición
 

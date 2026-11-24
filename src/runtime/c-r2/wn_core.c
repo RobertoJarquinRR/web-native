@@ -1229,7 +1229,10 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
                     }
                 }
             }
-            cursor += used;
+            /* The child was placed at cursor + its top margin, so the flow must
+             * advance by both; skipping margin[0] made every following sibling
+             * sit one margin too high. */
+            cursor += c->nodes[child].margin[0] + used;
         }
     }
     const float content_used = cursor - content_y;

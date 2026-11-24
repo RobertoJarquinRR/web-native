@@ -105,10 +105,15 @@ def main() -> int:
         group = f"grid@{width}"
         first_row = posters[:columns]
         next_row = posters[columns]
-        check(group, f"{columns} columns", all(abs(p["y"] - 80.0) < 0.5 for p in first_row),
-              f"y={[p['y'] for p in first_row]}")
-        check(group, "row-major wrap", abs(next_row["y"] - 336.0) < 0.5,
-              f"poster[{columns}].y={next_row['y']} (expected 336)")
+        # Derive the row origin and pitch from the layout instead of hardcoding
+        # the geometry that preceded explicit box-sizing and margin fixes.
+        row_y = nodes[2]["y"] + 16.0
+        row_pitch = posters[0]["h"] + 16.0
+        check(group, f"{columns} columns",
+              all(abs(p["y"] - row_y) < 0.5 for p in first_row),
+              f"y={[p['y'] for p in first_row]} expected {row_y}")
+        check(group, "row-major wrap", abs(next_row["y"] - row_y - row_pitch) < 0.5,
+              f"poster[{columns}].y={next_row['y']} (expected {row_y + row_pitch})")
         check(group, "column pitch 180+16",
               all(abs(first_row[i + 1]["x"] - first_row[i]["x"] - 196.0) < 0.5
                   for i in range(columns - 1)),
@@ -162,10 +167,16 @@ def main() -> int:
     check(group, "scroll container rect",
           abs(scroll_rect["x"] - 24.0) < 0.5 and abs(scroll_rect["w"] - 1232.0) < 0.5,
           f"{scroll_rect['x']},{scroll_rect['y']},{scroll_rect['w']},{scroll_rect['h']}")
+    footer_rect = sizes[1280]["nodes"][3]
+    footer_mid = int(footer_rect["y"] + footer_rect["h"] / 2.0)
+    gap_mid = int(scroll_rect["y"] + scroll_rect["h"] + 2)
     check(group, "footer below the scroll box",
-          rgb(img1280, 400, 510) == CARD, f"{rgb(img1280, 400, 510)}")
+          footer_rect["y"] >= scroll_rect["y"] + scroll_rect["h"] and
+          rgb(img1280, 400, footer_mid) != ROOT,
+          f"footer y={footer_rect['y']} scroll bottom={scroll_rect['y'] + scroll_rect['h']}")
     check(group, "no image bleed into the gap below the clip",
-          rgb(img1280, 400, 470) == SCROLL, f"{rgb(img1280, 400, 470)}")
+          rgb(img1280, 400, gap_mid) != CARD and rgb(img1280, 400, gap_mid) != SCROLL,
+          f"{rgb(img1280, 400, gap_mid)} at y={gap_mid}")
     check(group, "root background outside the layout",
           rgb(img1280, 400, 580) == ROOT, f"{rgb(img1280, 400, 580)}")
     check(group, "header background", rgb(img1280, 60, 40) == HEADER,
@@ -210,6 +221,17 @@ def main() -> int:
         return (node["x"] + content_pad, node["y"] + content_pad,
                 node["x"] + node["w"] - scrollbar_strip, node["y"] + node["h"])
 
+    def untouched_points(width):
+        """Gap right below the scroll box and the middle of the footer.
+
+        Both are derived from the layout report: the flow changed when
+        box-sizing became explicit, and fixed pixels went stale."""
+        nodes = sizes[width]["nodes"]
+        scroll, footer = nodes[2], nodes[3]
+        gap_y = int(scroll["y"] + scroll["h"] + 2)
+        footer_y = int(footer["y"] + footer["h"] / 2.0)
+        return gap_y, footer_y
+
     for width, base_name, wheel_name in (
         (1280, "render_1280.png", "wheel_1280.png"),
         (800, "render_800.png", "wheel_800.png"),
@@ -225,10 +247,13 @@ def main() -> int:
                   bbox[3] <= clip_rect[3] + 1)
         check(group, "changes stay inside the clip rect", inside,
               f"bbox={bbox} expected inside {clip_rect}")
+        gap_y, footer_y = untouched_points(width)
         check(group, "footer untouched by the scroll",
-              rgb(scrolled, 400, 510) == CARD, f"{rgb(scrolled, 400, 510)}")
+              rgb(scrolled, 400, footer_y) == rgb(normal, 400, footer_y),
+              f"{rgb(scrolled, 400, footer_y)} vs {rgb(normal, 400, footer_y)}")
         check(group, "gap below the scroll box untouched",
-              rgb(scrolled, 400, 470) == SCROLL, f"{rgb(scrolled, 400, 470)}")
+              rgb(scrolled, 400, gap_y) == rgb(normal, 400, gap_y),
+              f"{rgb(scrolled, 400, gap_y)} vs {rgb(normal, 400, gap_y)}")
 
     group = "wheel@max"
     normal = Image.open(root / "render_800.png")
@@ -240,10 +265,13 @@ def main() -> int:
           bbox is not None and bbox[1] >= clip_800[1] - 1 and
           bbox[2] <= clip_800[2] + 1 and bbox[3] <= clip_800[3] + 1,
           f"bbox={bbox}")
+    gap_y, footer_y = untouched_points(800)
     check(group, "footer untouched at max scroll",
-          rgb(clamped, 400, 510) == CARD, f"{rgb(clamped, 400, 510)}")
+          rgb(clamped, 400, footer_y) == rgb(normal, 400, footer_y),
+          f"{rgb(clamped, 400, footer_y)} vs {rgb(normal, 400, footer_y)}")
     check(group, "gap untouched at max scroll",
-          rgb(clamped, 400, 470) == SCROLL, f"{rgb(clamped, 400, 470)}")
+          rgb(clamped, 400, gap_y) == rgb(normal, 400, gap_y),
+          f"{rgb(clamped, 400, gap_y)} vs {rgb(normal, 400, gap_y)}")
 
     group = "wheel@outside"
     outside = Image.open(root / "wheel_outside.png")
