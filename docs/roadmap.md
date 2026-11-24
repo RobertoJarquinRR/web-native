@@ -16,8 +16,8 @@ Un stream no toca los archivos de otro; se integra por contrato.
 
 | ID | Workstream | Alcance | Depende de | Estado |
 |---|---|---|---|---|
-| **E1** | Fidelidad visual/layout | `font-weight`, `line-height`, `text-align`, `opacity` reales; bordes per-side, radius per-corner, sombra inset; flex grow/shrink/basis; margin collapse | E6 (schema) | **En curso** |
-| **E2** | Renderer D3D11 | backend nativo hardware-first, WARP fallback, paridad con wgpu, objetivo ≤ 5 MB | E6 (vtable) | **En curso** |
+| **E1** | Fidelidad visual/layout | `font-weight`, `line-height`, `text-align`, `margin: auto`, scrollbar y focus ring redondeado **(hecho)**; `opacity` compuesta, per-side/per-corner, inset, flex grow/shrink/basis pendiente | E6 (schema) | **Hecho (primer corte)** |
+| **E2** | Renderer D3D11 | backend nativo hardware-first, WARP fallback, paridad con wgpu, objetivo ≤ 5 MB | E6 (vtable) | **Hecho** (falta retirar el enlace wgpu para el objetivo de tamaño) |
 | **E3** | Plataforma y accesibilidad | foco/tab order, DPI per-monitor, IME, clipboard/DnD, UIA, high contrast, reduced motion | E1, E6 | Pendiente (P1 `platform-v1.md`) |
 | **E4** | Texto e i18n | shaping runtime, wrapping/line breaking, bidi, CJK/emoji, re-raster de atlas | E1, E3 | Pendiente |
 | **E5** | Rendimiento y escala | dirty rects, culling/virtualización, 100/1k/10k nodos, presupuestos en CI | E1, E2 | Pendiente |
@@ -35,16 +35,20 @@ Un stream no toca los archivos de otro; se integra por contrato.
 - ✅ ABI v3: UI dinámica (visibilidad, clone/append/remove, set_image) — 53/53.
 - ✅ ABI v4: input ASCII, caret/selección/clipboard, `WN_EVENT_INPUT` — 111/111.
 - ✅ **CSS core v1**: radius/borde uniforme + primera sombra — 41/41.
+- ✅ **E1 fidelidad visual/layout** (primer corte): `font-weight` real,
+  `text-align`, `line-height`, `margin: auto`, scrollbar y focus ring
+  redondeado — 23/23 fidelity, 69/69 R2, 48/48 pilot, 53/53 dynamic, 111/111 input.
+- ✅ **E2 renderer D3D11**: hardware Intel por defecto, wgpu como fallback;
+  paridad 99.8 % píxeles exactos, hover 0.02 vs 0.73 núcleos (WARP).
 - ✅ Frontend CSS v3 (bordes/radius/sombras/unidades) y host C# v4
   (113/113: búsqueda real, detalle, filtro, `set_visible`/`set_image`).
 - ✅ **Frontends C++/C# congelados** en `benchmarks/frontend-parity/SPEC.md`;
   Python es oráculo v1; Rust es canónico.
 - ✅ **CI de paridad** (`.github/workflows/frontend-parity.yml`) en `main`.
 - ✅ Contratos documentados: ABI v4, subset v1, IR, ui-tree, métricas.
-- ⏳ **E2 D3D11** en curso; **E1 fidelidad visual/layout** en curso;
-  **E6 contratos/tooling** en curso (docs de E8, paridad visual y release).
-- ⏭ Siguiente: cerrar E1, virtualización/culling (E5), accesibilidad/IME/DPI
-  (E3), texto runtime (E4) y release (E7).
+- ⏳ **E6 contratos/tooling** en curso (harness de paridad visual).
+- ⏭ Siguiente: E8 transition (P1), virtualización/culling (E5),
+  accesibilidad/IME/DPI (E3), texto runtime (E4) y release (E7).
 
 Documentos de esta ola: [`e8-css-extensions.md`](e8-css-extensions.md),
 [`visual-parity.md`](visual-parity.md), [`release-checklist.md`](release-checklist.md).

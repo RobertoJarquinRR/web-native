@@ -5,9 +5,8 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 
 > **Estado real:** este documento es el contrato objetivo. La matriz de lo que
 > el frontend emite y lo que R1/R2 renderizan hoy está en
-> [`support.md`](support.md). Varias propiedades v1 se parsean pero su render
-> runtime sigue pendiente (por ejemplo `font-weight`, `text-align`,
-> `line-height`, `opacity`, `border-radius` y `box-shadow`).
+> [`support.md`](support.md). `font-weight`, `line-height` y `text-align` ya se
+> aplican en R2 (E1); `opacity` compuesta y per-side borders siguen pendientes.
 
 ## HTML
 
@@ -53,9 +52,10 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
   `rgb()`, `rgba()`, nombres básicos).
 - `opacity` (0–1).
 
-> **Runtime actual:** `font-weight` no selecciona todavía una variante real de
-> la fuente; `line-height` y `text-align` no se aplican de forma fiable en R2;
-> `opacity` se emite pero el core aún no lo compone. Ver `support.md`.
+> **Runtime actual:** `font-weight ≥ 600` usa la cara bold real del sistema,
+> `line-height` y `text-align` se aplican en R2 (E1), `margin: auto` funciona en
+> block y flex. `opacity` se emite pero el core aún no lo compone. Ver
+> `support.md`.
 
 ### Bordes y caja
 

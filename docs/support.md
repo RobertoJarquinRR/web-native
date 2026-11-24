@@ -55,7 +55,7 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | `gap`, `row-gap`, `column-gap` | Sí | Sí | Sí | px |
 | `width`, `height` | Sí | Sí | Sí | px/% |
 | `min-width`, `max-width`, `min-height`, `max-height` | Pilot v3 | Parcial | Parcial | el frontend emite; runtime pendiente de validar |
-| `padding`, `margin` | Sí | Sí | Sí | px; `margin: auto` **No** |
+| `padding`, `margin` | Sí | Sí | Sí | px; `margin: auto` en block/flex |
 | `box-sizing` | fijo | fijo | fijo | border-box |
 | `overflow: hidden` | Sí | Sí | Sí | clip rectangular |
 | `overflow: auto/scroll` | Pilot v2 | warning | Sí | scroll vertical |
@@ -68,9 +68,9 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 |---|---|---|---|---|
 | `font-family` | Sí | Sí | Sí | fuentes del sistema |
 | `font-size` | Sí | Sí | Sí | px |
-| `font-weight` | Parcial | Parcial | Parcial | se parsea, pero el shaping usa una variante por familia/tamaño; bold real pendiente |
-| `line-height` | Parcial | Parcial | Parcial | no se aplica de forma fiable en R2 |
-| `text-align` | Parcial | Parcial | Parcial | la app aún muestra texto a la izquierda |
+| `font-weight` | Sí | Sí | Sí | ≥600 usa la cara bold real del sistema (Segoe UI/Arial bold); si falta, regular + diagnóstico |
+| `line-height` | Sí | No | Sí | px o número; afecta altura y baseline (half-leading) |
+| `text-align` | Sí | No | Sí | `left`/`center`/`right`; una línea (R2 no envuelve texto) |
 | `color`, `background`, `background-color` | Sí | Sí | Sí | `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()` |
 | `opacity` | Pilot v3 | Parcial | Parcial | el frontend emite; el core aún no lo compone |
 | `font-face`, web fonts | No | No | No | no-goal |
@@ -90,8 +90,8 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 
 | Capacidad | R2 | Notas |
 |---|---|---|
-| Layout block/flex/grid | ✅ | layout en C |
-| Scroll vertical + clip | ✅ | sin scrollbar visible |
+| Layout block/flex/grid | ✅ | layout en C; `margin: auto` en block y flex |
+| Scroll vertical + clip | ✅ | scrollbar track+thumb (sin drag); thumb sigue el wheel |
 | Imágenes WIC + cache | ✅ | sin eviction LRU |
 | Hover / press / selected | ✅ | estados por nodo |
 | Resize | ✅ | re-layout |
