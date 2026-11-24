@@ -56,7 +56,8 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | `width`, `height` | Sí | Sí | Sí | px/% |
 | `min-width`, `max-width`, `min-height`, `max-height` | Pilot v3 | Parcial | Parcial | el frontend emite; runtime pendiente de validar |
 | `padding`, `margin` | Sí | Sí | Sí | px; `margin: auto` en block/flex |
-| `box-sizing` | fijo | fijo | fijo | border-box |
+| `box-sizing` | fijo | fijo | fijo | **siempre border-box**; el motor no implementa content-box |
+| `box-sizing: content-box` | No | No | No | el default de CSS; el subset lo rechaza |
 | `overflow: hidden` | Sí | Sí | Sí | clip rectangular |
 | `overflow: auto/scroll` | Pilot v2 | warning | Sí | scroll vertical |
 | `position`, `float`, `z-index` | No | No | No | fuera del subset |

@@ -43,6 +43,13 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 - `padding`, `margin` (shorthand + longhands, px).
 - `box-sizing: border-box` (fijo en v1).
 
+> **Modelo de caja:** el motor calcula siempre *border-box*: `width`/`height`
+> incluyen padding y borde. CSS usa *content-box* por defecto, así que una
+> página que no declare `box-sizing: border-box` se verá distinta a un
+> navegador. Decláralo en la hoja (`* { box-sizing: border-box }`). Con esa
+> declaración la paridad medida es exacta (ver
+> `benchmarks/visual-parity/BASELINE.md`). `content-box` está fuera del subset.
+
 ### Tipografía y color
 
 - `font-family` (system fonts; sin web fonts en v1).

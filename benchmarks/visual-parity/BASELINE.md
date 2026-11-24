@@ -48,6 +48,12 @@ exacto para rects. Las diferencias de los otros dos fixtures son de layout:
 `box-sizing: border-box` es lo único que acepta el subset hoy. El motor no
 parsea `box-sizing` para cambiar el cálculo: siempre asume border-box.
 
+**Verificación:** si al fixture se le añade `* { box-sizing: border-box; }`, la
+captura de Chromium y la nativa quedan con **SSIM 1.000000 y 0.000 % de
+diferencia**. Es decir, no falta un modelo de caja distinto: falta declararlo.
+Por eso el contrato es border-box y la página debe declararlo explícitamente.
+(El experimento se hizo sobre una copia del fixture, no sobre el original.)
+
 ## Entorno de la medición
 
 - Chromium `141.0.7390.37` vía Playwright `1.56.0`, headless shell build 1194,
