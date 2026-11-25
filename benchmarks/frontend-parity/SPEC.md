@@ -1,27 +1,32 @@
 # Frontend parity benchmark — specification
 
-> **Estado: congelado (subset v1, 2026-11-24).** Este SPEC es el contrato de
-> paridad de **C++ y C#**. Rust es el frontend canónico y puede avanzar con
-> features nuevas (grid, input, CSS v3); C++/C# no tienen obligación de
-> seguirlas. Python es el oráculo de este mismo subset v1. Ver
-> [`results/README.md`](results/README.md).
+> **Estado: congelado (subset v1, 2026-11-24).** Este SPEC documenta el
+> contrato de paridad del subset v1 que comparten las **referencias congeladas
+> C++ y C#** (`archive/frontends-legacy/`) y el **oráculo Python** (también
+> archivado). Rust es el frontend canónico y puede avanzar con features nuevas
+> (grid, input, CSS v3); C++/C# no tienen obligación de seguirlas y **no se
+> compilan en CI**. Ver [`results/README.md`](results/README.md).
 
 Goal: implement the same HTML+CSS frontend in different languages and prove
-that (a) it produces the **same IR**, and (b) measure speed and cost.
+that (a) it produces the **same IR**, and (b) measure speed and cost. Hoy el
+gate vivo solo ejecuta el frontend Rust; las demás implementaciones quedan como
+referencia congelada.
 
-The reference implementation is `src/frontend/python` (the v1 package).
-The other implementations must match its output for the two fixtures below,
-within **0.01 px** geometry tolerance.
+La implementación de referencia histórica es
+`archive/frontends-legacy/python/webnative` (paquete v1, test-only).
+Las implementaciones congeladas deben coincidir con su salida para los dos
+fixtures de abajo, dentro de **0.01 px** de geometría.
 
 ## Política de mantenimiento
 
-- **Rust** (`src/frontend/rust`) es el frontend canónico y evoluciona con el
+- **Rust** (`src/frontend`) es el frontend canónico y evoluciona con el
   producto: grid, scroll, imágenes, input y CSS v3.
-- **Python** (`src/frontend/python`) es el oráculo del subset v1; se mantiene
-  para goldens y verificación, no para seguir features nuevas de Rust.
-- **C++** y **C#** son **referencias de paridad congeladas** en este SPEC. No
-  se actualizan para seguir a Rust; su contrato es producir el mismo IR en los
-  fixtures de este documento.
+- **Python** (`archive/frontends-legacy/python`) es el oráculo **test-only** del
+  subset v1; se mantiene para goldens y verificación, no para seguir features
+  nuevas de Rust.
+- **C++** y **C#** (`archive/frontends-legacy/`) son **referencias de paridad
+  congeladas** en este SPEC. No se actualizan para seguir a Rust ni se compilan
+  en CI; su contrato es producir el mismo IR en los fixtures de este documento.
 - Un cambio incompatible del IR o del subset requiere una decisión explícita:
   actualizar los frontends congelados o declararlos fuera del subset actual.
   No se actualizan en silencio.
@@ -32,8 +37,8 @@ within **0.01 px** geometry tolerance.
 
 | Gate | Frontends | Contrato | Comando |
 |---|---|---|---|
-| IR post-layout (congelado) | Rust, Python, C++, C# | `display_list.json` | `bench.py` |
-| Árbol de estilos (vivo) | Rust, Python | `ui.json` (proyección de estilo) | `tools/run_style_parity.ps1` |
+| IR post-layout (congelado) | Rust (vivo); C++/C#/Python congelados | `display_list.json` | `tools/bench.py` |
+| Árbol de estilos (vivo) | Rust + oráculo Python | `ui.json` (proyección de estilo) | `frontend-rust` + `emit_ui.py` + `tools/compare_style.py` |
 
 El gate vivo compara **el árbol de estilos pre-layout**, que es lo que consume
 el motor. Así `box-sizing`, márgenes o `flex-grow` se comprueban una vez, sin
@@ -41,7 +46,13 @@ obligar a reimplementar layout en cada lenguaje. C++/C# quedan congelados en el
 IR post-layout y en el modelo border-box, tal como documenta su SPEC.
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File benchmarks\frontend-parity\tools\run_style_parity.ps1
+# Rust
+frontend-rust --html <html> --css <css> --width W --height H --emit-ui rust.json
+# Oráculo Python (test-only)
+python src\emitter\python\emit_ui.py --html <html> --css <css> --width W --height H `
+  --out py.h --meta py.meta.json --no-text-metrics --dump-style-json py.json
+# Comparación
+python benchmarks\frontend-parity\tools\compare_style.py --rust rust.json --python py.json
 ```
 
 Última ejecución: `contract` 4 nodos, `flex-page` 26 nodos, **0 diferencias**.
@@ -58,23 +69,26 @@ round (the IR may ignore text; the fixtures contain none).
 
 ## CLI contract
 
-Every implementation must provide a `run.ps1` in its directory:
+Contrato histórico: cada implementación exponía un `run.ps1` en su directorio.
+Hoy **ningún frontend vivo usa `.ps1`**: el harness (`tools/bench.py`) lee
+`BUILD_INFO.json` e invoca el binario Rust directamente. Las referencias
+congeladas no se ejecutan en este gate; sus orquestadores están en
+`archive/ps1-legacy/`.
+
+El contrato de argumentos que consume el harness es:
 
 ```
-run.ps1 -Html <path> -Width <W> -Height <H> -Out <ir.json> [-Timings <timings.json>]
+<binario> --html <path> --width <W> --height <H> --out <ir.json> --timings <timings.json>
 ```
 
 Rules:
 
 - Resolve `<link rel="stylesheet" href="...">` relative to the HTML file.
-- Write the IR JSON to `-Out`.
-- Write `-Timings` JSON if provided (parse/cascade/layout/emit ms + `ops`).
+- Write the IR JSON to `--out`.
+- Write `--timings` JSON if provided (parse/cascade/layout/emit ms + `ops`).
   `peak_rss_kb` is optional.
 - Exit code 0 on success, non-zero on error.
 - No browser, WebView, Skia or Electron.
-
-The harness invokes `run.ps1` via PowerShell; the implementation may call any
-binary or script.
 
 ## IR output
 
@@ -151,8 +165,10 @@ Must print `PASS`.
 python benchmarks/frontend-parity/tools/bench.py --runs 10
 ```
 
-It runs every frontend that has a `run.ps1`, verifies parity, and writes
-`benchmarks/frontend-parity/results/SUMMARY.md` with wall-time medians.
+It benchmarks the canonical Rust frontend only (`FRONTEND_DIRS = {"rust": ...}`),
+verifies parity against the goldens, and writes
+`benchmarks/frontend-parity/results/SUMMARY.md` with wall-time medians. C++/C#
+y Python quedan fuera de este gate como referencias congeladas.
 
 Report also, in your README:
 

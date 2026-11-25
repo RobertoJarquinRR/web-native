@@ -3,11 +3,9 @@
 Medición real de la primera ejecución del harness. No es un gate todavía:
 `flex-page` y `contract` son gateables; `media-library` es informativo.
 
-Comando canónico:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File benchmarks\visual-parity\run_visual.ps1
-```
+Comando canónico (histórico): el runner `run_visual.ps1` está archivado en
+`archive/ps1-legacy/benchmarks/visual-parity/`; hoy el harness está **pendiente
+de runner** y estos números no son reproducibles hasta restaurarlo.
 
 ## Resultado
 
@@ -61,7 +59,7 @@ default de CSS; las páginas que quieren el comportamiento histórico declaran
 
 ## Cómo se regeneran
 
-`run_visual.ps1` escribe `out/report.md`, `out/report.json` y los reportes por
-fixture; `out/` y `reports/` están ignorados por git. Las capturas y los diff
+El runner archivado escribía `out/report.md`, `out/report.json` y los reportes
+por fixture; `out/` y `reports/` están ignorados por git. Las capturas y los diff
 PNG no se commitean. Este archivo resume los números de la última corrida
 documentada.

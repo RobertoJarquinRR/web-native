@@ -6,7 +6,7 @@ Wall time includes process startup, HTML+CSS parse, cascade, layout and IR write
 
 | Frontend | Fixture | Status | Mode | Wall median (ms) | Wall min | Wall max | Ops |
 |---|---|---:|---|---:|---:|---:|---:|
-| rust | contract | PASS | direct | 155.047 | 155.047 | 155.047 | 4 |
-| rust | flex-page | PASS | direct | 32.113 | 32.113 | 32.113 | 23 |
+| rust | contract | PASS | direct | 16.074 | 16.074 | 16.074 | 4 |
+| rust | flex-page | PASS | direct | 18.194 | 18.194 | 18.194 | 23 |
 
 Parity is measured against `golden/*.ir.json` with 0.01 px tolerance.

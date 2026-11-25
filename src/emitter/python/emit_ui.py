@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""Build-time emitter for the R2 style-tree runtime (`src/runtime/c-r2`).
+"""Build-time emitter for the R2 style-tree runtime (`src/runtime`).
 
 Two input modes, one output contract:
 
-1. **Python tree (oracle)** — `--html/--css`: parses HTML+CSS with the
-   canonical Python frontend (`src/frontend/python/webnative`), computes
-   styles with cssselect2 and flattens the styled tree to a pre-order UiNode
-   array. HarfBuzz/FreeType shape and raster the text and pack the atlas.
+1. **Python tree (oracle, TEST-ONLY)** — `--html/--css`: parses HTML+CSS with
+   the archived Python frontend (`archive/frontends-legacy/python/webnative`),
+   computes styles with cssselect2 and flattens the styled tree to a pre-order
+   UiNode array. HarfBuzz/FreeType shape and raster the text and pack the
+   atlas. This oracle is pending retirement; the Rust frontend is the only
+   compiler.
 2. **Rust tree** — `--ui-json <ui.json>`: consumes the pre-layout style tree
-   emitted by `src/frontend/rust --emit-ui` (plus its `atlas.bin`) and emits
-   the same `ui_data.h` / `ui_meta.json`. This mode does not import
+   emitted by `src/frontend` (`frontend-rust --emit-ui`, plus its `atlas.bin`)
+   and emits the same `ui_data.h` / `ui_meta.json`. This mode does not import
    `webnative`; only the color parser (tinycss2) is shared.
 
 `--compare A.h B.h` parses two generated headers and reports semantic
@@ -42,15 +44,19 @@ from pathlib import Path
 
 # src/emitter/python/emit_ui.py -> src/emitter/python -> src/emitter -> src
 SRC_ROOT = Path(__file__).resolve().parents[2]
-FRONTEND_PYTHON = SRC_ROOT / "frontend" / "python"
+REPO_ROOT = SRC_ROOT.parent
+# ORACLE IS TEST-ONLY: the Rust frontend (src/frontend) is the only compiler.
+# The Python frontend was archived; this reference is kept for parity tests
+# only and is pending retirement. The oracle needs tinycss2, cssselect2 and
+# html5lib (see archive/frontends-legacy/python/requirements.txt).
+FRONTEND_PYTHON = REPO_ROOT / "archive" / "frontends-legacy" / "python"
 if str(FRONTEND_PYTHON) not in sys.path:
     sys.path.insert(0, str(FRONTEND_PYTHON))
 
 from tinycss2.color3 import parse_color as css_color
 
-DEFAULT_HTML = SRC_ROOT / "runtime" / "c-r2" / "page" / "index.html"
-DEFAULT_CSS = SRC_ROOT / "runtime" / "c-r2" / "page" / "style.css"
-REPO_ROOT = SRC_ROOT.parent
+DEFAULT_HTML = SRC_ROOT / "runtime" / "page" / "index.html"
+DEFAULT_CSS = SRC_ROOT / "runtime" / "page" / "style.css"
 
 
 def display_path(path: Path) -> str:

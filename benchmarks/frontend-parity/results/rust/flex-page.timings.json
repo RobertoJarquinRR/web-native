@@ -1,13 +1,13 @@
 {
-  "parse": 17.524,
-  "html": 17.524,
-  "css": 0.234,
-  "cascade": 0.44,
+  "parse": 1.362,
+  "html": 1.362,
+  "css": 0.266,
+  "cascade": 0.437,
   "fonts": 0.0,
-  "layout": 0.044,
-  "text": 0.001,
-  "emit": 0.851,
-  "pipeline": 19.512,
+  "layout": 0.038,
+  "text": 0.002,
+  "emit": 1.021,
+  "pipeline": 3.481,
   "ops": 23,
-  "peak_rss_kb": 3784
+  "peak_rss_kb": 3796
 }

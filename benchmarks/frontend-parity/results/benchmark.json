@@ -26,22 +26,22 @@
         "mode": "direct",
         "error": "",
         "wall_ms": {
-          "median": 155.047,
-          "min": 155.047,
-          "max": 155.047
+          "median": 16.074,
+          "min": 16.074,
+          "max": 16.074
         },
         "internal_timings_ms": {
-          "parse": 18.713,
-          "html": 18.713,
-          "css": 0.179,
-          "cascade": 0.213,
+          "parse": 0.556,
+          "html": 0.556,
+          "css": 0.078,
+          "cascade": 0.132,
           "fonts": 0.0,
-          "layout": 0.024,
+          "layout": 0.021,
           "text": 0.001,
-          "emit": 1.129,
-          "pipeline": 20.574,
+          "emit": 0.908,
+          "pipeline": 1.891,
           "ops": 4,
-          "peak_rss_kb": 3936
+          "peak_rss_kb": 3672
         },
         "ir": "benchmarks\\frontend-parity\\results\\rust\\contract.ir.json"
       },
@@ -51,22 +51,22 @@
         "mode": "direct",
         "error": "",
         "wall_ms": {
-          "median": 32.113,
-          "min": 32.113,
-          "max": 32.113
+          "median": 18.194,
+          "min": 18.194,
+          "max": 18.194
         },
         "internal_timings_ms": {
-          "parse": 17.524,
-          "html": 17.524,
-          "css": 0.234,
-          "cascade": 0.44,
+          "parse": 1.362,
+          "html": 1.362,
+          "css": 0.266,
+          "cascade": 0.437,
           "fonts": 0.0,
-          "layout": 0.044,
-          "text": 0.001,
-          "emit": 0.851,
-          "pipeline": 19.512,
+          "layout": 0.038,
+          "text": 0.002,
+          "emit": 1.021,
+          "pipeline": 3.481,
           "ops": 23,
-          "peak_rss_kb": 3784
+          "peak_rss_kb": 3796
         },
         "ir": "benchmarks\\frontend-parity\\results\\rust\\flex-page.ir.json"
       }

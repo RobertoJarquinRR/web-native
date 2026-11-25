@@ -21,12 +21,12 @@ sobre una vtable de backend: **D3D11** en Windows y **wgpu-native**
 
 ## Qué es / Qué no es
 
-| Es | No es |
-|---|---|
-| Una plataforma de UI nativa con HTML/CSS como vista | Un navegador o un WebView |
+| Es                                                    | No es                            |
+| ----------------------------------------------------- | -------------------------------- |
+| Una plataforma de UI nativa con HTML/CSS como vista   | Un navegador o un WebView        |
 | Un motor C pequeño con ABI C para hosts C#/C/C++/Rust | Un motor JS o una plataforma web |
-| Layout, grid, scroll, imágenes y texto en GPU | Un visor de webs content-heavy |
-| Un subset cerrado y medible | “Soportar toda la web” |
+| Layout, grid, scroll, imágenes y texto en GPU         | Un visor de webs content-heavy   |
+| Un subset cerrado y medible                           | “Soportar toda la web”           |
 
 La lógica de negocio vive en el **host**; el motor solo pone la vista y los
 eventos. El detalle de lo que se puede usar hoy está en
@@ -37,80 +37,82 @@ eventos. El detalle de lo que se puede usar hoy está en
 ```
 src/
   ir/                 contrato del IR + schema
-  frontend/python/    frontend de referencia / oráculo
-  frontend/rust/      frontend canónico (producción)
-  frontend/cpp/       alternativa del benchmark
-  frontend/csharp/    alternativa del benchmark
-  emitter/python/     emit_ui.py (estilos -> ui_data.h)
-  runtime/c-r2/       motor C: layout en runtime, eventos, resize, renderer
+  frontend/           frontend canónico en Rust (Cargo.toml + src/ + tests/)
+  runtime/            motor C: layout en runtime, eventos, resize, renderer
+  emitter/python/     emit_ui.py (estilos -> ui_data.h; oráculo test-only)
+tools/
+  cli.py              wn-cli: entry point de build/run/test/bench/setup
+  wn_cli/             implementación del CLI (comandos y rutas del repo)
 benchmarks/
-  frontend-parity/    fixtures, goldens, verifier y benchmark multi-lenguaje
-  visual-parity/      Chromium vs nativo (SSIM, diff, regiones)
+  frontend-parity/    fixtures, goldens, verifier y benchmark del frontend Rust
+  visual-parity/      Chromium vs nativo (SSIM, diff, regiones); pendiente de runner
 archive/
   experiments/        16 experimentos históricos (no mantenidos)
+  frontends-legacy/   frontends C++/C#/Python congelados (referencias de paridad)
+  ps1-legacy/         orquestadores PowerShell archivados (sin reemplazo vivo)
   r1-static/          R1 horneado (archivado): escena estática + su renderer
 spec/                 fixtures originales del contrato
 docs/                 arquitectura, IR y convenciones
-third_party/          wgpu-native v29.0.1.1 (headers; binaries fetched)
-tools/                fetch-wgpu.ps1 y utilidades del repo
+third_party/          wgpu-native v29.0.1.1 (headers; binaries vía wn-cli setup wgpu)
 ```
 
 ## Frontends
 
-| Frontend | Rol | Alcance |
-|---|---|---|
-| **Rust** | canónico / producción | subset v1 + extensiones pilot v2/v3 |
-| **Python** | oráculo v1 | goldens y paridad; no sigue features nuevas |
-| **C++** | referencia de paridad **congelada** | fixtures de `benchmarks/frontend-parity/SPEC.md` |
-| **C#** | referencia de paridad **congelada** | fixtures de `benchmarks/frontend-parity/SPEC.md` |
+| Frontend   | Rol                                      | Alcance                                              |
+| ---------- | ---------------------------------------- | ---------------------------------------------------- |
+| **Rust**   | canónico / producción                    | `src/frontend`; subset v1 + extensiones pilot v2/v3  |
+| **Python** | oráculo v1 **test-only**                 | `archive/frontends-legacy/python`; goldens y paridad |
+| **C++**    | referencia de paridad **congelada**      | `archive/frontends-legacy/cpp`; fixtures de SPEC.md  |
+| **C#**     | referencia de paridad **congelada**      | `archive/frontends-legacy/csharp`; fixtures SPEC.md  |
 
-La paridad byte-idéntica entre los cuatro es el argumento central del proyecto:
-mismo input, mismo IR, mismos píxeles. C++/C# quedan congelados en el subset de
-`SPEC.md`; las features nuevas de Rust (CSS v3, input, etc.) no les obligan a
-seguirlas. Los resultados se versionan en
+La paridad medible es el argumento central del proyecto: mismo input, mismo IR,
+mismos píxeles. El gate vivo compara el frontend Rust contra el oráculo Python;
+C++/C# quedan congelados en el subset de `SPEC.md` dentro de
+`archive/frontends-legacy/` y las features nuevas de Rust (CSS v3, input, etc.)
+no les obligan a seguirlas. Los resultados se versionan en
 [`benchmarks/frontend-parity/results/README.md`](benchmarks/frontend-parity/results/README.md).
 
 ## Estado
 
-| Capa | Estado |
-|---|---|
-| Frontend **Rust** (canónico) | ✅ paridad byte-idéntica, ~10 ms wall, 887 KB |
-| Frontend Python v1 (oráculo) | ✅ parse + cascada + block/flex + texto (HarfBuzz/FreeType) |
-| Frontend C++ / C# (benchmark) | ✅ alternativas medidas |
-| IR de estilos (`ui.json`) | ✅ schema + goldens |
-| Emitter | ✅ `emit_ui.py` (estilos → `ui_data.h`) |
-| Runtime C | ✅ `src/runtime/c-r2` — layout, grid, scroll, imágenes y eventos (69/69) |
-| ABI C v4 | ✅ standalone/embedded; v3 dinámica + v4 input |
-| Dynamic UI (v3) | ✅ `set_visible`, `set_image`, `set_text`, clone/append/remove (53/53) |
-| Text input (v4) | ✅ ASCII single-line, caret/selección/clipboard, `WN_EVENT_INPUT` (111/111) |
-| CSS v3 (frontend) | ✅ bordes/radius/sombras/unidades |
-| CSS core v1 | ✅ radius/borde uniforme + primera sombra (41/41) |
-| Renderer | ✅ D3D11 hardware por defecto; wgpu como fallback |
-| Host C# (piloto) | ✅ 30 cards, búsqueda real, detalle, filtros, open (113/113) |
-| AOT HTML → `.exe` | 🗄️ archivado en `archive/r1-static` (histórico) |
-| Interactividad | ✅ R2 (`src/runtime/c-r2`); prototipo histórico en `archive/experiments/12` |
+| Capa                          | Estado                                                                      |
+| ----------------------------- | --------------------------------------------------------------------------- |
+| Frontend **Rust** (canónico)  | ✅ paridad byte-idéntica, ~10 ms wall, 887 KB                               |
+| Frontend Python (oráculo)     | ✅ test-only en `archive/frontends-legacy/python`; no sigue features nuevas |
+| Frontend C++/C# (frozen)      | ✅ referencias congeladas en `archive/frontends-legacy`                     |
+| IR de estilos (`ui.json`)     | ✅ schema + goldens                                                         |
+| Emitter                       | ✅ `emit_ui.py` (estilos → `ui_data.h`)                                     |
+| Runtime C                     | ✅ `src/runtime` — layout, grid, scroll, imágenes y eventos (69/69)         |
+| ABI C v4                      | ✅ standalone/embedded; v3 dinámica + v4 input                              |
+| Dynamic UI (v3)               | ✅ `set_visible`, `set_image`, `set_text`, clone/append/remove (53/53)      |
+| Text input (v4)               | ✅ ASCII single-line, caret/selección/clipboard, `WN_EVENT_INPUT` (111/111) |
+| CSS v3 (frontend)             | ✅ bordes/radius/sombras/unidades                                           |
+| CSS core v1                   | ✅ radius/borde uniforme + primera sombra (41/41)                           |
+| Renderer                      | ✅ D3D11 hardware por defecto; wgpu como fallback                           |
+| Host C# (piloto)              | ✅ 30 cards, búsqueda real, detalle, filtros, open (113/113)                |
+| AOT HTML → `.exe`             | 🗄️ archivado en `archive/r1-static` (histórico)                             |
+| Interactividad                | ✅ R2 (`src/runtime`); prototipo histórico en `archive/experiments/12`      |
 
 ## Soporte y subset
 
 El contrato cerrado es [`docs/subset-v1.md`](docs/subset-v1.md). Las
 extensiones del piloto son opt-in con `--pilot`:
 
-| Extensión | Qué añade | Schema |
-|---|---|---|
-| **v2** | grid, scroll vertical, imágenes, `object-fit` | `ui-tree/2` |
-| **v3** | input ASCII, bordes/radius/sombras, unidades relativas | `ui-tree/3` |
+| Extensión | Qué añade                                              | Schema      |
+| --------- | ------------------------------------------------------ | ----------- |
+| **v2**    | grid, scroll vertical, imágenes, `object-fit`          | `ui-tree/2` |
+| **v3**    | input ASCII, bordes/radius/sombras, unidades relativas | `ui-tree/3` |
 
 Resumen de lo que hay hoy:
 
-| Área | Estado |
-|---|---|
-| Layout | block, flex, grid, scroll vertical, resize |
-| Renderer | D3D11 hardware (Windows, por defecto); wgpu-native (D3D12/Vulkan/Metal) |
-| Contenido | texto pre-shapeado, imágenes locales (WIC) |
-| Interacción | hover/press/selected, wheel, input de una línea |
-| Dinamismo | visibilidad, `set_image`, clone/append/remove |
-| CSS visual | radius/bordes/sombras v1; per-side/per-corner/inset pendiente |
-| Fuera | JS, iframes, red, parser runtime, formularios web, UIA/IME |
+| Área        | Estado                                                                  |
+| ----------- | ----------------------------------------------------------------------- |
+| Layout      | block, flex, grid, scroll vertical, resize                              |
+| Renderer    | D3D11 hardware (Windows, por defecto); wgpu-native (D3D12/Vulkan/Metal) |
+| Contenido   | texto pre-shapeado, imágenes locales (WIC)                              |
+| Interacción | hover/press/selected, wheel, input de una línea                         |
+| Dinamismo   | visibilidad, `set_image`, clone/append/remove                           |
+| CSS visual  | radius/bordes/sombras v1; per-side/per-corner/inset pendiente           |
+| Fuera       | JS, iframes, red, parser runtime, formularios web, UIA/IME              |
 
 La matriz completa —frontend, runtime y limitaciones— está en
 [`docs/support.md`](docs/support.md). `--strict-subset` convierte cualquier
@@ -120,35 +122,33 @@ feature fuera del contrato en error.
 
 ```powershell
 # Dependencias nativas: descarga wgpu-native v29.0.1.1 y verifica su SHA-256
-powershell -NoProfile -ExecutionPolicy Bypass -File tools\fetch-wgpu.ps1
+python tools\cli.py setup wgpu
 
-# Build + aceptación del runtime (layout, reflow, estados, texto)
-powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build.ps1
+# Build del frontend Rust + emitter + runtime; binarios limpios en build\release
+python tools\cli.py build
 
-# El runtime usa D3D11 hardware en Windows. Para comparar con wgpu:
-#   $env:WN_RENDERER='wgpu'; ...\build_abi.ps1 ; Remove-Item Env:\WN_RENDERER
+# Suites de verificación (frontend Rust + ABI C + runtime)
+python tools\cli.py test all
 
-# Compilar una página arbitraria a un runtime desechable (tooling/harness)
-powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build.ps1 `
-  -Html benchmarks\frontend-parity\fixtures\contract\input.html `
-  -Css benchmarks\frontend-parity\fixtures\contract\input.css `
-  -Width 400 -Height 300 -OutDir build\contract
+# Benchmark del piloto: emite, compila y verifica pilot-media-library
+python tools\cli.py bench pilot
 
-# Paridad visual contra Chromium (dev-only, requiere Playwright)
-powershell -NoProfile -ExecutionPolicy Bypass -File benchmarks\visual-parity\run_visual.ps1
+# Render offscreen de la UI staged con el runtime
+python tools\cli.py run -- --render 1280 800 out.png
 
-# Frontend Python: HTML/CSS -> IR + PNG
-cd src\frontend\python
-.\.venv\Scripts\python.exe -m webnative ..\..\..\spec\input.html --width 400 --height 300
-
-# Benchmark multi-lenguaje de paridad (requiere los frontends compilados)
+# Benchmark de paridad del frontend Rust (goldens del subset v1)
 python benchmarks\frontend-parity\tools\bench.py --runs 3
 
 # Verificar un IR contra el golden
 python benchmarks\frontend-parity\tools\verify_ir.py `
   benchmarks\frontend-parity\golden\contract.ir.json `
-  benchmarks\frontend-parity\results\python\contract.ir.json
+  benchmarks\frontend-parity\results\rust\contract.ir.json
 ```
+
+La paridad visual contra Chromium (`benchmarks/visual-parity/`) todavía no
+tiene runner: su orquestador PowerShell está archivado en `archive/ps1-legacy`
+y su tooling Python aún apunta a la ruta antigua del runtime. Hasta que se
+restaure un runner, no forma parte del flujo de verificación.
 
 ## Documentación
 
@@ -157,9 +157,10 @@ python benchmarks\frontend-parity\tools\verify_ir.py `
 - [`docs/subset-v1.md`](docs/subset-v1.md) — contrato HTML/CSS v1.
 - [`docs/architecture.md`](docs/architecture.md) — pipeline, contratos y lanes.
 - [`docs/ui-tree-v3.md`](docs/ui-tree-v3.md) — input y schema `/3`.
-- [`src/runtime/c-r2/README.md`](src/runtime/c-r2/README.md) — runtime R2, ABI y tests.
+- [`src/runtime/README.md`](src/runtime/README.md) — runtime R2, ABI y tests.
 - [`benchmarks/frontend-parity/SPEC.md`](benchmarks/frontend-parity/SPEC.md) — subset de paridad y reglas.
 - [`docs/conventions.md`](docs/conventions.md) — nombres y reglas del repo.
+- [`tools/cli.py`](tools/cli.py) — `wn-cli`, entry point de build/run/test/bench.
 
 ## Principios
 

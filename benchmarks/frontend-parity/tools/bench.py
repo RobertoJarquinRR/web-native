@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
-"""Cross-language frontend benchmark + parity harness.
+"""Benchmark + parity harness for the canonical Rust frontend.
 
-For every frontend, and every fixture:
+This gate benchmarks the canonical Rust frontend only (`src/frontend`).
+C++/C#/Python are frozen references under `archive/frontends-legacy/` and are
+NOT part of this gate: their historical `run.ps1` orchestrators live in
+`archive/ps1-legacy/`.
+
+For every fixture:
   - warm up, then run N times
   - measure wall time (process start + parse + cascade + layout + IR write)
   - verify the produced IR against the golden IR
@@ -10,7 +15,8 @@ For every frontend, and every fixture:
 Invocation:
   - if <frontend>/BUILD_INFO.json exists and its `binary` exists, run it
     directly (fast path, no shell startup)
-  - otherwise fall back to `<frontend>/run.ps1`
+  - otherwise fall back to `<frontend>/run.ps1` (legacy; no live frontend
+    ships one)
 
 Outputs: results/benchmark.json and results/SUMMARY.md
 """

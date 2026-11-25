@@ -3,7 +3,11 @@
 **Subset:** `benchmarks/frontend-parity/SPEC.md` v1 (rect-only: `contract` y
 `flex-page`). **Fecha:** 2026-11-24. **Código medido:** `55b8f7f`.
 
-Los cuatro frontends pasan la paridad byte-idéntica contra los goldens, con
+> **Snapshot histórico.** Hoy `tools/bench.py` mide solo el frontend Rust
+> canónico; C++/C#/Python quedan congelados en `archive/frontends-legacy/`. Las
+> filas de abajo documentan la corrida de cuatro frontends de esa fecha.
+
+Los cuatro frontends pasaban la paridad byte-idéntica contra los goldens, con
 tolerancia 0.01 px:
 
 | Frontend | `contract` (ms) | `flex-page` (ms) | Estado |
@@ -50,8 +54,9 @@ Los binarios actuales pueden variar; lo estable es la comparación relativa.
 python benchmarks\frontend-parity\tools\bench.py --runs 3
 ```
 
-El comando reescribe `SUMMARY.md`, `benchmark.json` y `results/<lang>/`. Este
-`README.md` es el snapshot estable; los otros archivos son regenerables.
+El comando reescribe `SUMMARY.md`, `benchmark.json` y `results/rust/` (el único
+frontend que ejecuta hoy). Este `README.md` es el snapshot estable; los otros
+archivos son regenerables.
 
 ## Archivos
 

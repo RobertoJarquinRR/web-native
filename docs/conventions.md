@@ -8,8 +8,8 @@
   - `stage`: una de `parse`, `cascade`, `layout`, `text`, `render`, `aot`,
     `runtime`, `e2e`, `showcase`.
   - `slug`: descripción corta en inglés.
-- Implementaciones canónicas del pipeline: `src/<layer>/<language>/`
-  - layers: `ir`, `frontend`, `emitter`, `runtime`.
+- Implementaciones canónicas del pipeline: `src/<layer>/`
+  - layers: `ir`, `frontend` (Rust), `emitter`, `runtime` (C).
 - Benchmarks: `benchmarks/<name>/` con `fixtures/`, `golden/`, `tools/`,
   `results/`.
 - Dependencias externas: `third_party/<name>/`.
@@ -21,13 +21,13 @@
 2. `src/` contiene la versión canónica y viva de cada capa.
 3. Todo contrato entre capas vive en un archivo versionado
    (`src/ir/schema.json`, `benchmarks/frontend-parity/SPEC.md`).
-4. Cada implementación de una capa debe exponer un `run.ps1` con el CLI
-   documentado en su README.
+4. La entrada canónica de build/run/test/bench es `python tools/cli.py`
+   (`wn-cli`); no se añaden orquestadores `.ps1` nuevos.
 5. Los resultados de benchmarks se guardan en `results/` con fecha y versión.
 6. Los frontends C++ y C# son **referencias de paridad congeladas** en
-   `benchmarks/frontend-parity/SPEC.md`. No se actualizan con features nuevas
-   de Rust; un cambio del SPEC decide si se actualizan o quedan fuera del
-   subset.
+   `benchmarks/frontend-parity/SPEC.md` y viven en `archive/frontends-legacy/`.
+   No se actualizan con features nuevas de Rust; un cambio del SPEC decide si
+   se actualizan o quedan fuera del subset.
 
 ## Mapa actual
 
@@ -35,15 +35,16 @@
 archive/experiments/          16 experimentos históricos, renombrados por etapa
 src/
   ir/                 contrato del display list + schema
-  frontend/python/    frontend de referencia / oráculo v1
-  frontend/rust/      frontend canónico (producción)
-  frontend/cpp/       referencia de paridad congelada (SPEC.md)
-  frontend/csharp/    referencia de paridad congelada (SPEC.md)
+  frontend/           frontend canónico en Rust (producción)
   emitter/python/     emit_ui.py (estilos -> ui_data.h)
-  runtime/c-r2/       motor C: layout en runtime, eventos, resize, renderers
+  runtime/            motor C: layout en runtime, eventos, resize, renderers
+tools/
+  cli.py + wn_cli/    wn-cli: build/run/test/bench/setup
 third_party/wgpu-native/
 benchmarks/frontend-parity/
-benchmarks/visual-parity/
+benchmarks/visual-parity/     (sin runner tras archivar su .ps1)
+archive/frontends-legacy/     C++/C#/Python congelados (referencias de paridad)
+archive/ps1-legacy/           orquestadores PowerShell archivados
 archive/r1-static/    R1 horneado (archivado, no mantenido)
 spec/                 fixtures originales del contrato
 docs/                 arquitectura, IR y convenciones

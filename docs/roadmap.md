@@ -3,10 +3,11 @@
 ## Fase 0 — Fundación (hecha)
 
 - Frontend Rust canónico (HTML/CSS + texto) con paridad byte-idéntica.
-- Benchmark C++/Rust/C#/Python.
+- Benchmark Rust + referencias congeladas C++/C#/Python (hoy en
+  `archive/frontends-legacy/`).
 - R1 estático (ventana/PNG, rects + texto) — **[archivado](archive/r1-static/README.md)**
   tras la consolidación: duplicaba layout y renderer.
-- Motor dinámico (layout runtime, eventos, resize, estados) en `src/runtime/c-r2`.
+- Motor dinámico (layout runtime, eventos, resize, estados) en `src/runtime`.
 - Rust `--emit-ui` → `ui.json` → `emit_ui.py --ui-json` → `ui_data.h`.
 - Repo git + docs base.
 
@@ -61,9 +62,9 @@ subset diagnostics.
 
 | Workstream | Alcance | Archivos | Entrega |
 |---|---|---|---|
-| **W1 runtime-platform** | ABI v0, renderer vtable, host Win32, `wn_view_*`, `wn_app_*`, demos C | `src/runtime/c-r2/**`, `include/**` (worktree) | 69/69 R2 intacto; demos standalone y embedded; ABI sin wgpu |
+| **W1 runtime-platform** | ABI v0, renderer vtable, host Win32, `wn_view_*`, `wn_app_*`, demos C | `src/runtime/**`, `include/**` (worktree) | 69/69 R2 intacto; demos standalone y embedded; ABI sin wgpu |
 | **W2 metrics** | harness de tamaño/startup/RSS/frame/layout; baseline | `benchmarks/engine-metrics/**` | `BASELINE.md` + JSON reproducible |
-| **W3 subset diagnostics** | validación de tags/propiedades v1; `--strict-subset` | `src/frontend/rust/**`, fixtures subset | warnings/errores con línea; tests |
+| **W3 subset diagnostics** | validación de tags/propiedades v1; `--strict-subset` | `src/frontend/**`, fixtures subset | warnings/errores con línea; tests |
 | **W4 docs** | spec/ABI/arquitectura/métricas/subset/roadmap | `docs/**` | este conjunto |
 
 **Dependencias:** W4 (contratos) antes de W1. W2 y W3 son independientes.

@@ -5,7 +5,7 @@
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │ 1. Frontends                                                 │
-│    Rust (canónico) · Python (oráculo) · C++/C# (benchmarks)  │
+│    Rust (canónico) · Python (oráculo) · C++/C# (frozen)      │
 ├──────────────────────────────────────────────────────────────┤
 │ 2. IR (contratos)                                            │
 │    ui.json / ui_data.h (style tree pre-layout)               │
@@ -46,7 +46,7 @@
 |---|---|---|---|
 | HTML/CSS → UI tree | `ui.json` | frontend | `emit_ui` |
 | UI tree → datos C | `ui_data.h` | emitter | runtime |
-| HTML/CSS → IR post-layout | `display_list.json` | frontend | benchmark de paridad (no se compila) |
+| HTML/CSS → IR post-layout | `display_list.json` | frontend | benchmark de paridad con referencias congeladas |
 | App ↔ engine | `include/webnative.h` | engine | host (C/C++/Rust/C#/Python) |
 | Engine ↔ GPU | vtable `wn_renderer` | core | D3D11 o wgpu |
 | Engine ↔ OS | vtable `wn_host` | core | Win32 host |
@@ -68,23 +68,25 @@ plataformas solo wgpu. `WN_RENDERER=d3d11|wgpu` fuerza uno para A/B.
 
 `HTML/CSS → display_list.json → emit_c → scene_data.h → .exe` existió como
 primera prueba. Duplicaba layout (en el frontend) y renderer
-(`src/runtime/c-static`), así que se retiró del producto. Vive en
+(`archive/r1-static/runtime`), así que se retiró del producto. Vive en
 [`../archive/r1-static/`](../archive/r1-static/README.md); `display_list.json`
-sigue generándose para el benchmark de paridad entre lenguajes.
+sigue generándose para el benchmark de paridad con referencias congeladas.
 
 ## Repo
 
 ```
 src/
-  frontend/rust/       canónico
-  frontend/python/     oráculo (goldens, fallback)
-  frontend/cpp|csharp/ benchmarks archivados
+  frontend/            canónico en Rust (Cargo.toml, src/, tests/)
+  runtime/             motor + core/ABI + renderers
   ir/                  schema + validador
   emitter/python/      emit_ui
-  runtime/c-r2/        motor + core/ABI + renderers
+tools/
+  cli.py + wn_cli/     wn-cli (build/run/test/bench/setup)
 include/webnative.h    ABI C v4 (v3 dinámica + v4 input)
 benchmarks/            paridad de frontends, paridad visual, engine-metrics
 archive/experiments/   histórico inmutable
+archive/frontends-legacy/  frontends C++/C#/Python congelados (test-only)
+archive/ps1-legacy/    orquestadores PowerShell archivados
 archive/r1-static/     R1 horneado (archivado)
 docs/                  spec, arquitectura, ABI, métricas, subset, roadmap
 third_party/wgpu-native/
@@ -107,9 +109,9 @@ Los workstreams tocan archivos disjuntos:
 
 | Workstream | Dueño de |
 |---|---|
-| runtime-platform | `src/runtime/c-r2/**`, `include/**` (worktree) |
+| runtime-platform | `src/runtime/**`, `include/**` (worktree) |
 | metrics | `benchmarks/engine-metrics/**` |
-| subset-diagnostics | `src/frontend/rust/**`, fixtures del subset |
+| subset-diagnostics | `src/frontend/**`, fixtures del subset |
 | docs | `docs/**` |
 
 Refactors riesgosos (core/runtime) van en **worktree**; los demás en el árbol

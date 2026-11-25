@@ -16,7 +16,7 @@ Principios:
 - [ ] `main` verde en CI (`frontend-parity`) y sin cambios sin commitear.
 - [ ] Elegir versión **semver** `vX.Y.Z`; pre-1.0 mientras la API no sea estable.
 - [ ] Confirmar que `wn_version()` devuelve exactamente `X.Y.Z`
-      (`src/runtime/c-r2/wn_common.c`; hoy `0.1.0`).
+      (`src/runtime/wn_common.c`; hoy `0.1.0`).
 - [ ] Confirmar `WN_ABI_VERSION` (`include/webnative.h`; hoy `4`) y que el bump,
       si lo hay, está justificado y documentado en `docs/abi.md`.
 - [ ] Declarar en las notas: versión de subset (`v1`), schema de UI tree
@@ -33,16 +33,16 @@ añade, se genera desde los commits convencionales, no a mano.
 
 Plataforma soportada: **Windows 10/11 x64**. No hay release ARM64 ni x86.
 
-| Requisito | Versión / nota |
-|---|---|
-| Windows | 10 1809+ o 11, x64 |
-| MSVC | Visual Studio 2022/2026 Build Tools, workload **Desktop development with C++**, MSVC x64 + Windows 10/11 SDK; `vcvars64.bat` localizable |
-| Rust | stable (`rustc`/`cargo`); el frontend canónico se compila en release |
-| .NET SDK | **10.0.x** solo para el host C#/benchmarks; no es requisito del engine |
-| Python | **3.12** + venv solo para emisores, oráculo y tooling (`requirements.txt`) |
-| PowerShell | 5.1 (los scripts usan `-NoProfile -ExecutionPolicy Bypass`) |
-| GPU | D3D11 o D3D12; WARP como fallback software (más lento, RSS alto) |
-| Red | solo en build (`fetch-wgpu.ps1`); **ninguna** en runtime |
+| Requisito  | Versión / nota                                                                                                                           |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Windows    | 10 1809+ o 11, x64                                                                                                                       |
+| MSVC       | Visual Studio 2022/2026 Build Tools, workload **Desktop development with C++**, MSVC x64 + Windows 10/11 SDK; `vcvars64.bat` localizable |
+| Rust       | stable (`rustc`/`cargo`); el frontend canónico se compila en release                                                                     |
+| .NET SDK   | **10.0.x** solo para el host C#/benchmarks; no es requisito del engine                                                                   |
+| Python     | **3.12** + venv solo para emisores, oráculo y tooling (`requirements.txt`)                                                               |
+| PowerShell | 5.1 opcional; los orquestadores viven en `archive/ps1-legacy` y el flujo actual es `python tools/cli.py`                                 |
+| GPU        | D3D11 o D3D12; WARP como fallback software (más lento, RSS alto)                                                                         |
+| Red        | solo en build (`python tools\cli.py setup wgpu`); **ninguna** en runtime                                                                 |
 
 - [ ] Compilar en una máquina limpia (o runner limpio) con esas versiones.
 - [ ] Registrar versiones exactas (`rustc -V`, `cl`, `dotnet --version`,
@@ -52,7 +52,7 @@ Plataforma soportada: **Windows 10/11 x64**. No hay release ARM64 ni x86.
 
 ## 3. Dependencias nativas: wgpu-native
 
-- [ ] Ejecutar `tools/fetch-wgpu.ps1`; versión fijada **v29.0.1.1**.
+- [ ] Ejecutar `python tools\cli.py setup wgpu`; versión fijada **v29.0.1.1**.
 - [ ] Verificar el SHA-256 que imprime el script antes de compilar.
 - [ ] Confirmar que `wgpu_native.dll` **no** está commiteada (solo headers en
       `third_party/wgpu-native/`).
@@ -66,19 +66,19 @@ Plataforma soportada: **Windows 10/11 x64**. No hay release ARM64 ni x86.
 
 Construir y conservar (nombres reales del repo):
 
-| Artefacto | Origen | Qué es |
-|---|---|---|
-| `build/<OutDir>/wgpu_native.dll` | `tools/fetch-wgpu.ps1` | Runtime GPU (obligatorio) |
-| `src/runtime/c-r2/build/runtime_r2.exe` | `src/runtime/c-r2/build.ps1` | Layout runtime, eventos, `--render`, `--frames` |
-| `src/runtime/c-r2/build/wgpu_native.dll` | idem | Copia de la DLL para R2 |
-| `build_abi/standalone.exe` | `build_abi.ps1` | Demo standalone (ABI v4) |
-| `build_abi/embedded.exe` | `build_abi.ps1` | Demo embedded (ABI v4) |
-| `build_abi/abi_smoke.exe` | `build_abi.ps1` | Smoke de la ABI |
-| `include/webnative.h` | repo | Contrato C v4 (SDK) |
-| `src/ir/schema.json` | repo | Contrato del display list |
+| Artefacto                                 | Origen                           | Qué es                                          |
+| ----------------------------------------- | -------------------------------- | ----------------------------------------------- |
+| `build/release/wgpu_native.dll`           | `python tools\cli.py setup wgpu` | Runtime GPU (obligatorio)                       |
+| `build/release/runtime_r2.exe`            | `python tools\cli.py build`      | Layout runtime, eventos, `--render`, `--frames` |
+| `build/release/standalone.exe`            | `python tools\cli.py build`      | Demo standalone (ABI v4)                        |
+| `build/release/embedded.exe`              | `python tools\cli.py build`      | Demo embedded (ABI v4)                          |
+| `build/release/webnative.dll` (+ `.lib`)  | `python tools\cli.py build`      | Motor como DLL (ABI C)                          |
+| `src/runtime/build/release/abi_smoke.exe` | `python tools\cli.py build`      | Smoke de la ABI                                 |
+| `include/webnative.h`                     | repo                             | Contrato C v4 (SDK)                             |
+| `src/ir/schema.json`                      | repo                             | Contrato del display list                       |
 
-- [ ] Build reproducible desde el tag: `build.ps1` (R1), `build.ps1` de
-      `c-r2`, `build_abi.ps1`.
+- [ ] Build reproducible desde el tag: `python tools\cli.py build` (R1 queda
+      archivado en `archive/r1-static/` y no se compila).
 - [ ] Cada artefacto con su tamaño y SHA-256 en `SHA256SUMS.txt`.
 - [ ] Confirmar que las demos `standalone.exe --frames 1` y
       `embedded.exe --frames 1 --input-demo --resize-demo` salen con código 0.
@@ -93,32 +93,29 @@ Ejecutar en el commit del tag, en una máquina con GPU si es posible (si no, WAR
 y se declara):
 
 ```powershell
-# R2: layout, reflow, estados, texto, ventana (69/69)
-powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build.ps1
+# Frontend Rust + ABI (header C17/C++17, smoke) + CTest
+python tools\cli.py test unit
 
-# UI dinámica v3 (53/53)
-powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\dynamic\run_dynamic.ps1
+# Aceptación completa: ABI, CTest, layout, render, estados y texto (69/69)
+python tools\cli.py test all
 
-# Input v4 (111/111)
-powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\input\run_input.ps1
+# Piloto: emite, compila y verifica pilot-media-library
+python tools\cli.py bench pilot
 
-# CSS core v1: radius/borde/primera sombra (41/41)
-powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\tests\css\run_css.ps1
-
-# ABI v4: header C17/C++17, smoke y demos standalone/embedded
-powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build_abi.ps1
+# Paridad de frontends congelados (Rust + oráculo): debe dar PASS
+python benchmarks\frontend-parity\tools\bench.py --runs 1 --warmup 0
 ```
 
 - [ ] R2 **69/69**.
-- [ ] UI dinámica **53/53**.
-- [ ] Input **111/111**.
-- [ ] CSS core v1 **41/41** (radius/borde/sombra).
-- [ ] Piloto (`build.ps1 -Pilot -SkipRustBuild`) y su `verify.py` verdes.
+- [ ] (pendiente de runner) UI dinámica **53/53**, input **111/111** y CSS core
+      v1 **41/41**: sus `.ps1` están archivados en `archive/ps1-legacy`; los
+      scripts Python/C subyacentes siguen en `src/runtime/tests/`.
+- [ ] Piloto (`python tools\cli.py bench pilot`) y su `verify.py` verdes.
 - [ ] Render smoke: `runtime_r2.exe --render 960 640 out.png` genera un PNG del
       tamaño exacto y no vacío.
 - [ ] Subset: un fixture con feature fuera de v1 falla con `--strict-subset`
       (exit ≠ 0) y solo avisa sin el flag.
-- [ ] Paridad de frontends congelados: `bench.py --runs 1 --warmup 0` → PASS.
+- [ ] Paridad del frontend Rust: `bench.py --runs 1 --warmup 0` → PASS.
 - [ ] Paridad visual: `docs/visual-parity.md` en modo informativo; se adjunta
       `report.md` si el harness ya existe.
 - [ ] D3D11: si el stream del renderer está cerrado, su test de paridad contra
@@ -164,18 +161,18 @@ Un smoke en rojo bloquea la release. Un FAIL conocido se documenta en
 
 Estado real según `docs/support.md`; no prometer lo que no hay:
 
-| Área | Limitación |
-|---|---|
-| Plataforma | Solo Windows x64; macOS/Linux en fase 5 |
-| Accesibilidad | Sin UIA/ARIA; sin lector de pantalla |
-| IME / i18n | Sin IME; input ASCII 32..126; sin bidi, CJK ni emoji |
-| DPI | System-aware básico; sin `WM_DPICHANGED` ni multi-monitor |
-| Texto | Glifos pre-shapeados en build; `font-weight`, `line-height`, `text-align` y `opacity` parciales |
-| CSS | Sin `position`, `transform`, `transition`, `animation`, `float`, `z-index`; borders/radius uniformes; una sombra no-inset |
-| Layout | Sin virtualización/culling; grids con `repeat(auto-fill, px)` pilot |
-| Host | Una ventana por app; sin tray, diálogos, notificaciones ni drag & drop |
-| Renderer | wgpu/D3D12 por defecto; D3D11 en curso; WARP lento y con RSS alto |
-| Tooling | Python/Rust/.NET solo en build; el `.exe` no los necesita |
+| Área          | Limitación                                                                                                                |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Plataforma    | Solo Windows x64; macOS/Linux en fase 5                                                                                   |
+| Accesibilidad | Sin UIA/ARIA; sin lector de pantalla                                                                                      |
+| IME / i18n    | Sin IME; input ASCII 32..126; sin bidi, CJK ni emoji                                                                      |
+| DPI           | System-aware básico; sin `WM_DPICHANGED` ni multi-monitor                                                                 |
+| Texto         | Glifos pre-shapeados en build; `font-weight`, `line-height`, `text-align` y `opacity` parciales                           |
+| CSS           | Sin `position`, `transform`, `transition`, `animation`, `float`, `z-index`; borders/radius uniformes; una sombra no-inset |
+| Layout        | Sin virtualización/culling; grids con `repeat(auto-fill, px)` pilot                                                       |
+| Host          | Una ventana por app; sin tray, diálogos, notificaciones ni drag & drop                                                    |
+| Renderer      | wgpu/D3D12 por defecto; D3D11 en curso; WARP lento y con RSS alto                                                         |
+| Tooling       | Python/Rust/.NET solo en build; el `.exe` no los necesita                                                                 |
 
 - [ ] Cada limitación tiene dueño/fase en `docs/roadmap.md`.
 - [ ] Las notas enlazan `docs/support.md` en vez de repetir la tabla entera.

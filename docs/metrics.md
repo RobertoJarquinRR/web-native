@@ -55,9 +55,9 @@ Referencia WARP (misma máquina, `WN_RENDERER=wgpu`): RSS 61.8 MB, CPU frame
 
 `benchmarks/engine-metrics/` (fase 1):
 
-- `measure.py` / `run.ps1`: ejecuta el motor, recolecta tamaños, startup, RSS,
-  frame y layout. Las métricas de R1 ya no se producen (R1 archivado); si el
-  script detecta que falta `src/build.ps1`, avisa y sigue con R2.
+- `measure.py`: ejecuta el motor, recolecta tamaños, startup, RSS, frame y
+  layout. Las métricas de R1 ya no se producen (R1 archivado); el script avisa
+  y sigue con R2.
 - `baseline.json`: última medición.
 - `BASELINE.md`: tabla legible + commit.
 - No modifica el runtime; usa sus modos `--render`, `--frames`, `--report`.

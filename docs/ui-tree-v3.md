@@ -6,7 +6,7 @@ menos un nodo `kind:"input"` visible; las páginas `/1` y `/2` conservan sus
 bytes y su schema.
 
 El contrato completo y la implementación están en
-`src/runtime/c-r2/README.md` §16 y `docs/abi.md`.
+`src/runtime/README.md` §16 y `docs/abi.md`.
 
 ## Nodo
 

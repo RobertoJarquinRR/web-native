@@ -10,8 +10,8 @@ project itself is licensed under the MIT license (see `LICENSE`).
 - Vendored files: the headers under `third_party/wgpu-native/include/`.
 - The runtime DLL and the import library (`wgpu_native.dll` and
   `wgpu_native.dll.lib`) are **not committed**. Run
-  `tools/fetch-wgpu.ps1` to download the pinned release and verify its
-  SHA-256 before building or running the engine.
+  `python tools\cli.py setup wgpu` to download the pinned release and verify
+  its SHA-256 before building or running the engine.
 - License texts: `third_party/wgpu-native/LICENSE.MIT` and
   `third_party/wgpu-native/LICENSE.APACHE`.
 

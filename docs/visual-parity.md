@@ -10,13 +10,13 @@ Este documento define el diseño. La implementación vivirá en
 
 ## 1. Qué se compara y qué no
 
-| Se compara | No se compara |
-|---|---|
-| Mismo HTML/CSS del subset v1 + pilot | Webs arbitrarias o content-heavy |
-| Viewport fijo, DPR 1, sin animaciones | Scroll, hover, foco, caret, IME |
-| Fondo opaco y color sRGB | HDR, wide gamut, transparencias de ventana |
+| Se compara                                            | No se compara                                 |
+| ----------------------------------------------------- | --------------------------------------------- |
+| Mismo HTML/CSS del subset v1 + pilot                  | Webs arbitrarias o content-heavy              |
+| Viewport fijo, DPR 1, sin animaciones                 | Scroll, hover, foco, caret, IME               |
+| Fondo opaco y color sRGB                              | HDR, wide gamut, transparencias de ventana    |
 | Layout, color, bordes/radius/sombras, texto, imágenes | Comportamiento del navegador (JS, red, forms) |
-| R1 (escena horneada) y R2 (layout runtime) | WebView2/Electron como referencia |
+| R1 (escena horneada) y R2 (layout runtime)            | WebView2/Electron como referencia             |
 
 La referencia es **Chromium headless** (`chrome-headless-shell`) fijado por
 versión y SHA. Se descarta WebView2: depende del runtime del OS, no es
@@ -75,13 +75,19 @@ chrome-headless-shell.exe `
 
 ### 3.2 Nativo
 
+> **Pendiente de runner.** `tools/render_native.py` todavía apunta a la ruta
+> antigua del runtime (eliminada tras el restructuring) y a un `build.ps1` ya
+> archivado, así que el harness no se puede correr de punta a punta. Los pasos
+> manuales que sí existen hoy son:
+
 ```powershell
-# Compila el fixture y renderiza offscreen con el motor (ya implementado)
-powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build.ps1 `
-  -Html benchmarks\frontend-parity\fixtures\<name>\index.html `
-  -Css  benchmarks\frontend-parity\fixtures\<name>\style.css `
-  -Width 1280 -Height 800 -OutDir build\visual\<name> -SkipRustBuild
-.\build\visual\<name>\runtime_r2.exe --render 1280 800 out.png
+# Emite el fixture y renderiza offscreen con el motor
+python tools\cli.py runtime emit `
+  --html benchmarks\frontend-parity\fixtures\<name>\index.html `
+  --css  benchmarks\frontend-parity\fixtures\<name>\style.css `
+  --width 1280 --height 800 --out-dir build\visual\<name>
+python tools\cli.py runtime build --generated-dir build\visual\<name>
+python tools\cli.py runtime run -- --render 1280 800 out.png
 ```
 
 > R1 quedó archivado (`archive/r1-static/`); el harness ya no compila escenas
@@ -98,13 +104,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File src\runtime\c-r2\build.ps1 `
 
 ### 4.1 Fixtures
 
-| Fixture | Qué cubre | Gate |
-|---|---|---|
-| `contract` (`benchmarks/frontend-parity/fixtures/contract`) | block flow, padding, margin, colores | Sí (rect-only) |
-| `flex-page` (`.../flex-page`) | flex anidado, gap, space-between, align | Sí (rect-only) |
-| `media-library` (`benchmarks/pilot-media-library/page`) | grid, sidebar, detalle, imágenes, texto | No (informativo primero) |
-| `layout-100` (`benchmarks/engine-metrics/fixtures/layout-100`) | escalado de grid y densidad | Sí (solo geometría) |
-| `overlays` (nuevo, cuando E8) | position/z-index/sombra/radio | Futuro |
+| Fixture                                                        | Qué cubre                               | Gate                     |
+| -------------------------------------------------------------- | --------------------------------------- | ------------------------ |
+| `contract` (`benchmarks/frontend-parity/fixtures/contract`)    | block flow, padding, margin, colores    | Sí (rect-only)           |
+| `flex-page` (`.../flex-page`)                                  | flex anidado, gap, space-between, align | Sí (rect-only)           |
+| `media-library` (`benchmarks/pilot-media-library/page`)        | grid, sidebar, detalle, imágenes, texto | No (informativo primero) |
+| `layout-100` (`benchmarks/engine-metrics/fixtures/layout-100`) | escalado de grid y densidad             | Sí (solo geometría)      |
+| `overlays` (nuevo, cuando E8)                                  | position/z-index/sombra/radio           | Futuro                   |
 
 Los fixtures son **estáticos y autocontenidos**: CSS local, imágenes locales de
 tamaño entero, sin fuentes web, sin red. Un fixture que necesita red no entra.
@@ -115,17 +121,21 @@ Cada fixture trae `mask.json`:
 
 ```json
 {
-  "viewport": { "width": 1280, "height": 800 },
-  "regions": [
-    { "name": "sidebar", "rect": [0, 0, 280, 800], "mode": "strict" },
-    { "name": "grid",    "rect": [280, 96, 1000, 704], "mode": "strict" },
-    { "name": "text",    "rect": [0, 0, 1280, 800], "mode": "text" },
-    { "name": "detail",  "rect": [900, 0, 380, 800], "mode": "strict" }
-  ],
-  "exclude": [
-    { "name": "caret", "rect": [100, 200, 2, 24] },
-    { "name": "shadow-band", "rect": [0, 88, 1280, 12], "reason": "blur aproximado" }
-  ]
+	"viewport": { "width": 1280, "height": 800 },
+	"regions": [
+		{ "name": "sidebar", "rect": [0, 0, 280, 800], "mode": "strict" },
+		{ "name": "grid", "rect": [280, 96, 1000, 704], "mode": "strict" },
+		{ "name": "text", "rect": [0, 0, 1280, 800], "mode": "text" },
+		{ "name": "detail", "rect": [900, 0, 380, 800], "mode": "strict" }
+	],
+	"exclude": [
+		{ "name": "caret", "rect": [100, 200, 2, 24] },
+		{
+			"name": "shadow-band",
+			"rect": [0, 88, 1280, 12],
+			"reason": "blur aproximado"
+		}
+	]
 }
 ```
 
@@ -145,23 +155,23 @@ resto del viewport es `background`.
 
 ## 5. Métricas y umbrales
 
-| Métrica | Cómo | Uso |
-|---|---|---|
-| **SSIM** (gris, ventana 8×8) | `compare.py` | Métrica principal de estructura |
-| **Pixel diff** | % de píxeles con `max(abs(ΔR), abs(ΔG), abs(ΔB)) > 8` | Detecta manchas y desplazamientos |
-| **MAE** | media de diferencia absoluta por canal | Sensible a color/AA global |
-| **Bounding boxes** | cajas del IR vs detección de regiones | Diagnóstico de layout, no gate visual |
-| **Histograma** | diferencia por región | Color plano mal compuesto |
+| Métrica                      | Cómo                                                  | Uso                                   |
+| ---------------------------- | ----------------------------------------------------- | ------------------------------------- |
+| **SSIM** (gris, ventana 8×8) | `compare.py`                                          | Métrica principal de estructura       |
+| **Pixel diff**               | % de píxeles con `max(abs(ΔR), abs(ΔG), abs(ΔB)) > 8` | Detecta manchas y desplazamientos     |
+| **MAE**                      | media de diferencia absoluta por canal                | Sensible a color/AA global            |
+| **Bounding boxes**           | cajas del IR vs detección de regiones                 | Diagnóstico de layout, no gate visual |
+| **Histograma**               | diferencia por región                                 | Color plano mal compuesto             |
 
 Umbrales iniciales (se calibran con la primera baseline, no se inventan como
 gate definitivo):
 
-| Región | SSIM | Pixel diff |
-|---|---:|---:|
-| `strict` rect-only (`contract`, `flex-page`) | ≥ 0,995 | ≤ 0,2 % |
-| `strict` con imágenes/grid | ≥ 0,980 | ≤ 0,5 % |
-| `text` | ≥ 0,950 + geometría | ≤ 2 % (solo AA) |
-| Global | ≥ 0,980 | ≤ 1,0 % |
+| Región                                       |                SSIM |      Pixel diff |
+| -------------------------------------------- | ------------------: | --------------: |
+| `strict` rect-only (`contract`, `flex-page`) |             ≥ 0,995 |         ≤ 0,2 % |
+| `strict` con imágenes/grid                   |             ≥ 0,980 |         ≤ 0,5 % |
+| `text`                                       | ≥ 0,950 + geometría | ≤ 2 % (solo AA) |
+| Global                                       |             ≥ 0,980 |         ≤ 1,0 % |
 
 Un FAIL se reporta con: región, SSIM, diff %, recorte lado a lado y overlay de
 diferencia. Sin ese paquete no se abre un bug.
@@ -206,11 +216,11 @@ benchmarks/visual-parity/
     style.css
     mask.json
     fixture.json                # viewport, fuentes, tolerancias, gate
-  tools/
-    capture_chromium.ps1
-    capture_native.ps1
+  tools/                        # runner pendiente (ver 3.2)
+    capture_chromium.py         # captura con chrome-headless-shell
+    render_native.py            # render offscreen (aún apunta a la ruta vieja)
+    common.py                   # utilidades compartidas
     compare.py                  # SSIM, diff, máscaras, report.json
-    report.py                   # report.md + diff/*.png
   results/
     <YYYY-MM-DD>-<commit>/
       report.json
@@ -236,10 +246,10 @@ No entra en el CI actual (`.github/workflows/frontend-parity.yml`) todavía. El
 diseño para cuando madure:
 
 - Workflow **opcional** `visual-parity.yml`, `windows-latest`, disparado por
-  cambios en `src/runtime/**`, `src/frontend/rust/**`,
+  cambios en `src/runtime/**`, `src/frontend/**`,
   `benchmarks/visual-parity/**` y `docs/visual-parity.md`.
 - Descarga de `chrome-headless-shell` con SHA verificado y caché por versión.
-- `tools/fetch-wgpu.ps1` + build R2 → capturas → `compare.py --gate`.
+- `python tools\cli.py setup wgpu` + build R2 → capturas → `compare.py --gate`.
 - Se publican `report.md` y `diff/` como artifact; el job falla solo en
   fixtures con `"gate": true`.
 - Sin GPU: todo software (Chromium `--disable-gpu`, nativo WARP/D3D11 WARP).
