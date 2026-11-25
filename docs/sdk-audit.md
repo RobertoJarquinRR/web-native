@@ -18,6 +18,7 @@ existentes.
 | A7 | Texto | Layout mide texto envuelto (2 líneas) y el pintado dibuja una sola línea | `measure` acepta `max_width`, `shape` no | line breaking en layout+paint (E4). Aditivo |
 | A8 | Fuentes | Familia desconocida cae a un ancho heurístico `0.6 * size * len` sin avisar | `measure_text_node` si el backend falla | fallback real + diagnóstico `wn_text_last_error`. Aditivo |
 | A9 | Imágenes | `set_image` conserva el tamaño intrínseco compilado; una foto de otra relación de aspecto queda mal si el CSS no fija caja | `wn_core_set_image` solo cambia el path | medir la imagen nueva en el renderer o aceptar `wn_node_set_image_size`. Aditivo |
+| A10 | Texto | `set_text` cambia lo que se pinta pero no lo que se mide: el nodo conserva ancho/alto compilados | `measure_text_node` usa `n->text`, no el override (`core/layout.c`) | medir el texto efectivo (override incluido). Aditivo |
 | D1 | Texto | Un `font-size` grande en un `.wnui` desborda el `scratch` de 64 KB del atlas: `width*height` se multiplica en `int` y el chequeo de capacidad pasa con el producto desbordado | `text_directwrite.cpp:471` compara `capacity < width * height` (int) y `:476` pasa ese producto a `CreateAlphaTexture`; el buffer es `text_atlas.c:214` (`WN_ATLAS_MAX_BITMAP`) y `font_size` entra sin validar desde el blob (`wn_blob.c:244`) | calcular en `int64_t`, tope de em-size (~512 px) y rechazar `font_size` fuera de rango al cargar. Aditivo |
 
 ## P1 — semántica y API
@@ -74,6 +75,15 @@ existentes.
 - Documento: blob v2 versionado, loader con mmap, offsets validados (salvo A5), escritor Rust byte-idéntico al de referencia.
 - ABI v5: identidad de nodo en eventos, navegación de subárbol, carga de documento, stats.
 - Suites: 9/9 con comparación de píxeles exacta (blob/offscreen) y piloto 48/48.
+
+## Validado por la app
+
+La galería (`C:\Proyects\gallery`, `docs/sdk-gaps.md`) usa el SDK para una
+biblioteca real: importar carpetas, persistir, clonar tarjetas, filtros, detalle
+y navegación. De allí salieron A10 (bug real de medición), A9, B3 (sin foco,
+getters ni scroll-to), B4 (sin botón/doble clic), B5 (sin timer), B6 (input
+ASCII) y B2 (clases/estado solo en nodos compilados). Los gaps de producto que
+no son del motor (diálogo de carpeta, persistencia) están marcados P3 allí.
 
 ## Orden recomendado
 
