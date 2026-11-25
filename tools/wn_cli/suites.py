@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
@@ -361,11 +362,72 @@ def run_input() -> int:
     return 0
 
 
+def run_offscreen() -> int:
+    suite = _suite_dir("offscreen")
+    out = suite / "out"
+    out.mkdir(parents=True, exist_ok=True)
+    generated = get_paths().runtime / "generated"
+    header = generated / "ui_data.h"
+    if not header.is_file():
+        raise CliError(f"missing {header}; run: wn-cli build --emit")
+
+    runtime = get_paths().runtime
+    log_step("offscreen: compile test (/W4 /WX)")
+    exe = out / "offscreen_test.exe"
+    _compile(
+        exe,
+        [runtime / item for item in RUNTIME_SOURCES if item != "runtime_r2.c"] + [suite / "offscreen_test.c"],
+        [get_paths().root / "include", runtime, _wgpu_dir() / "include", generated],
+        [str(_wgpu_dir() / "lib" / "wgpu_native.dll.lib"), *RUNTIME_LIBS],
+    )
+    run_cmd(["cmd", "/d", "/c", "copy", "/Y", str(_wgpu_dir() / "bin" / "wgpu_native.dll"), str(out / "wgpu_native.dll")])
+
+    d3d11_png = out / "offscreen_d3d11.png"
+    wgpu_png = out / "offscreen_wgpu.png"
+    log_step("offscreen: render both backends")
+    _run(exe, ["960", "640", str(d3d11_png)], out, {"WN_RENDERER": "d3d11"})
+    _run(exe, ["960", "640", str(wgpu_png)], out, {"WN_RENDERER": "wgpu"})
+
+    harness_python = get_paths().root / "benchmarks" / "visual-parity" / ".venv" / "Scripts" / "python.exe"
+    python = str(harness_python) if harness_python.is_file() else str(get_python_exe())
+    compare = out / "offscreen_compare.json"
+    log_step("offscreen: compare backends")
+    completed = subprocess.run(
+        [
+            python,
+            str(runtime / "tests" / "d3d11" / "verify_d3d11.py"),
+            "--capture", str(d3d11_png),
+            "--reference", str(wgpu_png),
+            "--report", str(compare),
+            "--label", "offscreen-d3d11-vs-wgpu",
+        ],
+        cwd=out,
+        capture_output=True,
+        text=True,
+    )
+    for line in (completed.stdout + completed.stderr).splitlines():
+        if line.strip():
+            log_info(line.rstrip())
+    if completed.returncode != 0:
+        raise CliError("offscreen pixel comparison failed")
+
+    checks = json.loads(compare.read_text(encoding="utf-8"))["checks"]
+    log_info(
+        "offscreen: {0}x{1} max_diff={2} bad={3:.2%} exact={4:.2%}".format(
+            checks["capture_size"][0], checks["capture_size"][1],
+            checks["max_channel_diff"], checks["bad_fraction"], checks["exact_fraction"],
+        )
+    )
+    log_info("offscreen vtable: PASS")
+    return 0
+
+
 SUITES = {
     "css": ("CSS core v1 (rounded boxes, border, shadow, image)", run_css),
     "fidelity": ("E1 visual/layout fidelity (headless core + renders)", run_fidelity),
     "dynamic": ("dynamic UI v0 (visibility, clone/append/remove, ABI demo)", run_dynamic),
     "input": ("text input v1 (caret, selection, clipboard, ABI demo)", run_input),
+    "offscreen": ("offscreen vtable (d3d11 vs wgpu readback)", run_offscreen),
 }
 
 

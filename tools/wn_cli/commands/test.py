@@ -6,10 +6,10 @@ from wn_cli.core import log_info, log_step
 
 
 def cmd_all(args: argparse.Namespace) -> int:
-    log_step("suite 1/6: frontend-rust tests")
+    log_step("suite 1/7: frontend-rust tests")
     frontend.cmd_test(argparse.Namespace())
 
-    log_step("suite 2/6: runtime ABI and verification")
+    log_step("suite 2/7: runtime ABI and verification")
     runtime.cmd_verify(
         argparse.Namespace(
             config=args.config,
@@ -19,17 +19,20 @@ def cmd_all(args: argparse.Namespace) -> int:
         )
     )
 
-    log_step("suite 3/6: css core v1")
+    log_step("suite 3/7: css core v1")
     suites.run_suite("css")
 
-    log_step("suite 4/6: e1 fidelity")
+    log_step("suite 4/7: e1 fidelity")
     suites.run_suite("fidelity")
 
-    log_step("suite 5/6: dynamic UI")
+    log_step("suite 5/7: dynamic UI")
     suites.run_suite("dynamic")
 
-    log_step("suite 6/6: text input")
+    log_step("suite 6/7: text input")
     suites.run_suite("input")
+
+    log_step("suite 7/7: offscreen vtable")
+    suites.run_suite("offscreen")
 
     log_info("all test suites passed")
     return 0

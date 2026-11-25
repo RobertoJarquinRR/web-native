@@ -108,7 +108,8 @@ python benchmarks\frontend-parity\tools\bench.py --runs 1 --warmup 0
 
 - [ ] R2 **69/69**.
 - [ ] `python tools\cli.py test all` encadena Rust, ABI, **CSS 41/41**,
-      **fidelity 23/23**, **dynamic 53/53** e **input 111/111**.
+      **fidelity 23/23**, **dynamic 53/53**, **input 111/111** y
+      **offscreen** (d3d11 vs wgpu).
 - [ ] Piloto (`python tools\cli.py bench pilot`) y su `verify.py` verdes.
 - [ ] Render smoke: `runtime_r2.exe --render 960 640 out.png` genera un PNG del
       tamaño exacto y no vacío.
