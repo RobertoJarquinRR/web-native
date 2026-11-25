@@ -23,7 +23,7 @@ from pathlib import Path
 from PIL import Image, ImageChops
 
 HERE = Path(__file__).resolve().parent
-REPO = HERE.parents[4]
+REPO = HERE.parents[3]
 sys.path.insert(0, str(REPO / "src" / "emitter" / "python"))
 
 from emit_ui import parse_header  # noqa: E402

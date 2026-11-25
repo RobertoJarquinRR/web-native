@@ -107,9 +107,11 @@ python benchmarks\frontend-parity\tools\bench.py --runs 1 --warmup 0
 ```
 
 - [ ] R2 **69/69**.
-- [ ] (pendiente de runner) UI dinámica **53/53**, input **111/111** y CSS core
-      v1 **41/41**: sus `.ps1` están archivados en `archive/ps1-legacy`; los
-      scripts Python/C subyacentes siguen en `src/runtime/tests/`.
+- [ ] `python tools\cli.py test all` encadena Rust, ABI, **CSS 41/41** y
+      **fidelity 23/23**.
+- [ ] (pendiente de runner) UI dinámica **53/53** e input **111/111**: sus
+      `.ps1` están archivados; los scripts Python/C siguen en
+      `src/runtime/tests/` y se portan a `wn-cli test suite`.
 - [ ] Piloto (`python tools\cli.py bench pilot`) y su `verify.py` verdes.
 - [ ] Render smoke: `runtime_r2.exe --render 960 640 out.png` genera un PNG del
       tamaño exacto y no vacío.
