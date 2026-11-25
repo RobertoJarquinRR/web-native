@@ -53,9 +53,8 @@
 ## Flujo
 
 ```
-HTML/CSS → frontend Rust --emit-ui → ui.json
-         → emit_ui.py → ui_data.h / app.wnui → cl.exe → app.exe | webnative.dll
-                      → app.wnui (blob v1) → wn_app_load_document()
+HTML/CSS → frontend Rust ──> ui.json ──> emit_ui.py ──> ui_data.h (fallback builtin)
+                        └──> app.wnui (blob v2) ──> wn_app_load_document()
 runtime: eventos → estado → layout C (mide el texto) → display list
          → renderer → ventana
 host: ABI v4 → set_visible/set_image/set_text/clone (v3) + input (v4)
@@ -73,9 +72,11 @@ El texto no se hornea: el documento lleva cadena, familia, tamaño, peso y
 | `text/text_atlas.c` | atlas 1024², caché de glifos y de runs |
 
 `wn-cli build` produce también `webnative.dll` (objetivo CMake `webnative`,
-`WN_BUILD_DLL`), que un consumidor externo puede enlazar sin ver el repo. Se
-compila una vez con el documento canónico; una app con su `app.wnui` no
-recompila la DLL.
+`WN_BUILD_DLL`), que un consumidor externo puede enlazar sin ver el repo. La
+DLL se compila una vez con el documento canónico como fallback; cada app carga
+su `app.wnui` con `wn_app_load_document()`. El compilador del SDK es
+`frontend-rust --emit-ui --emit-blob`: el emisor Python solo hace falta para
+regenerar el `ui_data.h` de respaldo.
 
 ### Documento compilado (`.wnui`)
 
