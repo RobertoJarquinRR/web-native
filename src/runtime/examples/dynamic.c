@@ -168,6 +168,53 @@ int main(int argc, char **argv)
     expect_status("set_visible(card,0)", wn_node_set_visible(app, card0, 0), WN_OK);
     expect_status("set_visible(card,1)", wn_node_set_visible(app, card0, 1), WN_OK);
 
+    /* A1: a handle from before a removal must not address the slot's next
+     * tenant. wn_node_remove() pushes the freed slots onto a LIFO free list, so
+     * the next clone lands in the same indices with a bumped generation. */
+    {
+        wn_node_id stale = wn_node_clone(app, card0, cards);
+        wn_node_id stale_child = wn_node_first_child(app, stale);
+        wn_node_id fresh;
+        int stale_ok = stale != WN_NODE_INVALID && stale_child != WN_NODE_INVALID;
+
+        expect_status("remove(stale)", wn_node_remove(app, stale), WN_OK);
+        fresh = wn_node_clone(app, card0, cards);
+        stale_ok = stale_ok && fresh != WN_NODE_INVALID && fresh != stale &&
+                   ((stale ^ fresh) >> 32) != 0;        stale_ok = stale_ok &&
+            wn_node_set_visible(app, stale, 0) == WN_ERR_INVALID_ARGUMENT &&
+            wn_node_set_text(app, stale, "Z") == WN_ERR_INVALID_ARGUMENT &&
+            wn_node_set_image(app, stale, image_b) == WN_ERR_INVALID_ARGUMENT &&
+            wn_node_set_value(app, stale, "z") == WN_ERR_INVALID_ARGUMENT &&
+            wn_node_get_value(app, stale) == NULL &&
+            wn_node_remove(app, stale) == WN_ERR_INVALID_ARGUMENT &&
+            wn_node_clear_children(app, stale) == WN_ERR_INVALID_ARGUMENT &&
+            wn_node_clone(app, stale, cards) == WN_NODE_INVALID &&
+            wn_node_clone(app, card0, stale) == WN_NODE_INVALID &&
+            wn_node_append(app, cards, stale) == WN_ERR_INVALID_ARGUMENT &&
+            wn_node_parent(app, stale) == WN_NODE_INVALID &&
+            wn_node_first_child(app, stale) == WN_NODE_INVALID &&
+            wn_node_next_sibling(app, stale) == WN_NODE_INVALID &&
+            wn_node_parent(app, stale_child) == WN_NODE_INVALID &&
+            wn_node_next_sibling(app, stale_child) == WN_NODE_INVALID &&
+            wn_node_parent(app, fresh) == cards &&
+            wn_node_first_child(app, fresh) != WN_NODE_INVALID &&
+            wn_node_set_visible(app, fresh, 1) == WN_OK;
+
+        /* The reuse slot is the third card (x=270): events must report the new
+         * handle, never the stale one. */
+        (void)wn_app_on_event(app, on_event, NULL);
+        inject_click(wn_app_view(app), 270.0f + 60.0f, 50.0f + 60.0f);
+        stale_ok = stale_ok && g_event_node == fresh;
+        printf("dynamic: stale handle old=%llu new=%llu gen=%u -> %s\n",
+               (unsigned long long)stale, (unsigned long long)fresh,
+               (unsigned)((fresh >> 32) - (stale >> 32)),
+               stale_ok ? "rejected" : "FAIL");
+        if (!stale_ok) {
+            ++g_failures;
+        }
+        expect_status("remove(fresh)", wn_node_remove(app, fresh), WN_OK);
+    }
+
     clone = wn_node_clone(app, card0, cards);
     count_cloned = wn_app_node_count(app);
     printf("dynamic: clone(card,cards)=%llu nodes=%d\n",
@@ -244,6 +291,53 @@ int main(int argc, char **argv)
         printf("dynamic: FAIL (remove count %d)\n", (int)count_after_remove);
     }
 
+    /* A4: materialise a large list under the body container. The arena grows
+     * from its initial capacity; no rendering happens here. */
+    {
+        enum { kStressClones = 1500 };
+        wn_node_id body = wn_app_find(app, "body.root");
+        wn_node_id *clones =
+            (wn_node_id *)malloc(sizeof(wn_node_id) * (size_t)kStressClones);
+        int created = 0;
+        int alive = 0;
+        int index;
+        int ok;
+
+        for (index = 0; clones != NULL && index < kStressClones; ++index) {
+            wn_node_id node = wn_node_clone(app, card0, body);
+            if (node == WN_NODE_INVALID) {
+                break;
+            }
+            clones[created++] = node;
+        }
+        for (index = 0; index < created; ++index) {
+            if (wn_node_parent(app, clones[index]) == body &&
+                wn_node_first_child(app, clones[index]) != WN_NODE_INVALID) {
+                ++alive;
+            }
+        }
+        ok = clones != NULL && body != WN_NODE_INVALID &&
+             created == kStressClones && alive == created &&
+             wn_app_node_count(app) == count_initial + 4 * kStressClones &&
+             wn_node_set_visible(app, clones[created - 1], 1) == WN_OK;
+        printf("dynamic: growth clones=%d alive=%d nodes=%d -> %s\n",
+               created, alive, (int)wn_app_node_count(app),
+               ok ? "grown" : "FAIL");
+        if (!ok) {
+            ++g_failures;
+        }
+        for (index = 0; index < created; ++index) {
+            (void)wn_node_remove(app, clones[index]);
+        }
+        free(clones);
+        ok = wn_app_node_count(app) == count_initial;
+        printf("dynamic: growth removed nodes=%d -> %s\n",
+               (int)wn_app_node_count(app), ok ? "restored" : "FAIL");
+        if (!ok) {
+            ++g_failures;
+        }
+    }
+
     expect_status("set_image(text)", wn_node_set_image(app, text0, image_b), WN_ERR_UNSUPPORTED);
     expect_status("set_visible(invalid)", wn_node_set_visible(app, 0, 1), WN_ERR_INVALID_ARGUMENT);
     expect_status("remove(root)", wn_node_remove(app, root), WN_ERR_INVALID_ARGUMENT);
@@ -264,6 +358,28 @@ int main(int argc, char **argv)
            stats.backend[0] != '\0' ? stats.backend : "(unknown)", rc, stats.frames,
            stats.startup_ms,
            stats.frames > 0 ? stats.frame_total_ms / (double)stats.frames : 0.0);
+
+    /* D18: a second run owns its own frame stats, and a 0x0 surface is fixed up
+     * instead of spinning without presenting. */
+    {
+        wn_app_stats again;
+        int rc2;
+        int reset_ok;
+
+        (void)wn_view_resize(wn_app_view(app), 0, 0, 0.0f);
+        wn_app_set_max_frames(app, 3);
+        rc2 = wn_app_run(app);
+        memset(&again, 0, sizeof(again));
+        wn_app_get_stats(app, &again);
+        reset_ok = rc2 == 0 && again.frames == 3 && again.startup_ms > 0.0;
+        printf("dynamic: second run frames=%d rc=%d startup_ms=%.2f -> %s\n",
+               again.frames, rc2, again.startup_ms,
+               reset_ok ? "stats reset" : "FAIL");
+        if (!reset_ok) {
+            ++g_failures;
+        }
+    }
+
     printf("dynamic: %s\n", g_failures == 0 && rc == 0 ? "PASS" : "FAIL");
     wn_app_destroy(app);
     return g_failures == 0 && rc == 0 ? 0 : 1;

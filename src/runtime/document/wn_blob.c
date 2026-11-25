@@ -140,6 +140,33 @@ static const char *blob_string(const char *pool, uint32_t pool_size, uint32_t of
     return pool + offset;
 }
 
+/* A string offset is either 0 (absent) or points inside the pool at a string
+ * whose NUL ends before the section does. Without the terminator strcmp() and
+ * the text runtime could read past the mapping. */
+static int blob_string_terminated(const char *pool, uint32_t pool_size,
+                                  uint32_t offset)
+{
+    if (offset == 0) {
+        return 1;
+    }
+    if (offset >= pool_size) {
+        return 0;
+    }
+    return memchr(pool + offset, '\0', (size_t)(pool_size - offset)) != NULL;
+}
+
+static int blob_check_string(const char *pool, uint32_t pool_size,
+                             uint32_t offset, const char *what, uint32_t index)
+{
+    if (blob_string_terminated(pool, pool_size, offset)) {
+        return 1;
+    }
+    wn_set_error("wn_document_load_blob: %s %u references an unterminated "
+                 "string (offset %u, pool %u bytes)",
+                 what, index, offset, pool_size);
+    return 0;
+}
+
 wn_document *wn_document_load_blob(const char *path)
 {
     WnBlobMap map;
@@ -158,6 +185,7 @@ wn_document *wn_document_load_blob(const char *path)
     wn_document *document;
     UiNode *nodes;
     const char **names;
+    int *depth = NULL;
     uint32_t i;
 
     if (path == NULL || blob_map_open(&map, path) != 0) {
@@ -176,8 +204,23 @@ wn_document *wn_document_load_blob(const char *path)
         return NULL;
     }
     if (header->file_size != (uint32_t)map.size || header->node_count == 0 ||
+        header->node_count > (uint32_t)INT32_MAX ||
         WN_BLOB_HEADER_SIZE + (size_t)header->section_count * sizeof(WnBlobSection) > map.size) {
         wn_set_error("wn_document_load_blob: inconsistent header");
+        blob_map_close(&map);
+        return NULL;
+    }
+    if (header->node_count > WN_BLOB_MAX_NODES) {
+        wn_set_error("wn_document_load_blob: too many nodes (%u, max %u)",
+                     header->node_count, WN_BLOB_MAX_NODES);
+        blob_map_close(&map);
+        return NULL;
+    }
+    if (header->viewport_width == 0 || header->viewport_height == 0 ||
+        header->viewport_width > (uint32_t)INT32_MAX ||
+        header->viewport_height > (uint32_t)INT32_MAX) {
+        wn_set_error("wn_document_load_blob: invalid viewport %ux%u",
+                     header->viewport_width, header->viewport_height);
         blob_map_close(&map);
         return NULL;
     }
@@ -198,30 +241,116 @@ wn_document *wn_document_load_blob(const char *path)
     if (inputs_section == NULL) {
         inputs_size = 0;
     }
-    if (nodes_size != header->node_count * (uint32_t)sizeof(WnBlobNode) ||
-        names_size != header->node_count * (uint32_t)sizeof(uint32_t) ||
+    if ((uint64_t)header->node_count * sizeof(WnBlobNode) != nodes_size ||
+        (uint64_t)header->node_count * sizeof(uint32_t) != names_size ||
         strings_size == 0) {
         wn_set_error("wn_document_load_blob: wrong section size");
         blob_map_close(&map);
         return NULL;
     }
 
+    strings = (const char *)(map.data + strings_section->offset);
+    blob_nodes = (const WnBlobNode *)(map.data + nodes_section->offset);
+    {
+        const uint32_t *name_offsets =
+            (const uint32_t *)(map.data + names_section->offset);
+        /* Validate every offset before any string reaches the engine: a
+         * corrupt NUL would turn later strcmp()/shaping calls into out-of-bounds
+         * reads. */
+        for (i = 0; i < header->node_count; ++i) {
+            const WnBlobNode *src = &blob_nodes[i];
+            if (!blob_check_string(strings, strings_size, src->text,
+                                   "node text", i) ||
+                !blob_check_string(strings, strings_size, src->image_src,
+                                   "node image_src", i) ||
+                !blob_check_string(strings, strings_size, src->image_alt,
+                                   "node image_alt", i) ||
+                !blob_check_string(strings, strings_size, src->font_family,
+                                   "node font_family", i) ||
+                !blob_check_string(strings, strings_size, name_offsets[i],
+                                   "node name", i)) {
+                blob_map_close(&map);
+                return NULL;
+            }
+        }
+        if (inputs_section != NULL && inputs_size > 0) {
+            uint32_t count;
+            const WnBlobInput *blob_inputs;
+            if (inputs_size % (uint32_t)sizeof(WnBlobInput) != 0) {
+                wn_set_error("wn_document_load_blob: bad inputs section");
+                blob_map_close(&map);
+                return NULL;
+            }
+            count = inputs_size / (uint32_t)sizeof(WnBlobInput);
+            blob_inputs = (const WnBlobInput *)(map.data + inputs_section->offset);
+            for (i = 0; i < count; ++i) {
+                if (blob_inputs[i].node < 0 ||
+                    (uint32_t)blob_inputs[i].node >= header->node_count) {
+                    wn_set_error("wn_document_load_blob: input %u references node %d",
+                                 i, (int)blob_inputs[i].node);
+                    blob_map_close(&map);
+                    return NULL;
+                }
+                if (!blob_check_string(strings, strings_size,
+                                       blob_inputs[i].value, "input value", i) ||
+                    !blob_check_string(strings, strings_size,
+                                       blob_inputs[i].placeholder,
+                                       "input placeholder", i)) {
+                    blob_map_close(&map);
+                    return NULL;
+                }
+            }
+        }
+    }
+
     document = (wn_document *)calloc(1, sizeof(*document));
     nodes = (UiNode *)calloc(header->node_count, sizeof(UiNode));
     names = (const char **)calloc(header->node_count, sizeof(char *));
-    if (document == NULL || nodes == NULL || names == NULL) {
+    depth = (int *)calloc(header->node_count, sizeof(int));
+    if (document == NULL || nodes == NULL || names == NULL || depth == NULL) {
+        wn_set_error("wn_document_load_blob: out of memory for %u nodes",
+                     header->node_count);
         free(document);
         free(nodes);
         free(names);
+        free(depth);
         blob_map_close(&map);
         return NULL;
     }
 
-    strings = (const char *)(map.data + strings_section->offset);
-    blob_nodes = (const WnBlobNode *)(map.data + nodes_section->offset);
     for (i = 0; i < header->node_count; ++i) {
         const WnBlobNode *src = &blob_nodes[i];
         UiNode *dst = &nodes[i];
+        /* The writer emits pre-order, so every parent index is smaller than the
+         * node's. Enforcing it resolves the depth in one pass and rejects
+         * cycles/forward links; the recursive layout then cannot overflow. */
+        if (i == 0) {
+            if (src->parent != -1) {
+                wn_set_error("wn_document_load_blob: node 0 is not the root");
+                goto fail;
+            }
+            depth[0] = 1;
+        } else {
+            if (src->parent < 0 || (uint32_t)src->parent >= i) {
+                wn_set_error("wn_document_load_blob: node %u has an out-of-order "
+                             "parent %d", i, (int)src->parent);
+                goto fail;
+            }
+            if (depth[src->parent] >= WN_BLOB_MAX_DEPTH) {
+                wn_set_error("wn_document_load_blob: node tree is deeper than %d "
+                             "(node %u)", WN_BLOB_MAX_DEPTH, i);
+                goto fail;
+            }
+            depth[i] = depth[src->parent] + 1;
+        }
+        if (!(src->font_size >= WN_BLOB_MIN_FONT_SIZE &&
+              src->font_size <= WN_BLOB_MAX_FONT_SIZE)) {
+            wn_set_error("wn_document_load_blob: node %u has font_size %.2f "
+                         "(expected %.0f..%.0f)", i, (double)src->font_size,
+                         (double)WN_BLOB_MIN_FONT_SIZE,
+                         (double)WN_BLOB_MAX_FONT_SIZE);
+            goto fail;
+        }
         dst->parent = src->parent;
         dst->kind = src->kind;
         dst->direction = src->direction;
@@ -287,6 +416,8 @@ wn_document *wn_document_load_blob(const char *path)
             names[i] = name != NULL ? name : "";
         }
     }
+    free(depth);
+    depth = NULL;
 
     document->nodes = nodes;
     document->node_count = (int)header->node_count;
@@ -303,7 +434,12 @@ wn_document *wn_document_load_blob(const char *path)
         const WnBlobInput *blob_inputs =
             (const WnBlobInput *)(map.data + inputs_section->offset);
         UiInput *inputs = (UiInput *)calloc(count, sizeof(UiInput));
-        if (inputs == NULL || inputs_size % sizeof(WnBlobInput) != 0) {
+        if (inputs == NULL) {
+            wn_set_error("wn_document_load_blob: out of memory for %u inputs", count);
+            wn_document_destroy(document);
+            return NULL;
+        }
+        if (inputs_size % sizeof(WnBlobInput) != 0) {
             free(inputs);
             wn_set_error("wn_document_load_blob: bad inputs section");
             wn_document_destroy(document);
@@ -323,6 +459,14 @@ wn_document *wn_document_load_blob(const char *path)
         document->owned_inputs = inputs;
     }
     return document;
+
+fail:
+    free(nodes);
+    free(names);
+    free(depth);
+    free(document);
+    blob_map_close(&map);
+    return NULL;
 }
 
 void wn_document_destroy(wn_document *document)

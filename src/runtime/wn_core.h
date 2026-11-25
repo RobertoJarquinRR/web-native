@@ -106,7 +106,8 @@ wn_core *wn_core_create(const wn_document *document);
 void wn_core_destroy(wn_core *core);
 
 /* node_count is the arena high-water mark (compiled nodes + slots ever used).
- * live_node_count excludes removed slots and is what the ABI reports. */
+ * live_node_count excludes removed slots and is what the ABI reports. The
+ * capacity starts at max(compiled_count, 512) and grows on demand. */
 int wn_core_node_count(const wn_core *core);
 int wn_core_live_node_count(const wn_core *core);
 const char *wn_core_node_name(const wn_core *core, int node);
@@ -120,6 +121,16 @@ int wn_core_node_parent(const wn_core *core, int node);
 int wn_core_node_first_child(const wn_core *core, int node);
 int wn_core_node_next_sibling(const wn_core *core, int node);
 int wn_core_node_action(const wn_core *core, int node);
+
+/* Number of full hierarchy rebuilds since creation. Structural mutations link
+ * and unlink in O(1), so this only grows on wn_core_create(); a growing value
+ * during cloning/removal means an O(n) rebuild crept back in. */
+int wn_core_hierarchy_rebuilds(const wn_core *core);
+
+/* Per-slot generation, bumped every time the slot is allocated. 0 for an
+ * invalid or dead node. The ABI layer packs it into wn_node_id so a handle kept
+ * across a removal cannot address the slot's next tenant. */
+uint32_t wn_core_node_generation(const wn_core *core, int node);
 
 /* Resolve an ABI id. Exact node names win. A bare last path component is
  * accepted only when it is unambiguous. Returns -1 when not found. */
@@ -181,19 +192,20 @@ int wn_core_set_class(wn_core *core, int node, const char *class_name, int enabl
 /* ------------------------------------------------------ dynamic UI (v0) */
 /*
  * Mutable tree operations used by the ABI layer. All int node ids are core
- * indices; the ABI maps them to wn_node_id (index + 1). Mutations mark the core
- * dirty; call wn_core_relayout() before painting (wn_view_render does it
- * automatically on the next frame).
+ * indices; the ABI packs (generation, index) into wn_node_id. Mutations mark
+ * the core dirty; call wn_core_relayout() before painting (wn_view_render does
+ * it automatically on the next frame). The arena grows on demand.
  */
 
-/* 0 ok, -1 invalid argument/state, -2 arena exhausted. */
+/* 0 ok, -1 invalid argument/state. */
 int wn_core_set_visible(wn_core *core, int node, int visible);
 
 /* 0 ok, 1 unsupported (node is not NODE_IMAGE), -1 invalid argument,
  * -2 out of memory. */
 int wn_core_set_image(wn_core *core, int node, const char *path);
 
-/* Deep clone. Returns the new node index or -1 (invalid) / -2 (arena full). */
+/* Deep clone. Returns the new node index or -1 (invalid) / -2 (out of memory or
+ * beyond WN_NODE_MAX_CAPACITY). */
 int wn_core_clone(wn_core *core, int template_node, int parent);
 int wn_core_remove(wn_core *core, int node);
 int wn_core_clear_children(wn_core *core, int node);

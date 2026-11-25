@@ -23,6 +23,8 @@ typedef struct wn_view_stats {
 } wn_view_stats;
 
 int wn_view_get_stats(const wn_view *view, wn_view_stats *stats);
+/* Clears the per-run counters and restarts the startup clock (wn_app_run). */
+void wn_view_reset_stats(wn_view *view);
 /* 1 when the next frame would change pixels (dirty/have no frame yet). */
 int wn_view_needs_render(const wn_view *view);
 /* Texture target without a window (tooling, tests, offscreen PNG). */
@@ -57,6 +59,10 @@ wn_status wn_view_set_class(wn_view *view, const char *id, const char *class_nam
 wn_node_id wn_view_find(wn_view *view, const char *name);
 wn_node_id wn_view_root(wn_view *view);
 int32_t wn_view_node_count(wn_view *view);
+/* Handle encoding used by the ABI: wn_view_handle() packs the slot generation
+ * and the 1-based index; wn_view_resolve_handle() rejects stale handles. */
+wn_node_id wn_view_handle(const wn_view *view, int index);
+int wn_view_resolve_handle(const wn_view *view, wn_node_id node);
 /* Borrowed core handle (never destroyed by the caller); used by the ABI layer
  * to read tree relations without duplicating the handle mapping. */
 const wn_core *wn_view_core(const wn_view *view);

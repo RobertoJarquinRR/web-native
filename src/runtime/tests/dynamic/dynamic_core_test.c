@@ -13,6 +13,7 @@
 
 #include "ui_data.h"
 #include "wn_core.h"
+#include "wn_internal.h"
 
 static wn_core *g_core;
 static int g_failures;
@@ -40,6 +41,66 @@ static int hit_center(int node)
 static int hit_rect(wn_rect r)
 {
     return wn_core_hit_test(g_core, r.x + r.w * 0.5f, r.y + r.h * 0.5f);
+}
+
+/* Clone `count` copies of the card under `parent`, verify they stay alive and
+ * lay out, then remove them. Returns the live count measured while they were
+ * all present (-1 on allocation failure). */
+static int stress_round(int template_node, int parent, int count,
+                        double *clone_ms, double *remove_ms,
+                        int *created_out, int *alive_out, int *laid_out_out)
+{
+    int *ids = (int *)malloc(sizeof(int) * (size_t)count);
+    int created = 0;
+    int alive = 0;
+    int laid_out = 0;
+    int live = -1;
+    int i;
+    double t0;
+
+    *clone_ms = 0.0;
+    *remove_ms = 0.0;
+    *created_out = 0;
+    *alive_out = 0;
+    *laid_out_out = 0;
+    if (ids == NULL) {
+        return -1;
+    }
+    t0 = wn_now_ms();
+    for (i = 0; i < count; ++i) {
+        int node = wn_core_clone(g_core, template_node, parent);
+        if (node < 0) {
+            break;
+        }
+        ids[created++] = node;
+    }
+    *clone_ms = wn_now_ms() - t0;
+    live = wn_core_live_node_count(g_core);
+    for (i = 0; i < created; ++i) {
+        if (wn_core_node_is_alive(g_core, ids[i]) &&
+            wn_core_node_parent(g_core, ids[i]) == parent) {
+            ++alive;
+        }
+    }
+    wn_core_relayout(g_core);
+    wn_core_build_display_list(g_core);
+    for (i = 0; i < created; ++i) {
+        if (rect_of(ids[i]).w == 120.0f) {
+            ++laid_out;
+        }
+    }
+    t0 = wn_now_ms();
+    for (i = 0; i < created; ++i) {
+        (void)wn_core_remove(g_core, ids[i]);
+    }
+    *remove_ms = wn_now_ms() - t0;
+    wn_core_relayout(g_core);
+    wn_core_build_display_list(g_core);
+    free(ids);
+    *created_out = created;
+    *alive_out = alive;
+    *laid_out_out = laid_out;
+    return live;
 }
 
 static void write_rect(FILE *f, int node)
@@ -422,6 +483,60 @@ int main(int argc, char **argv)
     event_end(report);
     wn_core_remove(g_core, clone);
     wn_core_relayout(g_core);
+
+    /* -------------------------------------------------- arena growth (A4) */
+    {
+        enum { kStressClones = 1500, kStressScale = 3000 };
+        int body = wn_core_find_node(g_core, "body.root");
+        int rebuilds_before = wn_core_hierarchy_rebuilds(g_core);
+        double clone_ms = 0.0;
+        double remove_ms = 0.0;
+        int created = 0;
+        int alive = 0;
+        int laid_out = 0;
+        int live;
+
+        live = body >= 0 ? stress_round(card0, body, kStressClones, &clone_ms,
+                                        &remove_ms, &created, &alive, &laid_out)
+                         : -1;
+        check("stress container", body >= 0, "body.root is the list container");
+        check("stress clones created",
+              created == kStressClones && live == UI_NODE_COUNT + 4 * kStressClones,
+              "1,500 clones of the 4-node card subtree");
+        check("stress clones alive", alive == created,
+              "every clone is live under the container");
+        check("stress layout", laid_out == created &&
+              wn_core_node_count(g_core) >= UI_NODE_COUNT + 4 * kStressClones,
+              "arena and every clone box grew");
+        check("stress hierarchy", wn_core_hierarchy_rebuilds(g_core) == rebuilds_before,
+              "no full hierarchy rebuild per clone/remove");
+        check("stress removal", wn_core_live_node_count(g_core) == UI_NODE_COUNT,
+              "only the compiled tree stays live");
+        printf("stress: clones=%d clone_ms=%.2f remove_ms=%.2f rebuilds=%d arena=%d\n",
+               created, clone_ms, remove_ms, wn_core_hierarchy_rebuilds(g_core),
+               wn_core_node_count(g_core));
+        event_begin(report, "stress");
+        write_counts(report);
+        fprintf(report, ",\"clones\":%d,\"alive\":%d,\"laid_out\":%d,\"arena\":%d,"
+                "\"rebuilds\":%d,",
+                created, alive, laid_out, wn_core_node_count(g_core),
+                wn_core_hierarchy_rebuilds(g_core));
+        event_end(report);
+
+        live = body >= 0 ? stress_round(card0, body, kStressScale, &clone_ms,
+                                        &remove_ms, &created, &alive, &laid_out)
+                         : -1;
+        check("stress 3000 clones",
+              created == kStressScale && live == UI_NODE_COUNT + 4 * kStressScale &&
+                  alive == created && laid_out == created,
+              "3,000 clones alive, laid out and removed");
+        check("stress 3000 hierarchy",
+              wn_core_hierarchy_rebuilds(g_core) == rebuilds_before,
+              "hierarchy stays incremental at 3,000 clones");
+        printf("stress: clones=%d clone_ms=%.2f remove_ms=%.2f rebuilds=%d arena=%d\n",
+               created, clone_ms, remove_ms, wn_core_hierarchy_rebuilds(g_core),
+               wn_core_node_count(g_core));
+    }
 
     /* ------------------------------------------------------- clear children */
     clear_rc = wn_core_clear_children(g_core, cards);

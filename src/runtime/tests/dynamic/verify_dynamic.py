@@ -79,7 +79,7 @@ def main() -> int:
             event = json.loads(line)
             core[event["stage"]] = event
     for required in ("initial", "hidden", "shown", "cloned", "navigated", "imaged",
-                     "texted", "removed", "appended", "cleared"):
+                     "texted", "removed", "appended", "stress", "cleared"):
         if required not in core:
             print(f"FAIL: core event '{required}' is missing")
             return 1
@@ -93,6 +93,7 @@ def main() -> int:
     texted = core["texted"]
     removed = core["removed"]
     appended = core["appended"]
+    stress = core["stress"]
     cleared = core["cleared"]
 
     check("core", "compiled live nodes", initial["live"] == 17, f"{initial['live']} nodes")
@@ -168,6 +169,15 @@ def main() -> int:
           close(appended["clone"]["x"], cx), "re-parented as the last card")
     check("core", "append rejects cycle", appended["cycle_rejected"] == 1,
           "ancestor under descendant refused")
+
+    check("core", "growth clones", stress["clones"] == 1500 and
+          stress["alive"] == 1500 and stress["laid_out"] == 1500,
+          "1,500 clones alive and laid out under the container")
+    check("core", "growth hierarchy", stress["rebuilds"] <= 2,
+          f"{stress['rebuilds']} full hierarchy rebuild(s) for 1,500 clones")
+    check("core", "growth arena", stress["arena"] >= 17 + 4 * 1500 and
+          stress["live"] == 17,
+          f"arena grew to {stress['arena']} slots; {stress['live']} live after removal")
 
     check("core", "clear_children", cleared["live"] == 9 and
           cleared["first_child"] == -1, f"live={cleared['live']} first_child=-1")

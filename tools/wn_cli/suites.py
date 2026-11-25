@@ -305,7 +305,7 @@ def run_dynamic() -> int:
     fixture.mkdir(parents=True, exist_ok=True)
     for image in ("a.png", "b.png"):
         if not (page / "images" / image).is_file():
-            _python(suite / "make_images.py", [str(page)], cwd=suite)
+            _python(suite / "make_images.py", [str(page / "images")], cwd=suite)
             break
 
     log_step("dynamic: fixture header")
@@ -342,6 +342,12 @@ def run_dynamic() -> int:
         "clear_children -> nodes=9",
         "dynamic: nav clone=",
         "parent_ok=1 chain_ok=1 invalid_ok=1",
+        "dynamic: stale handle",
+        "-> rejected",
+        "dynamic: growth clones=1500 alive=1500 nodes=6017 -> grown",
+        "dynamic: growth removed nodes=17 -> restored",
+        "dynamic: second run frames=3",
+        "-> stats reset",
         "dynamic: click clone -> node=",
         "target=(null)",
         "dynamic: click card -> node=",
@@ -454,11 +460,15 @@ def run_offscreen() -> int:
     )
     run_cmd(["cmd", "/d", "/c", "copy", "/Y", str(_wgpu_dir() / "bin" / "wgpu_native.dll"), str(out / "wgpu_native.dll")])
 
+    log_step("offscreen: input fixture blob (destroy-in-callback)")
+    input_blob = _blob_emit(runtime / "tests" / "input" / "page",
+                            out / "fixture" / "input", 480, 240, True)
+
     d3d11_png = out / "offscreen_d3d11.png"
     wgpu_png = out / "offscreen_wgpu.png"
     log_step("offscreen: render both backends")
-    _run(exe, ["960", "640", str(d3d11_png)], out, {"WN_RENDERER": "d3d11"})
-    _run(exe, ["960", "640", str(wgpu_png)], out, {"WN_RENDERER": "wgpu"})
+    _run(exe, ["960", "640", str(d3d11_png), str(input_blob)], out, {"WN_RENDERER": "d3d11"})
+    _run(exe, ["960", "640", str(wgpu_png), str(input_blob)], out, {"WN_RENDERER": "wgpu"})
 
     harness_python = get_paths().root / "benchmarks" / "visual-parity" / ".venv" / "Scripts" / "python.exe"
     python = str(harness_python) if harness_python.is_file() else str(get_python_exe())

@@ -11,6 +11,16 @@ extern "C" {
 #define WN_BLOB_VERSION 2u
 #define WN_BLOB_HEADER_SIZE 32u
 
+/* Loader limits: the layout/paint walk is recursive, so a crafted chain would
+ * otherwise overflow the stack. Both are rejected before a core is built. */
+#define WN_BLOB_MAX_NODES 65536u
+#define WN_BLOB_MAX_DEPTH 512
+
+/* The text backend clamps at paint time; reject out-of-range sizes up front so
+ * a document cannot claim text it will never draw. */
+#define WN_BLOB_MIN_FONT_SIZE 1.0f
+#define WN_BLOB_MAX_FONT_SIZE 1024.0f
+
 typedef enum {
     WN_BLOB_SECTION_NODES = 1,
     WN_BLOB_SECTION_NAMES = 2,

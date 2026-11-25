@@ -15,7 +15,12 @@
 #include "wn_core.h"
 
 #define WN_MAX_CLASSES 8
-#define WN_MAX_NODES 4096
+
+/* The node arena starts at WN_NODE_MIN_CAPACITY slots and grows on demand in
+ * 1.5x steps, so a host can materialise large lists. WN_NODE_MAX_CAPACITY keeps
+ * the int index arithmetic and the per-array byte sizes bounded. */
+#define WN_NODE_MIN_CAPACITY 512
+#define WN_NODE_MAX_CAPACITY (1 << 20)
 
 /* ui-tree/3 text input. Only the spec lives in the document; the text is
  * shaped and rasterized by the runtime like any other string. */
@@ -68,12 +73,14 @@ struct wn_core {
 
     /* Mutable node arena. [0, compiled_count) are copies of the compiled nodes;
      * slots from compiled_count up are cloned at runtime. Removed slots are
-     * recycled through free_list. */
+     * recycled through free_list; generation[i] invalidates handles that were
+     * issued before the slot was reused. */
     UiNode *nodes;
     const char **names;          /* compiled names are borrowed from wn_document */
     int node_count;              /* high-water mark */
     int live_count;
     int node_capacity;
+    uint32_t *generation;
     unsigned char *alive;
     unsigned char *dynamic_node;
     unsigned char *visible;
@@ -84,11 +91,13 @@ struct wn_core {
     int *free_list;
     int free_count;
     int clone_serial;
+    int hierarchy_rebuilds;      /* build_hierarchy() calls; diagnostics */
 
     wn_rect *rects;
     wn_rect *clips;
     int *first_child;
     int *next_sibling;
+    int *prev_sibling;
     int *last_child;
 
     float *scroll;
@@ -150,7 +159,8 @@ struct wn_core {
     int needs_layout;
 };
 
-/* Cross-module helpers. */
+/* Cross-module helpers. Mutations link/unlink the child lists incrementally;
+ * build_hierarchy() is only the initial O(n) pass over the compiled document. */
 void build_hierarchy(wn_core *c);
 void layout_page(wn_core *c, float viewport_w, float viewport_h);
 void ensure_layout_for_hit(wn_core *core);

@@ -19,8 +19,10 @@
  *  - v4: single-line text input and the WN_EVENT_INPUT semantic event.
  *  - v5: wn_event.node carries the stable handle of the event target, so
  *        cloned nodes are addressable; wn_node_parent/first_child/next_sibling
- *        navigate the live tree. Fields are appended; v4 layout is unchanged
- *        up to the new trailing member.
+ *        navigate the live tree. Handles pack a per-slot generation (see
+ *        wn_node_id), so a handle kept across a removal is rejected instead of
+ *        addressing the slot's next tenant. Fields are appended; v4 layout is
+ *        unchanged up to the new trailing member.
  */
 #ifndef WEBNATIVE_H
 #define WEBNATIVE_H
@@ -60,8 +62,16 @@ typedef struct wn_document wn_document;
 typedef struct wn_view wn_view;
 
 /* ABI v3: stable node handle for the dynamic UI API. 0 is never a valid node
- * (WN_NODE_INVALID). Handles stay valid until the node (or an ancestor) is
- * removed; do not guess or persist them across wn_app_destroy(). */
+ * (WN_NODE_INVALID).
+ *
+ * Handles are opaque. Internally a handle packs the arena slot generation in
+ * the high 32 bits and the 1-based slot index in the low 32 bits:
+ * `(generation << 32) | (index + 1)`. The generation changes whenever the slot
+ * is reused, so a handle kept across wn_node_remove() (or removal of an
+ * ancestor) stops resolving: wn_node_* calls reject it, navigation returns
+ * WN_NODE_INVALID and events never report it. Handles stay valid until the node
+ * (or an ancestor) is removed; do not guess or persist them across
+ * wn_app_destroy() or a document replacement. */
 typedef uint64_t wn_node_id;
 #define WN_NODE_INVALID ((wn_node_id)0)
 
@@ -201,9 +211,9 @@ WN_API int wn_app_get_stats(const wn_app *app, wn_app_stats *stats);
  * engine dirty: the next wn_view_render()/frame re-runs layout, clipping and
  * paint. There is no separate commit call.
  *
- * Node handles are 1-based and opaque. Lookup by name only resolves compiled
- * node names (the generated ui_data.h table); clone handles are returned by
- * wn_node_clone() and are not addressable by name in v0.
+ * Node handles are opaque (see wn_node_id). Lookup by name only resolves
+ * compiled node names (the generated ui_data.h table); clone handles are
+ * returned by wn_node_clone() and are not addressable by name in v0.
  */
 
 /* ------------------------------------------------- tree navigation (ABI v5) */

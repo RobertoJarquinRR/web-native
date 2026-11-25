@@ -131,6 +131,14 @@ int wn_core_node_is_dynamic(const wn_core *core, int node)
     return core->dynamic_node[node] != 0;
 }
 
+uint32_t wn_core_node_generation(const wn_core *core, int node)
+{
+    if (!wn_core_node_is_alive(core, node)) {
+        return 0;
+    }
+    return core->generation[node];
+}
+
 int wn_core_node_parent(const wn_core *core, int node)
 {
     if (!wn_core_node_is_alive(core, node)) {
@@ -391,15 +399,17 @@ wn_core *wn_core_create(const wn_document *document)
     int i;
     size_t bytes;
     if (document == NULL || document->node_count <= 0) {
+        wn_set_error("wn_core_create: document is NULL or empty");
         return NULL;
     }
     c = (wn_core *)calloc(1, sizeof(*c));
     if (c == NULL) {
+        wn_set_error("wn_core_create: out of memory for the core");
         return NULL;
     }
     c->doc = document;
     count = document->node_count;
-    capacity = count > WN_MAX_NODES ? count : WN_MAX_NODES;
+    capacity = count > WN_NODE_MIN_CAPACITY ? count : WN_NODE_MIN_CAPACITY;
     c->node_capacity = capacity;
     c->node_count = count;
     c->live_count = count;
@@ -410,6 +420,7 @@ wn_core *wn_core_create(const wn_document *document)
     bytes = (size_t)capacity;
     c->nodes = (UiNode *)calloc(bytes, sizeof(UiNode));
     c->names = (const char **)calloc(bytes, sizeof(char *));
+    c->generation = (uint32_t *)calloc(bytes, sizeof(uint32_t));
     c->alive = (unsigned char *)calloc(bytes, sizeof(unsigned char));
     c->dynamic_node = (unsigned char *)calloc(bytes, sizeof(unsigned char));
     c->visible = (unsigned char *)calloc(bytes, sizeof(unsigned char));
@@ -423,6 +434,7 @@ wn_core *wn_core_create(const wn_document *document)
     c->scroll_max = (float *)calloc(bytes, sizeof(float));
     c->first_child = (int *)calloc(bytes, sizeof(int));
     c->next_sibling = (int *)calloc(bytes, sizeof(int));
+    c->prev_sibling = (int *)calloc(bytes, sizeof(int));
     c->last_child = (int *)calloc(bytes, sizeof(int));
     c->paint_order = (int *)calloc(bytes, sizeof(int));
     c->text_override = (char **)calloc(bytes, sizeof(char *));
@@ -452,12 +464,14 @@ wn_core *wn_core_create(const wn_document *document)
     c->image_batches = (wn_image_batch *)calloc(
         (size_t)c->image_batch_capacity, sizeof(wn_image_batch));
 
-    if (c->nodes == NULL || c->names == NULL || c->alive == NULL ||
+    if (c->nodes == NULL || c->names == NULL || c->generation == NULL ||
+        c->alive == NULL ||
         c->dynamic_node == NULL || c->visible == NULL || c->visible_eff == NULL ||
         c->parent == NULL || c->order_key == NULL ||
         c->free_list == NULL || c->rects == NULL || c->clips == NULL ||
         c->scroll == NULL || c->scroll_max == NULL || c->first_child == NULL ||
-        c->next_sibling == NULL || c->last_child == NULL || c->paint_order == NULL ||
+        c->next_sibling == NULL || c->prev_sibling == NULL ||
+        c->last_child == NULL || c->paint_order == NULL ||
         c->text_override == NULL || c->image_override == NULL ||
         c->input_map == NULL || c->input_value == NULL || c->input_cursor == NULL ||
         c->input_anchor == NULL || c->input_scroll == NULL ||
@@ -465,6 +479,7 @@ wn_core *wn_core_create(const wn_document *document)
     c->vertices == NULL || c->solid_batches == NULL ||
         c->glyph_vertices == NULL || c->glyph_batches == NULL ||
         c->image_vertices == NULL || c->image_batches == NULL) {
+        wn_set_error("wn_core_create: out of memory for the node arena");
         wn_core_destroy(c);
         return NULL;
     }
@@ -472,6 +487,7 @@ wn_core *wn_core_create(const wn_document *document)
     memcpy(c->nodes, document->nodes, (size_t)count * sizeof(UiNode));
     for (i = 0; i < count; ++i) {
         c->names[i] = document->names[i];
+        c->generation[i] = 1;
         c->alive[i] = 1;
         c->visible[i] = 1;
         c->visible_eff[i] = 1;
@@ -479,6 +495,7 @@ wn_core *wn_core_create(const wn_document *document)
         c->order_key[i] = i;
         c->first_child[i] = -1;
         c->next_sibling[i] = -1;
+        c->prev_sibling[i] = -1;
         c->last_child[i] = -1;
         c->input_map[i] = -1;
         c->input_cursor[i] = 0;
@@ -491,10 +508,12 @@ wn_core *wn_core_create(const wn_document *document)
     build_hierarchy(c);
     c->text_atlas = wn_text_atlas_create(NULL, 0, 0);
     if (c->text_atlas == NULL) {
+        wn_set_error("wn_core_create: out of memory for the text atlas");
         wn_core_destroy(c);
         return NULL;
     }
     if (build_input_state(c) != 0) {
+        wn_set_error("wn_core_create: cannot build the input spec");
         wn_core_destroy(c);
         return NULL;
     }
@@ -539,6 +558,79 @@ static void free_node_payload(wn_core *c, int node)
     }
 }
 
+/* realloc one parallel array. On failure the previous block stays valid: the
+ * logical capacity is only published after every array grew, so a partially
+ * grown arena is still consistent (the extra capacity is simply unused). */
+#define WN_GROW_ARRAY(c, field, elements)                                    \
+    do {                                                                     \
+        void *grown_ = realloc((c)->field,                                   \
+                               (size_t)(elements) * sizeof(*(c)->field));    \
+        if (grown_ == NULL) {                                                \
+            return -1;                                                       \
+        }                                                                    \
+        (c)->field = grown_;                                                 \
+    } while (0)
+
+/* Grow the arena to at least `minimum` slots. New slots are uninitialised by
+ * design: arena_alloc() writes every parallel array for a slot before it can
+ * be observed. */
+static int arena_reserve(wn_core *c, int minimum)
+{
+    int capacity;
+    if (minimum <= c->node_capacity) {
+        return 0;
+    }
+    if (minimum > WN_NODE_MAX_CAPACITY) {
+        return -1;
+    }
+    capacity = c->node_capacity > 0 ? c->node_capacity : WN_NODE_MIN_CAPACITY;
+    while (capacity < minimum) {
+        int next = capacity + capacity / 2;
+        if (next <= capacity) {
+            capacity = minimum;
+            break;
+        }
+        capacity = next;
+    }
+    if (capacity > WN_NODE_MAX_CAPACITY) {
+        capacity = WN_NODE_MAX_CAPACITY;
+    }
+
+    WN_GROW_ARRAY(c, nodes, capacity);
+    WN_GROW_ARRAY(c, names, capacity);
+    WN_GROW_ARRAY(c, generation, capacity);
+    WN_GROW_ARRAY(c, alive, capacity);
+    WN_GROW_ARRAY(c, dynamic_node, capacity);
+    WN_GROW_ARRAY(c, visible, capacity);
+    WN_GROW_ARRAY(c, visible_eff, capacity);
+    WN_GROW_ARRAY(c, parent, capacity);
+    WN_GROW_ARRAY(c, order_key, capacity);
+    WN_GROW_ARRAY(c, free_list, capacity);
+    WN_GROW_ARRAY(c, rects, capacity);
+    WN_GROW_ARRAY(c, clips, capacity);
+    WN_GROW_ARRAY(c, scroll, capacity);
+    WN_GROW_ARRAY(c, scroll_max, capacity);
+    WN_GROW_ARRAY(c, first_child, capacity);
+    WN_GROW_ARRAY(c, next_sibling, capacity);
+    WN_GROW_ARRAY(c, prev_sibling, capacity);
+    WN_GROW_ARRAY(c, last_child, capacity);
+    WN_GROW_ARRAY(c, paint_order, capacity);
+    WN_GROW_ARRAY(c, text_override, capacity);
+    WN_GROW_ARRAY(c, image_override, capacity);
+    WN_GROW_ARRAY(c, input_map, capacity);
+    WN_GROW_ARRAY(c, input_value, capacity);
+    WN_GROW_ARRAY(c, input_cursor, capacity);
+    WN_GROW_ARRAY(c, input_anchor, capacity);
+    WN_GROW_ARRAY(c, input_scroll, capacity);
+    WN_GROW_ARRAY(c, class_count, capacity);
+    WN_GROW_ARRAY(c, classes, (size_t)capacity * WN_MAX_CLASSES);
+
+    c->node_capacity = capacity;
+    return 0;
+}
+
+#undef WN_GROW_ARRAY
+
 static int arena_alloc(wn_core *c)
 {
     int id;
@@ -546,11 +638,18 @@ static int arena_alloc(wn_core *c)
     if (c->free_count > 0) {
         id = c->free_list[--c->free_count];
     } else {
-        if (c->node_count >= c->node_capacity) {
+        if (c->node_count >= c->node_capacity &&
+            arena_reserve(c, c->node_count + 1) != 0) {
             return -1;
         }
         id = c->node_count++;
+        c->generation[id] = 0;
     }
+    /* Bumped for every allocation, reused slot or not: handles issued before
+     * the previous tenant was released stop resolving. */
+    c->generation[id] = c->generation[id] == UINT32_MAX
+                            ? 1u
+                            : c->generation[id] + 1u;
     memset(&c->nodes[id], 0, sizeof(UiNode));
     c->nodes[id].parent = -1;
     c->nodes[id].object_fit = R2_OBJECT_FIT_FILL;
@@ -568,6 +667,7 @@ static int arena_alloc(wn_core *c)
     c->scroll_max[id] = 0.0f;
     c->first_child[id] = -1;
     c->next_sibling[id] = -1;
+    c->prev_sibling[id] = -1;
     c->last_child[id] = -1;
     c->text_override[id] = NULL;
     c->image_override[id] = NULL;
@@ -597,6 +697,7 @@ static void arena_release(wn_core *c, int node)
     c->nodes[node].parent = -1;
     c->first_child[node] = -1;
     c->next_sibling[node] = -1;
+    c->prev_sibling[node] = -1;
     c->last_child[node] = -1;
     c->visible[node] = 0;
     c->visible_eff[node] = 0;
@@ -615,6 +716,50 @@ static void mark_core_dirty(wn_core *c)
 {
     c->dirty = 1;
     c->needs_layout = 1;
+}
+
+int wn_core_hierarchy_rebuilds(const wn_core *core)
+{
+    return core != NULL ? core->hierarchy_rebuilds : 0;
+}
+
+/* O(1) child-list maintenance. Structural mutations always append at the tail
+ * (order_key is monotonically increasing), so the sorted walk of the initial
+ * rebuild is never needed at runtime. */
+static void link_child(wn_core *c, int parent, int child)
+{
+    int tail = c->last_child[parent];
+    c->parent[child] = parent;
+    c->nodes[child].parent = parent;
+    c->prev_sibling[child] = tail;
+    c->next_sibling[child] = -1;
+    if (tail >= 0) {
+        c->next_sibling[tail] = child;
+    } else {
+        c->first_child[parent] = child;
+    }
+    c->last_child[parent] = child;
+}
+
+static void unlink_child(wn_core *c, int child)
+{
+    int parent = c->parent[child];
+    int prev = c->prev_sibling[child];
+    int next = c->next_sibling[child];
+    if (parent >= 0) {
+        if (prev >= 0) {
+            c->next_sibling[prev] = next;
+        } else {
+            c->first_child[parent] = next;
+        }
+        if (next >= 0) {
+            c->prev_sibling[next] = prev;
+        } else {
+            c->last_child[parent] = prev;
+        }
+    }
+    c->prev_sibling[child] = -1;
+    c->next_sibling[child] = -1;
 }
 
 int wn_core_dirty(const wn_core *core)
@@ -717,17 +862,16 @@ int wn_core_clone(wn_core *core, int template_node, int parent)
     int i;
     int result = -1;
     int oom = 0;
+    int slots;
     char name[64];
     if (core == NULL || !wn_core_node_is_alive(core, template_node) ||
         !wn_core_node_is_alive(core, parent)) {
         return -1;
     }
-    if (core->live_count >= core->node_capacity) {
-        return -2;
-    }
-    src_ids = (int *)malloc((size_t)core->node_capacity * sizeof(int));
-    new_ids = (int *)malloc((size_t)core->node_capacity * sizeof(int));
-    map = (int *)malloc((size_t)core->node_capacity * sizeof(int));
+    slots = core->node_count;
+    src_ids = (int *)malloc((size_t)slots * sizeof(int));
+    new_ids = (int *)malloc((size_t)slots * sizeof(int));
+    map = (int *)malloc((size_t)slots * sizeof(int));
     if (src_ids == NULL || new_ids == NULL || map == NULL) {
         free(src_ids);
         free(new_ids);
@@ -735,13 +879,20 @@ int wn_core_clone(wn_core *core, int template_node, int parent)
         return -2;
     }
     collect_subtree(core, template_node, src_ids, &count);
-    if (count <= 0 || core->live_count + count > core->node_capacity) {
+    if (count <= 0 || core->live_count + count > WN_NODE_MAX_CAPACITY) {
         free(src_ids);
         free(new_ids);
         free(map);
         return -2;
     }
-    for (i = 0; i < core->node_capacity; ++i) {
+    /* Grow once for the whole subtree instead of per slot. */
+    if (arena_reserve(core, core->live_count + count) != 0) {
+        free(src_ids);
+        free(new_ids);
+        free(map);
+        return -2;
+    }
+    for (i = 0; i < slots; ++i) {
         map[i] = -1;
     }
     for (i = 0; i < count; ++i) {
@@ -825,7 +976,12 @@ int wn_core_clone(wn_core *core, int template_node, int parent)
             return -2;
         }
     }
-    build_hierarchy(core);
+    /* Link the new nodes only after every payload copy succeeded. Pre-order
+     * allocation means a node's parent is already linked when it is reached,
+     * so appending at the tail preserves sibling order in O(1) per node. */
+    for (i = 0; i < count; ++i) {
+        link_child(core, core->parent[new_ids[i]], new_ids[i]);
+    }
     mark_core_dirty(core);
     result = new_ids[0];
     free(src_ids);
@@ -845,11 +1001,14 @@ int wn_core_remove(wn_core *core, int node)
     if (core->parent[node] < 0) {
         return -1; /* root */
     }
-    ids = (int *)malloc((size_t)core->node_capacity * sizeof(int));
+    ids = (int *)malloc((size_t)core->node_count * sizeof(int));
     if (ids == NULL) {
         return -2;
     }
     collect_subtree(core, node, ids, &count);
+    /* Detach the whole subtree with one O(1) unlink; the released slots keep
+     * their internal links until arena_release() resets them. */
+    unlink_child(core, node);
     for (i = 0; i < count; ++i) {
         if (core->hover == ids[i]) core->hover = -1;
         if (core->press == ids[i]) core->press = -1;
@@ -859,7 +1018,6 @@ int wn_core_remove(wn_core *core, int node)
         arena_release(core, ids[i]);
     }
     free(ids);
-    build_hierarchy(core);
     mark_core_dirty(core);
     return 0;
 }
@@ -907,10 +1065,9 @@ int wn_core_append(wn_core *core, int parent, int child)
     if (core->parent[child] < 0) {
         return -1; /* document root */
     }
-    core->parent[child] = parent;
-    core->nodes[child].parent = parent;
+    unlink_child(core, child);
     core->order_key[child] = core->next_order++;
-    build_hierarchy(core);
+    link_child(core, parent, child);
     mark_core_dirty(core);
     return 0;
 }
@@ -930,6 +1087,7 @@ void wn_core_destroy(wn_core *core)
     }
     wn_free_(core->nodes);
     wn_free_((void *)core->names);
+    wn_free_(core->generation);
     wn_free_(core->alive);
     wn_free_(core->dynamic_node);
     wn_free_(core->visible);
@@ -943,6 +1101,7 @@ void wn_core_destroy(wn_core *core)
     wn_free_(core->scroll_max);
     wn_free_(core->first_child);
     wn_free_(core->next_sibling);
+    wn_free_(core->prev_sibling);
     wn_free_(core->last_child);
     wn_free_(core->paint_order);
     wn_free_(core->text_override);

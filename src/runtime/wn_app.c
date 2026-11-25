@@ -214,8 +214,11 @@ wn_status wn_app_load_document(wn_app *app, const char *path_utf8)
         return WN_ERR_IO;
     }
     if (wn_view_replace_document(app->view, document) != 0) {
+        char detail[512];
+        snprintf(detail, sizeof(detail), "%s",
+                 wn_last_error() != NULL ? wn_last_error() : "cannot build a core");
         wn_document_destroy(document);
-        wn_set_error("wn_app_load_document: cannot build a core for %s", path_utf8);
+        wn_set_error("wn_app_load_document: %s", detail);
         return WN_ERR_INTERNAL;
     }
     app->loaded = 1;
@@ -286,23 +289,18 @@ int32_t wn_app_node_count(wn_app *app)
 
 /* -------------------------------------------------- tree navigation (ABI v5) */
 
-static wn_node_id app_node_handle(int index)
+static wn_node_id app_node_handle(const wn_app *app, int index)
 {
-    return index >= 0 ? (wn_node_id)((uint64_t)index + 1u) : WN_NODE_INVALID;
+    return app != NULL ? wn_view_handle(app->view, index) : WN_NODE_INVALID;
 }
 
-/* Validates an ABI handle: non-zero, representable as a core index and alive. */
+/* Validates an ABI handle against the live slot and its generation. */
 static int app_node_index(const wn_app *app, wn_node_id node)
 {
-    const wn_core *core;
-    int index;
-    if (app == NULL || app->view == NULL || node == WN_NODE_INVALID ||
-        node > (wn_node_id)INT32_MAX) {
+    if (app == NULL || app->view == NULL) {
         return -1;
     }
-    core = wn_view_core(app->view);
-    index = (int)(node - 1u);
-    return wn_core_node_is_alive(core, index) ? index : -1;
+    return wn_view_resolve_handle(app->view, node);
 }
 
 wn_node_id wn_node_parent(wn_app *app, wn_node_id node)
@@ -319,7 +317,7 @@ wn_node_id wn_node_parent(wn_app *app, wn_node_id node)
         return WN_NODE_INVALID;
     }
     core = wn_view_core(app->view);
-    return app_node_handle(wn_core_node_parent(core, index));
+    return app_node_handle(app, wn_core_node_parent(core, index));
 }
 
 wn_node_id wn_node_first_child(wn_app *app, wn_node_id node)
@@ -343,7 +341,7 @@ wn_node_id wn_node_first_child(wn_app *app, wn_node_id node)
     while (child >= 0 && !wn_core_node_is_alive(core, child)) {
         child = wn_core_node_next_sibling(core, child);
     }
-    return app_node_handle(child);
+    return app_node_handle(app, child);
 }
 
 wn_node_id wn_node_next_sibling(wn_app *app, wn_node_id node)
@@ -365,7 +363,7 @@ wn_node_id wn_node_next_sibling(wn_app *app, wn_node_id node)
     while (sibling >= 0 && !wn_core_node_is_alive(core, sibling)) {
         sibling = wn_core_node_next_sibling(core, sibling);
     }
-    return app_node_handle(sibling);
+    return app_node_handle(app, sibling);
 }
 
 wn_status wn_node_set_visible(wn_app *app, wn_node_id node, int visible)
@@ -481,6 +479,18 @@ int wn_app_run(wn_app *app)
     app->closed = 0;
     app->failed = 0;
     app->frames = 0;
+    /* A second run must report its own startup and frame totals. */
+    memset(&app->stats, 0, sizeof(app->stats));
+    wn_view_reset_stats(app->view);
+    if (wn_view_render_width(app->view) <= 0 ||
+        wn_view_render_height(app->view) <= 0) {
+        /* A 0x0 backing surface would spin the loop without ever presenting a
+         * frame (and never reaching max_frames). Restore the configured size. */
+        if (wn_view_resize(app->view, app->width, app->height, 0.0f) != WN_OK) {
+            wn_set_error("wn_app_run: cannot restore a nonzero client size");
+            return 1;
+        }
+    }
     app->host_ops->show(app->host);
     app->host_ops->run(app->host);
     if (app->failed) {
