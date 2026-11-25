@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""engine-metrics harness for webnative (R1 static + R2 dynamic runtimes).
+"""engine-metrics harness for webnative (R2 dynamic runtime).
 
 Measures, for N runs each, and writes baseline.json + BASELINE.md:
 
@@ -14,16 +14,15 @@ Measures, for N runs each, and writes baseline.json + BASELINE.md:
   * offscreen      wall of `--render` plus the runtime's internal timings
   * backend        D3D12/WARP/hardware, from the runtime's adapter lines
 
-It never modifies the runtimes: it runs a frozen snapshot of R2
-(`snapshot/runtime_r2.exe` + DLL) and a throw-away R1 build under `work/`.
+It never modifies the runtime: it runs a frozen snapshot of R2
+(`snapshot/runtime_r2.exe` + DLL).
 
 Usage:
     python measure.py --runs 10
-    python measure.py --runs 10 --skip-r1
     python measure.py --runs 3 --out results/probe.json --md results/probe.md
 
-The one-command entry point is run.ps1 (creates the venv, snapshots R2, builds
-R1, then calls this script).
+The one-command entry point is `wn-cli bench metrics`, which runs this script
+with the repository virtualenv.
 """
 
 from __future__ import annotations
@@ -48,9 +47,6 @@ REPO = HERE.parents[1]
 SNAPSHOT_DIR = HERE / "snapshot"
 WORK_DIR = HERE / "work"
 RESULTS_DIR = HERE / "results"
-DEFAULT_R1_DIR = WORK_DIR / "r1-build"
-R1_FIXTURE = REPO / "benchmarks" / "frontend-parity" / "fixtures" / "flex-page" / "index.html"
-R1_WIDTH, R1_HEIGHT = 480, 320
 FRAMES_WINDOW = 30
 LAYOUT_SIZES = "960x640,720x640,560x640"
 OFFSCREEN_SIZES = ((960, 640), (720, 640), (560, 640))
@@ -267,20 +263,6 @@ def parse_r2_window(stdout: str) -> dict:
     return out
 
 
-def parse_r1_window(stdout: str) -> dict:
-    out = {}
-    m = re.search(
-        r"^window: closed after (\d+) frame\(s\), (\d+) resize\(s\),.*? init ([\d.]+) ms, "
-        r"([\d.]+) ms/frame average",
-        stdout, re.MULTILINE)
-    if m:
-        out["frames"] = int(m.group(1))
-        out["resizes"] = int(m.group(2))
-        out["init_ms"] = float(m.group(3))
-        out["window_frame_avg_ms"] = float(m.group(4))
-    return out
-
-
 def parse_r2_render(stdout: str) -> dict:
     out = {}
     m = re.search(
@@ -295,22 +277,6 @@ def parse_r2_render(stdout: str) -> dict:
         out["gpu_ms"] = float(m.group(1))
         out["readback_ms"] = float(m.group(2))
         out["png_ms"] = float(m.group(3))
-    return out
-
-
-def parse_r1_render(stdout: str) -> dict:
-    out = {}
-    m = re.search(
-        r"^timings: init\+adapter\+device\+upload=([\d.]+)ms \| pipeline=([\d.]+)ms \| "
-        r"render\+copy\+submit=([\d.]+)ms \| map=([\d.]+)ms \| png=([\d.]+)ms \| total=([\d.]+)ms",
-        stdout, re.MULTILINE)
-    if m:
-        out["init_upload_ms"] = float(m.group(1))
-        out["pipeline_ms"] = float(m.group(2))
-        out["render_ms"] = float(m.group(3))
-        out["map_ms"] = float(m.group(4))
-        out["png_ms"] = float(m.group(5))
-        out["internal_total_ms"] = float(m.group(6))
     return out
 
 
@@ -395,15 +361,6 @@ def sha256(path: Path) -> str:
 
 
 REPO_PREFIX = str(REPO.resolve()) + os.sep
-
-
-def rel_path(path) -> str:
-    """Repo-relative path when possible (keeps baseline.json portable)."""
-    p = Path(path).resolve()
-    try:
-        return str(p.relative_to(REPO.resolve()))
-    except ValueError:
-        return str(p)
 
 
 def relativize_paths(value):
@@ -537,8 +494,6 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=HERE / "baseline.json")
     parser.add_argument("--md", type=Path, default=HERE / "BASELINE.md")
     parser.add_argument("--results-dir", type=Path, default=RESULTS_DIR)
-    parser.add_argument("--r1-dir", type=Path, default=DEFAULT_R1_DIR)
-    parser.add_argument("--skip-r1", action="store_true")
     parser.add_argument("--skip-offscreen-sizes", action="store_true",
                         help="only render 960x640 offscreen (saves ~2/3 of that scenario)")
     parser.add_argument("--layout100-exe", type=Path, default=None,
@@ -582,20 +537,17 @@ def main() -> int:
                    "reporta el mayor de los dos. También se guarda el pico de pagefile (commit) "
                    "como dato informativo.",
             "cpu_frame": "R2 imprime `window: cpu frame X ms average` (upload+encode+submit, sin "
-                         "layout ni present/vsync). R1 no instrumenta CPU-only: `n/a`; se reporta "
-                         "su `ms/frame average` limitado por vsync como referencia.",
+                         "layout ni present/vsync).",
             "layout": "`--report` de R2 ejecuta el layout 100 veces por viewport e imprime "
                       "best/avg; se reporta la mediana entre ejecuciones del `layout_ms_avg`. "
                       "El escenario de ~100 nodos usa un fixture propio y un binario R2 variante "
                       "(mismo runtime_r2.c, ui_data.h de 100 nodos).",
             "offscreen": "wall de `--render W H out.png` (proceso completo) más los tiempos "
-                         "internos que imprime el runtime (layout/frame/gpu/readback/png). En R1 "
-                         "el total interno incluye init+pipeline+render+map+png.",
+                         "internos que imprime el runtime (layout/frame/gpu/readback/png).",
             "backend": "línea de adaptador del runtime; WARP es type=cpu + vendorID=0x1414",
         },
         "snapshot": load_snapshot_meta(),
         "r2": {},
-        "r1": {},
         "issues": issues,
     }
 
@@ -798,89 +750,6 @@ def main() -> int:
         "note": "includes the baked 64 KiB R8 atlas",
     }
 
-    # ------------------------------------------------------------------- R1
-    if not args.skip_r1:
-        r1_dir = args.r1_dir
-        r1_exe = r1_dir / "webnative-rust.exe"
-        r1_render = r1_dir / "render_png.exe"
-        if not r1_exe.exists():
-            issues.append(f"R1 runtime missing: {r1_exe} (run run.ps1 without --skip-r1)")
-        else:
-            print(f"[r1] window --frames {FRAMES_WINDOW} x{runs}")
-            r1_window = run_series(
-                "r1-window", r1_exe, lambda i: ["--frames", str(FRAMES_WINDOW)],
-                runs, parse_r1_window, warmup=warmup)
-            issues.extend(r1_window["errors"])
-            print("[r1] startup wall --frames 1")
-            r1_startup = run_series(
-                "r1-frames-1", r1_exe, lambda i: ["--frames", "1"],
-                runs, parse_r1_window, warmup=warmup)
-            issues.extend(r1_startup["errors"])
-
-            r1_adapter = {}
-            if r1_window["samples"]:
-                probe = run_measured(r1_exe, ["--frames", "1"], timeout_s=180)
-                r1_adapter = parse_adapter(probe["stdout"])
-
-            r1_off = None
-            if r1_render.exists():
-                print(f"[r1] offscreen render_png.exe x{runs}")
-                png = WORK_DIR / "r1_scene.png"
-                scenario = run_series(
-                    "r1-render", r1_render, lambda i, p=png: [str(p)],
-                    runs, parse_r1_render, warmup=warmup)
-                issues.extend(scenario["errors"])
-                r1_off = {"metrics": scenario["metrics"], "runs": scenario["samples"]}
-            else:
-                issues.append(f"R1 offscreen renderer missing: {r1_render}")
-
-            r1_exe_bytes = file_bytes(r1_exe)
-            render_bytes = file_bytes(r1_render) if r1_render.exists() else None
-            baseline["r1"] = {
-                "exe": str(r1_exe),
-                "exe_sha256": sha256(r1_exe),
-                "exe_bytes": r1_exe_bytes,
-                "built_at_utc": datetime.fromtimestamp(
-                    r1_exe.stat().st_mtime, timezone.utc).isoformat(timespec="seconds"),
-                "build_command": "powershell -File src/build.ps1 -Html "
-                                 "benchmarks/frontend-parity/fixtures/flex-page/index.html "
-                                 f"-OutDir {rel_path(r1_dir)} -Width {R1_WIDTH} -Height {R1_HEIGHT}",
-                "fixture": str(R1_FIXTURE.relative_to(REPO)),
-                "viewport": f"{R1_WIDTH}x{R1_HEIGHT}",
-                "adapter": r1_adapter,
-                "window": r1_window,
-                "startup_wall": r1_startup,
-                "offscreen": r1_off,
-                "layout": {
-                    "median": None,
-                    "note": "R1 has no runtime layout: the display list is baked at build "
-                            "time, so there is nothing to compare with R2's --report",
-                },
-                "cpu_frame": {
-                    "median": None,
-                    "note": "R1 does not print a CPU-only frame time; only the vsync-limited "
-                            "ms/frame average is available",
-                },
-                "install": {
-                    "exe_bytes": r1_exe_bytes,
-                    "dll_bytes": dll_bytes,
-                    "external_assets_bytes": 0,
-                    "install_bytes": r1_exe_bytes + dll_bytes,
-                    "install_mb": mb(r1_exe_bytes + dll_bytes),
-                    "note": "scene_data.h (including any baked atlas) is compiled into the "
-                            "executable; no external runtime assets",
-                },
-                "engine": {
-                    "exe_bytes": r1_exe_bytes,
-                    "exe_mb": mb(r1_exe_bytes),
-                    "offscreen_exe_bytes": render_bytes,
-                    "offscreen_exe_sha256": (sha256(r1_render) if render_bytes else None),
-                    "note": "window runtime; render_png.exe is a separate offscreen-only binary",
-                },
-            }
-    else:
-        baseline["r1"] = {"skipped": True}
-
     # ------------------------------------------------------------- summary
     r2_window_metrics = window["metrics"]
     r2_cpu = r2_window_metrics.get("cpu_frame_ms", series([]))
@@ -911,20 +780,6 @@ def main() -> int:
         "backend": adapter.get("backend"),
         "is_warp": adapter.get("is_warp"),
     }
-    if baseline["r1"] and not baseline["r1"].get("skipped"):
-        r1w = baseline["r1"]["window"]["metrics"]
-        summary.update({
-            "r1_install_mb": baseline["r1"]["install"]["install_mb"],
-            "r1_engine_mb": baseline["r1"]["engine"]["exe_mb"],
-            "r1_startup_init_ms": r1w.get("init_ms", {}).get("median"),
-            "r1_rss_peak_mb": mb(r1w.get("peak_wset_bytes", {}).get("median")),
-            "r1_window_frame_avg_ms": r1w.get("window_frame_avg_ms", {}).get("median"),
-            "r1_offscreen_wall_ms": ((baseline["r1"].get("offscreen") or {})
-                                     .get("metrics", {}).get("wall_ms", {}).get("median")),
-            "r1_offscreen_internal_ms": ((baseline["r1"].get("offscreen") or {})
-                                         .get("metrics", {}).get("internal_total_ms", {})
-                                         .get("median")),
-        })
     baseline["summary"] = summary
     baseline["issues"] = issues
     baseline["output"] = str(args.out)
@@ -978,8 +833,6 @@ def render_markdown(b: dict) -> str:
     s = b["summary"]
     git = b["git"]
     adapter = b["r2"].get("adapter", {})
-    r1 = b.get("r1", {})
-    r1_ok = bool(r1) and not r1.get("skipped")
     lines: list[str] = []
 
     lines.append("# Engine metrics — baseline\n")
@@ -1037,76 +890,63 @@ def render_markdown(b: dict) -> str:
         lines.append(f"- Determinismo del snapshot: dos `--render 960 640` → "
                      f"{'mismo SHA-256' if det.get('matches') else 'SHA-256 DISTINTO'} "
                      f"(`{det.get('render_960_sha256')}`).")
-    lines.append(f"- R1: build de `{r1.get('fixture', 'n/a')}` a {r1.get('viewport', 'n/a')} "
-                 f"con `src/build.ps1` (binario desechable en `work/r1-build`)\n")
+    lines.append("")
 
     lines.append("## Tabla comparativa vs presupuesto fase 1\n")
-    lines.append("| Métrica | R2 | R1 | Presupuesto | Estado |")
-    lines.append("|---|---:|---:|---:|---|")
+    lines.append("| Métrica | R2 | Presupuesto | Estado |")
+    lines.append("|---|---:|---:|---|")
 
-    def row(label, r2_value, r1_value, budget, status, r1_display=None):
-        lines.append(f"| {label} | {r2_value} | {r1_display if r1_display is not None else r1_value} "
-                     f"| {budget} | {status} |")
+    def row(label, r2_value, budget, status):
+        lines.append(f"| {label} | {r2_value} | {budget} | {status} |")
 
     r2_install = s.get("r2_install_mb")
     row("Install size (exe + DLL + assets)",
         fmt(r2_install, 2, " MB"),
-        fmt(s.get("r1_install_mb"), 2, " MB") if r1_ok else "n/a",
         "≤ 15 MB",
         status_of(r2_install, BUDGET_INSTALL_MB))
     row("Engine size (.exe)",
         fmt(s.get("r2_engine_mb"), 2, " MB"),
-        fmt(s.get("r1_engine_mb"), 2, " MB") if r1_ok else "n/a",
         "≤ 1 MB",
         status_of(s.get("r2_engine_mb"), BUDGET_ENGINE_MB))
     row("Startup (init → primer frame)",
         fmt(s.get("r2_startup_init_ms"), 2, " ms"),
-        fmt(s.get("r1_startup_init_ms"), 2, " ms") if r1_ok else "n/a",
         "≤ 150 ms",
         status_of(s.get("r2_startup_init_ms"), BUDGET_STARTUP_MS))
     row("RSS pico (ventana)",
         fmt(s.get("r2_rss_peak_mb"), 2, " MB"),
-        fmt(s.get("r1_rss_peak_mb"), 2, " MB") if r1_ok else "n/a",
         "≤ 30 MB",
         status_of(s.get("r2_rss_peak_mb"), BUDGET_RSS_MB))
     row("CPU frame (R2 print)",
         fmt(s.get("r2_cpu_frame_ms"), 3, " ms"),
-        "n/a",
         "≤ 2 ms",
         status_of(s.get("r2_cpu_frame_ms"), BUDGET_CPU_FRAME_MS))
     row("CPU frame + layout inicial",
         fmt(s.get("r2_cpu_frame_plus_layout_ms"), 3, " ms"),
-        "n/a", "≤ 2 ms",
+        "≤ 2 ms",
         status_of(s.get("r2_cpu_frame_plus_layout_ms"), BUDGET_CPU_FRAME_MS))
     row("Layout 28 nodos (960/720/560)",
         f"{fmt(s.get('r2_layout_28_960_ms'), 4)} / {fmt(s.get('r2_layout_28_720_ms'), 4)} / "
         f"{fmt(s.get('r2_layout_28_560_ms'), 4)} ms",
-        "n/a", "≤ 0.5 ms",
+        "≤ 0.5 ms",
         status_of(max(filter(None, [s.get('r2_layout_28_960_ms'),
                                     s.get('r2_layout_28_720_ms'),
                                     s.get('r2_layout_28_560_ms')]), default=None),
                   BUDGET_LAYOUT_MS))
     row("Layout ~100 nodos (960)",
         fmt(s.get("r2_layout_100_ms"), 4, " ms"),
-        "n/a", "≤ 0.5 ms",
+        "≤ 0.5 ms",
         status_of(s.get("r2_layout_100_ms"), BUDGET_LAYOUT_MS))
     row("Offscreen 960×640 (wall proceso)",
         fmt(s.get("r2_offscreen_960_wall_ms"), 1, " ms"),
-        fmt(s.get("r1_offscreen_wall_ms"), 1, " ms") if r1_ok else "n/a",
         "informativo", "—")
-    row("Offscreen 960×640 (interno)†",
+    row("Offscreen 960×640 (interno)",
         fmt(s.get("r2_offscreen_960_frame_ms"), 1, " ms"),
-        fmt(s.get("r1_offscreen_internal_ms"), 1, " ms") if r1_ok else "n/a",
         "informativo", "—")
     row("Frame ventana (vsync)",
         fmt(s.get("r2_window_frame_avg_ms"), 2, " ms"),
-        fmt(s.get("r1_window_frame_avg_ms"), 2, " ms") if r1_ok else "n/a",
         "—", "—")
     lines.append("")
-    lines.append("† R2 `frame_ms` = build+upload+pass+readback+PNG (tras el init); R1 «total "
-                 "interno» = init+upload+pipeline+render+map+PNG. No son directamente "
-                 "comparables entre sí; el wall del proceso sí. El frame de ventana está "
-                 "limitado por vsync (~16 ms) y no es CPU puro.")
+    lines.append("El frame de ventana está limitado por vsync (~16 ms) y no es CPU puro.")
     lines.append("")
     lines.append("Los valores de la tabla son **medianas** de "
                  f"{b['runs_per_metric']} ejecuciones. `n/a` significa no medible de forma fiable "
@@ -1176,30 +1016,6 @@ def render_markdown(b: dict) -> str:
             ("peak_wset_bytes", "RSS pico", " B"),
         ]
         add_rows(f"R2 offscreen {key}", data, fields)
-    if r1_ok:
-        add_rows("R1 ventana 30 frames", r1["window"], [
-            ("init_ms", "startup init", " ms"),
-            ("window_frame_avg_ms", "frame pared (vsync)", " ms"),
-            ("wall_ms", "wall del proceso", " ms"),
-            ("peak_wset_bytes", "RSS pico (working set)", " B"),
-            ("peak_pagefile_bytes", "commit pico (pagefile, informativo)", " B"),
-        ])
-        if r1.get("startup_wall"):
-            add_rows("R1 --frames 1", r1["startup_wall"], [
-                ("init_ms", "startup init", " ms"),
-                ("wall_ms", "wall proceso (cota superior)", " ms"),
-            ])
-        if r1.get("offscreen"):
-            add_rows("R1 offscreen", r1["offscreen"], [
-                ("wall_ms", "wall proceso", " ms"),
-                ("init_upload_ms", "init+adapter+device+upload", " ms"),
-                ("pipeline_ms", "pipeline", " ms"),
-                ("render_ms", "render+copy+submit", " ms"),
-                ("map_ms", "map", " ms"),
-                ("png_ms", "PNG", " ms"),
-                ("internal_total_ms", "total interno", " ms"),
-                ("peak_wset_bytes", "RSS pico", " B"),
-            ])
     lines.append("")
     lines.append("La fila «commit pico (pagefile)» es la carga de commit máxima, no memoria "
                  "residente: con WARP/D3D12 incluye reservas grandes del rasterizador software "
@@ -1252,20 +1068,6 @@ def render_markdown(b: dict) -> str:
                      "`ui_data.h`. Solo mide layout; no entra en install/engine size.\n")
 
     lines.append("## Observaciones (derivadas de esta medición)\n")
-    rss_r2, rss_r1 = s.get("r2_rss_peak_mb"), s.get("r1_rss_peak_mb")
-    if rss_r2 is not None and rss_r1 is not None:
-        lines.append(
-            f"- **RSS**: R2 {rss_r2:.2f} MB vs R1 {rss_r1:.2f} MB (Δ {rss_r2 - rss_r1:+.2f} MB). "
-            f"Ambos superan el presupuesto de {BUDGET_RSS_MB:g} MB; con R1 (un `.exe` de "
-            f"{s.get('r1_engine_mb', 0):.2f} MB, sin layout en runtime) ya en {rss_r1:.2f} MB, "
-            "el grueso del RSS es el stack wgpu/D3D12/WARP y no el motor de R2. Hay que repetir "
-            "la medida en GPU hardware antes de tratar el presupuesto de 30 MB como fallo del engine.")
-    if s.get("r2_startup_init_ms") is not None and s.get("r1_startup_init_ms") is not None:
-        lines.append(
-            f"- **Startup**: R2 {s['r2_startup_init_ms']:.2f} ms vs R1 "
-            f"{s['r1_startup_init_ms']:.2f} ms (Δ "
-            f"{s['r2_startup_init_ms'] - s['r1_startup_init_ms']:+.2f} ms). El coste dominante "
-            "en ambos es crear instancia/adaptador/dispositivo/pipelines de wgpu, no el layout.")
     source_build = (b.get("snapshot", {}).get("source_build") or {})
     if source_build.get("init_ms") is not None and s.get("r2_startup_init_ms") is not None:
         lines.append(

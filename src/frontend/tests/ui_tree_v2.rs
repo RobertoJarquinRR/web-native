@@ -1,9 +1,9 @@
 //! Tests de integracion del contrato `webnative.ui-tree/2`.
 //!
-//! Ejecutan el binario real (`--emit-ui` / `--out`) sobre fixtures temporales.
+//! Ejecutan el binario real (`--emit-ui`) sobre fixtures temporales.
 //! No usan el runtime C ni comparan contra el oraculo Python: solo verifican
 //! que el frontend Rust parsea y emite los campos v2 acordados en
-//! `docs/ui-tree-v2.md` y que el camino R1 avisa en vez de inventar rects.
+//! `docs/ui-tree-v2.md`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -556,36 +556,6 @@ fn subset_rejects_pilot_features_without_pilot_and_allows_them_with_it() {
 }
 
 #[test]
-fn r1_warns_about_grid_scroll_and_images_and_emits_no_rects() {
-    let dir = temp_dir("r1-warning");
-    let html = r##"<!doctype html>
-<html>
-<head>
-<style>
-.gallery { display: grid; grid-template-columns: repeat(auto-fill, 180px); overflow: auto; height: 320px; }
-</style>
-</head>
-<body>
-  <div class="gallery"><img src="poster.png" width="180" height="240"></div>
-</body>
-</html>
-"##;
-    write(&dir.join("page.html"), html);
-
-    let output = run(&dir, "page.html", &["--out", "page.ir.json"]);
-    assert!(output.status.success(), "{}", stderr(&output));
-    let err = stderr(&output);
-    assert!(err.contains("warning[r1]"), "{err}");
-    assert!(err.contains("layout grid"), "{err}");
-    assert!(err.contains("scroll"), "{err}");
-    assert!(err.contains("kind:image"), "{err}");
-
-    let ir = read_json(&dir.join("page.ir.json"));
-    let ops = ir.get("ops").and_then(Json::as_array).expect("ops");
-    assert!(ops.is_empty(), "R1 no debe inventar rects: {ir:#?}");
-}
-
-#[test]
 fn object_fit_defaults_to_fill_without_css() {
     let dir = temp_dir("object-fit-default");
     let html = r##"<!doctype html>
@@ -820,30 +790,6 @@ fn css_v3_features_are_pilot_extensions() {
     assert!(!stderr(&allowed).contains("[subset]"));
 }
 
-#[test]
-fn r1_warns_about_border_radius_and_shadow_without_invalid_rects() {
-    let dir = temp_dir("css-v3-r1");
-    write(&dir.join("page.html"), CSS_V3_PAGE);
-
-    let output = run(&dir, "page.html", &["--out", "page.ir.json"]);
-    assert!(output.status.success(), "{}", stderr(&output));
-    let err = stderr(&output);
-    assert!(err.contains("warning[r1]"), "{err}");
-    assert!(err.contains("'border' solo se renderiza en R2"), "{err}");
-    assert!(err.contains("'border-radius'"), "{err}");
-    assert!(err.contains("'box-shadow'"), "{err}");
-
-    let ir = read_json(&dir.join("page.ir.json"));
-    let ops = ir.get("ops").and_then(Json::as_array).expect("ops");
-    // Solo la caja del card (fondo). Ni bordes, ni radios, ni sombras.
-    assert_eq!(ops.len(), 1, "{ir:#?}");
-    for op in ops {
-        assert_eq!(op.get("type").and_then(Json::as_str), Some("rect"));
-        assert_eq!(op.get("w").and_then(Json::as_f64), Some(400.0));
-        assert_eq!(op.get("h").and_then(Json::as_f64), Some(240.0));
-    }
-}
-
 // ------------------------------------------------------- ui-tree/3 (input)
 
 const INPUT_PAGE: &str = r##"<!doctype html>
@@ -899,14 +845,15 @@ fn input_emits_schema_3_with_spec_only() {
     for field in ["glyphs", "baseline", "line_height"] {
         assert!(input.get(field).is_none(), "input must not carry {field}");
     }
-    // Una pagina solo de inputs no genera atlas (ni atlas.bin al lado).
-    match doc.get("atlas") {
-        None | Some(Json::Null) => {}
-        other => panic!("input page must not emit an atlas: {other:#?}"),
-    }
+    // No se escribe atlas: el documento lo declara null y no deja ficheros.
+    assert_eq!(doc.get("atlas"), Some(&Json::Null));
     assert!(
         !dir.join("atlas.bin").is_file(),
-        "no atlas.bin for input-only pages"
+        "no atlas.bin is written"
+    );
+    assert!(
+        !dir.join("atlas.json").is_file(),
+        "no atlas.json is written"
     );
 
     // /3 hereda los campos v2 del estilo (aditivo, no regresivo).
@@ -939,7 +886,7 @@ fn input_emits_schema_3_with_spec_only() {
 }
 
 #[test]
-fn input_is_a_pilot_extension_and_r1_warns() {
+fn input_is_a_pilot_extension() {
     let dir = temp_dir("input-subset");
     write(&dir.join("page.html"), INPUT_PAGE);
 
@@ -962,12 +909,18 @@ fn input_is_a_pilot_extension_and_r1_warns() {
         stderr(&allowed)
     );
     assert!(!stderr(&allowed).contains("[subset]"));
+}
 
-    let r1 = run(&dir, "page.html", &["--out", "page.ir.json"]);
-    assert!(r1.status.success(), "{}", stderr(&r1));
-    let err = stderr(&r1);
-    assert!(err.contains("warning[r1]"), "{err}");
-    assert!(err.contains("widget text input"), "{err}");
+#[test]
+fn emit_ui_is_required() {
+    let dir = temp_dir("emit-ui-required");
+    write(&dir.join("page.html"), INPUT_PAGE);
+
+    let output = run(&dir, "page.html", &[]);
+    assert!(!output.status.success(), "sin --emit-ui debe fallar");
+    let err = stderr(&output);
+    assert!(err.contains("falta --emit-ui"), "{err}");
+    assert!(err.contains("--emit-ui <ui.json>"), "{err}");
 }
 
 #[test]

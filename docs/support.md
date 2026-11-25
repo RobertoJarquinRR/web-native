@@ -21,7 +21,7 @@ Leyenda:
 
 | Contrato                | Versión                    | Estado                   |
 | ----------------------- | -------------------------- | ------------------------ |
-| Display list R1         | `webnative.display-list/1` | ✅                       |
+| Display list R1         | `webnative.display-list/1` | archivado, ya no se emite |
 | UI tree base            | `webnative.ui-tree/1`      | ✅                       |
 | Grid, scroll e imágenes | `webnative.ui-tree/2`      | ✅ pilot                 |
 | Text input              | `webnative.ui-tree/3`      | ✅ pilot                 |

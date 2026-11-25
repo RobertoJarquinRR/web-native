@@ -1,7 +1,7 @@
 //! Diagnostico del contrato `subset v1` (`docs/subset-v1.md`).
 //!
-//! Solo inspecciona el HTML/CSS de entrada: no participa en la cascada, el
-//! layout ni la emision, de modo que el IR por defecto no cambia. Los
+//! Solo inspecciona el HTML/CSS de entrada: no participa en la cascada ni en
+//! la emision, de modo que la salida no cambia. Los
 //! diagnosticos llevan archivo y linea (CSS via `cssparser`; HTML con un
 //! escaner de etiquetas propio) y un contexto legible (selector, propiedad o
 //! etiqueta).

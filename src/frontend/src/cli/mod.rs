@@ -1,5 +1,3 @@
-//! Modo CLI de R1: diagnostico de subset, avisos de R1 y RSS pico del proceso.
+//! Modo CLI: diagnostico del subset v1 sobre el HTML/CSS de entrada.
 
-pub(crate) mod r1;
-pub(crate) mod rss;
 pub(crate) mod subset;

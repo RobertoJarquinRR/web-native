@@ -8,8 +8,7 @@
 │    Rust (canónico) · Python (oráculo) · C++/C# (frozen)      │
 ├──────────────────────────────────────────────────────────────┤
 │ 2. IR (contratos)                                            │
-│    ui.json / ui_data.h (style tree pre-layout)               │
-│    display_list.json (post-layout, solo tooling/paridad)     │
+│    ui.json / ui_data.h / app.wnui (style tree pre-layout)    │
 ├──────────────────────────────────────────────────────────────┤
 │ 3. Emitters (build time)                                     │
 │    emit_ui.py                                                │
@@ -46,7 +45,7 @@
 |---|---|---|---|
 | HTML/CSS → UI tree | `ui.json` | frontend | `emit_ui` |
 | UI tree → datos C | `ui_data.h` | emitter | runtime |
-| HTML/CSS → IR post-layout | `display_list.json` | frontend | benchmark de paridad con referencias congeladas |
+| UI tree → documento | `app.wnui` | emitter | `wn_document_load_blob` |
 | App ↔ engine | `include/webnative.h` | engine | host (C/C++/Rust/C#/Python) |
 | Engine ↔ GPU | vtable `wn_renderer` | core | D3D11 o wgpu |
 | Engine ↔ OS | vtable `wn_host` | core | Win32 host |
@@ -99,10 +98,10 @@ plataformas solo wgpu. `WN_RENDERER=d3d11|wgpu` fuerza uno para A/B.
 ### R1 estático (archivado)
 
 `HTML/CSS → display_list.json → emit_c → scene_data.h → .exe` existió como
-primera prueba. Duplicaba layout (en el frontend) y renderer
-(`archive/r1-static/runtime`), así que se retiró del producto. Vive en
-[`../archive/r1-static/`](../archive/r1-static/README.md); `display_list.json`
-sigue generándose para el benchmark de paridad con referencias congeladas.
+primera prueba. Duplicaba layout (en el frontend) y renderer, así que se retiró
+del producto: el runtime vive en
+[`../archive/r1-static/`](../archive/r1-static/README.md) y el frontend ya no
+emite `display_list.json`. Solo queda el nombre en el histórico.
 
 ## Repo
 

@@ -3,7 +3,7 @@ name = "frontend-rust"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.80"
-description = "HTML+CSS -> display-list IR frontend (parity with pipeline/frontend/python)"
+description = "HTML+CSS -> pre-layout style tree for the R2 runtime"
 publish = false
 
 [[bin]]
@@ -13,8 +13,6 @@ path = "src/main.rs"
 [dependencies]
 html5ever = "=0.39.0"
 cssparser = "=0.37.0"
-rustybuzz = "=0.20.1"
-ab_glyph = "=0.2.32"
 
 [profile.release]
 opt-level = 3

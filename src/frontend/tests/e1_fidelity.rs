@@ -132,8 +132,8 @@ fn font_weight_700_is_recorded_and_text_is_not_baked() {
         field_number(&json, "body.root/div#bold.row/text[1]", "width_px"),
         0.0
     );
-    let baked_glyphs = json.matches("\"x\": ").count();
-    assert_eq!(baked_glyphs, 0, "no glyph positions are baked: {json}");
+    assert!(!json.contains("\"glyphs\""), "no glyphs are baked: {json}");
+    assert!(!json.contains("\"baseline\""), "no baseline is baked: {json}");
 }
 
 const ALIGN_PAGE: &str = r##"<!doctype html>
@@ -202,7 +202,7 @@ const LINE_HEIGHT_PAGE: &str = r##"<!doctype html>
 "##;
 
 #[test]
-fn line_height_sets_the_text_box_and_the_baseline() {
+fn line_height_sets_the_text_box() {
     let dir = temp_dir("e1-line-height");
     fs::write(dir.join("page.html"), LINE_HEIGHT_PAGE).unwrap();
     let json = emit_ui(&dir, "page.html", "ui.json", &[]);
@@ -216,8 +216,7 @@ fn line_height_sets_the_text_box_and_the_baseline() {
         40.0
     );
     // `baseline` no se hornea: vive en el runtime que shapea el texto.
-    let baseline = field_number(&json, "body.root/div#tall.row/text[1]", "baseline");
-    assert_eq!(baseline, 0.0, "baseline is not baked: {baseline}");
+    assert!(!json.contains("\"baseline\""), "baseline is not baked: {json}");
 }
 
 const AUTO_PAGE: &str = r##"<!doctype html>

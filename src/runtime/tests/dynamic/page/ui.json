@@ -8,18 +8,8 @@
   "viewport": { "width": 400, "height": 300 },
   "rule_count": 13,
   "node_count": 17,
-  "text": { "glyph_count": 0, "text_run_count": 4 },
-  "atlas": {
-      "file": "atlas.bin",
-      "json": "atlas.json",
-      "width": 256,
-      "height": 256,
-      "format": "r8unorm",
-      "size_bytes": 65536,
-      "sha256": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
-      "glyph_count": 0,
-      "pixels_nonzero": 0
-    },
+  "text": { "text_run_count": 4 },
+  "atlas": null,
   "nodes": [
     {
       "id": 0,
@@ -548,10 +538,7 @@
         "selected": 0
       },
       "text": {
-        "content": "Dynamic",
-        "baseline": 0.0,
-        "glyphs": [
-        ]
+        "content": "Dynamic"
       }
     },
     {
@@ -1350,10 +1337,7 @@
         "selected": 0
       },
       "text": {
-        "content": "Alpha",
-        "baseline": 0.0,
-        "glyphs": [
-        ]
+        "content": "Alpha"
       }
     },
     {
@@ -1888,10 +1872,7 @@
         "selected": 0
       },
       "text": {
-        "content": "Beta",
-        "baseline": 0.0,
-        "glyphs": [
-        ]
+        "content": "Beta"
       }
     },
     {
@@ -2289,10 +2270,7 @@
         "selected": 0
       },
       "text": {
-        "content": "Clone",
-        "baseline": 0.0,
-        "glyphs": [
-        ]
+        "content": "Clone"
       }
     }
   ]

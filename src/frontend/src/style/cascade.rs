@@ -78,8 +78,7 @@ pub(crate) struct ComputedStyle {
     /// v2: `fill | cover | contain`; se emite dentro de `image.object_fit`.
     pub(crate) object_fit: Option<String>,
     /// `data-hover` / `data-press` / `data-selected` / `data-action` crudos.
-    /// La cascada los transporta porque el runtime R2 los necesita por nodo y
-    /// el IR de R1 los ignora deliberadamente.
+    /// La cascada los transporta porque el runtime R2 los necesita por nodo.
     pub(crate) data_hover: Option<String>,
     pub(crate) data_press: Option<String>,
     pub(crate) data_selected: Option<String>,

@@ -1,9 +1,8 @@
 //! Extensiones de estilo CSS v3: bordes, radio, sombras y unidades relativas.
 //!
 //! El frontend las **parsea, cascadea y emite** en `ui.json` (`webnative.ui-tree/2`);
-//! el layout y el pintado siguen siendo responsabilidad del runtime R2. Nada de
-//! este modulo toca el display list de R1: `layout.rs` solo consume
-//! `width`/`height`/`margin`/`padding`/`gap` (ya resueltos a px).
+//! el layout y el pintado siguen siendo responsabilidad del runtime R2. Este
+//! modulo solo resuelve los px que el documento transporta.
 //!
 //! Unidades relativas soportadas: `em`, `rem`, `vh`, `vw`. La resolucion a px
 //! usa el contexto de build (`LengthCtx`): font-size computado del nodo,

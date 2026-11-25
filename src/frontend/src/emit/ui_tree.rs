@@ -1,18 +1,14 @@
 //! `--emit-ui`: arbol de estilos **pre-layout** para el runtime R2.
 //!
-//! El IR de R1 es un display list post-layout (rects y text runs ya
-//! posicionados) y no sirve para recalcular a otro viewport. R2 necesita el
-//! arbol tal cual sale de la cascada, con los valores computados y sin
-//! geometria: `emit_ui.py` lo consume y lo convierte en `ui_data.h`.
+//! El arbol sale de la cascada con los valores computados y sin geometria:
+//! `emit_ui.py` lo consume y lo convierte en `ui_data.h`. El texto viaja como
+//! string + estilo; el runtime lo mide, lo shapea y lo rasteriza.
 //!
 //! El aplanado reproduce `Emitter` de `src/emitter/python/emit_ui.py`:
 //! pre-orden, texto propio antes de los hijos, nombres `tag#id.clase` con
 //! sufijo `[n]` para duplicados, y `%` conservados como `width_pct`.
 //!
-//! Salida (junto al `ui.json`):
-//!   - `ui.json`     arbol + estilos + data-* + texto con glyphs pre-shapeados
-//!   - `atlas.bin`   R8 256x256 (solo si el documento tiene texto)
-//!   - `atlas.json`  dimensiones, sha256 y conteos del atlas
+//! Salida: `ui.json` (arbol + estilos + data-*). No se escribe atlas.
 //!
 //! No ejecuta el pase de layout: no hay x/y/w/h de cajas, solo el estilo.
 //! Emite `webnative.ui-tree/1` si la pagina no usa features v2 y
@@ -30,7 +26,7 @@
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::emit::emit::{push_json_string, py_float};
 use crate::parse::dom::{Dom, Node, NodeId};
@@ -38,8 +34,6 @@ use crate::style::cascade::ComputedStyle;
 use crate::style::color::parse_color;
 use crate::style::grid::{GridAutoRows, GridTemplateColumns};
 use crate::style::style_ext::{BorderOut, BoxShadow, RelLength, StyleV3, Unit};
-use crate::text::{parse_font_weight, Atlas, UiGlyphOut, UiTextBaker};
-use crate::util::sha256;
 
 /// Schema sin features v2 (grid/scroll/imagenes). Identico al contrato previo.
 pub(crate) const SCHEMA_V1: &str = "webnative.ui-tree/1";
@@ -219,8 +213,6 @@ struct ArgbOut {
 
 struct TextOut {
     content: String,
-    baseline: f64,
-    glyphs: Vec<UiGlyphOut>,
 }
 
 /// Contenido de un nodo `kind:"image"` (solo schema `/2`).
@@ -257,19 +249,14 @@ struct NodeOut {
 /// Resumen para el log del build.
 pub(crate) struct UiSummary {
     pub(crate) nodes: usize,
-    pub(crate) glyphs: usize,
     pub(crate) runs: usize,
-    pub(crate) atlas: Option<(u32, u32)>,
-    pub(crate) atlas_path: Option<PathBuf>,
 }
 
 struct Builder<'a> {
     dom: &'a Dom,
     styles: &'a [Option<ComputedStyle>],
-    baker: UiTextBaker,
     nodes: Vec<NodeOut>,
     name_counts: HashMap<String, usize>,
-    glyph_count: usize,
     run_count: usize,
 }
 
@@ -278,10 +265,8 @@ impl<'a> Builder<'a> {
         Builder {
             dom,
             styles,
-            baker: UiTextBaker::new(),
             nodes: Vec::new(),
             name_counts: HashMap::new(),
-            glyph_count: 0,
             run_count: 0,
         }
     }
@@ -543,19 +528,14 @@ impl<'a> Builder<'a> {
         } else {
             DEFAULT_SIZE
         };
-        let weight = parse_font_weight(&style.font_weight);
         // Text is shaped, measured and rasterized by the runtime; the document
         // only carries the string, the family, the size, the weight and an
         // optional line box.
-        let glyphs = Vec::new();
-        let node_width = 0.0;
         let node_height = if style.line_height > 0.0 {
             style.line_height.ceil()
         } else {
             0.0
         };
-        let baseline = 0.0;
-        let _ = weight;
         let text_name = self.unique_name("text");
         let index = self.nodes.len();
         self.nodes.push(NodeOut {
@@ -582,7 +562,7 @@ impl<'a> Builder<'a> {
                 grid_template_columns: None,
                 grid_auto_rows: None,
                 overflow: None,
-                width_px: node_width,
+                width_px: 0.0,
                 width_pct: 0.0,
                 height_px: node_height,
                 height_pct: 0.0,
@@ -617,17 +597,10 @@ impl<'a> Builder<'a> {
             },
             text: Some(TextOut {
                 content: text.to_string(),
-                baseline,
-                glyphs,
             }),
             image: None,
             input: None,
         });
-        self.glyph_count += self.nodes[index]
-            .text
-            .as_ref()
-            .map(|text| text.glyphs.len())
-            .unwrap_or(0);
         self.run_count += 1;
         Ok(index)
     }
@@ -981,29 +954,7 @@ fn push_nodes_json(out: &mut String, nodes: &[NodeOut], detailed: bool, extras: 
             Some(text) => {
                 out.push_str("{\n        \"content\": ");
                 push_json_string(out, &text.content);
-                out.push_str(",\n        \"baseline\": ");
-                push_float(out, text.baseline);
-                out.push_str(",\n        \"glyphs\": [");
-                for (glyph_index, glyph) in text.glyphs.iter().enumerate() {
-                    if glyph_index > 0 {
-                        out.push(',');
-                    }
-                    let _ = write!(
-                        out,
-                        "\n          {{ \"gid\": {}, \"advance\": {}, \"x\": {}, \"y\": {}, \"w\": {}, \"h\": {}, \"u0\": {}, \"v0\": {}, \"u1\": {}, \"v1\": {} }}",
-                        glyph.gid,
-                        py_float(glyph.advance),
-                        py_float(glyph.x),
-                        py_float(glyph.y),
-                        glyph.w,
-                        glyph.h,
-                        py_float(glyph.u0),
-                        py_float(glyph.v0),
-                        py_float(glyph.u1),
-                        py_float(glyph.v1)
-                    );
-                }
-                out.push_str("\n        ]\n      }");
+                out.push_str("\n      }");
             }
         }
         // Solo los nodos input llevan `input` (schema `/3`).
@@ -1030,36 +981,6 @@ fn push_nodes_json(out: &mut String, nodes: &[NodeOut], detailed: bool, extras: 
             out.push_str("\n      }");
         }
         out.push_str("\n    }");
-    }
-}
-
-struct AtlasRef<'a> {
-    atlas: &'a Atlas,
-    file: &'a str,
-    json: &'a str,
-}
-
-fn push_atlas_json(out: &mut String, reference: Option<&AtlasRef<'_>>) {
-    match reference {
-        None => out.push_str("null"),
-        Some(item) => {
-            let atlas = item.atlas;
-            let hash = sha256::hex(&sha256::digest(&atlas.data));
-            out.push_str("{\n      \"file\": ");
-            push_json_string(out, item.file);
-            out.push_str(",\n      \"json\": ");
-            push_json_string(out, item.json);
-            let _ = write!(
-                out,
-                ",\n      \"width\": {},\n      \"height\": {},\n      \"format\": \"r8unorm\",\n      \"size_bytes\": {},\n      \"sha256\": \"{}\",\n      \"glyph_count\": {},\n      \"pixels_nonzero\": {}\n    }}",
-                atlas.width(),
-                atlas.height(),
-                atlas.data.len(),
-                hash,
-                atlas.glyph_count(),
-                atlas.pixels_nonzero()
-            );
-        }
     }
 }
 
@@ -1108,10 +1029,9 @@ fn nodes_have_input(nodes: &[NodeOut]) -> bool {
     nodes.iter().any(|node| node.input.is_some())
 }
 
-/// Emite `ui.json` (+ atlas) desde el DOM y la cascada ya calculados.
+/// Emite `ui.json` desde el DOM y la cascada ya calculados.
 ///
-/// `ui_path` es el fichero `ui.json`; el atlas se escribe al lado con nombres
-/// fijos `atlas.bin` / `atlas.json`, referenciados desde el JSON.
+/// `ui_path` es el fichero `ui.json`; no se escribe ningun atlas al lado.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_ui_tree(
     dom: &Dom,
@@ -1138,11 +1058,7 @@ pub(crate) fn emit_ui_tree(
     let mut builder = Builder::new(dom, styles);
     builder.emit_element(body, -1, "body.root", true)?;
     let Builder {
-        nodes,
-        baker,
-        glyph_count,
-        run_count,
-        ..
+        nodes, run_count, ..
     } = builder;
 
     let v3 = nodes_have_input(&nodes);
@@ -1167,17 +1083,8 @@ pub(crate) fn emit_ui_tree(
     } else {
         SCHEMA_V1
     };
-    let atlas: Option<AtlasRef<'_>> = if run_count > 0 {
-        Some(AtlasRef {
-            atlas: baker.atlas(),
-            file: "atlas.bin",
-            json: "atlas.json",
-        })
-    } else {
-        None
-    };
 
-    let mut out = String::with_capacity(4096 + nodes.len() * 768 + glyph_count * 160);
+    let mut out = String::with_capacity(4096 + nodes.len() * 768);
     out.push_str("{\n  \"schema\": ");
     push_json_string(&mut out, schema);
     out.push_str(",\n  \"generator\": \"frontend-rust\",\n  \"source\": {\n    \"html\": ");
@@ -1186,10 +1093,9 @@ pub(crate) fn emit_ui_tree(
     push_opt_string(&mut out, source_css);
     let _ = write!(
         out,
-        "\n  }},\n  \"viewport\": {{ \"width\": {}, \"height\": {} }},\n  \"rule_count\": {},\n  \"node_count\": {},\n  \"text\": {{ \"glyph_count\": {}, \"text_run_count\": {} }},\n  \"atlas\": ",
-        viewport.0, viewport.1, rule_count, nodes.len(), glyph_count, run_count
+        "\n  }},\n  \"viewport\": {{ \"width\": {}, \"height\": {} }},\n  \"rule_count\": {},\n  \"node_count\": {},\n  \"text\": {{ \"text_run_count\": {} }},\n  \"atlas\": null",
+        viewport.0, viewport.1, rule_count, nodes.len(), run_count
     );
-    push_atlas_json(&mut out, atlas.as_ref());
     out.push_str(",\n  \"nodes\": [");
     push_nodes_json(&mut out, &nodes, detailed, extras);
     out.push_str("\n  ]\n}\n");
@@ -1201,32 +1107,17 @@ pub(crate) fn emit_ui_tree(
     }
     fs::write(ui_path, out).map_err(|err| format!("{}: {err}", ui_path.display()))?;
 
-    let mut atlas_path = None;
-    if let Some(item) = &atlas {
-        let bin_path = ui_path.with_file_name(item.file);
-        fs::write(&bin_path, &item.atlas.data)
-            .map_err(|err| format!("{}: {err}", bin_path.display()))?;
-        let json_path = ui_path.with_file_name(item.json);
-        fs::write(&json_path, crate::emit::atlas_json(item.atlas))
-            .map_err(|err| format!("{}: {err}", json_path.display()))?;
-        atlas_path = Some(bin_path);
-    } else {
-        // Un documento sin texto no debe dejar un atlas viejo al lado del JSON.
-        for name in ["atlas.bin", "atlas.json"] {
-            let stale = ui_path.with_file_name(name);
-            if stale.exists() {
-                let _ = fs::remove_file(stale);
-            }
+    // El documento ya no referencia un atlas: retirar uno viejo evita que se
+    // confunda con una salida de esta ejecucion.
+    for name in ["atlas.bin", "atlas.json"] {
+        let stale = ui_path.with_file_name(name);
+        if stale.exists() {
+            let _ = fs::remove_file(stale);
         }
     }
 
     Ok(UiSummary {
         nodes: nodes.len(),
-        glyphs: glyph_count,
         runs: run_count,
-        atlas: atlas
-            .as_ref()
-            .map(|item| (item.atlas.width(), item.atlas.height())),
-        atlas_path,
     })
 }

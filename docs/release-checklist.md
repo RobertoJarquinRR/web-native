@@ -101,9 +101,6 @@ python tools\cli.py test all
 
 # Piloto: emite, compila y verifica pilot-media-library
 python tools\cli.py bench pilot
-
-# Paridad de frontends congelados (Rust + oráculo): debe dar PASS
-python benchmarks\frontend-parity\tools\bench.py --runs 1 --warmup 0
 ```
 
 - [ ] R2 **69/69**.
