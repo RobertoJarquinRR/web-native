@@ -423,6 +423,62 @@ int main(int argc, char **argv)
     wn_core_remove(g_core, clone);
     wn_core_relayout(g_core);
 
+    /* -------------------------------------------------- arena growth (A4) */
+    {
+        enum { kStressClones = 1500 };
+        int body = wn_core_find_node(g_core, "body.root");
+        int *ids = (int *)malloc(sizeof(int) * (size_t)kStressClones);
+        int created = 0;
+        int alive = 0;
+        int laid_out = 0;
+        int i;
+
+        check("stress container", body >= 0 && ids != NULL,
+              "body.root is the scroll container");
+        for (i = 0; ids != NULL && body >= 0 && i < kStressClones; ++i) {
+            int node = wn_core_clone(g_core, card0, body);
+            if (node < 0) {
+                break;
+            }
+            ids[created++] = node;
+        }
+        for (i = 0; i < created; ++i) {
+            if (wn_core_node_is_alive(g_core, ids[i]) &&
+                wn_core_node_parent(g_core, ids[i]) == body) {
+                ++alive;
+            }
+        }
+        wn_core_relayout(g_core);
+        wn_core_build_display_list(g_core);
+        for (i = 0; i < created; ++i) {
+            if (rect_of(ids[i]).w == 120.0f) {
+                ++laid_out;
+            }
+        }
+        check("stress clones created",
+              created == kStressClones &&
+                  wn_core_live_node_count(g_core) == UI_NODE_COUNT + 4 * kStressClones,
+              "1,500 clones of the 4-node card subtree");
+        check("stress clones alive", alive == created,
+              "every clone is live under the scroll container");
+        check("stress layout", laid_out == created &&
+              wn_core_node_count(g_core) >= UI_NODE_COUNT + 4 * kStressClones,
+              "arena and every clone box grew");
+        for (i = 0; i < created; ++i) {
+            (void)wn_core_remove(g_core, ids[i]);
+        }
+        wn_core_relayout(g_core);
+        wn_core_build_display_list(g_core);
+        check("stress removal", wn_core_live_node_count(g_core) == UI_NODE_COUNT,
+              "only the compiled tree stays live");
+        event_begin(report, "stress");
+        write_counts(report);
+        fprintf(report, ",\"clones\":%d,\"alive\":%d,\"laid_out\":%d,\"arena\":%d,",
+                created, alive, laid_out, wn_core_node_count(g_core));
+        event_end(report);
+        free(ids);
+    }
+
     /* ------------------------------------------------------- clear children */
     clear_rc = wn_core_clear_children(g_core, cards);
     wn_core_relayout(g_core);

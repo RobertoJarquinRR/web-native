@@ -15,6 +15,8 @@ body {
   display: flex;
   flex-direction: column;
   background: #0b0e14;
+  /* Scroll container: the stress test appends 1,500 clones here. */
+  overflow: auto;
 }
 
 .toolbar {

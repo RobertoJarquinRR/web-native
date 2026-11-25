@@ -15,7 +15,12 @@
 #include "wn_core.h"
 
 #define WN_MAX_CLASSES 8
-#define WN_MAX_NODES 4096
+
+/* The node arena starts at WN_NODE_MIN_CAPACITY slots and grows on demand in
+ * 1.5x steps, so a host can materialise large lists. WN_NODE_MAX_CAPACITY keeps
+ * the int index arithmetic and the per-array byte sizes bounded. */
+#define WN_NODE_MIN_CAPACITY 512
+#define WN_NODE_MAX_CAPACITY (1 << 20)
 
 /* ui-tree/3 text input. Only the spec lives in the document; the text is
  * shaped and rasterized by the runtime like any other string. */
@@ -68,12 +73,14 @@ struct wn_core {
 
     /* Mutable node arena. [0, compiled_count) are copies of the compiled nodes;
      * slots from compiled_count up are cloned at runtime. Removed slots are
-     * recycled through free_list. */
+     * recycled through free_list; generation[i] invalidates handles that were
+     * issued before the slot was reused. */
     UiNode *nodes;
     const char **names;          /* compiled names are borrowed from wn_document */
     int node_count;              /* high-water mark */
     int live_count;
     int node_capacity;
+    uint32_t *generation;
     unsigned char *alive;
     unsigned char *dynamic_node;
     unsigned char *visible;

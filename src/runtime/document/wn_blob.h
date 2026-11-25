@@ -11,6 +11,11 @@ extern "C" {
 #define WN_BLOB_VERSION 2u
 #define WN_BLOB_HEADER_SIZE 32u
 
+/* Loader limits: the layout/paint walk is recursive, so a crafted chain would
+ * otherwise overflow the stack. Both are rejected before a core is built. */
+#define WN_BLOB_MAX_NODES 65536u
+#define WN_BLOB_MAX_DEPTH 512
+
 typedef enum {
     WN_BLOB_SECTION_NODES = 1,
     WN_BLOB_SECTION_NAMES = 2,

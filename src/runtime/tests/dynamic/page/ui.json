@@ -35,7 +35,7 @@
         "column_gap": 0.0,
         "grid_template_columns": null,
         "grid_auto_rows": null,
-        "overflow": null,
+        "overflow": "auto",
         "width_px": -1.0,
         "width_pct": 100.0,
         "height_px": -1.0,

@@ -305,7 +305,7 @@ def run_dynamic() -> int:
     fixture.mkdir(parents=True, exist_ok=True)
     for image in ("a.png", "b.png"):
         if not (page / "images" / image).is_file():
-            _python(suite / "make_images.py", [str(page)], cwd=suite)
+            _python(suite / "make_images.py", [str(page / "images")], cwd=suite)
             break
 
     log_step("dynamic: fixture header")
@@ -342,6 +342,10 @@ def run_dynamic() -> int:
         "clear_children -> nodes=9",
         "dynamic: nav clone=",
         "parent_ok=1 chain_ok=1 invalid_ok=1",
+        "dynamic: stale handle",
+        "-> rejected",
+        "dynamic: growth clones=1500 alive=1500 nodes=6017 -> grown",
+        "dynamic: growth removed nodes=17 -> restored",
         "dynamic: click clone -> node=",
         "target=(null)",
         "dynamic: click card -> node=",

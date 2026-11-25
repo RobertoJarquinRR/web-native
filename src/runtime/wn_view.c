@@ -48,6 +48,12 @@ static void view_mark_geometry(wn_view *view)
     view->geometry_dirty = 1;
 }
 
+/* Dispatch guard: a callback may destroy the view (directly or through
+ * wn_app_destroy). The flag lives outside the struct so the second semantic
+ * event is never delivered to a freed callback. */
+static _Thread_local wn_view *g_dispatch_view;
+static _Thread_local int g_dispatch_destroyed;
+
 static void view_resize_internal(wn_view *view, int width, int height, float dpi)
 {
     if (width < 0) width = 0;
@@ -304,7 +310,10 @@ static wn_view *view_create_with_surface(const wn_surface_desc *surface,
         view->owns_core = 1;
     }
     if (view->core == NULL) {
-        wn_set_error("wn_view_create: core creation failed");
+        char detail[512];
+        snprintf(detail, sizeof(detail), "%s",
+                 wn_last_error() != NULL ? wn_last_error() : "core creation failed");
+        wn_set_error("wn_view_create: %s", detail);
         free(view);
         return NULL;
     }
@@ -422,22 +431,28 @@ wn_view *wn_view_create_offscreen(int32_t width, int32_t height)
 }
 
 /* Replaces the compiled document: a fresh core is built from it and the
- * previous one is released. The view takes ownership of `document`. */
+ * previous one is released. The view takes ownership of `document`. Passing the
+ * current document again rebuilds the core but keeps the single reference. */
 int wn_view_replace_document(wn_view *view, wn_document *document)
 {
     wn_core *core;
 
     if (view == NULL || document == NULL) {
+        wn_set_error("wn_view_replace_document: view and document are required");
         return 1;
     }
     core = wn_core_create(document);
     if (core == NULL) {
+        char detail[512];
+        snprintf(detail, sizeof(detail), "%s",
+                 wn_last_error() != NULL ? wn_last_error() : "cannot build a core");
+        wn_set_error("wn_view_replace_document: %s", detail);
         return 1;
     }
-    if (view->owns_core) {
+    if (view->owns_core && view->core != NULL) {
         wn_core_destroy(view->core);
     }
-    if (view->document != NULL) {
+    if (view->document != NULL && view->document != document) {
         wn_document_destroy((wn_document *)view->document);
     }
     view->core = core;
@@ -455,6 +470,14 @@ wn_status wn_view_set_state(wn_view *view, int node, int state, int enabled)
     wn_clear_error();
     if (view == NULL || view->core == NULL) {
         wn_set_error("wn_view_set_state: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    if (state < WN_STATE_HOVER || state > WN_STATE_SELECTED) {
+        wn_set_error("wn_view_set_state: unknown state %d", state);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    if (!wn_core_node_is_alive(view->core, node)) {
+        wn_set_error("wn_view_set_state: node %d is not alive", node);
         return WN_ERR_INVALID_ARGUMENT;
     }
     wn_core_set_state(view->core, node, state, enabled);
@@ -677,7 +700,7 @@ wn_status wn_view_event(wn_view *view, const wn_event *event)
         /* ABI v5: the handle is the identity for every node, clones included.
          * target_id keeps exposing compiled element ids only: clones carry
          * synthetic arena names ("clone#N") that are not document ids. */
-        out.node = (wn_node_id)((uint64_t)hit + 1u);
+        out.node = wn_view_handle(view, hit);
         if (!wn_core_node_is_dynamic(view->core, hit)) {
             target = wn_core_node_name(view->core, hit);
         }
@@ -687,13 +710,22 @@ wn_status wn_view_event(wn_view *view, const wn_event *event)
         view_mark_geometry(view);
     }
     if (view->callback != NULL) {
-        view->callback(view->userdata, &out);
-        if (input_value_changed) {
+        wn_view *previous_view = g_dispatch_view;
+        int previous_destroyed = g_dispatch_destroyed;
+        wn_event_cb callback = view->callback;
+        void *userdata = view->userdata;
+
+        g_dispatch_view = view;
+        g_dispatch_destroyed = 0;
+        callback(userdata, &out);
+        if (input_value_changed && !g_dispatch_destroyed) {
             wn_event semantic = out;
             semantic.type = WN_EVENT_INPUT;
             semantic.target_id = target;
-            view->callback(view->userdata, &semantic);
+            callback(userdata, &semantic);
         }
+        g_dispatch_view = previous_view;
+        g_dispatch_destroyed = previous_destroyed;
     }
     return WN_OK;
 }
@@ -787,6 +819,9 @@ void wn_view_destroy(wn_view *view)
         return;
     }
     wn_clear_error();
+    if (g_dispatch_view == view) {
+        g_dispatch_destroyed = 1;
+    }
     if (view->ops != NULL && view->renderer != NULL) {
         view->ops->destroy(view->renderer);
     }
@@ -827,6 +862,17 @@ int wn_view_get_stats(const wn_view *view, wn_view_stats *stats)
     }
     *stats = view->stats;
     return 0;
+}
+
+void wn_view_reset_stats(wn_view *view)
+{
+    if (view == NULL) {
+        return;
+    }
+    memset(&view->stats, 0, sizeof(view->stats));
+    view->have_frame = 0;
+    view->first_frame_ms = 0.0;
+    view->created_ms = wn_now_ms();
 }
 
 const char *wn_view_backend(const wn_view *view)
@@ -927,23 +973,54 @@ wn_status wn_view_set_class(wn_view *view, const char *id, const char *class_nam
 }
 
 /* ---------------------------------------------------- dynamic UI (ABI v3) */
+/*
+ * wn_node_id = (generation << 32) | (index + 1). The generation comes from the
+ * arena slot, so a handle kept across a removal does not resolve once the slot
+ * is reused. Both halves are required: 0 is WN_NODE_INVALID.
+ */
+wn_node_id wn_view_handle(const wn_view *view, int index)
+{
+    uint32_t generation;
+    if (view == NULL || view->core == NULL || index < 0) {
+        return WN_NODE_INVALID;
+    }
+    generation = wn_core_node_generation(view->core, index);
+    if (generation == 0) {
+        return WN_NODE_INVALID;
+    }
+    return ((wn_node_id)generation << 32) |
+           (wn_node_id)(uint32_t)(index + 1);
+}
+
+int wn_view_resolve_handle(const wn_view *view, wn_node_id node)
+{
+    uint32_t generation;
+    uint32_t index;
+    if (view == NULL || view->core == NULL || node == WN_NODE_INVALID) {
+        return -1;
+    }
+    index = (uint32_t)(node & 0xFFFFFFFFu);
+    generation = (uint32_t)(node >> 32);
+    if (index == 0 || index > (uint32_t)INT32_MAX || generation == 0) {
+        return -1;
+    }
+    if (!wn_core_node_is_alive(view->core, (int)(index - 1))) {
+        return -1;
+    }
+    if (wn_core_node_generation(view->core, (int)(index - 1)) != generation) {
+        return -1;
+    }
+    return (int)(index - 1);
+}
 
 static int view_node_index(const wn_view *view, wn_node_id node)
 {
-    int index;
-    if (view == NULL || node == WN_NODE_INVALID) {
-        return -1;
-    }
-    index = (int)(node - 1u);
-    if (!wn_core_node_is_alive(view->core, index)) {
-        return -1;
-    }
-    return index;
+    return wn_view_resolve_handle(view, node);
 }
 
-static wn_node_id view_node_handle(int index)
+static wn_node_id view_node_handle(const wn_view *view, int index)
 {
-    return index >= 0 ? (wn_node_id)((uint64_t)index + 1u) : WN_NODE_INVALID;
+    return wn_view_handle(view, index);
 }
 
 wn_node_id wn_view_find(wn_view *view, const char *name)
@@ -963,7 +1040,7 @@ wn_node_id wn_view_find(wn_view *view, const char *name)
         wn_set_error("wn_app_find: node '%s' not found", name);
         return WN_NODE_INVALID;
     }
-    return view_node_handle(node);
+    return view_node_handle(view, node);
 }
 
 wn_node_id wn_view_root(wn_view *view)
@@ -977,7 +1054,7 @@ wn_node_id wn_view_root(wn_view *view)
     for (i = 0; i < wn_core_node_count(view->core); ++i) {
         if (wn_core_node_is_alive(view->core, i) &&
             wn_core_node_parent(view->core, i) < 0) {
-            return view_node_handle(i);
+            return view_node_handle(view, i);
         }
     }
     wn_set_error("wn_app_root: the document has no root");
@@ -1122,7 +1199,7 @@ wn_node_id wn_view_clone(wn_view *view, wn_node_id template_node, wn_node_id par
     }
     result = wn_core_clone(view->core, template_index, parent_index);
     if (result == -2) {
-        wn_set_error("wn_node_clone: node arena is full (%d nodes)",
+        wn_set_error("wn_node_clone: cannot grow the node arena (%d slots)",
                      wn_core_node_count(view->core));
         return WN_NODE_INVALID;
     }
@@ -1133,7 +1210,7 @@ wn_node_id wn_view_clone(wn_view *view, wn_node_id template_node, wn_node_id par
         return WN_NODE_INVALID;
     }
     view_mark_geometry(view);
-    return view_node_handle(result);
+    return view_node_handle(view, result);
 }
 
 wn_status wn_view_remove(wn_view *view, wn_node_id node)
