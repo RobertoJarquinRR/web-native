@@ -28,7 +28,14 @@ RUNTIME_LIBS = (
     "user32.lib",
     "gdi32.lib",
 )
-CFLAGS = ("/nologo", "/O2", "/W4", "/WX", "/std:c17", "/TC", "/D_CRT_SECURE_NO_WARNINGS", "/DWN_STATIC")
+CFLAGS = ("/nologo", "/O2", "/W4", "/WX", "/D_CRT_SECURE_NO_WARNINGS", "/DWN_STATIC")
+CXX_SUFFIXES = (".cpp", ".cc", ".cxx")
+
+
+def _language_flags(source: Path) -> list[str]:
+    if source.suffix.lower() in CXX_SUFFIXES:
+        return ["/std:c++17"]
+    return ["/std:c17", "/TC"]
 
 
 def _suite_dir(name: str) -> Path:
@@ -49,9 +56,23 @@ def _compile(
     cl = check_binary("cl", get_build_env())
     if not cl:
         raise CliError("cl.exe not found; run wn-cli setup to provision the MSVC toolchain")
-    command = [cl, *CFLAGS, *[str(item) for item in sources]]
-    command += [f"/I{path}" for path in includes]
-    command += [f"/Fo{exe.parent}{os.sep}", f"/Fe{exe}"]
+
+    objects_dir = exe.parent / "obj"
+    objects_dir.mkdir(parents=True, exist_ok=True)
+    include_flags = [f"/I{path}" for path in includes]
+    objects: list[str] = []
+    for source in sources:
+        source = Path(source)
+        object_file = objects_dir / f"{source.stem}.obj"
+        run_cmd(
+            [cl, *CFLAGS, *_language_flags(source), *include_flags, "/c",
+             f"/Fo{object_file}", str(source)],
+            cwd=exe.parent,
+            use_build_env=True,
+        )
+        objects.append(str(object_file))
+
+    command = [cl, *CFLAGS, *objects, f"/Fe{exe}"]
     if libs:
         command += ["/link", *libs]
     run_cmd(command, cwd=exe.parent, use_build_env=True)
@@ -422,12 +443,32 @@ def run_offscreen() -> int:
     return 0
 
 
+def run_text() -> int:
+    suite = _suite_dir("text")
+    out = suite / "out"
+    out.mkdir(parents=True, exist_ok=True)
+    runtime = get_paths().runtime
+
+    log_step("text: measure backend")
+    exe = out / "text_measure_test.exe"
+    _compile(
+        exe,
+        [suite / "measure_test.c", runtime / "text" / "text_directwrite.cpp"],
+        [get_paths().root / "include", runtime],
+        ["dwrite.lib"],
+    )
+    _expect(_run(exe, [], out), ["text_measure_test: PASS"], "text measure test")
+    log_info("runtime text v0: PASS")
+    return 0
+
+
 SUITES = {
     "css": ("CSS core v1 (rounded boxes, border, shadow, image)", run_css),
     "fidelity": ("E1 visual/layout fidelity (headless core + renders)", run_fidelity),
     "dynamic": ("dynamic UI v0 (visibility, clone/append/remove, ABI demo)", run_dynamic),
     "input": ("text input v1 (caret, selection, clipboard, ABI demo)", run_input),
     "offscreen": ("offscreen vtable (d3d11 vs wgpu readback)", run_offscreen),
+    "text": ("runtime text v0 (DirectWrite measurement + cache)", run_text),
 }
 
 
