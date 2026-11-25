@@ -14,6 +14,7 @@ add_library(wn_runtime_obj OBJECT
     wn_common.c
     wn_core.c
     text/text_runtime.c
+    text/text_atlas.c
     text/text_directwrite.cpp
     wn_view.c 
     wn_app.c

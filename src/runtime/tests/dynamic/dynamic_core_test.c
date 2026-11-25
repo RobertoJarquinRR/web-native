@@ -115,6 +115,7 @@ int main(int argc, char **argv)
     int initial_vertices, initial_glyphs, initial_images;
     int hidden_images, shown_vertices, shown_images;
     int unsupported;
+    int alpha_quads, beta_quads;
     int remove_rc, append_rc, clear_rc, cycle_rc;
 
     g_core = wn_core_create(wn_document_builtin());
@@ -285,25 +286,32 @@ int main(int argc, char **argv)
     event_end(report);
 
     /* ------------------------------------------------------------ set_text */
+    wn_core_set_text(g_core, clone_text, "Alpha");
+    wn_core_build_display_list(g_core);
+    alpha_quads = wn_core_display_list(g_core)->glyph_vertex_count;
     check("set_text shaped", wn_core_set_text(g_core, clone_text, "Beta") == 0,
-          "pre-shaped string accepted");
+          "new text accepted at runtime");
     check("set_text value", strcmp(wn_core_node_text(g_core, clone_text), "Beta") == 0,
           "override visible through the core");
     wn_core_build_display_list(g_core);
-    check("set_text paint",
-          wn_core_display_list(g_core)->glyph_vertex_count == initial_glyphs + 4 * 6,
-          "Beta renders four pre-shaped glyph quads");
+    beta_quads = wn_core_display_list(g_core)->glyph_vertex_count;
+    check("set_text paint", beta_quads == alpha_quads - 6,
+          "Beta draws one glyph fewer than Alpha");
     unsupported = wn_core_set_text(g_core, clone_text, "\xce\xa9");
-    check("set_text unsupported", unsupported == 1 &&
-          strcmp(wn_core_node_text(g_core, clone_text), "Beta") == 0,
-          "Omega is not pre-shaped; previous text kept");
+    check("set_text unicode", unsupported == 0 &&
+          strcmp(wn_core_node_text(g_core, clone_text), "\xce\xa9") == 0,
+          "non-ASCII text is shaped at runtime");
+    wn_core_build_display_list(g_core);
+    check("set_text unicode paint",
+          wn_core_display_list(g_core)->glyph_vertex_count == beta_quads - 18,
+          "Omega draws a single glyph");
     check("set_text invalid", wn_core_set_text(g_core, image0, "A") == -1,
           "image node rejected");
     event_begin(report, "texted");
     write_counts(report);
     fputc(',', report);
-    fprintf(report, "\"text\":\"%s\",\"unsupported\":%d,",
-            wn_core_node_text(g_core, clone_text), unsupported == 1);
+    fprintf(report, "\"text\":\"%s\",\"unicode\":%d,",
+            wn_core_node_text(g_core, clone_text), unsupported == 0);
     event_rect(report, "clone", clone);
     event_end(report);
 

@@ -153,10 +153,9 @@ int main(int argc, char **argv)
     expect_status("set_image(image,b)", wn_node_set_image(app, image0, image_b), WN_OK);
     expect_status("set_text(text,Beta)", wn_node_set_text(app, text0, "Beta"), WN_OK);
     status = wn_node_set_text(app, text0, "\xce\xa9");
-    printf("dynamic: set_text(Omega) -> %s (%s)\n",
-           status == WN_ERR_UNSUPPORTED ? "WN_ERR_UNSUPPORTED" : "unexpected",
-           wn_last_error() != NULL ? wn_last_error() : "(no error text)");
-    if (status != WN_ERR_UNSUPPORTED || wn_last_error() == NULL) {
+    printf("dynamic: set_text(Omega) -> %s\n",
+           status == WN_OK ? "WN_OK" : "unexpected");
+    if (status != WN_OK) {
         ++g_failures;
     }
 

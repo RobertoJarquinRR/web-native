@@ -135,10 +135,10 @@ def main() -> int:
     check("core", "set_image keeps quad", imaged["image_vertices"] == 18,
           "replacement does not add geometry")
 
-    check("core", "set_text shaped", texted["text"] == "Beta" and
-          texted["unsupported"] == 1, "Beta accepted, Omega rejected")
-    check("core", "set_text glyphs", texted["glyphs"] == 150,
-          "4 pre-shaped Beta glyph quads replace 5 Alpha quads")
+    check("core", "set_text shaped", texted["text"] == "\u03a9" and
+          texted["unicode"] == 1, "Omega accepted and shaped at runtime")
+    check("core", "set_text glyphs", texted["glyphs"] == 132,
+          "Omega renders a single glyph quad")
 
     check("core", "remove live count", removed["live"] == 17, f"{removed['live']} nodes")
     check("core", "remove restores layout", close(removed["card0"]["x"], ix) and

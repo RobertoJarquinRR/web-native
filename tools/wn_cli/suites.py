@@ -18,9 +18,11 @@ RUNTIME_SOURCES = (
     "renderer_d3d11.c",
     "host_win32.c",
     "text/text_runtime.c",
+    "text/text_atlas.c",
     "text/text_directwrite.cpp",
 )
-CORE_SOURCES = ("wn_core.c", "wn_common.c", "text/text_runtime.c", "text/text_directwrite.cpp")
+CORE_SOURCES = ("wn_core.c", "wn_common.c", "text/text_runtime.c", "text/text_atlas.c",
+                "text/text_directwrite.cpp")
 CORE_LIBS = ("dwrite.lib",)
 RUNTIME_LIBS = (
     "d3d11.lib",
@@ -316,7 +318,7 @@ def run_dynamic() -> int:
     _expect(abi_text, [
         "ABI 4",
         "dynamic: PASS",
-        "set_text(Omega) -> WN_ERR_UNSUPPORTED",
+        "set_text(Omega) -> WN_OK",
         "set_image(text) -> WN_ERR_UNSUPPORTED",
         "remove(root) -> WN_ERR_INVALID_ARGUMENT",
         "clear_children -> nodes=9",
@@ -459,6 +461,7 @@ def run_text() -> int:
 
     log_step("text: measure backend")
     exe = out / "text_measure_test.exe"
+    atlas_exe = out / "atlas_test.exe"
     _compile(
         exe,
         [suite / "measure_test.c", runtime / "text" / "text_directwrite.cpp"],
@@ -466,6 +469,17 @@ def run_text() -> int:
         ["dwrite.lib"],
     )
     _expect(_run(exe, [], out), ["text_measure_test: PASS"], "text measure test")
+
+    log_step("text: atlas")
+    atlas_exe = out / "atlas_test.exe"
+    _compile(
+        atlas_exe,
+        [suite / "atlas_test.c", runtime / "text" / "text_atlas.c",
+         runtime / "text" / "text_runtime.c", runtime / "text" / "text_directwrite.cpp"],
+        [get_paths().root / "include", runtime],
+        CORE_LIBS,
+    )
+    _expect(_run(atlas_exe, [], out), ["atlas_test: PASS"], "text atlas test")
 
     log_step("text: canonical document fixture")
     rust_exe = get_paths().frontend_rust / "target" / "release" / "frontend-rust.exe"

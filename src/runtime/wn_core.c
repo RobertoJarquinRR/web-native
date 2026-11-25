@@ -15,12 +15,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "text/text_atlas.h"
 #include "text/text_runtime.h"
 #include "ui_data.h"
 #include "wn_core.h"
 #include "wn_internal.h"
 
-#define WN_MAX_GLYPH_SETS 8
 #define WN_MAX_CLASSES 8
 #define WN_MAX_NODES 4096
 
@@ -63,27 +63,6 @@ int wn_document_node_count(const wn_document *document)
 {
     return document != NULL ? document->node_count : 0;
 }
-
-/* ------------------------------------------------------------ glyph cache */
-
-typedef struct {
-    int valid;
-    float off_x, off_y;
-    float w, h;
-    float u0, v0, u1, v1;
-    float advance;
-} GlyphEntry;
-
-typedef struct {
-    int font_px;
-    float space_advance;
-    GlyphEntry ascii[128];
-} GlyphSet;
-
-typedef struct {
-    char ch;
-    int glyph; /* index into the document glyph array, -1 for a space */
-} RunChar;
 
 /* ui-tree/3 text input. The generated header (input pages only) carries a
  * fixed ASCII pool per unique font size; the core copies it into this compact
@@ -162,8 +141,6 @@ struct wn_core {
     int *parent;
     int *order_key;
     int next_order;
-    int *run_first;
-    int *run_count;
     int *free_list;
     int free_count;
     int clone_serial;
@@ -214,9 +191,7 @@ struct wn_core {
     char **classes;
     unsigned char *class_count;
 
-    GlyphSet *glyph_sets;
-    int glyph_set_count;
-
+    wn_text_atlas *text_atlas;
     /* ui-tree/3 text input state. `input_map[node]` indexes input_records
      * (shared by clones); -1 means "not an input". */
     WnInputRecord *input_records;
@@ -2505,152 +2480,17 @@ int wn_core_set_class(wn_core *core, int node, const char *class_name, int enabl
     return 0;
 }
 
-/* ------------------------------------------------------------- glyph cache */
-
-static GlyphSet *glyph_set_for(wn_core *c, int font_px)
-{
-    int i;
-    GlyphSet *set;
-    for (i = 0; i < c->glyph_set_count; ++i) {
-        if (c->glyph_sets[i].font_px == font_px) {
-            return &c->glyph_sets[i];
-        }
-    }
-    if (c->glyph_set_count >= WN_MAX_GLYPH_SETS) {
-        return NULL;
-    }
-    set = &c->glyph_sets[c->glyph_set_count++];
-    memset(set, 0, sizeof(*set));
-    set->font_px = font_px;
-    set->space_advance = (float)font_px * 0.30f;
-    return set;
-}
-
-static void build_glyph_sets(wn_core *c)
-{
-    int r;
-    for (r = 0; r < c->doc->run_count; ++r) {
-        const UiTextRun *run = &c->doc->runs[r];
-        const UiNode *node;
-        const char *text;
-        GlyphSet *set;
-        RunChar chars[256];
-        int char_count = 0;
-        int glyph_index;
-        int i;
-        int text_len;
-        if (run->node < 0 || run->node >= c->node_count || run->count <= 0 ||
-            !c->alive[run->node]) {
-            continue;
-        }
-        node = &c->nodes[run->node];
-        text = node->text;
-        if (text == NULL) {
-            continue;
-        }
-        text_len = (int)strlen(text);
-        if (text_len <= 0 || text_len > 256) {
-            continue;
-        }
-        set = glyph_set_for(c, (int)(node->font_size + 0.5f));
-        if (set == NULL) {
-            continue;
-        }
-        glyph_index = run->first;
-        for (i = 0; i < text_len; ++i) {
-            unsigned char ch = (unsigned char)text[i];
-            if (ch >= 128) {
-                char_count = 0;
-                break;
-            }
-            if (ch == ' ') {
-                chars[char_count].ch = ' ';
-                chars[char_count].glyph = -1;
-                ++char_count;
-            } else if (glyph_index < run->first + run->count &&
-                       glyph_index < c->doc->glyph_count) {
-                chars[char_count].ch = (char)ch;
-                chars[char_count].glyph = glyph_index;
-                ++glyph_index;
-                ++char_count;
-            }
-        }
-        if (char_count == 0) {
-            continue;
-        }
-
-        for (i = 0; i < char_count; ++i) {
-            const UiGlyph *g;
-            GlyphEntry *entry;
-            int next_nonspace = i + 1;
-            float advance;
-            if (chars[i].glyph < 0) {
-                continue;
-            }
-            while (next_nonspace < char_count && chars[next_nonspace].glyph < 0) {
-                ++next_nonspace;
-            }
-            g = &c->doc->glyphs[chars[i].glyph];
-            entry = &set->ascii[(unsigned char)chars[i].ch];
-            if (next_nonspace < char_count) {
-                const UiGlyph *next = &c->doc->glyphs[chars[next_nonspace].glyph];
-                if (next_nonspace == i + 1) {
-                    advance = next->x - g->x;
-                } else {
-                    advance = g->w + 1.0f;
-                    if (next->x > g->x + g->w) {
-                        float space = next->x - (g->x + g->w);
-                        if (space > set->space_advance) {
-                            set->space_advance = space;
-                        }
-                    }
-                }
-            } else {
-                advance = (float)node->width - g->x;
-                if (advance <= 0.0f || advance > (float)set->font_px * 2.5f) {
-                    advance = g->w + 1.0f;
-                }
-            }
-            if (!entry->valid) {
-                entry->valid = 1;
-                entry->off_x = (i == 0) ? g->x : 0.0f;
-                entry->off_y = g->y;
-                entry->w = g->w;
-                entry->h = g->h;
-                entry->u0 = g->u0;
-                entry->v0 = g->v0;
-                entry->u1 = g->u1;
-                entry->v1 = g->v1;
-                entry->advance = advance;
-            }
-        }
-    }
-}
+/* ------------------------------------------------------------- text cache */
 
 static int text_supported(const wn_core *c, int node, const char *text)
 {
-    int i;
-    const GlyphSet *set = NULL;
+    (void)c;
+    (void)node;
     if (text == NULL) {
         return 0;
     }
-    for (i = 0; c->glyph_sets != NULL && i < c->glyph_set_count; ++i) {
-        if (c->glyph_sets[i].font_px == (int)(c->nodes[node].font_size + 0.5f)) {
-            set = &c->glyph_sets[i];
-            break;
-        }
-    }
-    if (set == NULL) {
-        return 0;
-    }
     for (const unsigned char *p = (const unsigned char *)text; *p != '\0'; ++p) {
-        if (*p >= 128) {
-            return 0;
-        }
-        if (*p == ' ') {
-            continue;
-        }
-        if (!set->ascii[*p].valid) {
+        if (*p < 0x20 && *p != '\t') {
             return 0;
         }
     }
@@ -3189,9 +3029,6 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
         if (!c->visible_eff[node] || n->kind != R2_NODE_TEXT) {
             continue;
         }
-        if (c->run_count[node] <= 0 && c->text_override[node] == NULL) {
-            continue;
-        }
         r = &c->rects[node];
         /* E1 `text-align`: a text node is the inline content of a block
          * container, so shift the run inside the parent content box. Flex and
@@ -3220,54 +3057,34 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
         cg = (uint8_t)((color >> 8) & 0xFFu);
         cb = (uint8_t)(color & 0xFFu);
 
-        if (c->text_override[node] != NULL) {
-            int font_px = (int)(n->font_size + 0.5f);
-            GlyphSet *set = NULL;
-            float pen = 0.0f;
-            int s;
-            for (s = 0; s < c->glyph_set_count; ++s) {
-                if (c->glyph_sets[s].font_px == font_px) {
-                    set = &c->glyph_sets[s];
-                    break;
-                }
-            }
-            if (set == NULL) {
+        {
+            const char *text = c->text_override[node] != NULL ? c->text_override[node] : n->text;
+            const wn_atlas_run *run = wn_text_atlas_shape(c->text_atlas, text, n->font_family,
+                                                          n->font_size, n->font_weight);
+            float natural;
+            float leading = 0.0f;
+            if (run == NULL) {
                 continue;
             }
-            for (const unsigned char *p = (const unsigned char *)c->text_override[node];
-                 *p != '\0'; ++p) {
-                const GlyphEntry *entry;
-                if (*p >= 128) {
-                    break;
-                }
-                if (*p == ' ') {
-                    pen += set->space_advance;
+            natural = run->ascent + run->descent;
+            if (natural > 0.0f && r->h > natural) {
+                leading = (r->h - natural) * 0.5f;
+            }
+            for (j = 0; j < run->count; ++j) {
+                const wn_text_glyph *glyph = &run->glyphs[j];
+                const wn_atlas_glyph *packed = wn_text_atlas_glyph(
+                    c->text_atlas, n->font_family, n->font_size, n->font_weight, glyph->glyph);
+                float x;
+                float y;
+                if (packed == NULL || packed->width <= 0 || packed->height <= 0) {
                     continue;
                 }
-                entry = &set->ascii[*p];
-                if (!entry->valid) {
-                    break;
-                }
-                float x = floorf(r->x + align_dx + pen + entry->off_x + 0.5f);
-                float y = floorf(r->y + entry->off_y + 0.5f);
-                push_glyph_quad(c, x, y, entry->w, entry->h,
-                                entry->u0, entry->v0, entry->u1, entry->v1,
+                x = floorf(r->x + align_dx + glyph->x + (float)packed->bearing_x + 0.5f);
+                y = floorf(r->y + leading + run->ascent + (float)packed->bearing_y + 0.5f);
+                push_glyph_quad(c, x, y, (float)packed->width, (float)packed->height,
+                                packed->u0, packed->v0, packed->u1, packed->v1,
                                 viewport_w, viewport_h, cr, cg, cb, a);
-                pen += entry->advance;
             }
-            continue;
-        }
-
-        for (j = 0; j < c->run_count[node]; ++j) {
-            const UiGlyph *g = &c->doc->glyphs[c->run_first[node] + j];
-            float x, y;
-            if (g->w <= 0.0f || g->h <= 0.0f) {
-                continue;
-            }
-            x = floorf(r->x + align_dx + g->x + 0.5f);
-            y = floorf(r->y + g->y + 0.5f);
-            push_glyph_quad(c, x, y, g->w, g->h, g->u0, g->v0, g->u1, g->v1,
-                            viewport_w, viewport_h, cr, cg, cb, a);
         }
     }
 }
@@ -3571,10 +3388,11 @@ void wn_core_build_display_list(wn_core *core)
     core->list.image_vertex_count = core->image_vertex_count;
     core->list.image_batches = core->image_batches;
     core->list.image_batch_count = core->image_batch_count;
-    core->list.atlas.pixels = core->doc->atlas;
-    core->list.atlas.width = core->doc->atlas_width;
-    core->list.atlas.height = core->doc->atlas_height;
-    core->list.atlas.size = core->doc->atlas_width * core->doc->atlas_height;
+    core->list.atlas.pixels = wn_text_atlas_pixels(core->text_atlas);
+    core->list.atlas.width = wn_text_atlas_width(core->text_atlas);
+    core->list.atlas.height = wn_text_atlas_height(core->text_atlas);
+    core->list.atlas.size = core->list.atlas.width * core->list.atlas.height;
+    core->list.atlas.serial = wn_text_atlas_serial(core->text_atlas);
     core->list.clear_color[0] = (float)((clear >> 16) & 0xFFu) / 255.0f;
     core->list.clear_color[1] = (float)((clear >> 8) & 0xFFu) / 255.0f;
     core->list.clear_color[2] = (float)(clear & 0xFFu) / 255.0f;
@@ -3646,15 +3464,18 @@ static int build_input_state(wn_core *c)
     }
     for (i = 0; i < UI_INPUT_GLYPH_COUNT; ++i) {
         WnInputGlyph *dst = &c->input_pool[i];
+        int atlas_side = wn_text_atlas_width(c->text_atlas);
+        float scale = atlas_side > 0 ? (float)UI_ATLAS_SIZE / (float)atlas_side : 1.0f;
         dst->advance = kUiInputGlyphs[i].advance;
         dst->x = kUiInputGlyphs[i].x;
         dst->y = kUiInputGlyphs[i].y;
         dst->w = kUiInputGlyphs[i].w;
         dst->h = kUiInputGlyphs[i].h;
-        dst->u0 = kUiInputGlyphs[i].u0;
-        dst->v0 = kUiInputGlyphs[i].v0;
-        dst->u1 = kUiInputGlyphs[i].u1;
-        dst->v1 = kUiInputGlyphs[i].v1;
+        /* The seed atlas keeps its UVs; they are relative to UI_ATLAS_SIZE. */
+        dst->u0 = kUiInputGlyphs[i].u0 * scale;
+        dst->v0 = kUiInputGlyphs[i].v0 * scale;
+        dst->u1 = kUiInputGlyphs[i].u1 * scale;
+        dst->v1 = kUiInputGlyphs[i].v1 * scale;
     }
     for (i = 0; i < UI_INPUT_COUNT; ++i) {
         WnInputRecord *record = &c->input_records[i];
@@ -3738,8 +3559,6 @@ wn_core *wn_core_create(const wn_document *document)
     c->visible_eff = (unsigned char *)calloc(bytes, sizeof(unsigned char));
     c->parent = (int *)calloc(bytes, sizeof(int));
     c->order_key = (int *)calloc(bytes, sizeof(int));
-    c->run_first = (int *)calloc(bytes, sizeof(int));
-    c->run_count = (int *)calloc(bytes, sizeof(int));
     c->free_list = (int *)calloc(bytes, sizeof(int));
     c->rects = (wn_rect *)calloc(bytes, sizeof(wn_rect));
     c->clips = (wn_rect *)calloc(bytes, sizeof(wn_rect));
@@ -3758,7 +3577,6 @@ wn_core *wn_core_create(const wn_document *document)
     c->input_scroll = (float *)calloc(bytes, sizeof(float));
     c->class_count = (unsigned char *)calloc(bytes, sizeof(unsigned char));
     c->classes = (char **)calloc(bytes * WN_MAX_CLASSES, sizeof(char *));
-    c->glyph_sets = (GlyphSet *)calloc(WN_MAX_GLYPH_SETS, sizeof(GlyphSet));
     c->vertex_capacity = count * 6;
     c->vertices = (wn_vertex *)calloc((size_t)c->vertex_capacity, sizeof(wn_vertex));
     c->solid_batch_capacity = count > 0 ? count : 1;
@@ -3779,7 +3597,7 @@ wn_core *wn_core_create(const wn_document *document)
 
     if (c->nodes == NULL || c->names == NULL || c->alive == NULL ||
         c->dynamic_node == NULL || c->visible == NULL || c->visible_eff == NULL ||
-        c->parent == NULL || c->order_key == NULL || c->run_first == NULL || c->run_count == NULL ||
+        c->parent == NULL || c->order_key == NULL ||
         c->free_list == NULL || c->rects == NULL || c->clips == NULL ||
         c->scroll == NULL || c->scroll_max == NULL || c->first_child == NULL ||
         c->next_sibling == NULL || c->last_child == NULL || c->paint_order == NULL ||
@@ -3787,7 +3605,7 @@ wn_core *wn_core_create(const wn_document *document)
         c->input_map == NULL || c->input_value == NULL || c->input_cursor == NULL ||
         c->input_anchor == NULL || c->input_scroll == NULL ||
         c->class_count == NULL || c->classes == NULL ||
-        c->glyph_sets == NULL || c->vertices == NULL || c->solid_batches == NULL ||
+    c->vertices == NULL || c->solid_batches == NULL ||
         c->glyph_vertices == NULL || c->glyph_batches == NULL ||
         c->image_vertices == NULL || c->image_batches == NULL) {
         wn_core_destroy(c);
@@ -3802,8 +3620,6 @@ wn_core *wn_core_create(const wn_document *document)
         c->visible_eff[i] = 1;
         c->parent[i] = c->nodes[i].parent;
         c->order_key[i] = i;
-        c->run_first[i] = -1;
-        c->run_count[i] = 0;
         c->first_child[i] = -1;
         c->next_sibling[i] = -1;
         c->last_child[i] = -1;
@@ -3813,17 +3629,15 @@ wn_core *wn_core_create(const wn_document *document)
         c->input_scroll[i] = 0.0f;
     }
     c->input_focus = -1;
-    for (i = 0; i < document->run_count; ++i) {
-        const UiTextRun *run = &document->runs[i];
-        if (run->node >= 0 && run->node < count && run->count > 0) {
-            c->run_first[run->node] = run->first;
-            c->run_count[run->node] = run->count;
-        }
-    }
     c->next_order = count;
 
     build_hierarchy(c);
-    build_glyph_sets(c);
+    c->text_atlas = wn_text_atlas_create(document->atlas, document->atlas_width,
+                                         document->atlas_height);
+    if (c->text_atlas == NULL) {
+        wn_core_destroy(c);
+        return NULL;
+    }
     if (build_input_state(c) != 0) {
         wn_core_destroy(c);
         return NULL;
@@ -3891,8 +3705,6 @@ static int arena_alloc(wn_core *c)
     c->visible_eff[id] = 1;
     c->parent[id] = -1;
     c->order_key[id] = c->next_order++;
-    c->run_first[id] = -1;
-    c->run_count[id] = 0;
     c->rects[id].x = c->rects[id].y = 0.0f;
     c->rects[id].w = c->rects[id].h = 0.0f;
     c->clips[id] = c->rects[id];
@@ -4105,8 +3917,6 @@ int wn_core_clone(wn_core *core, int template_node, int parent)
         }
         core->nodes[dst].parent = core->parent[dst];
         core->visible[dst] = core->visible[src];
-        core->run_first[dst] = core->run_first[src];
-        core->run_count[dst] = core->run_count[src];
         snprintf(name, sizeof(name), "clone#%d", core->clone_serial++);
         core->names[dst] = wn_strdup_(name);
         if (core->names[dst] == NULL) {
@@ -4270,8 +4080,6 @@ void wn_core_destroy(wn_core *core)
     wn_free_(core->visible_eff);
     wn_free_(core->parent);
     wn_free_(core->order_key);
-    wn_free_(core->run_first);
-    wn_free_(core->run_count);
     wn_free_(core->free_list);
     wn_free_(core->rects);
     wn_free_(core->clips);
@@ -4290,6 +4098,7 @@ void wn_core_destroy(wn_core *core)
     wn_free_(core->input_scroll);
     wn_free_(core->input_records);
     wn_free_(core->input_pool);
+    wn_text_atlas_destroy(core->text_atlas);
     wn_free_(core->classes);
     wn_free_(core->class_count);
     wn_free_(core->vertices);
@@ -4298,6 +4107,5 @@ void wn_core_destroy(wn_core *core)
     wn_free_(core->glyph_batches);
     wn_free_(core->image_vertices);
     wn_free_(core->image_batches);
-    wn_free_(core->glyph_sets);
     wn_free_(core);
 }

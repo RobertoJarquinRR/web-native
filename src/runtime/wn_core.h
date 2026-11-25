@@ -68,6 +68,7 @@ typedef struct {
     int width;
     int height;
     int size;                      /* width * height */
+    unsigned int serial;           /* bumps whenever the pixels change in place */
 } wn_atlas_view;
 
 /* A display list is rebuilt by the core whenever layout or state changes.

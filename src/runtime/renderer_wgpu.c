@@ -81,6 +81,7 @@ typedef struct {
     int atlas_width;
     int atlas_height;
     const unsigned char *atlas_ptr;
+    unsigned int atlas_serial;
 
     /* ui-tree/2 images (WIC -> RGBA8, cache by path). */
     WGPUShaderModule image_shader;
@@ -862,7 +863,7 @@ static int upload_atlas(WnWgpu *gpu, const wn_atlas_view *atlas)
     if (atlas == NULL || atlas->pixels == NULL || atlas->width <= 0 || atlas->height <= 0) {
         return 0;
     }
-    if (gpu->atlas_texture != NULL && gpu->atlas_ptr == atlas->pixels &&
+    if (gpu->atlas_texture != NULL && gpu->atlas_ptr == atlas->pixels && gpu->atlas_serial == atlas->serial &&
         gpu->atlas_width == atlas->width && gpu->atlas_height == atlas->height) {
         return 0;
     }
@@ -934,6 +935,7 @@ static int upload_atlas(WnWgpu *gpu, const wn_atlas_view *atlas)
     gpu->atlas_width = atlas->width;
     gpu->atlas_height = atlas->height;
     gpu->atlas_ptr = atlas->pixels;
+    gpu->atlas_serial = atlas->serial;
     return 0;
 }
 

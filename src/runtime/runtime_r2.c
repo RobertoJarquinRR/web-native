@@ -1239,10 +1239,10 @@ static int run_dynamic(const char *prefix)
     }
     if (dynamic_stage(report, prefix, 9, "set_image card0 a", card0, card1, clone) != 0) goto done;
 
-    if (wn_core_set_text(g_core, text0, "\xce\xa9") == 1) {
-        printf("dynamic: set_text(Omega) -> unsupported (expected)\n");
+    if (wn_core_set_text(g_core, text0, "\xce\xa9") == 0) {
+        printf("dynamic: set_text(Omega) -> shaped at runtime\n");
     } else {
-        fprintf(stderr, "error: set_text(Omega) was accepted\n");
+        fprintf(stderr, "error: set_text(Omega) was rejected\n");
         goto done;
     }
     if (wn_core_clear_children(g_core, cards) != 0) {
