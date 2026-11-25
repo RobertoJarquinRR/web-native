@@ -613,7 +613,7 @@ mismo algoritmo extraído a `wn_core.c` y se compila aparte.
 
 | Ruta | Rol |
 |---|---|
-| `wn_core.h` / `wn_core.c` | Core portable: documento compilado, layout, estados, hit testing y display list (vértices sólidos + glyphs). No conoce OS, GPU ni modo. `runtime_r2.c` lo usa para no duplicar el motor. |
+| `wn_core.h` / `core/*.c` | Core portable: documento compilado, layout, hit testing, input y display list (vértices sólidos + glyphs). Repartido en `core/wn_core.c` (documento, ciclo de vida, arena dinámica), `core/layout.c`, `core/paint.c`, `core/input.c` y `core/hit_test.c`, con `core/wn_core_internal.h` privado. No conoce OS, GPU ni modo. `runtime_r2.c` lo usa para no duplicar el motor. |
 | `wn_renderer.h` | Vtable `wn_renderer_ops`: `init(surface,w,h)`, `resize`, `upload(display list/atlas)`, `render` (draw+present), `destroy`, `last_error`, `get_info`, `get_stats`. |
 | `renderer_wgpu.c` | Backend wgpu-native (D3D12 aquí): surface desde HWND, swapchain FIFO, pipeline sólida + pipeline de texto R8, atlas bajo demanda. |
 | `renderer_d3d11.c` | Segundo backend, D3D11 nativo: `D3D11CreateDevice` hardware (WARP solo como fallback), swapchain flip-discard DXGI, HLSL con `D3DCompile`, atlas R8, imágenes WIC RGBA8 cacheadas, scissor por batch. Ver sección 18. |
@@ -773,9 +773,9 @@ press > hover > selected > background.
 9. **Offscreen/PNG**: no forma parte de la ABI; sigue disponible en el CLI de
    `runtime_r2.exe` (`--render`, `--states`, `--report`).
 10. **Tablas `ui_data.h` duplicadas en el binario R2**: `runtime_r2.c` y
-    `wn_core.c` incluyen el header generado en TUs distintas, así que el
+    `core/wn_core.c` incluyen el header generado en TUs distintas, así que el
     `.exe` lleva dos copias de las tablas estáticas (~78 KB extra; 377 KB
-    total). No hay lógica duplicada: el motor es solo `wn_core.c`. Unificarlo
+    total). No hay lógica duplicada: el motor son las cinco TUs de `core/`. Unificarlo
     en un único TU es un refactor menor posterior.
 11. **Doc vs header**: `docs/abi.md` muestra `WN_EVENT_CLICK`, que no existe en
     el header v0 congelado. Las demos usan `WN_EVENT_POINTER_UP`; si se quiere

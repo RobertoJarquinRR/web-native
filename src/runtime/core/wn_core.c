@@ -1,0 +1,966 @@
+/*
+ * wn_core.c - document tables, classes and the mutable node arena.
+ *
+ * Layout lives in core/layout.c, display-list generation in core/paint.c, the
+ * text editor in core/input.c and the pointer state machine in core/hit_test.c.
+ * The core owns every heap block; the other modules only read and write it.
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "wn_core_internal.h"
+#include "wn_internal.h"
+
+#if defined(UI_INPUT_COUNT) && UI_INPUT_COUNT > 0
+#define WN_BUILTIN_INPUTS kUiInputs
+#define WN_BUILTIN_INPUT_COUNT UI_INPUT_COUNT
+#else
+#define WN_BUILTIN_INPUTS NULL
+#define WN_BUILTIN_INPUT_COUNT 0
+#endif
+
+static const wn_document g_builtin_document = {
+    kUiNodes,
+    UI_NODE_COUNT,
+    kUiNodeNames,
+    UI_VIEWPORT_WIDTH,
+    UI_VIEWPORT_HEIGHT,
+    WN_BUILTIN_INPUTS,
+    WN_BUILTIN_INPUT_COUNT,
+    NULL,
+    NULL,
+    NULL,
+    NULL
+};
+
+const wn_document *wn_document_builtin(void)
+{
+    return &g_builtin_document;
+}
+
+int wn_document_node_count(const wn_document *document)
+{
+    return document != NULL ? document->node_count : 0;
+}
+
+/* --------------------------------------------------------------- document */
+
+static const UiNode *node_at(const wn_core *c, int node)
+{
+    if (node < 0 || node >= c->node_count || !c->alive[node]) {
+        return NULL;
+    }
+    return &c->nodes[node];
+}
+
+static UiNode *node_mut(wn_core *c, int node)
+{
+    if (node < 0 || node >= c->node_count || !c->alive[node]) {
+        return NULL;
+    }
+    return &c->nodes[node];
+}
+
+int wn_core_node_count(const wn_core *core)
+{
+    return core != NULL ? core->node_count : 0;
+}
+
+int wn_core_live_node_count(const wn_core *core)
+{
+    return core != NULL ? core->live_count : 0;
+}
+
+const char *wn_core_node_name(const wn_core *core, int node)
+{
+    if (core == NULL || node < 0 || node >= core->node_count ||
+        !core->alive[node]) {
+        return NULL;
+    }
+    return core->names[node];
+}
+
+const char *wn_core_node_text(const wn_core *core, int node)
+{
+    if (core == NULL || node_at(core, node) == NULL) {
+        return NULL;
+    }
+    if (core->text_override[node] != NULL) {
+        return core->text_override[node];
+    }
+    return core->nodes[node].text;
+}
+
+const char *wn_core_node_image_src(const wn_core *core, int node)
+{
+    if (core == NULL || node_at(core, node) == NULL) {
+        return NULL;
+    }
+    if (core->image_override[node] != NULL) {
+        return core->image_override[node];
+    }
+    return core->nodes[node].image_src;
+}
+
+int wn_core_node_is_text(const wn_core *core, int node)
+{
+    const UiNode *n = core != NULL ? node_at(core, node) : NULL;
+    return n != NULL && n->kind == R2_NODE_TEXT;
+}
+
+int wn_core_node_is_alive(const wn_core *core, int node)
+{
+    return core != NULL && node >= 0 && node < core->node_count &&
+           core->alive[node] != 0;
+}
+
+int wn_core_node_is_visible(const wn_core *core, int node)
+{
+    if (!wn_core_node_is_alive(core, node)) {
+        return 0;
+    }
+    return core->visible[node] != 0;
+}
+
+int wn_core_node_is_dynamic(const wn_core *core, int node)
+{
+    if (!wn_core_node_is_alive(core, node)) {
+        return 0;
+    }
+    return core->dynamic_node[node] != 0;
+}
+
+int wn_core_node_parent(const wn_core *core, int node)
+{
+    if (!wn_core_node_is_alive(core, node)) {
+        return -1;
+    }
+    return core->parent[node];
+}
+
+int wn_core_node_first_child(const wn_core *core, int node)
+{
+    if (!wn_core_node_is_alive(core, node)) {
+        return -1;
+    }
+    return core->first_child[node];
+}
+
+int wn_core_node_next_sibling(const wn_core *core, int node)
+{
+    if (!wn_core_node_is_alive(core, node)) {
+        return -1;
+    }
+    return core->next_sibling[node];
+}
+
+int wn_core_node_action(const wn_core *core, int node)
+{
+    const UiNode *n = core != NULL ? node_at(core, node) : NULL;
+    return n != NULL ? n->action : 0;
+}
+
+static int name_matches_id(const char *name, const char *id)
+{
+    const char *base;
+    if (name == NULL || id == NULL) {
+        return 0;
+    }
+    if (strcmp(name, id) == 0) {
+        return 1;
+    }
+    if (id[0] == '#') {
+        ++id;
+    }
+    base = strrchr(name, '/');
+    base = base != NULL ? base + 1 : name;
+    return strcmp(base, id) == 0;
+}
+
+int wn_core_find_node(const wn_core *core, const char *id)
+{
+    int i;
+    int match = -1;
+    int matches = 0;
+    if (core == NULL || id == NULL || id[0] == '\0') {
+        return -1;
+    }
+    for (i = 0; i < core->node_count; ++i) {
+        if (core->alive[i] && strcmp(core->names[i], id) == 0) {
+            return i;
+        }
+    }
+    for (i = 0; i < core->node_count; ++i) {
+        if (core->alive[i] && name_matches_id(core->names[i], id)) {
+            match = i;
+            ++matches;
+        }
+    }
+    return matches == 1 ? match : -1;
+}
+
+int wn_core_hover(const wn_core *core)
+{
+    return core != NULL ? core->hover : -1;
+}
+
+int wn_core_press(const wn_core *core)
+{
+    return core != NULL ? core->press : -1;
+}
+
+int wn_core_selected(const wn_core *core)
+{
+    return core != NULL ? core->selected : -1;
+}
+
+void wn_core_set_state(wn_core *core, int node, int state, int enabled)
+{
+    int value;
+    if (core == NULL || node < 0 || node >= core->node_count) {
+        return;
+    }
+    if (!enabled) {
+        value = -1;
+    } else {
+        value = node;
+    }
+    if (state == WN_STATE_HOVER) {
+        core->hover = value;
+    } else if (state == WN_STATE_PRESS) {
+        core->press = value;
+    } else if (state == WN_STATE_SELECTED) {
+        core->selected = value;
+    }
+    core->dirty = 1;
+}
+
+/* ---------------------------------------------------------------- classes */
+
+int wn_core_set_class(wn_core *core, int node, const char *class_name, int enabled)
+{
+    int i;
+    int slot = -1;
+    int count;
+    if (core == NULL || class_name == NULL || class_name[0] == '\0' ||
+        node < 0 || node >= core->node_count || !core->alive[node]) {
+        return -1;
+    }
+    if (strcmp(class_name, "hover") == 0) {
+        if (enabled) {
+            core->hover = node;
+        } else if (core->hover == node) {
+            core->hover = -1;
+        }
+        core->dirty = 1;
+        return 0;
+    }
+    if (strcmp(class_name, "press") == 0) {
+        if (enabled) {
+            core->press = node;
+        } else if (core->press == node) {
+            core->press = -1;
+        }
+        core->dirty = 1;
+        return 0;
+    }
+    if (strcmp(class_name, "selected") == 0) {
+        if (enabled) {
+            core->selected = node;
+        } else if (core->selected == node) {
+            core->selected = -1;
+        }
+        core->dirty = 1;
+        return 0;
+    }
+
+    count = core->class_count[node];
+    for (i = 0; i < count; ++i) {
+        if (strcmp(core->classes[node * WN_MAX_CLASSES + i], class_name) == 0) {
+            slot = i;
+            break;
+        }
+    }
+    if (enabled) {
+        if (slot >= 0) {
+            return 0;
+        }
+        if (count >= WN_MAX_CLASSES) {
+            return 1;
+        }
+        core->classes[node * WN_MAX_CLASSES + count] = wn_strdup_(class_name);
+        if (core->classes[node * WN_MAX_CLASSES + count] == NULL) {
+            return 1;
+        }
+        core->class_count[node] = (unsigned char)(count + 1);
+    } else if (slot >= 0) {
+        wn_free_(core->classes[node * WN_MAX_CLASSES + slot]);
+        for (i = slot; i + 1 < count; ++i) {
+            core->classes[node * WN_MAX_CLASSES + i] =
+                core->classes[node * WN_MAX_CLASSES + i + 1];
+        }
+        core->classes[node * WN_MAX_CLASSES + count - 1] = NULL;
+        core->class_count[node] = (unsigned char)(count - 1);
+    }
+    core->dirty = 1;
+    return 0;
+}
+
+/* ------------------------------------------------------------- text cache */
+
+static int text_supported(const wn_core *c, int node, const char *text)
+{
+    (void)c;
+    (void)node;
+    if (text == NULL) {
+        return 0;
+    }
+    for (const unsigned char *p = (const unsigned char *)text; *p != '\0'; ++p) {
+        if (*p < 0x20 && *p != '\t') {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+int wn_core_text_override_supported(const wn_core *core, int node, const char *text)
+{
+    if (core == NULL || !wn_core_node_is_alive(core, node) ||
+        core->nodes[node].kind != R2_NODE_TEXT) {
+        return -1;
+    }
+    if (text == NULL) {
+        return -1;
+    }
+    return text_supported(core, node, text) ? 0 : 1;
+}
+
+int wn_core_set_text(wn_core *core, int node, const char *text)
+{
+    char *copy;
+    if (core == NULL || !wn_core_node_is_alive(core, node) ||
+        core->nodes[node].kind != R2_NODE_TEXT || text == NULL) {
+        return -1;
+    }
+    if (!text_supported(core, node, text)) {
+        return 1;
+    }
+    copy = wn_strdup_(text);
+    if (copy == NULL) {
+        return -1;
+    }
+    wn_free_(core->text_override[node]);
+    core->text_override[node] = copy;
+    core->dirty = 1;
+    core->needs_layout = 1;
+    return 0;
+}
+
+const wn_display_list *wn_core_display_list(const wn_core *core)
+{
+    return core != NULL ? &core->list : NULL;
+}
+
+const wn_rect *wn_core_rects(const wn_core *core, int *count)
+{
+    if (core == NULL) {
+        if (count != NULL) {
+            *count = 0;
+        }
+        return NULL;
+    }
+    if (count != NULL) {
+        *count = core->node_count;
+    }
+    return core->rects;
+}
+
+double wn_core_last_layout_ms(const wn_core *core)
+{
+    return core != NULL ? core->last_layout_ms : 0.0;
+}
+
+/* -------------------------------------------------------------- lifecycle */
+
+wn_core *wn_core_create(const wn_document *document)
+{
+    wn_core *c;
+    int count;
+    int capacity;
+    int i;
+    size_t bytes;
+    if (document == NULL || document->node_count <= 0) {
+        return NULL;
+    }
+    c = (wn_core *)calloc(1, sizeof(*c));
+    if (c == NULL) {
+        return NULL;
+    }
+    c->doc = document;
+    count = document->node_count;
+    capacity = count > WN_MAX_NODES ? count : WN_MAX_NODES;
+    c->node_capacity = capacity;
+    c->node_count = count;
+    c->live_count = count;
+    c->hover = c->press = c->selected = -1;
+    c->width = document->viewport_width;
+    c->height = document->viewport_height;
+
+    bytes = (size_t)capacity;
+    c->nodes = (UiNode *)calloc(bytes, sizeof(UiNode));
+    c->names = (const char **)calloc(bytes, sizeof(char *));
+    c->alive = (unsigned char *)calloc(bytes, sizeof(unsigned char));
+    c->dynamic_node = (unsigned char *)calloc(bytes, sizeof(unsigned char));
+    c->visible = (unsigned char *)calloc(bytes, sizeof(unsigned char));
+    c->visible_eff = (unsigned char *)calloc(bytes, sizeof(unsigned char));
+    c->parent = (int *)calloc(bytes, sizeof(int));
+    c->order_key = (int *)calloc(bytes, sizeof(int));
+    c->free_list = (int *)calloc(bytes, sizeof(int));
+    c->rects = (wn_rect *)calloc(bytes, sizeof(wn_rect));
+    c->clips = (wn_rect *)calloc(bytes, sizeof(wn_rect));
+    c->scroll = (float *)calloc(bytes, sizeof(float));
+    c->scroll_max = (float *)calloc(bytes, sizeof(float));
+    c->first_child = (int *)calloc(bytes, sizeof(int));
+    c->next_sibling = (int *)calloc(bytes, sizeof(int));
+    c->last_child = (int *)calloc(bytes, sizeof(int));
+    c->paint_order = (int *)calloc(bytes, sizeof(int));
+    c->text_override = (char **)calloc(bytes, sizeof(char *));
+    c->image_override = (char **)calloc(bytes, sizeof(char *));
+    c->input_map = (int *)calloc(bytes, sizeof(int));
+    c->input_value = (char **)calloc(bytes, sizeof(char *));
+    c->input_cursor = (int *)calloc(bytes, sizeof(int));
+    c->input_anchor = (int *)calloc(bytes, sizeof(int));
+    c->input_scroll = (float *)calloc(bytes, sizeof(float));
+    c->class_count = (unsigned char *)calloc(bytes, sizeof(unsigned char));
+    c->classes = (char **)calloc(bytes * WN_MAX_CLASSES, sizeof(char *));
+    c->vertex_capacity = count * 6;
+    c->vertices = (wn_vertex *)calloc((size_t)c->vertex_capacity, sizeof(wn_vertex));
+    c->solid_batch_capacity = count > 0 ? count : 1;
+    c->solid_batches = (wn_draw_batch *)calloc(
+        (size_t)c->solid_batch_capacity, sizeof(wn_draw_batch));
+    c->glyph_vertex_capacity = count * 6;
+    c->glyph_vertices = (wn_glyph_vertex *)calloc(
+        (size_t)c->glyph_vertex_capacity, sizeof(wn_glyph_vertex));
+    c->glyph_batch_capacity = count > 0 ? count : 1;
+    c->glyph_batches = (wn_draw_batch *)calloc(
+        (size_t)c->glyph_batch_capacity, sizeof(wn_draw_batch));
+    c->image_vertex_capacity = count * 6;
+    c->image_vertices = (wn_image_vertex *)calloc(
+        (size_t)c->image_vertex_capacity, sizeof(wn_image_vertex));
+    c->image_batch_capacity = count > 0 ? count : 1;
+    c->image_batches = (wn_image_batch *)calloc(
+        (size_t)c->image_batch_capacity, sizeof(wn_image_batch));
+
+    if (c->nodes == NULL || c->names == NULL || c->alive == NULL ||
+        c->dynamic_node == NULL || c->visible == NULL || c->visible_eff == NULL ||
+        c->parent == NULL || c->order_key == NULL ||
+        c->free_list == NULL || c->rects == NULL || c->clips == NULL ||
+        c->scroll == NULL || c->scroll_max == NULL || c->first_child == NULL ||
+        c->next_sibling == NULL || c->last_child == NULL || c->paint_order == NULL ||
+        c->text_override == NULL || c->image_override == NULL ||
+        c->input_map == NULL || c->input_value == NULL || c->input_cursor == NULL ||
+        c->input_anchor == NULL || c->input_scroll == NULL ||
+        c->class_count == NULL || c->classes == NULL ||
+    c->vertices == NULL || c->solid_batches == NULL ||
+        c->glyph_vertices == NULL || c->glyph_batches == NULL ||
+        c->image_vertices == NULL || c->image_batches == NULL) {
+        wn_core_destroy(c);
+        return NULL;
+    }
+
+    memcpy(c->nodes, document->nodes, (size_t)count * sizeof(UiNode));
+    for (i = 0; i < count; ++i) {
+        c->names[i] = document->names[i];
+        c->alive[i] = 1;
+        c->visible[i] = 1;
+        c->visible_eff[i] = 1;
+        c->parent[i] = c->nodes[i].parent;
+        c->order_key[i] = i;
+        c->first_child[i] = -1;
+        c->next_sibling[i] = -1;
+        c->last_child[i] = -1;
+        c->input_map[i] = -1;
+        c->input_cursor[i] = 0;
+        c->input_anchor[i] = -1;
+        c->input_scroll[i] = 0.0f;
+    }
+    c->input_focus = -1;
+    c->next_order = count;
+
+    build_hierarchy(c);
+    c->text_atlas = wn_text_atlas_create(NULL, 0, 0);
+    if (c->text_atlas == NULL) {
+        wn_core_destroy(c);
+        return NULL;
+    }
+    if (build_input_state(c) != 0) {
+        wn_core_destroy(c);
+        return NULL;
+    }
+    layout_page(c, (float)c->width, (float)c->height);
+    wn_core_build_display_list(c);
+    return c;
+}
+
+/* ---------------------------------------------------------- dynamic arena */
+
+static void free_node_payload(wn_core *c, int node)
+{
+    int i;
+    if (c->dynamic_node != NULL && c->dynamic_node[node]) {
+        wn_free_((void *)c->names[node]);
+        c->names[node] = NULL;
+    }
+    if (c->text_override != NULL) {
+        wn_free_(c->text_override[node]);
+        c->text_override[node] = NULL;
+    }
+    if (c->image_override != NULL) {
+        wn_free_(c->image_override[node]);
+        c->image_override[node] = NULL;
+    }
+    if (c->input_value != NULL && c->input_value[node] != NULL) {
+        wn_free_(c->input_value[node]);
+        c->input_value[node] = NULL;
+    }
+    if (c->input_map != NULL) {
+        c->input_map[node] = -1;
+    }
+    if (c->input_focus == node) {
+        c->input_focus = -1;
+    }
+    if (c->classes != NULL && c->class_count != NULL) {
+        for (i = 0; i < c->class_count[node] && i < WN_MAX_CLASSES; ++i) {
+            wn_free_(c->classes[node * WN_MAX_CLASSES + i]);
+            c->classes[node * WN_MAX_CLASSES + i] = NULL;
+        }
+        c->class_count[node] = 0;
+    }
+}
+
+static int arena_alloc(wn_core *c)
+{
+    int id;
+    int i;
+    if (c->free_count > 0) {
+        id = c->free_list[--c->free_count];
+    } else {
+        if (c->node_count >= c->node_capacity) {
+            return -1;
+        }
+        id = c->node_count++;
+    }
+    memset(&c->nodes[id], 0, sizeof(UiNode));
+    c->nodes[id].parent = -1;
+    c->nodes[id].object_fit = R2_OBJECT_FIT_FILL;
+    c->names[id] = NULL;
+    c->alive[id] = 1;
+    c->dynamic_node[id] = 1;
+    c->visible[id] = 1;
+    c->visible_eff[id] = 1;
+    c->parent[id] = -1;
+    c->order_key[id] = c->next_order++;
+    c->rects[id].x = c->rects[id].y = 0.0f;
+    c->rects[id].w = c->rects[id].h = 0.0f;
+    c->clips[id] = c->rects[id];
+    c->scroll[id] = 0.0f;
+    c->scroll_max[id] = 0.0f;
+    c->first_child[id] = -1;
+    c->next_sibling[id] = -1;
+    c->last_child[id] = -1;
+    c->text_override[id] = NULL;
+    c->image_override[id] = NULL;
+    c->input_map[id] = -1;
+    c->input_value[id] = NULL;
+    c->input_cursor[id] = 0;
+    c->input_anchor[id] = -1;
+    c->input_scroll[id] = 0.0f;
+    c->class_count[id] = 0;
+    for (i = 0; i < WN_MAX_CLASSES; ++i) {
+        c->classes[id * WN_MAX_CLASSES + i] = NULL;
+    }
+    ++c->live_count;
+    return id;
+}
+
+static void arena_release(wn_core *c, int node)
+{
+    if (!c->alive[node]) {
+        return;
+    }
+    free_node_payload(c, node);
+    c->alive[node] = 0;
+    c->dynamic_node[node] = 0;
+    c->names[node] = NULL;
+    c->parent[node] = -1;
+    c->nodes[node].parent = -1;
+    c->first_child[node] = -1;
+    c->next_sibling[node] = -1;
+    c->last_child[node] = -1;
+    c->visible[node] = 0;
+    c->visible_eff[node] = 0;
+    c->rects[node].x = c->rects[node].y = 0.0f;
+    c->rects[node].w = c->rects[node].h = 0.0f;
+    c->clips[node] = c->rects[node];
+    c->scroll[node] = 0.0f;
+    c->scroll_max[node] = 0.0f;
+    if (c->free_count < c->node_capacity) {
+        c->free_list[c->free_count++] = node;
+    }
+    --c->live_count;
+}
+
+static void mark_core_dirty(wn_core *c)
+{
+    c->dirty = 1;
+    c->needs_layout = 1;
+}
+
+int wn_core_dirty(const wn_core *core)
+{
+    return core != NULL ? core->dirty : 0;
+}
+
+int wn_core_needs_layout(const wn_core *core)
+{
+    return core != NULL ? core->needs_layout : 0;
+}
+
+void wn_core_clear_dirty(wn_core *core)
+{
+    if (core != NULL) {
+        core->dirty = 0;
+    }
+}
+
+int wn_core_set_visible(wn_core *core, int node, int visible)
+{
+    int state[3];
+    int i;
+    if (core == NULL || !wn_core_node_is_alive(core, node)) {
+        return -1;
+    }
+    core->visible[node] = visible != 0 ? 1 : 0;
+    if (!core->visible[node]) {
+        state[0] = core->hover;
+        state[1] = core->press;
+        state[2] = core->selected;
+        for (i = 0; i < 3; ++i) {
+            int walk = state[i];
+            while (walk >= 0) {
+                if (walk == node) {
+                    if (i == 0) core->hover = -1;
+                    else if (i == 1) core->press = -1;
+                    else core->selected = -1;
+                    break;
+                }
+                walk = core->parent[walk];
+            }
+        }
+        if (core->input_focus >= 0) {
+            int walk = core->input_focus;
+            while (walk >= 0) {
+                if (walk == node) {
+                    core->input_anchor[core->input_focus] = -1;
+                    core->input_focus = -1;
+                    break;
+                }
+                walk = core->parent[walk];
+            }
+        }
+    }
+    mark_core_dirty(core);
+    return 0;
+}
+
+int wn_core_set_image(wn_core *core, int node, const char *path)
+{
+    char *copy;
+    UiNode *n;
+    if (core == NULL || !wn_core_node_is_alive(core, node) || path == NULL ||
+        path[0] == '\0') {
+        return -1;
+    }
+    n = &core->nodes[node];
+    if (n->kind != R2_NODE_IMAGE) {
+        return 1;
+    }
+    copy = wn_strdup_(path);
+    if (copy == NULL) {
+        return -2;
+    }
+    wn_free_(core->image_override[node]);
+    core->image_override[node] = copy;
+    mark_core_dirty(core);
+    return 0;
+}
+
+static void collect_subtree(wn_core *c, int node, int *out, int *count)
+{
+    int child;
+    if (!c->alive[node]) {
+        return;
+    }
+    out[(*count)++] = node;
+    for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
+        collect_subtree(c, child, out, count);
+    }
+}
+
+int wn_core_clone(wn_core *core, int template_node, int parent)
+{
+    int *src_ids;
+    int *new_ids;
+    int *map;
+    int count = 0;
+    int i;
+    int result = -1;
+    int oom = 0;
+    char name[64];
+    if (core == NULL || !wn_core_node_is_alive(core, template_node) ||
+        !wn_core_node_is_alive(core, parent)) {
+        return -1;
+    }
+    if (core->live_count >= core->node_capacity) {
+        return -2;
+    }
+    src_ids = (int *)malloc((size_t)core->node_capacity * sizeof(int));
+    new_ids = (int *)malloc((size_t)core->node_capacity * sizeof(int));
+    map = (int *)malloc((size_t)core->node_capacity * sizeof(int));
+    if (src_ids == NULL || new_ids == NULL || map == NULL) {
+        free(src_ids);
+        free(new_ids);
+        free(map);
+        return -2;
+    }
+    collect_subtree(core, template_node, src_ids, &count);
+    if (count <= 0 || core->live_count + count > core->node_capacity) {
+        free(src_ids);
+        free(new_ids);
+        free(map);
+        return -2;
+    }
+    for (i = 0; i < core->node_capacity; ++i) {
+        map[i] = -1;
+    }
+    for (i = 0; i < count; ++i) {
+        map[src_ids[i]] = i;
+    }
+    for (i = 0; i < count; ++i) {
+        new_ids[i] = arena_alloc(core);
+        if (new_ids[i] < 0) {
+            while (i > 0) {
+                arena_release(core, new_ids[--i]);
+            }
+            free(src_ids);
+            free(new_ids);
+            free(map);
+            return -2;
+        }
+    }
+    for (i = 0; i < count; ++i) {
+        int src = src_ids[i];
+        int dst = new_ids[i];
+        int src_parent = core->parent[src];
+        core->nodes[dst] = core->nodes[src];
+        core->nodes[dst].parent = -1;
+        core->parent[dst] = (src_parent >= 0 && map[src_parent] >= 0)
+                                ? new_ids[map[src_parent]]
+                                : parent;
+        if (i == 0) {
+            core->parent[dst] = parent;
+        }
+        core->nodes[dst].parent = core->parent[dst];
+        core->visible[dst] = core->visible[src];
+        snprintf(name, sizeof(name), "clone#%d", core->clone_serial++);
+        core->names[dst] = wn_strdup_(name);
+        if (core->names[dst] == NULL) {
+            for (i = 0; i < count; ++i) {
+                arena_release(core, new_ids[i]);
+            }
+            free(src_ids);
+            free(new_ids);
+            free(map);
+            return -2;
+        }
+        core->dynamic_node[dst] = 1;
+        if (core->text_override[src] != NULL &&
+            (core->text_override[dst] = wn_strdup_(core->text_override[src])) == NULL) {
+            oom = 1;
+        }
+        if (core->image_override[src] != NULL &&
+            (core->image_override[dst] = wn_strdup_(core->image_override[src])) == NULL) {
+            oom = 1;
+        }
+        /* Un clon de un input comparte la piscina de glyphs del template pero
+         * recibe su propia copia editable del valor. */
+        core->input_map[dst] = core->input_map[src];
+        if (core->input_map[src] >= 0) {
+            const char *source_value =
+                core->input_value[src] != NULL ? core->input_value[src] : "";
+            core->input_value[dst] = input_alloc_value(source_value);
+            if (core->input_value[dst] == NULL) {
+                oom = 1;
+            }
+            core->input_cursor[dst] = core->input_cursor[src];
+            core->input_anchor[dst] = core->input_anchor[src];
+            core->input_scroll[dst] = core->input_scroll[src];
+        }
+        core->class_count[dst] = core->class_count[src];
+        for (int k = 0; k < core->class_count[src] && k < WN_MAX_CLASSES; ++k) {
+            core->classes[dst * WN_MAX_CLASSES + k] =
+                wn_strdup_(core->classes[src * WN_MAX_CLASSES + k]);
+            if (core->classes[dst * WN_MAX_CLASSES + k] == NULL) {
+                oom = 1;
+            }
+        }
+        if (oom) {
+            for (i = 0; i < count; ++i) {
+                arena_release(core, new_ids[i]);
+            }
+            free(src_ids);
+            free(new_ids);
+            free(map);
+            return -2;
+        }
+    }
+    build_hierarchy(core);
+    mark_core_dirty(core);
+    result = new_ids[0];
+    free(src_ids);
+    free(new_ids);
+    free(map);
+    return result;
+}
+
+int wn_core_remove(wn_core *core, int node)
+{
+    int *ids;
+    int count = 0;
+    int i;
+    if (core == NULL || !wn_core_node_is_alive(core, node)) {
+        return -1;
+    }
+    if (core->parent[node] < 0) {
+        return -1; /* root */
+    }
+    ids = (int *)malloc((size_t)core->node_capacity * sizeof(int));
+    if (ids == NULL) {
+        return -2;
+    }
+    collect_subtree(core, node, ids, &count);
+    for (i = 0; i < count; ++i) {
+        if (core->hover == ids[i]) core->hover = -1;
+        if (core->press == ids[i]) core->press = -1;
+        if (core->selected == ids[i]) core->selected = -1;
+    }
+    for (i = count - 1; i >= 0; --i) {
+        arena_release(core, ids[i]);
+    }
+    free(ids);
+    build_hierarchy(core);
+    mark_core_dirty(core);
+    return 0;
+}
+
+int wn_core_clear_children(wn_core *core, int node)
+{
+    int child;
+    int result = 0;
+    if (core == NULL || !wn_core_node_is_alive(core, node)) {
+        return -1;
+    }
+    child = core->first_child[node];
+    while (child >= 0) {
+        int next = core->next_sibling[child];
+        int status = wn_core_remove(core, child);
+        if (status != 0) {
+            result = status;
+        }
+        child = next;
+    }
+    return result;
+}
+
+static int is_ancestor(const wn_core *c, int maybe_ancestor, int node)
+{
+    int walk = node;
+    while (walk >= 0) {
+        if (walk == maybe_ancestor) {
+            return 1;
+        }
+        walk = c->parent[walk];
+    }
+    return 0;
+}
+
+int wn_core_append(wn_core *core, int parent, int child)
+{
+    if (core == NULL || !wn_core_node_is_alive(core, parent) ||
+        !wn_core_node_is_alive(core, child)) {
+        return -1;
+    }
+    if (parent == child || is_ancestor(core, child, parent)) {
+        return -1;
+    }
+    if (core->parent[child] < 0) {
+        return -1; /* document root */
+    }
+    core->parent[child] = parent;
+    core->nodes[child].parent = parent;
+    core->order_key[child] = core->next_order++;
+    build_hierarchy(core);
+    mark_core_dirty(core);
+    return 0;
+}
+
+void wn_core_destroy(wn_core *core)
+{
+    int i;
+    if (core == NULL) {
+        return;
+    }
+    if (core->nodes != NULL) {
+        for (i = 0; i < core->node_count; ++i) {
+            if (core->alive != NULL && core->alive[i]) {
+                free_node_payload(core, i);
+            }
+        }
+    }
+    wn_free_(core->nodes);
+    wn_free_((void *)core->names);
+    wn_free_(core->alive);
+    wn_free_(core->dynamic_node);
+    wn_free_(core->visible);
+    wn_free_(core->visible_eff);
+    wn_free_(core->parent);
+    wn_free_(core->order_key);
+    wn_free_(core->free_list);
+    wn_free_(core->rects);
+    wn_free_(core->clips);
+    wn_free_(core->scroll);
+    wn_free_(core->scroll_max);
+    wn_free_(core->first_child);
+    wn_free_(core->next_sibling);
+    wn_free_(core->last_child);
+    wn_free_(core->paint_order);
+    wn_free_(core->text_override);
+    wn_free_(core->image_override);
+    wn_free_(core->input_map);
+    wn_free_(core->input_value);
+    wn_free_(core->input_cursor);
+    wn_free_(core->input_anchor);
+    wn_free_(core->input_scroll);
+    wn_free_(core->input_records);
+    wn_text_atlas_destroy(core->text_atlas);
+    wn_free_(core->classes);
+    wn_free_(core->class_count);
+    wn_free_(core->vertices);
+    wn_free_(core->solid_batches);
+    wn_free_(core->glyph_vertices);
+    wn_free_(core->glyph_batches);
+    wn_free_(core->image_vertices);
+    wn_free_(core->image_batches);
+    wn_free_(core);
+}

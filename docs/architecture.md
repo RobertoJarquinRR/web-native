@@ -109,7 +109,7 @@ sigue generándose para el benchmark de paridad con referencias congeladas.
 ```
 src/
   frontend/            canónico en Rust (Cargo.toml, src/, tests/)
-  runtime/             motor + core/ABI + renderers
+  runtime/             motor (core/, document/, text/) + ABI + renderers
   ir/                  schema + validador
   emitter/python/      emit_ui
 tools/

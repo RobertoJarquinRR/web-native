@@ -12,7 +12,11 @@ set(WN_GENERATED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/generated" CACHE PATH "directo
 
 add_library(wn_runtime_obj OBJECT
     wn_common.c
-    wn_core.c
+    core/wn_core.c
+    core/layout.c
+    core/paint.c
+    core/input.c
+    core/hit_test.c
     document/wn_blob.c
     text/text_runtime.c
     text/text_atlas.c
@@ -58,7 +62,11 @@ set(WN_LINK_LIBS
 
 add_library(webnative SHARED
     wn_common.c
-    wn_core.c
+    core/wn_core.c
+    core/layout.c
+    core/paint.c
+    core/input.c
+    core/hit_test.c
     document/wn_blob.c
     text/text_runtime.c
     text/text_atlas.c

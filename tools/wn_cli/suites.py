@@ -10,7 +10,11 @@ from .core import CliError, check_binary, get_build_env, get_paths, get_python_e
 
 RUNTIME_SOURCES = (
     "runtime_r2.c",
-    "wn_core.c",
+    "core/wn_core.c",
+    "core/layout.c",
+    "core/paint.c",
+    "core/input.c",
+    "core/hit_test.c",
     "wn_common.c",
     "document/wn_blob.c",
     "wn_view.c",
@@ -22,7 +26,8 @@ RUNTIME_SOURCES = (
     "text/text_atlas.c",
     "text/text_directwrite.cpp",
 )
-CORE_SOURCES = ("wn_core.c", "wn_common.c", "document/wn_blob.c",
+CORE_SOURCES = ("core/wn_core.c", "core/layout.c", "core/paint.c", "core/input.c",
+                "core/hit_test.c", "wn_common.c", "document/wn_blob.c",
                 "text/text_runtime.c", "text/text_atlas.c", "text/text_directwrite.cpp")
 CORE_LIBS = ("dwrite.lib",)
 RUNTIME_LIBS = (
@@ -68,9 +73,13 @@ def _compile(
     objects_dir.mkdir(parents=True, exist_ok=True)
     include_flags = [f"/I{path}" for path in includes]
     objects: list[str] = []
+    stems = [Path(source).stem for source in sources]
     for source in sources:
         source = Path(source)
-        object_file = objects_dir / f"{source.stem}.obj"
+        stem = source.stem
+        if stems.count(stem) > 1:
+            stem = f"{source.parent.name}_{stem}"
+        object_file = objects_dir / f"{stem}.obj"
         run_cmd(
             [cl, *CFLAGS, *_language_flags(source), *include_flags, "/c",
              f"/Fo{object_file}", str(source)],
