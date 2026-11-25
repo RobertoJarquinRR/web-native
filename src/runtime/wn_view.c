@@ -26,6 +26,7 @@ struct wn_view {
     int height;
     float dpi_scale;
     int owns_core;   /* 0 when the core is borrowed (tooling/tests) */
+    const wn_document *document; /* owned when set by wn_view_replace_document */
     int loaded;
     int closed;
     int geometry_dirty;
@@ -420,6 +421,34 @@ wn_view *wn_view_create_offscreen(int32_t width, int32_t height)
     return view_create_with_surface(&surface, width, height, NULL);
 }
 
+/* Replaces the compiled document: a fresh core is built from it and the
+ * previous one is released. The view takes ownership of `document`. */
+int wn_view_replace_document(wn_view *view, wn_document *document)
+{
+    wn_core *core;
+
+    if (view == NULL || document == NULL) {
+        return 1;
+    }
+    core = wn_core_create(document);
+    if (core == NULL) {
+        return 1;
+    }
+    if (view->owns_core) {
+        wn_core_destroy(view->core);
+    }
+    if (view->document != NULL) {
+        wn_document_destroy((wn_document *)view->document);
+    }
+    view->core = core;
+    view->document = document;
+    view->owns_core = 1;
+    view->loaded = 1;
+    view->geometry_dirty = 1;
+    view->upload_dirty = 1;
+    return 0;
+}
+
 /* Tooling/test surface: states, wheel and counts on the view's own core. */
 wn_status wn_view_set_state(wn_view *view, int node, int state, int enabled)
 {
@@ -756,6 +785,9 @@ void wn_view_destroy(wn_view *view)
     }
     if (view->owns_core) {
         wn_core_destroy(view->core);
+    }
+    if (view->document != NULL) {
+        wn_document_destroy((wn_document *)view->document);
     }
     wn_free_(view->html);
     wn_free_(view->base_url);

@@ -1,0 +1,124 @@
+#ifndef WN_BLOB_H
+#define WN_BLOB_H
+
+#include <stdint.h>
+
+#if defined(__cplusplus)
+extern "C" {
+#endif
+
+#define WN_BLOB_MAGIC 0x49554E57u /* "WNUI" */
+#define WN_BLOB_VERSION 1u
+#define WN_BLOB_HEADER_SIZE 32u
+
+typedef enum {
+    WN_BLOB_SECTION_NODES = 1,
+    WN_BLOB_SECTION_NAMES = 2,
+    WN_BLOB_SECTION_STRINGS = 3,
+    WN_BLOB_SECTION_INPUTS = 4,
+    WN_BLOB_SECTION_INPUT_GLYPHS = 5,
+    WN_BLOB_SECTION_ATLAS = 6
+} wn_blob_section_id;
+
+typedef struct {
+    uint32_t id;
+    uint32_t offset;
+    uint32_t size;
+    uint32_t reserved;
+} WnBlobSection;
+
+typedef struct {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t section_count;
+    uint32_t file_size;
+    uint32_t node_count;
+    uint32_t viewport_width;
+    uint32_t viewport_height;
+    uint32_t reserved;
+} WnBlobHeader;
+
+/* Offsets are byte offsets into the strings section; 0 means NULL. */
+typedef struct {
+    int32_t parent;
+    int32_t kind;
+    int32_t direction;
+    int32_t justify;
+    int32_t align;
+    int32_t wrap;
+    float width;
+    float height;
+    float width_pct;
+    float height_pct;
+    float margin[4];
+    float padding[4];
+    uint32_t background;
+    uint32_t text;
+    uint32_t hover_bg;
+    uint32_t press_bg;
+    uint32_t selected_bg;
+    int32_t action;
+    float gap;
+    float font_size;
+    uint32_t text_color;
+    int32_t grid_mode;
+    float grid_column_px;
+    float grid_auto_rows;
+    float row_gap;
+    float column_gap;
+    int32_t overflow;
+    float image_width;
+    float image_height;
+    uint32_t image_src;
+    uint32_t image_alt;
+    int32_t object_fit;
+    float border_width;
+    uint32_t border_color;
+    float border_radius;
+    float shadow_x;
+    float shadow_y;
+    float shadow_blur;
+    float shadow_spread;
+    uint32_t shadow_color;
+    int32_t text_align;
+    float line_height;
+    int32_t margin_auto;
+    int32_t box_sizing;
+    float flex_grow;
+    float flex_shrink;
+    float flex_basis;
+    uint32_t font_family;
+    int32_t font_weight;
+} WnBlobNode;
+
+typedef struct {
+    int32_t node;
+    uint32_t value;       /* strings offset */
+    uint32_t placeholder; /* strings offset */
+    int32_t max_length;
+    int32_t password;
+    float baseline;
+    float line_height;
+    int32_t glyph_first;
+    int32_t glyph_count;
+} WnBlobInput;
+
+typedef struct {
+    int32_t cp;
+    int32_t gid;
+    float advance;
+    float x;
+    float y;
+    float w;
+    float h;
+    float u0;
+    float v0;
+    float u1;
+    float v1;
+} WnBlobInputGlyph;
+
+#if defined(__cplusplus)
+}
+#endif
+
+#endif

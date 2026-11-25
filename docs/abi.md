@@ -22,6 +22,18 @@
 | `wn_abi_version()` | `WN_ABI_VERSION` (4) |
 | `wn_last_error()` | último error del hilo |
 
+### Documentos
+
+| Función | Uso |
+|---|---|
+| `wn_document_load_blob(path)` | carga un `.wnui`; `NULL` si falla |
+| `wn_document_destroy(doc)` | suelta el mapeo del documento |
+| `wn_app_load_document(app, path)` | carga el blob en una app viva |
+
+El documento mapea el archivo en solo lectura y vive hasta `destroy`. La app
+libera el core anterior, conserva el renderer y devuelve `WN_ERR_IO` si el
+blob falta o está corrupto.
+
 ### Standalone (`wn_app_*`)
 
 | Función | Uso |
@@ -173,7 +185,7 @@ private static partial nint wn_node_get_value(nint app, ulong node);
 
 - `wn_app_load` / `wn_view_load` **copian** HTML/CSS, pero el runtime renderiza
   el árbol compilado `ui_data.h`. **No hay parser HTML/CSS en runtime**; cambiar
-  la página requiere recompilar el árbol.
+  la página requiere recompilar el árbol o cargar otro `.wnui`.
 - `set_text` acepta cualquier UTF-8: el runtime shapea y rasteriza el texto. El
   documento solo lleva cadena, familia, tamaño, peso y `line-height`.
 - `set_image` conserva el tamaño intrínseco compilado; no hay probe WIC nuevo.

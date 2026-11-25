@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "document/wn_document_internal.h"
 #include "text/text_atlas.h"
 #include "text/text_runtime.h"
 #include "ui_data.h"
@@ -24,16 +25,17 @@
 #define WN_MAX_CLASSES 8
 #define WN_MAX_NODES 4096
 
-struct wn_document {
-    const UiNode *nodes;
-    int node_count;
-    const char *const *names;
-    const unsigned char *atlas;
-    int atlas_width;
-    int atlas_height;
-    int viewport_width;
-    int viewport_height;
-};
+#if defined(UI_INPUT_COUNT) && UI_INPUT_COUNT > 0
+#define WN_BUILTIN_INPUTS kUiInputs
+#define WN_BUILTIN_INPUT_COUNT UI_INPUT_COUNT
+#define WN_BUILTIN_INPUT_GLYPHS kUiInputGlyphs
+#define WN_BUILTIN_INPUT_GLYPH_COUNT UI_INPUT_GLYPH_COUNT
+#else
+#define WN_BUILTIN_INPUTS NULL
+#define WN_BUILTIN_INPUT_COUNT 0
+#define WN_BUILTIN_INPUT_GLYPHS NULL
+#define WN_BUILTIN_INPUT_GLYPH_COUNT 0
+#endif
 
 static const wn_document g_builtin_document = {
     kUiNodes,
@@ -43,7 +45,17 @@ static const wn_document g_builtin_document = {
     UI_ATLAS_SIZE,
     UI_ATLAS_SIZE,
     UI_VIEWPORT_WIDTH,
-    UI_VIEWPORT_HEIGHT
+    UI_VIEWPORT_HEIGHT,
+    WN_BUILTIN_INPUTS,
+    WN_BUILTIN_INPUT_COUNT,
+    WN_BUILTIN_INPUT_GLYPHS,
+    WN_BUILTIN_INPUT_GLYPH_COUNT,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
+    NULL
 };
 
 const wn_document *wn_document_builtin(void)
@@ -3438,51 +3450,51 @@ static char *input_alloc_value(const char *text)
 
 static int build_input_state(wn_core *c)
 {
-#ifdef UI_INPUT_COUNT
+    const wn_document *document = c->doc;
     int i;
     int j;
-    if (UI_INPUT_COUNT <= 0) {
+    if (document->input_count <= 0) {
         return 0;
     }
-    c->input_record_count = UI_INPUT_COUNT;
+    c->input_record_count = document->input_count;
     c->input_records = (WnInputRecord *)calloc(
-        (size_t)UI_INPUT_COUNT, sizeof(WnInputRecord));
-    c->input_pool_count = UI_INPUT_GLYPH_COUNT;
+        (size_t)document->input_count, sizeof(WnInputRecord));
+    c->input_pool_count = document->input_glyph_count;
     c->input_pool = (WnInputGlyph *)calloc(
-        (size_t)(UI_INPUT_GLYPH_COUNT > 0 ? UI_INPUT_GLYPH_COUNT : 1),
+        (size_t)(document->input_glyph_count > 0 ? document->input_glyph_count : 1),
         sizeof(WnInputGlyph));
     if (c->input_records == NULL || c->input_pool == NULL) {
         return -1;
     }
-    for (i = 0; i < UI_INPUT_GLYPH_COUNT; ++i) {
+    for (i = 0; i < document->input_glyph_count; ++i) {
         WnInputGlyph *dst = &c->input_pool[i];
         int atlas_side = wn_text_atlas_width(c->text_atlas);
-        float scale = atlas_side > 0 ? (float)UI_ATLAS_SIZE / (float)atlas_side : 1.0f;
-        dst->advance = kUiInputGlyphs[i].advance;
-        dst->x = kUiInputGlyphs[i].x;
-        dst->y = kUiInputGlyphs[i].y;
-        dst->w = kUiInputGlyphs[i].w;
-        dst->h = kUiInputGlyphs[i].h;
-        /* The seed atlas keeps its UVs; they are relative to UI_ATLAS_SIZE. */
-        dst->u0 = kUiInputGlyphs[i].u0 * scale;
-        dst->v0 = kUiInputGlyphs[i].v0 * scale;
-        dst->u1 = kUiInputGlyphs[i].u1 * scale;
-        dst->v1 = kUiInputGlyphs[i].v1 * scale;
+        float scale = atlas_side > 0 ? (float)document->atlas_width / (float)atlas_side : 1.0f;
+        dst->advance = document->input_glyphs[i].advance;
+        dst->x = document->input_glyphs[i].x;
+        dst->y = document->input_glyphs[i].y;
+        dst->w = document->input_glyphs[i].w;
+        dst->h = document->input_glyphs[i].h;
+        /* The seed atlas keeps its UVs; they are relative to the document atlas. */
+        dst->u0 = document->input_glyphs[i].u0 * scale;
+        dst->v0 = document->input_glyphs[i].v0 * scale;
+        dst->u1 = document->input_glyphs[i].u1 * scale;
+        dst->v1 = document->input_glyphs[i].v1 * scale;
     }
-    for (i = 0; i < UI_INPUT_COUNT; ++i) {
+    for (i = 0; i < document->input_count; ++i) {
+        const UiInput *spec = &document->inputs[i];
         WnInputRecord *record = &c->input_records[i];
-        int first = kUiInputs[i].glyph_first;
-        int count = kUiInputs[i].glyph_count;
-        int node = kUiInputs[i].node;
+        int first = spec->glyph_first;
+        int count = spec->glyph_count;
+        int node = spec->node;
         record->node = node;
-        record->placeholder =
-            kUiInputs[i].placeholder != NULL ? kUiInputs[i].placeholder : "";
-        record->max_length = kUiInputs[i].max_length;
+        record->placeholder = spec->placeholder != NULL ? spec->placeholder : "";
+        record->max_length = spec->max_length;
         if (record->max_length < 0 || record->max_length > WN_INPUT_MAX_BYTES) {
             record->max_length = WN_INPUT_MAX_BYTES;
         }
-        record->baseline = kUiInputs[i].baseline;
-        record->line_height = kUiInputs[i].line_height;
+        record->baseline = spec->baseline;
+        record->line_height = spec->line_height;
         if (first < 0 || first > c->input_pool_count) {
             first = 0;
             count = 0;
@@ -3496,13 +3508,13 @@ static int build_input_state(wn_core *c)
             record->cp_index[j] = -1;
         }
         for (j = 0; j < count; ++j) {
-            int cp = kUiInputGlyphs[first + j].cp;
+            int cp = document->input_glyphs[first + j].cp;
             if (cp >= 0 && cp < 128) {
                 record->cp_index[cp] = (short)j;
             }
         }
         if (node >= 0 && node < c->node_count) {
-            const char *value = kUiInputs[i].value != NULL ? kUiInputs[i].value : "";
+            const char *value = spec->value != NULL ? spec->value : "";
             c->input_map[node] = i;
             c->input_value[node] = input_alloc_value(value);
             if (c->input_value[node] == NULL) {
@@ -3512,9 +3524,6 @@ static int build_input_state(wn_core *c)
             c->input_anchor[node] = -1;
         }
     }
-#else
-    (void)c;
-#endif
     return 0;
 }
 

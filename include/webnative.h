@@ -47,6 +47,7 @@ extern "C" {
 #define WN_FLAG_NONE 0u
 
 typedef struct wn_app  wn_app;
+typedef struct wn_document wn_document;
 typedef struct wn_view wn_view;
 
 /* ABI v3: stable node handle for the dynamic UI API. 0 is never a valid node
@@ -121,6 +122,14 @@ WN_API uint32_t wn_abi_version(void);
  * webnative call on this thread. Returns NULL if there is no error. */
 WN_API const char *wn_last_error(void);
 
+/* ------------------------------------------------------------ documents */
+
+/* Loads a compiled document (.wnui). The file is mapped read-only; the
+ * document stays valid until wn_document_destroy(). Returns NULL and sets
+ * wn_last_error() when the file is missing or invalid. */
+WN_API wn_document *wn_document_load_blob(const char *path_utf8);
+WN_API void wn_document_destroy(wn_document *document);
+
 /* ------------------------------------------------------- standalone app */
 
 WN_API wn_app *wn_app_create(const wn_config *config);
@@ -131,6 +140,11 @@ WN_API wn_status wn_app_load(wn_app *app,
                              const char *html_utf8,
                              const char *base_url,
                              const char *css_utf8);
+
+/* Loads a compiled document into the running app. The previous core is
+ * released and the window keeps its renderer. Returns WN_ERR_IO when the
+ * blob is missing or invalid (see wn_last_error()). */
+WN_API wn_status wn_app_load_document(wn_app *app, const char *path_utf8);
 
 WN_API wn_status wn_app_set_text(wn_app *app, const char *id, const char *text_utf8);
 WN_API wn_status wn_app_set_class(wn_app *app, const char *id, const char *class_name, int enabled);

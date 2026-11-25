@@ -106,6 +106,7 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | Bordes / radius / sombras v1                 | ✅  | radio/borde uniforme; primera sombra; sin per-side/inset |
 | Virtualización / culling                     | ❌  | pendiente                                                |
 | Text shaping runtime                         | ✅  | DirectWrite; medición, shaping y atlas dinámico          |
+| Documento `.wnui` (blob)                     | ✅  | mmap solo lectura; `wn_app_load_document` vía ABI        |
 | Wrapping / line breaking                     | ❌  | una línea por nodo; pendiente                            |
 | Bidi, CJK, emoji, IME                        | ❌  | pendiente                                                |
 | Accesibilidad / UIA                          | ❌  | pendiente                                                |
@@ -144,7 +145,12 @@ python tools\cli.py test all
 
 # Extensiones del piloto: emite, compila y verifica
 python tools\cli.py bench pilot
+
+# Blob: layout y píxeles contra el documento builtin
+python tools\cli.py test suite blob
 ```
+
+Ejecutar un `.exe` o cargar un `.wnui` no necesita Python.
 
 ## Lo que no se persigue
 

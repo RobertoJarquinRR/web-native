@@ -200,8 +200,29 @@ wn_status wn_app_load(wn_app *app, const char *html_utf8,
     return status;
 }
 
-wn_status wn_app_set_text(wn_app *app, const char *id, const char *text_utf8)
+wn_status wn_app_load_document(wn_app *app, const char *path_utf8)
 {
+    wn_document *document;
+
+    wn_clear_error();
+    if (app == NULL || app->view == NULL || path_utf8 == NULL) {
+        wn_set_error("wn_app_load_document: app and path are required");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    document = wn_document_load_blob(path_utf8);
+    if (document == NULL) {
+        return WN_ERR_IO;
+    }
+    if (wn_view_replace_document(app->view, document) != 0) {
+        wn_document_destroy(document);
+        wn_set_error("wn_app_load_document: cannot build a core for %s", path_utf8);
+        return WN_ERR_INTERNAL;
+    }
+    app->loaded = 1;
+    return WN_OK;
+}
+
+wn_status wn_app_set_text(wn_app *app, const char *id, const char *text_utf8){
     wn_clear_error();
     if (app == NULL) {
         wn_set_error("wn_app_set_text: app is NULL");

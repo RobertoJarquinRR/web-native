@@ -1503,6 +1503,8 @@ int main(int argc, char **argv)
     int widths[8] = {960, 720, 560, 0, 0, 0, 0, 0};
     int heights[8] = {640, 640, 640, 0, 0, 0, 0, 0};
     int size_count = 3;
+    const char *document_path = NULL;
+    const wn_document *document = NULL;
 
     setvbuf(stdout, NULL, _IONBF, 0);
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
@@ -1510,7 +1512,19 @@ int main(int argc, char **argv)
     wgpuSetLogLevel(WGPULogLevel_Warn);
     wgpuSetLogCallback(on_log, NULL);
 
-    g_core = wn_core_create(wn_document_builtin());
+    for (int i = 1; i + 1 < argc; ++i) {
+        if (strcmp(argv[i], "--document") == 0) {
+            document_path = argv[i + 1];
+        }
+    }
+    document = document_path != NULL ? wn_document_load_blob(document_path)
+                                     : wn_document_builtin();
+    if (document == NULL) {
+        fprintf(stderr, "error: %s\n", wn_last_error() != NULL ? wn_last_error() : "no document");
+        exit_code = 1;
+        goto done;
+    }
+    g_core = wn_core_create(document);
     if (g_core == NULL) {
         fprintf(stderr, "error: wn_core_create failed\n");
         exit_code = 1;
@@ -1686,6 +1700,10 @@ int main(int argc, char **argv)
 done:
     wn_core_destroy(g_core);
     g_core = NULL;
+    if (document_path != NULL) {
+        wn_document_destroy((wn_document *)document);
+        document = NULL;
+    }
     CoUninitialize();
     return exit_code;
 }

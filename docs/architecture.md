@@ -56,6 +56,7 @@
 ```
 HTML/CSS → frontend Rust --emit-ui → ui.json (+ atlas de la piscina de input)
          → emit_ui.py → ui_data.h → cl.exe → app.exe | webnative.dll
+                      → app.wnui (blob v1) → wn_app_load_document()
 runtime: eventos → estado → layout C (mide el texto) → display list
          → renderer → ventana
 host: ABI v4 → set_visible/set_image/set_text/clone (v3) + input (v4)
@@ -73,8 +74,22 @@ El texto no se hornea: el documento lleva cadena, familia, tamaño, peso y
 | `text/text_atlas.c` | atlas 1024², caché de glifos y de runs |
 
 `wn-cli build` produce también `webnative.dll` (objetivo CMake `webnative`,
-`WN_BUILD_DLL`), que un consumidor externo puede enlazar sin ver el repo. Hoy la
-DLL lleva el árbol compilado dentro; el blob `.wnui` es el paso siguiente.
+`WN_BUILD_DLL`), que un consumidor externo puede enlazar sin ver el repo. Se
+compila una vez con el documento canónico; una app con su `app.wnui` no
+recompila la DLL.
+
+### Documento compilado (`.wnui`)
+
+El mismo árbol que sale a `ui_data.h` se serializa a un blob v1: cabecera de
+32 bytes (`WNUI`, versión 1) y secciones de nodos, nombres, strings, inputs,
+input glyphs y atlas. Los nodos son enteros y floats con offsets al pool de
+strings (0 = NULL); no hay glifos, runs ni atlas de texto.
+
+`wn_document_load_blob` mapea el archivo en solo lectura (Windows:
+`CreateFileMapping`/`MapViewOfFile`; resto: `malloc`) y devuelve el documento
+hasta `wn_document_destroy`. `wn_app_load_document` lo carga en una app viva,
+conserva el renderer y devuelve `WN_ERR_IO` con blob inválido. La página
+canónica pesa 17.557 bytes como header y 7.512 como blob.
 
 `renderer` es la vtable `wn_renderer`. En Windows el backend por defecto es
 **D3D11 hardware** (`renderer_d3d11.c`) con fallback a **wgpu-native**; en otras

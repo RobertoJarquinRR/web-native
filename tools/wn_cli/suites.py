@@ -12,6 +12,7 @@ RUNTIME_SOURCES = (
     "runtime_r2.c",
     "wn_core.c",
     "wn_common.c",
+    "document/wn_blob.c",
     "wn_view.c",
     "wn_app.c",
     "renderer_wgpu.c",
@@ -21,8 +22,8 @@ RUNTIME_SOURCES = (
     "text/text_atlas.c",
     "text/text_directwrite.cpp",
 )
-CORE_SOURCES = ("wn_core.c", "wn_common.c", "text/text_runtime.c", "text/text_atlas.c",
-                "text/text_directwrite.cpp")
+CORE_SOURCES = ("wn_core.c", "wn_common.c", "document/wn_blob.c",
+                "text/text_runtime.c", "text/text_atlas.c", "text/text_directwrite.cpp")
 CORE_LIBS = ("dwrite.lib",)
 RUNTIME_LIBS = (
     "d3d11.lib",
@@ -528,6 +529,116 @@ def run_text() -> int:
     return 0
 
 
+def _blob_emit(page_dir: Path, fixture: Path, width: int, height: int,
+               pilot: bool) -> Path:
+    runtime = get_paths().runtime
+    rust_exe = get_paths().frontend_rust / "target" / "release" / "frontend-rust.exe"
+    fixture.mkdir(parents=True, exist_ok=True)
+    arguments = [
+        "--html", str(page_dir / "index.html"),
+        "--css", str(page_dir / "style.css"),
+        "--width", str(width),
+        "--height", str(height),
+        "--emit-ui", str(fixture / "ui.json"),
+    ]
+    if pilot:
+        arguments.append("--pilot")
+    run_cmd([rust_exe, *arguments], cwd=runtime)
+    _python(
+        get_paths().emitter,
+        ["--ui-json", str(fixture / "ui.json"), "--out", str(fixture / "ui_data.h"),
+         "--meta", str(fixture / "ui_meta.json"), "--blob", str(fixture / "app.wnui")],
+        cwd=get_paths().root,
+    )
+    blob = fixture / "app.wnui"
+    if not blob.is_file():
+        raise CliError("emitter did not write app.wnui")
+    return blob
+
+
+def run_blob() -> int:
+    suite = _suite_dir("blob")
+    out = suite / "out"
+    runtime = get_paths().runtime
+    out.mkdir(parents=True, exist_ok=True)
+    rust_exe = get_paths().frontend_rust / "target" / "release" / "frontend-rust.exe"
+    if not rust_exe.is_file():
+        raise CliError("frontend-rust.exe is missing; run: wn-cli frontend build")
+
+    log_step("blob: canonical document")
+    page = runtime / "page"
+    fixture = out / "fixture" / "canonical"
+    blob = _blob_emit(page, fixture, 960, 640, False)
+
+    log_step("blob: load and compare against the builtin document")
+    exe = out / "blob_test.exe"
+    _compile(
+        exe,
+        [suite / "blob_test.c", *[runtime / item for item in CORE_SOURCES]],
+        [get_paths().root / "include", runtime, fixture],
+        CORE_LIBS,
+    )
+    _expect(_run(exe, [str(blob)], out), ["blob_test: PASS"], "blob test")
+
+    log_step("blob: render builtin vs blob")
+    runtime_exe = out / "runtime_blob.exe"
+    _compile(
+        runtime_exe,
+        [runtime / item for item in RUNTIME_SOURCES],
+        [get_paths().root / "include", runtime, _wgpu_dir() / "include", fixture],
+        [str(_wgpu_dir() / "lib" / "wgpu_native.dll.lib"), *RUNTIME_LIBS],
+    )
+    run_cmd(["cmd", "/d", "/c", "copy", "/Y",
+             str(_wgpu_dir() / "bin" / "wgpu_native.dll"), str(out / "wgpu_native.dll")])
+    builtin_png = out / "render_builtin.png"
+    blob_png = out / "render_blob.png"
+    environment = {"WN_RENDERER": "d3d11"}
+    _run(runtime_exe, ["--render", "960", "640", str(builtin_png)], out, environment)
+    _run(runtime_exe, ["--render", "960", "640", str(blob_png), "--document", str(blob)],
+         out, environment)
+
+    log_step("blob: compare pixels")
+    compare = out / "blob_compare.json"
+    completed = subprocess.run(
+        [
+            str(get_python_exe()),
+            str(runtime / "tests" / "d3d11" / "verify_d3d11.py"),
+            "--capture", str(blob_png),
+            "--reference", str(builtin_png),
+            "--report", str(compare),
+            "--label", "blob-vs-builtin",
+        ],
+        cwd=out,
+        capture_output=True,
+        text=True,
+    )
+    for line in (completed.stdout + completed.stderr).splitlines():
+        if line.strip():
+            log_info(line.rstrip())
+    if completed.returncode != 0:
+        raise CliError("blob render differs from the builtin render")
+    checks = json.loads(compare.read_text(encoding="utf-8"))["checks"]
+    log_info(
+        "blob: max_diff={0} bad={1:.2%} exact={2:.2%}".format(
+            checks["max_channel_diff"], checks["bad_fraction"], checks["exact_fraction"],
+        )
+    )
+
+    log_step("blob: input page (records + ASCII pool)")
+    input_fixture = out / "fixture" / "input"
+    input_blob = _blob_emit(runtime / "tests" / "input" / "page", input_fixture, 480, 240, True)
+    input_exe = out / "blob_input_test.exe"
+    _compile(
+        input_exe,
+        [suite / "blob_test.c", *[runtime / item for item in CORE_SOURCES]],
+        [get_paths().root / "include", runtime, input_fixture],
+        CORE_LIBS,
+    )
+    _expect(_run(input_exe, [str(input_blob)], out), ["blob_test: PASS"], "input blob test")
+    log_info("blob v1: PASS")
+    return 0
+
+
 SUITES = {
     "css": ("CSS core v1 (rounded boxes, border, shadow, image)", run_css),
     "fidelity": ("E1 visual/layout fidelity (headless core + renders)", run_fidelity),
@@ -535,6 +646,7 @@ SUITES = {
     "input": ("text input v1 (caret, selection, clipboard, ABI demo)", run_input),
     "offscreen": ("offscreen vtable (d3d11 vs wgpu readback)", run_offscreen),
     "text": ("runtime text v0 (DirectWrite measurement + cache)", run_text),
+    "blob": ("blob v1 (.wnui load, layout and pixels)", run_blob),
 }
 
 

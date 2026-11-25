@@ -33,6 +33,10 @@ wn_view *wn_view_create_with_core(void *native_window_handle, wn_core *core,
                                   int32_t width, int32_t height);
 /* Copy the last offscreen frame to a PNG. WN_OK on success. */
 wn_status wn_view_readback(wn_view *view, const char *png_path);
+/* Replaces the compiled document; the view takes ownership. Returns 0 on
+ * success. */
+int wn_view_replace_document(wn_view *view, wn_document *document);
+
 /* Tooling/test surface: states and wheel on the view's own core. */
 wn_status wn_view_set_state(wn_view *view, int node, int state, int enabled);
 /* Applies the wheel and returns the scroll container node, or -1. */

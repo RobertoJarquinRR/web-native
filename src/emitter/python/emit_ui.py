@@ -39,6 +39,7 @@ import argparse
 import json
 import math
 import re
+import struct
 import sys
 from pathlib import Path
 
@@ -604,12 +605,138 @@ class Emitter:
         })
 
 
+# --------------------------------------------------------------- blob (.wnui)
+
+BLOB_MAGIC = 0x49554E57
+BLOB_VERSION = 1
+BLOB_HEADER = struct.Struct("<8I")
+BLOB_SECTION = struct.Struct("<4I")
+BLOB_NODE = struct.Struct(
+    "<" + "".join(("6i", "4f", "8f", "2I", "3I", "i", "2f", "I", "i", "4f", "i",
+                   "2f", "2I", "i", "f", "I", "f", "4f", "I", "i", "f", "2i", "3f",
+                   "I", "i"))
+)
+assert BLOB_NODE.size == 220, BLOB_NODE.size
+BLOB_INPUT = struct.Struct("<iIIiiffii")
+BLOB_INPUT_GLYPH = struct.Struct("<ii9f")
+
+BLOB_NODES = 1
+BLOB_NAMES = 2
+BLOB_STRINGS = 3
+BLOB_INPUTS = 4
+BLOB_INPUT_GLYPHS = 5
+BLOB_ATLAS = 6
+
+
+class StringPool:
+    def __init__(self) -> None:
+        self.data = bytearray(b"\x00")
+        self.offsets: dict[str, int] = {}
+
+    def offset(self, value: str | None) -> int:
+        if not value:
+            return 0
+        if value in self.offsets:
+            return self.offsets[value]
+        offset = len(self.data)
+        self.data.extend(value.encode("utf-8"))
+        self.data.append(0)
+        self.offsets[value] = offset
+        return offset
+
+
+def write_blob(path: Path, nodes: list[dict], meta: list[dict],
+               inputs: list[dict], input_glyphs: list[dict],
+               metrics, width: int, height: int) -> None:
+    """Sectioned document without text glyphs; the runtime shapes the strings."""
+    strings = StringPool()
+    node_records = bytearray()
+    for node in nodes:
+        node_records += BLOB_NODE.pack(
+            node["parent"], node["kind"], node["direction"], node["justify"],
+            node["align"], node["wrap"],
+            node["width"], node["height"], node["width_pct"], node["height_pct"],
+            *[float(v) for v in node["margin"]],
+            *[float(v) for v in node["padding"]],
+            node["background"], strings.offset(node["text"]),
+            node["hover_bg"], node["press_bg"], node["selected_bg"],
+            node["action"], node["gap"], node["font_size"],
+            node["text_color"],
+            node["grid_mode"], node["grid_column_px"], node["grid_auto_rows"],
+            node["row_gap"], node["column_gap"],
+            node["overflow"], node["image_width"], node["image_height"],
+            strings.offset(node["image_src"]), strings.offset(node["image_alt"]),
+            node["object_fit"],
+            node["border_width"], node["border_color"], node["border_radius"],
+            node["shadow_x"], node["shadow_y"], node["shadow_blur"], node["shadow_spread"],
+            node["shadow_color"],
+            node.get("text_align", 0), node.get("line_height", 0.0),
+            node.get("margin_auto", 0), node.get("box_sizing", 0),
+            node.get("flex_grow", 0.0), node.get("flex_shrink", 1.0),
+            node.get("flex_basis", -1.0),
+            strings.offset(node.get("font_family") or DEFAULT_FAMILY),
+            node.get("font_weight", 400),
+        )
+
+    name_records = bytearray()
+    for item in meta:
+        name_records += struct.pack("<I", strings.offset(item["name"]))
+
+    input_records = bytearray()
+    for item in inputs:
+        input_records += BLOB_INPUT.pack(
+            item["node"], strings.offset(item["value"]), strings.offset(item["placeholder"]),
+            item["max_length"], item["password"], item["baseline"], item["line_height"],
+            item["glyph_first"], item["glyph_count"],
+        )
+
+    glyph_records = bytearray()
+    for glyph in input_glyphs:
+        glyph_records += BLOB_INPUT_GLYPH.pack(
+            glyph["cp"], glyph["gid"], glyph["advance"], glyph["x"], glyph["y"],
+            glyph["w"], glyph["h"], glyph["u0"], glyph["v0"], glyph["u1"], glyph["v1"],
+        )
+
+    if input_glyphs and metrics is not None:
+        atlas_size = metrics.packer.size
+        atlas_pixels = bytes(metrics.packer.data)
+    else:
+        atlas_size = 1
+        atlas_pixels = b"\x00"
+    atlas_section = struct.pack("<II", atlas_size, atlas_size) + atlas_pixels
+
+    sections = [(BLOB_NODES, bytes(node_records)), (BLOB_NAMES, bytes(name_records)),
+                (BLOB_STRINGS, bytes(strings.data)), (BLOB_ATLAS, atlas_section)]
+    if input_records:
+        sections.append((BLOB_INPUTS, bytes(input_records)))
+    if glyph_records:
+        sections.append((BLOB_INPUT_GLYPHS, bytes(glyph_records)))
+
+    table_size = BLOB_HEADER.size + len(sections) * BLOB_SECTION.size
+    offset = (table_size + 7) & ~7
+    table = bytearray()
+    payload = bytearray()
+    for section_id, data in sections:
+        table += BLOB_SECTION.pack(section_id, offset, len(data), 0)
+        payload += data
+        offset += len(data)
+        padding = (-offset) & 7
+        payload += b"\x00" * padding
+        offset += padding
+    total = offset
+    header = BLOB_HEADER.pack(BLOB_MAGIC, BLOB_VERSION, len(sections), total,
+                              len(nodes), width, height, 0)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(header + bytes(table) + bytes(payload))
+
+
 # ------------------------------------------------------------------- output
 
 def write_header(nodes: list[dict], meta: list[dict], out: Path,
                  default_w: int, default_h: int, metrics: TextMetrics | None,
                  inputs: list[dict] | None = None,
-                 input_glyphs: list[dict] | None = None) -> None:
+                 input_glyphs: list[dict] | None = None,
+                 blob_path: Path | None = None) -> None:
     inputs = inputs or []
     input_glyphs = input_glyphs or []
     # E1: los campos de text-align/line-height/margin:auto solo se escriben si
@@ -747,28 +874,9 @@ def write_header(nodes: list[dict], meta: list[dict], out: Path,
     lines.append("")
 
     if inputs:
-        # ui-tree/3: piscina ASCII imprimible por tamano de fuente. El runtime
-        # compone texto sumando avances; no hay shaping en runtime.
-        lines.append("typedef struct {")
-        lines.append("    int cp;                    /* ASCII imprimible 32..126 */")
-        lines.append("    int gid;                   /* diagnostico */")
-        lines.append("    float advance;             /* avance HarfBuzz aislado, px */")
-        lines.append("    float x, y;                /* caja relativa al content box */")
-        lines.append("    float w, h;")
-        lines.append("    float u0, v0, u1, v1;      /* R8 atlas UVs */")
-        lines.append("} UiInputGlyph;")
-        lines.append("")
-        lines.append("typedef struct {")
-        lines.append("    int node;                  /* UiNode id (NODE_INPUT) */")
-        lines.append("    const char *value;         /* valor inicial, ASCII */")
-        lines.append("    const char *placeholder;   /* ASCII, vacio = sin placeholder */")
-        lines.append("    int max_length;            /* 0 = sin limite (tope 255) */")
-        lines.append("    int password;              /* reservado, 0 en v1 */")
-        lines.append("    float baseline;            /* ascender desde el content box */")
-        lines.append("    float line_height;         /* ascender + descender */")
-        lines.append("    int glyph_first;           /* primer glyph en kUiInputGlyphs */")
-        lines.append("    int glyph_count;")
-        lines.append("} UiInput;")
+        # ui-tree/3: piscina ASCII imprimible. UiInput/UiInputGlyph viven en
+        # document/wn_document_format.h para que el blob reutilice el layout.
+        lines.append('#include "document/wn_document_format.h"')
         lines.append("")
         lines.append(f"#define UI_INPUT_COUNT {len(inputs)}")
         lines.append(f"#define UI_INPUT_GLYPH_COUNT {len(input_glyphs)}")
@@ -818,6 +926,9 @@ def write_header(nodes: list[dict], meta: list[dict], out: Path,
     lines.append("#endif /* UI_DATA_H */")
     lines.append("")
     out.write_text("\n".join(lines), encoding="utf-8", newline="\n")
+    if blob_path is not None:
+        write_blob(blob_path, nodes, meta, inputs, input_glyphs, metrics,
+                   default_w, default_h)
 
 
 # ----------------------------------------------------------- Rust ui.json
@@ -886,7 +997,8 @@ def validate_ui_tree(data: dict) -> list[str]:
     return errors
 
 
-def emit_from_ui_json(ui_path: Path, out_path: Path, meta_path: Path) -> int:
+def emit_from_ui_json(ui_path: Path, out_path: Path, meta_path: Path,
+                      blob_path: Path | None = None) -> int:
     data, payload, atlas_size = load_ui_json(ui_path)
     errors = validate_ui_tree(data)
     if errors:
@@ -1098,7 +1210,8 @@ def emit_from_ui_json(ui_path: Path, out_path: Path, meta_path: Path) -> int:
     viewport = data.get("viewport") or {}
     width = int(viewport.get("width", 960))
     height = int(viewport.get("height", 640))
-    write_header(nodes, meta, out_path, width, height, metrics, inputs, input_glyphs)
+    write_header(nodes, meta, out_path, width, height, metrics, inputs, input_glyphs,
+                 blob_path)
 
     source = data.get("source") or {}
     html_path = Path(source.get("html") or "")
@@ -1442,6 +1555,7 @@ def main() -> int:
     parser.add_argument("--css", default=str(DEFAULT_CSS))
     parser.add_argument("--out", default="ui_data.h")
     parser.add_argument("--meta", default="ui_meta.json")
+    parser.add_argument("--blob", default=None, help="also write a .wnui document")
     parser.add_argument("--width", type=int, default=960)
     parser.add_argument("--height", type=int, default=640)
     parser.add_argument("--no-text-metrics", action="store_true",
@@ -1459,7 +1573,8 @@ def main() -> int:
     if args.compare:
         return compare_headers(Path(args.compare[0]), Path(args.compare[1]), args.strict)
     if args.ui_json:
-        return emit_from_ui_json(Path(args.ui_json), Path(args.out), Path(args.meta))
+        return emit_from_ui_json(Path(args.ui_json), Path(args.out), Path(args.meta),
+                             Path(args.blob) if args.blob else None)
 
     from webnative.cascade import compute_styles
     from webnative.css_parse import parse_stylesheets

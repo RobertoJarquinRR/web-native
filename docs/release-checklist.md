@@ -108,9 +108,13 @@ python benchmarks\frontend-parity\tools\bench.py --runs 1 --warmup 0
 
 - [ ] R2 **69/69**.
 - [ ] `python tools\cli.py test all` encadena Rust, ABI, **CSS 41/41**,
-      **fidelity 23/23**, **dynamic 53/53**, **input 111/111** y
+      **fidelity 23/23**, **dynamic 53/53**, **input 111/111**, **blob** y
       **offscreen** (d3d11 vs wgpu).
 - [ ] Piloto (`python tools\cli.py bench pilot`) y su `verify.py` verdes.
+- [ ] Blob: `wn-cli test suite blob` da 28/28 rects y 100.00% de píxeles
+      exactos contra el documento builtin, más el caso de input.
+- [ ] Un consumidor carga `app.wnui` con `wn_app_load_document` y corre sin
+      recompilar `webnative.dll`.
 - [ ] Render smoke: `runtime_r2.exe --render 960 640 out.png` genera un PNG del
       tamaño exacto y no vacío.
 - [ ] Subset: un fixture con feature fuera de v1 falla con `--strict-subset`
