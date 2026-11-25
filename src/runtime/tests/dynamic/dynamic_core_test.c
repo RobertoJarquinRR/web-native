@@ -260,6 +260,73 @@ int main(int argc, char **argv)
     fprintf(report, "\"clone_image\":%d,\"clone_text\":%d,", clone_image, clone_text);
     event_end(report);
 
+    /* -------------------------------------------- clone navigation (ABI v5) */
+    {
+        int nav_clone, nav_image, nav_label, nav_text;
+        int nav_base_glyphs, nav_glyphs_before, nav_glyphs_after;
+        int nav_parent_ok, nav_order_ok;
+        wn_rect nested, moved;
+
+        nav_base_glyphs = wn_core_display_list(g_core)->glyph_vertex_count;
+        nav_clone = wn_core_clone(g_core, card0, card0);
+        wn_core_relayout(g_core);
+        wn_core_build_display_list(g_core);
+        nested = rect_of(nav_clone);
+        nav_glyphs_before = wn_core_display_list(g_core)->glyph_vertex_count;
+        nav_image = wn_core_node_first_child(g_core, nav_clone);
+        nav_label = wn_core_node_next_sibling(g_core, nav_image);
+        nav_text = wn_core_node_first_child(g_core, nav_label);
+        nav_parent_ok = wn_core_node_parent(g_core, nav_image) == nav_clone &&
+                        wn_core_node_parent(g_core, nav_label) == nav_clone &&
+                        wn_core_node_parent(g_core, nav_clone) == card0;
+        nav_order_ok = nav_image >= 0 && nav_label >= 0 && nav_text >= 0 &&
+                       wn_core_node_next_sibling(g_core, nav_image) == nav_label &&
+                       wn_core_node_next_sibling(g_core, nav_label) < 0 &&
+                       wn_core_node_first_child(g_core, nav_label) == nav_text &&
+                       wn_core_node_next_sibling(g_core, nav_text) < 0;
+        check("nav clone root", nav_clone > 0 && nav_image > 0 && nav_label > 0 &&
+              nav_text > 0, "clone subtree reached from the root handle");
+        check("nav parent", nav_parent_ok, "parent(first_child(clone)) == clone");
+        check("nav order", nav_order_ok, "image precedes label; label is the last child");
+        check("nav set_text", wn_core_set_text(g_core, nav_text, "Beta") == 0,
+              "text child obtained by navigation accepts an override");
+        wn_core_build_display_list(g_core);
+        nav_glyphs_after = wn_core_display_list(g_core)->glyph_vertex_count;
+        check("nav text paint", nav_glyphs_after == nav_glyphs_before - 6,
+              "Beta draws one glyph quad fewer than the cloned Alpha");
+        check("nav nested rect", nested.y > rect_of(card0).y &&
+              nested.x >= rect_of(card0).x,
+              "nested clone is laid out inside the template card");
+        check("nav append", wn_core_append(g_core, cards, nav_clone) == 0,
+              "navigated clone re-parented under div.cards");
+        wn_core_relayout(g_core);
+        wn_core_build_display_list(g_core);
+        moved = rect_of(nav_clone);
+        check("nav rect moved", moved.y > nested.y && moved.x == 10.0f &&
+              moved.w == 120.0f, "the handle stays valid and the box moves to the next row");
+        check("nav parent after append", wn_core_node_parent(g_core, nav_clone) == cards,
+              "parent follows the re-parent");
+        event_begin(report, "navigated");
+        write_counts(report);
+        fputc(',', report);
+        fprintf(report,
+                "\"nav_root\":%d,\"nav_image\":%d,\"nav_label\":%d,\"nav_text\":%d,"
+                "\"nav_parent_ok\":%d,\"nav_order_ok\":%d,"
+                "\"nav_glyphs_before\":%d,\"nav_glyphs_after\":%d,",
+                nav_clone, nav_image, nav_label, nav_text, nav_parent_ok,
+                nav_order_ok, nav_glyphs_before, nav_glyphs_after);
+        fprintf(report, "\"nested\":{\"x\":%.2f,\"y\":%.2f,\"w\":%.2f,\"h\":%.2f},",
+                nested.x, nested.y, nested.w, nested.h);
+        event_rect(report, "moved", nav_clone);
+        event_end(report);
+        wn_core_remove(g_core, nav_clone);
+        wn_core_relayout(g_core);
+        wn_core_build_display_list(g_core);
+        check("nav remove restores", wn_core_live_node_count(g_core) == UI_NODE_COUNT + 4 &&
+              wn_core_display_list(g_core)->glyph_vertex_count == nav_base_glyphs,
+              "navigated clone removed; clone stage counts restored");
+    }
+
     /* ----------------------------------------------------------- set_image */
     check("set_image", wn_core_set_image(g_core, clone_image, "images/b.png") == 0,
           "WN_OK");

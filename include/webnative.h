@@ -1,5 +1,5 @@
 /*
- * webnative.h — C ABI v4
+ * webnative.h — C ABI v5
  *
  * Public contract between the webnative engine and host applications.
  *
@@ -12,6 +12,15 @@
  *  - No exceptions: every call returns wn_status; details in wn_last_error().
  *
  * ABI changes that break layout/semantics bump WN_ABI_VERSION (major).
+ *
+ * Version history (additive unless stated otherwise):
+ *  - v2: wn_event.delta_x/delta_y for WN_EVENT_WHEEL.
+ *  - v3: dynamic UI: wn_node_id handles, find/clone/append/remove/set_visible.
+ *  - v4: single-line text input and the WN_EVENT_INPUT semantic event.
+ *  - v5: wn_event.node carries the stable handle of the event target, so
+ *        cloned nodes are addressable; wn_node_parent/first_child/next_sibling
+ *        navigate the live tree. Fields are appended; v4 layout is unchanged
+ *        up to the new trailing member.
  */
 #ifndef WEBNATIVE_H
 #define WEBNATIVE_H
@@ -35,7 +44,7 @@ extern "C" {
 #  define WN_API __attribute__((visibility("default")))
 #endif
 
-#define WN_ABI_VERSION 4u
+#define WN_ABI_VERSION 5u
 
 /* Modifier bits for wn_event.modifiers. */
 #define WN_MOD_SHIFT 0x01u
@@ -81,8 +90,9 @@ typedef enum wn_event_type {
     WN_EVENT_FOCUS_OUT    = 8,
     WN_EVENT_CLOSE        = 9,
     WN_EVENT_WHEEL        = 10,
-    /* ABI v4: the focused text input changed value. `target_id` is the input
-     * node; read the new value with wn_node_get_value(). Emitted for typing,
+    /* ABI v4: the focused text input changed value. `node` is the input handle
+     * (`target_id` is its compiled name, NULL for cloned inputs); read the new
+     * value with wn_node_get_value(). Emitted for typing,
      * Backspace/Delete and paste/cut. It is NOT emitted for
      * wn_node_set_value() (the caller already knows) nor for
      * caret/selection-only moves. */
@@ -91,7 +101,11 @@ typedef enum wn_event_type {
 
 typedef struct wn_event {
     wn_event_type type;
-    const char *target_id;   /* element id, or NULL; valid only during the callback */
+    /* Compiled element id of the event target, or NULL. Only names that come
+     * from the compiled document are reported: cloned nodes have no document
+     * name (use `node` instead), and events that do not target a node leave
+     * this NULL. Valid only during the callback. */
+    const char *target_id;
     float x, y;              /* view coordinates (pointer events) */
     int32_t key;             /* virtual key (key events) */
     uint32_t codepoint;      /* UTF-32 codepoint (WN_EVENT_CHAR) */
@@ -101,6 +115,13 @@ typedef struct wn_event {
      * content down (the host maps WM_MOUSEWHEEL wheel-forward to negative y).
      * v2 only consumes delta_y (vertical scroll); delta_x is reserved. */
     float delta_x, delta_y;
+    /* ABI v5: stable handle (wn_node_id) of the event target, or
+     * WN_NODE_INVALID when the event does not target a node. Works for
+     * compiled and cloned nodes: pointer events report the hit interactive
+     * node, key/char events report the focused input. Unlike target_id it
+     * stays usable for clones; combine it with the wn_node_* navigation
+     * helpers to reach children. */
+    wn_node_id node;
 } wn_event;
 
 typedef void (*wn_event_cb)(void *userdata, const wn_event *event);
@@ -184,6 +205,27 @@ WN_API int wn_app_get_stats(const wn_app *app, wn_app_stats *stats);
  * node names (the generated ui_data.h table); clone handles are returned by
  * wn_node_clone() and are not addressable by name in v0.
  */
+
+/* ------------------------------------------------- tree navigation (ABI v5) */
+/*
+ * Read-only navigation over the same live tree the mutations operate on, so a
+ * host can walk the children of a clone handle reported by wn_event.node.
+ *
+ * Contract:
+ *  - Every call returns WN_NODE_INVALID when `app` is NULL, `node` is not a
+ *    live handle (never returned by the engine, removed, or stale after
+ *    wn_app_destroy()), or there is no such relative.
+ *  - parent() of the document root is WN_NODE_INVALID; next_sibling() of the
+ *    last child is WN_NODE_INVALID.
+ *  - Hidden nodes stay in the tree and are returned; removed children are
+ *    unlinked and never returned. Child order matches paint order (insertion
+ *    order; re-parented nodes move to the end).
+ *  - The tree may mutate between calls; re-query instead of caching siblings
+ *    across a mutation.
+ */
+WN_API wn_node_id wn_node_parent(wn_app *app, wn_node_id node);
+WN_API wn_node_id wn_node_first_child(wn_app *app, wn_node_id node);
+WN_API wn_node_id wn_node_next_sibling(wn_app *app, wn_node_id node);
 
 /* Root node of the compiled document, or WN_NODE_INVALID. */
 WN_API wn_node_id wn_app_root(wn_app *app);

@@ -18,5 +18,7 @@ int main()
     std::size_t node_size = sizeof(node);
     (void)config;
     (void)status;
-    return event_size > 0 && node_size == sizeof(std::uint64_t) && node == 0 ? 0 : 1;
+    event.node = node;
+    return event_size > 0 && node_size == sizeof(std::uint64_t) &&
+           event.node == WN_NODE_INVALID ? 0 : 1;
 }

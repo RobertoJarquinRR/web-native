@@ -1,5 +1,5 @@
 /*
- * input.c - C ABI v4 demo: single-line text input end to end.
+ * input.c - C ABI demo: single-line text input end to end.
  *
  *   input.exe [--frames N]
  *
@@ -153,13 +153,13 @@ int main(int argc, char **argv)
 
     SetProcessDPIAware();
     printf("input: webnative %s ABI %u\n", wn_version(), wn_abi_version());
-    if (wn_abi_version() != 4u) {
-        printf("input: FAIL (expected ABI 4)\n");
+    if (wn_abi_version() != WN_ABI_VERSION) {
+        printf("input: FAIL (expected ABI %u)\n", (unsigned)WN_ABI_VERSION);
         return 1;
     }
 
     memset(&config, 0, sizeof(config));
-    config.title = "webnative text input (ABI v4)";
+    config.title = "webnative text input (ABI v5)";
     config.width = 480;
     config.height = 240;
     config.flags = WN_FLAG_NONE;
@@ -248,7 +248,7 @@ int main(int argc, char **argv)
      * window. Post a real WM_KEYDOWN so host_win32 -> wn_app decides. */
     inject_click(16.0f + 160.0f, 16.0f + 17.0f);
     {
-        HWND hwnd = FindWindowW(NULL, L"webnative text input (ABI v4)");
+        HWND hwnd = FindWindowW(NULL, L"webnative text input (ABI v5)");
         if (hwnd != NULL) {
             PostMessageW(hwnd, WM_KEYDOWN, VK_ESCAPE, 0);
             printf("input: queued WM_KEYDOWN Esc with focus\n");

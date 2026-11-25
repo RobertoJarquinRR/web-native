@@ -78,8 +78,8 @@ def main() -> int:
         if line.strip():
             event = json.loads(line)
             core[event["stage"]] = event
-    for required in ("initial", "hidden", "shown", "cloned", "imaged", "texted",
-                     "removed", "appended", "cleared"):
+    for required in ("initial", "hidden", "shown", "cloned", "navigated", "imaged",
+                     "texted", "removed", "appended", "cleared"):
         if required not in core:
             print(f"FAIL: core event '{required}' is missing")
             return 1
@@ -88,6 +88,7 @@ def main() -> int:
     hidden = core["hidden"]
     shown = core["shown"]
     cloned = core["cloned"]
+    navigated = core["navigated"]
     imaged = core["imaged"]
     texted = core["texted"]
     removed = core["removed"]
@@ -129,6 +130,23 @@ def main() -> int:
           cloned["glyphs"] == 156, "one image + one text run added")
     check("core", "clone internals", cloned["clone_image"] is not None,
           "image source copied")
+
+    check("core", "nav clone parent", navigated["nav_parent_ok"] == 1,
+          "parent(first_child(clone)) == clone")
+    check("core", "nav sibling order", navigated["nav_order_ok"] == 1 and
+          navigated["nav_image"] != navigated["nav_label"],
+          "image precedes label and label is the last child")
+    check("core", "nav set_text paint",
+          navigated["glyphs"] == navigated["nav_glyphs_after"] and
+          navigated["nav_glyphs_after"] == navigated["nav_glyphs_before"] - 6,
+          f"navigated text child repaints: {navigated['nav_glyphs_before']} -> "
+          f"{navigated['nav_glyphs_after']} glyph vertices")
+    nxx, nyy, nww, nhh = node_xy(navigated["nested"])
+    mxx, myy, mww, mhh = node_xy(navigated["moved"])
+    check("core", "nav rect moved", close(mxx, 10) and myy > nyy and close(mww, 120),
+          f"nested=({nxx},{nyy}) moved=({mxx},{myy},{mww},{mhh})")
+    check("core", "nav live count", navigated["live"] == 25,
+          f"{navigated['live']} nodes (17 + two clone subtrees)")
 
     check("core", "set_image src", imaged["src"] == "images/b.png" and
           imaged["found"] == 1, "new source is in the display list")

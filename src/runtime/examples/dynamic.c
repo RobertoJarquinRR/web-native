@@ -21,6 +21,32 @@
 #include <string.h>
 
 static int g_failures;
+static wn_node_id g_event_node;
+static char g_event_target[256];
+static int g_event_has_target;
+
+static void on_event(void *userdata, const wn_event *event)
+{
+    (void)userdata;
+    g_event_node = event->node;
+    g_event_has_target = event->target_id != NULL;
+    g_event_target[0] = '\0';
+    if (event->target_id != NULL) {
+        snprintf(g_event_target, sizeof(g_event_target), "%s", event->target_id);
+    }
+}
+
+static void inject_click(wn_view *view, float x, float y)
+{
+    wn_event event;
+    memset(&event, 0, sizeof(event));
+    event.type = WN_EVENT_POINTER_DOWN;
+    event.x = x;
+    event.y = y;
+    (void)wn_view_event(view, &event);
+    event.type = WN_EVENT_POINTER_UP;
+    (void)wn_view_event(view, &event);
+}
 
 static const char *status_name(wn_status status)
 {
@@ -100,7 +126,7 @@ int main(int argc, char **argv)
     printf("dynamic: webnative %s ABI %u\n", wn_version(), wn_abi_version());
 
     memset(&config, 0, sizeof(config));
-    config.title = "webnative dynamic UI (ABI v3)";
+    config.title = "webnative dynamic UI (ABI v5)";
     config.width = 400;
     config.height = 300;
     config.flags = WN_FLAG_NONE;
@@ -162,6 +188,55 @@ int main(int argc, char **argv)
 
     expect_status("append(cards,clone)", wn_node_append(app, cards, clone), WN_OK);
     expect_status("append cycle", wn_node_append(app, clone, cards), WN_ERR_INVALID_ARGUMENT);
+
+    /* ABI v5: walk the clone and identify clicks by handle. The clone sits in
+     * the third card slot (x=270) of the 400x300 fixture. */
+    {
+        wn_node_id image = wn_node_first_child(app, clone);
+        wn_node_id label = wn_node_next_sibling(app, image);
+        wn_node_id text = wn_node_first_child(app, label);
+        int chain_ok = image != WN_NODE_INVALID && label != WN_NODE_INVALID &&
+                       text != WN_NODE_INVALID &&
+                       wn_node_parent(app, image) == clone &&
+                       wn_node_parent(app, label) == clone &&
+                       wn_node_next_sibling(app, image) == label &&
+                       wn_node_next_sibling(app, label) == WN_NODE_INVALID &&
+                       wn_node_first_child(app, text) == WN_NODE_INVALID;
+        int parent_ok = wn_node_parent(app, clone) == cards;
+        int invalid_ok = wn_node_parent(app, WN_NODE_INVALID) == WN_NODE_INVALID &&
+                         wn_node_first_child(app, WN_NODE_INVALID) == WN_NODE_INVALID &&
+                         wn_node_next_sibling(app, WN_NODE_INVALID) == WN_NODE_INVALID;
+        printf("dynamic: nav clone=%llu parent=%llu image=%llu label=%llu text=%llu"
+               " parent_ok=%d chain_ok=%d invalid_ok=%d\n",
+               (unsigned long long)clone,
+               (unsigned long long)wn_node_parent(app, clone),
+               (unsigned long long)image, (unsigned long long)label,
+               (unsigned long long)text, parent_ok, chain_ok, invalid_ok);
+        if (!parent_ok || !chain_ok || !invalid_ok) {
+            ++g_failures;
+            printf("dynamic: FAIL (clone navigation)\n");
+        }
+
+        (void)wn_app_on_event(app, on_event, NULL);
+        inject_click(wn_app_view(app), 270.0f + 60.0f, 50.0f + 60.0f);
+        printf("dynamic: click clone -> node=%llu target=%s\n",
+               (unsigned long long)g_event_node,
+               g_event_has_target ? g_event_target : "(null)");
+        if (g_event_node != clone || g_event_has_target) {
+            ++g_failures;
+            printf("dynamic: FAIL (clone click identity)\n");
+        }
+        inject_click(wn_app_view(app), 10.0f + 60.0f, 50.0f + 60.0f);
+        printf("dynamic: click card -> node=%llu target=%s\n",
+               (unsigned long long)g_event_node,
+               g_event_has_target ? g_event_target : "(null)");
+        if (g_event_node != card0 || !g_event_has_target ||
+            strcmp(g_event_target, "body.root/div.cards/div.card") != 0) {
+            ++g_failures;
+            printf("dynamic: FAIL (compiled click identity)\n");
+        }
+    }
+
     expect_status("remove(clone)", wn_node_remove(app, clone), WN_OK);
     count_after_remove = wn_app_node_count(app);
     if (count_after_remove != count_initial) {

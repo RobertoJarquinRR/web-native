@@ -116,6 +116,14 @@ def _run(exe: Path, arguments: Sequence[str], cwd: Path, env: dict[str, str] | N
     return completed.stdout
 
 
+def _run_logged(exe: Path, arguments: Sequence[str], cwd: Path,
+                log_path: Path) -> str:
+    text = _run(exe, arguments, cwd)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text(text, encoding="utf-8")
+    return text
+
+
 def _python(script: Path, arguments: Sequence[str], cwd: Path) -> str:
     completed = subprocess.run(
         [str(get_python_exe()), str(script), *arguments],
@@ -326,12 +334,18 @@ def run_dynamic() -> int:
     _compile(abi_exe, [runtime / item for item in RUNTIME_SOURCES[1:]] + [runtime / "examples" / "dynamic.c"], includes, libs)
     abi_text = _run(abi_exe, ["--frames", "8", "--image-b", str(page / "images" / "b.png")], page)
     _expect(abi_text, [
-        "ABI 4",
+        "ABI 5",
         "dynamic: PASS",
         "set_text(Omega) -> WN_OK",
         "set_image(text) -> WN_ERR_UNSUPPORTED",
         "remove(root) -> WN_ERR_INVALID_ARGUMENT",
         "clear_children -> nodes=9",
+        "dynamic: nav clone=",
+        "parent_ok=1 chain_ok=1 invalid_ok=1",
+        "dynamic: click clone -> node=",
+        "target=(null)",
+        "dynamic: click card -> node=",
+        "target=body.root/div.cards/div.card",
         "exit=0 frames=8",
     ], "dynamic abi demo")
 
@@ -359,7 +373,8 @@ def run_input() -> int:
     log_step("input: core test")
     core_exe = out / "input_core_test.exe"
     _compile(core_exe, [suite / "input_core_test.c", *[runtime / item for item in CORE_SOURCES]], includes, CORE_LIBS)
-    _expect(_run(core_exe, [str(out / "core_events.jsonl")], suite), ["input_core_test: PASS"], "input core test")
+    _expect(_run_logged(core_exe, [str(out / "core_events.jsonl")], suite,
+                        out / "core_test.log"), ["input_core_test: PASS"], "input core test")
 
     log_step("input: runtime stages")
     runtime_exe = out / "runtime_input.exe"
@@ -367,11 +382,13 @@ def run_input() -> int:
     run_cmd(["cmd", "/d", "/c", "copy", "/Y", str(_wgpu_dir() / "bin" / "wgpu_native.dll"), str(out / "wgpu_native.dll")])
     for stale in out.glob("stage_*.png"):
         stale.unlink()
-    _expect(_run(runtime_exe, ["--input", str(out / "stage")], page),
+    _expect(_run_logged(runtime_exe, ["--input", str(out / "stage")], page,
+                        out / "runtime_input.log"),
             ["input: stage=9 action=escape blurs"], "runtime_input")
 
     log_step("input: window demo")
-    window_text = _run(runtime_exe, ["--frames", "16", "--input-demo", "--width", "480", "--height", "240"], page)
+    window_text = _run_logged(runtime_exe, ["--frames", "16", "--input-demo", "--width", "480", "--height", "240"], page,
+                              out / "window_input.log")
     _expect(window_text, [
         "input-demo: WM_CHAR 'a'",
         "input-demo: WM_CHAR 'b'",
@@ -382,9 +399,9 @@ def run_input() -> int:
     log_step("input: abi demo")
     abi_exe = out / "input.exe"
     _compile(abi_exe, [runtime / item for item in RUNTIME_SOURCES[1:]] + [runtime / "examples" / "input.c"], includes, libs)
-    abi_text = _run(abi_exe, ["--frames", "8"], page)
+    abi_text = _run_logged(abi_exe, ["--frames", "8"], page, out / "abi_input.log")
     _expect(abi_text, [
-        "ABI 4",
+        "ABI 5",
         "input: PASS",
         "set_value(abc) -> WN_OK",
         "set_value(Omega) -> WN_ERR_UNSUPPORTED",

@@ -284,6 +284,90 @@ int32_t wn_app_node_count(wn_app *app)
     return wn_view_node_count(app->view);
 }
 
+/* -------------------------------------------------- tree navigation (ABI v5) */
+
+static wn_node_id app_node_handle(int index)
+{
+    return index >= 0 ? (wn_node_id)((uint64_t)index + 1u) : WN_NODE_INVALID;
+}
+
+/* Validates an ABI handle: non-zero, representable as a core index and alive. */
+static int app_node_index(const wn_app *app, wn_node_id node)
+{
+    const wn_core *core;
+    int index;
+    if (app == NULL || app->view == NULL || node == WN_NODE_INVALID ||
+        node > (wn_node_id)INT32_MAX) {
+        return -1;
+    }
+    core = wn_view_core(app->view);
+    index = (int)(node - 1u);
+    return wn_core_node_is_alive(core, index) ? index : -1;
+}
+
+wn_node_id wn_node_parent(wn_app *app, wn_node_id node)
+{
+    int index;
+    const wn_core *core;
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_parent: app is NULL");
+        return WN_NODE_INVALID;
+    }
+    index = app_node_index(app, node);
+    if (index < 0) {
+        return WN_NODE_INVALID;
+    }
+    core = wn_view_core(app->view);
+    return app_node_handle(wn_core_node_parent(core, index));
+}
+
+wn_node_id wn_node_first_child(wn_app *app, wn_node_id node)
+{
+    int index;
+    int child;
+    const wn_core *core;
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_first_child: app is NULL");
+        return WN_NODE_INVALID;
+    }
+    index = app_node_index(app, node);
+    if (index < 0) {
+        return WN_NODE_INVALID;
+    }
+    core = wn_view_core(app->view);
+    child = wn_core_node_first_child(core, index);
+    /* Hierarchy links only hold live nodes; the loop keeps the skip-removed
+     * contract explicit if a future mutation unlinks lazily. */
+    while (child >= 0 && !wn_core_node_is_alive(core, child)) {
+        child = wn_core_node_next_sibling(core, child);
+    }
+    return app_node_handle(child);
+}
+
+wn_node_id wn_node_next_sibling(wn_app *app, wn_node_id node)
+{
+    int index;
+    int sibling;
+    const wn_core *core;
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_next_sibling: app is NULL");
+        return WN_NODE_INVALID;
+    }
+    index = app_node_index(app, node);
+    if (index < 0) {
+        return WN_NODE_INVALID;
+    }
+    core = wn_view_core(app->view);
+    sibling = wn_core_node_next_sibling(core, index);
+    while (sibling >= 0 && !wn_core_node_is_alive(core, sibling)) {
+        sibling = wn_core_node_next_sibling(core, sibling);
+    }
+    return app_node_handle(sibling);
+}
+
 wn_status wn_node_set_visible(wn_app *app, wn_node_id node, int visible)
 {
     wn_clear_error();

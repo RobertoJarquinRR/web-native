@@ -9,7 +9,7 @@ renders from `runtime_input.exe --input`) and the ABI/core logs, then asserts:
   3. typed text pixels from the ASCII pool,
   4. the 2 px focus ring and the caret pixels (and their absence after blur),
   5. the translucent selection quad over the selected range,
-  6. ABI v4 demo surface: set/get value, WN_EVENT_INPUT, clipboard, blur.
+  6. ABI v5 demo surface: set/get value, WN_EVENT_INPUT, clipboard, blur.
 
 Exit code 0 = PASS. Writes out/input_verify_report.json.
 """
@@ -275,7 +275,7 @@ def main() -> int:
     abi_log = root / "abi_input.log"
     abi_text = abi_log.read_text(encoding="utf-8") if abi_log.is_file() else ""
     for needle in (
-        "ABI 4",
+        "ABI 5",
         "input: PASS",
         "set_value(abc) -> WN_OK",
         "set_value(Omega) -> WN_ERR_UNSUPPORTED",

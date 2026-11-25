@@ -48,7 +48,10 @@ int main(void)
     }
     if (wn_app_root(NULL) != WN_NODE_INVALID ||
         wn_app_find(NULL, "body.root") != WN_NODE_INVALID ||
-        wn_app_node_count(NULL) != 0) {
+        wn_app_node_count(NULL) != 0 ||
+        wn_node_parent(NULL, 1) != WN_NODE_INVALID ||
+        wn_node_first_child(NULL, 1) != WN_NODE_INVALID ||
+        wn_node_next_sibling(NULL, 1) != WN_NODE_INVALID) {
         printf("abi_smoke: expected invalid handles from the dynamic API on NULL app\n");
         ++failures;
     }

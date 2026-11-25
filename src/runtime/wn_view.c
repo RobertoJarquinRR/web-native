@@ -625,6 +625,7 @@ wn_status wn_view_event(wn_view *view, const wn_event *event)
     }
     out = *event;
     out.target_id = NULL;
+    out.node = WN_NODE_INVALID;
 
     switch (event->type) {
     case WN_EVENT_POINTER_MOVE: {
@@ -673,7 +674,13 @@ wn_status wn_view_event(wn_view *view, const wn_event *event)
         break;
     }
     if (hit >= 0) {
-        target = wn_core_node_name(view->core, hit);
+        /* ABI v5: the handle is the identity for every node, clones included.
+         * target_id keeps exposing compiled element ids only: clones carry
+         * synthetic arena names ("clone#N") that are not document ids. */
+        out.node = (wn_node_id)((uint64_t)hit + 1u);
+        if (!wn_core_node_is_dynamic(view->core, hit)) {
+            target = wn_core_node_name(view->core, hit);
+        }
     }
     out.target_id = target;
     if (changed) {
@@ -983,6 +990,11 @@ int32_t wn_view_node_count(wn_view *view)
         return 0;
     }
     return (int32_t)wn_core_live_node_count(view->core);
+}
+
+const wn_core *wn_view_core(const wn_view *view)
+{
+    return view != NULL ? view->core : NULL;
 }
 
 wn_status wn_view_set_visible(wn_view *view, wn_node_id node, int visible)

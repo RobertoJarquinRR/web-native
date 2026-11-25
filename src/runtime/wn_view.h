@@ -57,6 +57,9 @@ wn_status wn_view_set_class(wn_view *view, const char *id, const char *class_nam
 wn_node_id wn_view_find(wn_view *view, const char *name);
 wn_node_id wn_view_root(wn_view *view);
 int32_t wn_view_node_count(wn_view *view);
+/* Borrowed core handle (never destroyed by the caller); used by the ABI layer
+ * to read tree relations without duplicating the handle mapping. */
+const wn_core *wn_view_core(const wn_view *view);
 wn_status wn_view_set_visible(wn_view *view, wn_node_id node, int visible);
 wn_status wn_view_set_image(wn_view *view, wn_node_id node, const char *path);
 wn_status wn_view_set_node_text(wn_view *view, wn_node_id node, const char *utf8);
