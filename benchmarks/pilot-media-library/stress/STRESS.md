@@ -41,18 +41,18 @@ lógicas, Python 3.12.10.
 
 ### Resumen ejecutivo
 
-| Medición (1280x800) | Resultado |
-|---|---|
-| Layout 300 cards (2718 nodos) | **0.300 ms** |
-| Layout 1000 nodos sintéticos | **0.067 ms** |
-| Frame offscreen 30 cards | **190.0 ms** |
-| Frame offscreen 300 cards | **193.0 ms** (x1.02) |
-| Frame offscreen, 1000 nodos sin imágenes | 71.1 ms |
-| `readback` + `png` del frame de 300 cards | **60.5% + 19.8%** |
-| Primer frame vs warm (300 cards) | **184.1 / 91.7 ms** |
-| Rueda a bottom (300 cards, 800x600) | offset **25032/25032**, banda 502–509 |
-| Memoria 300 cards | **77.9 MiB WS / 361.6 MiB pagefile** |
-| Checks | **94/94 PASS** |
+| Medición (1280x800)                       | Resultado                             |
+| ----------------------------------------- | ------------------------------------- |
+| Layout 300 cards (2718 nodos)             | **0.300 ms**                          |
+| Layout 1000 nodos sintéticos              | **0.067 ms**                          |
+| Frame offscreen 30 cards                  | **190.0 ms**                          |
+| Frame offscreen 300 cards                 | **193.0 ms** (x1.02)                  |
+| Frame offscreen, 1000 nodos sin imágenes  | 71.1 ms                               |
+| `readback` + `png` del frame de 300 cards | **60.5% + 19.8%**                     |
+| Primer frame vs warm (300 cards)          | **184.1 / 91.7 ms**                   |
+| Rueda a bottom (300 cards, 800x600)       | offset **25032/25032**, banda 502–509 |
+| Memoria 300 cards                         | **77.9 MiB WS / 361.6 MiB pagefile**  |
+| Checks                                    | **94/94 PASS**                        |
 
 La conclusión corta: **el layout no es el problema**; el coste medido está en el
 pase offscreen (WARP) y su readback/PNG, y el engine ya culla imágenes y texto.
@@ -68,26 +68,38 @@ layout completo en cada rueda y la caché de imágenes sin eviction.
 
 ### 2.1 Cards (carga real de la biblioteca)
 
-| Variante | Cards | Nodos UI | Imágenes | Posters únicos |
-|---|---:|---:|---:|---:|
-| `cards-030` | 30 | 288 | 30 | 30 |
-| `cards-100` | 100 | 918 | 100 | 30 |
-| `cards-300` | **300** | **2718** | **300** | **30** |
+| Variante    |   Cards | Nodos UI | Imágenes | Posters únicos |
+| ----------- | ------: | -------: | -------: | -------------: |
+| `cards-030` |      30 |      288 |       30 |             30 |
+| `cards-100` |     100 |      918 |      100 |             30 |
+| `cards-300` | **300** | **2718** |  **300** |         **30** |
 
 Contrato CSS, idéntico al piloto en lo que importa:
 
 ```css
 .poster-grid {
-  width: 100%; height: 100%;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, 180px);
-  grid-auto-rows: 240px;
-  gap: 16px;
-  overflow: auto;              /* scroll vertical + clip */
+	width: 100%;
+	height: 100%;
+	display: grid;
+	grid-template-columns: repeat(auto-fill, 180px);
+	grid-auto-rows: 240px;
+	gap: 16px;
+	overflow: auto; /* scroll vertical + clip */
 }
-.poster-card { width: 180px; height: 240px; overflow: hidden; }
-.poster      { width: 180px; height: 180px; object-fit: cover; }
-.poster-meta { height: 52px; padding: 4px 8px; }  /* 60 de caja */
+.poster-card {
+	width: 180px;
+	height: 240px;
+	overflow: hidden;
+}
+.poster {
+	width: 180px;
+	height: 180px;
+	object-fit: cover;
+}
+.poster-meta {
+	height: 52px;
+	padding: 4px 8px;
+} /* 60 de caja */
 ```
 
 Cada card tiene título, duración/resolución y tags. Los posters son **los 30
@@ -97,26 +109,26 @@ que el piloto: **5 columnas a 1280x800** y **3 a 800x600**.
 
 Geometría congelada por el generador:
 
-| Variante | Viewport | Columnas | Filas | Alto contenido | `scroll_max` |
-|---|---|---:|---:|---:|---:|
-| cards-030 | 1280x800 | 5 | 6 | 1520 | 768 |
-| cards-030 | 800x600 | 3 | 10 | 2544 | 1992 |
-| cards-100 | 1280x800 | 5 | 20 | 5104 | 4352 |
-| cards-100 | 800x600 | 3 | 34 | 8688 | 8136 |
-| cards-300 | 1280x800 | 5 | 60 | 15344 | **14592** |
-| cards-300 | 800x600 | 3 | 100 | 25584 | **25032** |
+| Variante  | Viewport | Columnas | Filas | Alto contenido | `scroll_max` |
+| --------- | -------- | -------: | ----: | -------------: | -----------: |
+| cards-030 | 1280x800 |        5 |     6 |           1520 |          768 |
+| cards-030 | 800x600  |        3 |    10 |           2544 |         1992 |
+| cards-100 | 1280x800 |        5 |    20 |           5104 |         4352 |
+| cards-100 | 800x600  |        3 |    34 |           8688 |         8136 |
+| cards-300 | 1280x800 |        5 |    60 |          15344 |    **14592** |
+| cards-300 | 800x600  |        3 |   100 |          25584 |    **25032** |
 
 `run_stress.py` recalcula estas fórmulas y compara **las 300 posiciones** de
 card e imagen del `--report` contra ellas en ambos viewports.
 
 ### 2.2 Nodos sintéticos (escalado de layout)
 
-| Variante | Nodos | Frames anidados | Columnas/filas | Celdas | Profundidad |
-|---|---:|---:|---:|---:|---:|
-| `nodes-0030` | **30** | 8 | 4 | 12 | 12 |
-| `nodes-0100` | **100** | 10 | 6 | 76 | 14 |
-| `nodes-0300` | **300** | 12 | 8 | 270 | 16 |
-| `nodes-1000` | **1000** | 12 | 8 | 970 | 16 |
+| Variante     |    Nodos | Frames anidados | Columnas/filas | Celdas | Profundidad |
+| ------------ | -------: | --------------: | -------------: | -----: | ----------: |
+| `nodes-0030` |   **30** |               8 |              4 |     12 |          12 |
+| `nodes-0100` |  **100** |              10 |              6 |     76 |          14 |
+| `nodes-0300` |  **300** |              12 |              8 |    270 |          16 |
+| `nodes-1000` | **1000** |              12 |              8 |    970 |          16 |
 
 Son divs anidados sin texto ni imágenes: cada div es exactamente un nodo del
 runtime. `1 root + frames + 1 board + columns + rows + cells = N` exacto; el
@@ -169,7 +181,7 @@ src\emitter\python\emit_ui.py --ui-json <build>\ui.json \
   --out <build>\ui_data.h --meta <build>\ui_meta.json
 cl /nologo /O2 /W3 /std:c17 /TC /D_CRT_SECURE_NO_WARNINGS /DWN_STATIC \
   runtime_r2.c wn_core.c wn_common.c \
-  /I include /I src\runtime\c-r2 /I third_party\wgpu-native\include /I <build> \
+  /I include /I src\runtime\ /I third_party\wgpu-native\include /I <build> \
   /link wgpu_native.dll.lib windowscodecs.lib ole32.lib user32.lib gdi32.lib
 ```
 
@@ -186,13 +198,13 @@ Artefactos: `variants/<id>/build/runtime_r2.exe`, `ui.json`, `ui_data.h`,
 
 ## 4. Método de medida
 
-| Medición | Comando | Cómo se resume |
-|---|---|---|
-| Layout | `--report layout.json --sizes 1280x800,800x600` | 100 iteraciones de `layout_page()` por tamaño dentro del proceso; el informe toma la **mediana de 7 procesos** de `layout_ms_best` y `layout_ms_avg` |
-| Render frío | `--render W H out.png` (proceso nuevo) | `wall_ms` medido alrededor de `Popen`; `layout_ms`, `frame_ms`, `gpu`, `readback`, `png` del runtime; mediana de 7 |
-| Rueda | `--render W H out.png --wheel X Y DY` | offset/max de las líneas `wheel:`/`scroll:` + posición Y real de la banda de acento en el PNG; 7 repeticiones por escenario |
-| Caché de imagen | `--states prefix --size 1280x800` | 4 frames offscreen en **un solo proceso**: frame 1 frío (WIC decode + upload), frames 2–4 calientes; 7 procesos |
-| Memoria | muestreo de `GetProcessMemoryInfo` cada ~4 ms | pico de `WorkingSetSize` y `PeakPagefileUsage` |
+| Medición        | Comando                                         | Cómo se resume                                                                                                                                       |
+| --------------- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Layout          | `--report layout.json --sizes 1280x800,800x600` | 100 iteraciones de `layout_page()` por tamaño dentro del proceso; el informe toma la **mediana de 7 procesos** de `layout_ms_best` y `layout_ms_avg` |
+| Render frío     | `--render W H out.png` (proceso nuevo)          | `wall_ms` medido alrededor de `Popen`; `layout_ms`, `frame_ms`, `gpu`, `readback`, `png` del runtime; mediana de 7                                   |
+| Rueda           | `--render W H out.png --wheel X Y DY`           | offset/max de las líneas `wheel:`/`scroll:` + posición Y real de la banda de acento en el PNG; 7 repeticiones por escenario                          |
+| Caché de imagen | `--states prefix --size 1280x800`               | 4 frames offscreen en **un solo proceso**: frame 1 frío (WIC decode + upload), frames 2–4 calientes; 7 procesos                                      |
+| Memoria         | muestreo de `GetProcessMemoryInfo` cada ~4 ms   | pico de `WorkingSetSize` y `PeakPagefileUsage`                                                                                                       |
 
 Verificación de píxeles (Pillow):
 
@@ -233,15 +245,15 @@ Chequeos de layout:
 
 ### 5.1 Build / emisión
 
-| Variante | `ui.json` | `ui_data.h` | frontend | emit_ui | cl.exe | exe |
-|---|---:|---:|---:|---:|---:|---:|
-| cards-030 | 603,128 B | 570,201 B | 125.3 ms | 347.5 ms | 6531.7 ms | 606,208 B |
-| cards-100 | 1,939,721 B | 1,082,209 B | 156.7 ms | 528.6 ms | 5326.3 ms | 1,096,704 B |
-| cards-300 | 5,755,771 B | 2,543,719 B | 361.9 ms | 1073.9 ms | 5601.9 ms | 2,502,656 B |
-| nodes-0030 | 37,657 B | 16,352 B | 18.3 ms | 193.1 ms | 4287.8 ms | 267,264 B |
-| nodes-0100 | 130,174 B | 52,181 B | 32.8 ms | 445.1 ms | 7246.2 ms | 307,200 B |
-| nodes-0300 | 402,364 B | 161,783 B | 26.0 ms | 240.7 ms | 4323.3 ms | 428,544 B |
-| nodes-1000 | 1,347,783 B | 537,402 B | 42.7 ms | 375.6 ms | 4308.7 ms | 846,336 B |
+| Variante   |   `ui.json` | `ui_data.h` | frontend |   emit_ui |    cl.exe |         exe |
+| ---------- | ----------: | ----------: | -------: | --------: | --------: | ----------: |
+| cards-030  |   603,128 B |   570,201 B | 125.3 ms |  347.5 ms | 6531.7 ms |   606,208 B |
+| cards-100  | 1,939,721 B | 1,082,209 B | 156.7 ms |  528.6 ms | 5326.3 ms | 1,096,704 B |
+| cards-300  | 5,755,771 B | 2,543,719 B | 361.9 ms | 1073.9 ms | 5601.9 ms | 2,502,656 B |
+| nodes-0030 |    37,657 B |    16,352 B |  18.3 ms |  193.1 ms | 4287.8 ms |   267,264 B |
+| nodes-0100 |   130,174 B |    52,181 B |  32.8 ms |  445.1 ms | 7246.2 ms |   307,200 B |
+| nodes-0300 |   402,364 B |   161,783 B |  26.0 ms |  240.7 ms | 4323.3 ms |   428,544 B |
+| nodes-1000 | 1,347,783 B |   537,402 B |  42.7 ms |  375.6 ms | 4308.7 ms |   846,336 B |
 
 El coste de compilación lo domina MSVC, no el número de nodos: el header de
 300 cards son 2.5 MB de C y el `.exe` resultante 2.5 MB.
@@ -252,22 +264,22 @@ El coste de compilación lo domina MSVC, no el número de nodos: el header de
 por tamaño y proceso):
 
 | Nodos | 1280x800 best | 1280x800 avg | 800x600 best | 800x600 avg |
-|---:|---:|---:|---:|---:|
-| 30 | 0.0040 | **0.0044** | 0.0039 | **0.0043** |
-| 100 | 0.0139 | **0.0155** | 0.0138 | **0.0159** |
-| 300 | 0.0230 | **0.0237** | 0.0222 | **0.0245** |
-| 1000 | 0.0633 | **0.0671** | 0.0631 | **0.0693** |
+| ----: | ------------: | -----------: | -----------: | ----------: |
+|    30 |        0.0040 |   **0.0044** |       0.0039 |  **0.0043** |
+|   100 |        0.0139 |   **0.0155** |       0.0138 |  **0.0159** |
+|   300 |        0.0230 |   **0.0237** |       0.0222 |  **0.0245** |
+|  1000 |        0.0633 |   **0.0671** |       0.0631 |  **0.0693** |
 
 Coste aproximado: **0.07–0.11 µs/nodo**. El layout es prácticamente lineal y
 sub-milisegundo incluso con 1000 nodos y 16 niveles.
 
 ### 5.3 Layout — cards reales
 
-| Variante | Nodos | 1280x800 avg | 800x600 avg | µs/nodo (1280) |
-|---|---:|---:|---:|---:|
-| cards-030 | 288 | **0.0253** | 0.0254 | 0.088 |
-| cards-100 | 918 | **0.0834** | 0.0917 | 0.091 |
-| cards-300 | 2718 | **0.3000** | 0.3476 | 0.110 |
+| Variante  | Nodos | 1280x800 avg | 800x600 avg | µs/nodo (1280) |
+| --------- | ----: | -----------: | ----------: | -------------: |
+| cards-030 |   288 |   **0.0253** |      0.0254 |          0.088 |
+| cards-100 |   918 |   **0.0834** |      0.0917 |          0.091 |
+| cards-300 |  2718 |   **0.3000** |      0.3476 |          0.110 |
 
 Escala lineal con los nodos (9 nodos por card: card + img + meta + 3 bloques de
 texto + 3 nodos de texto, más 18 de chrome). 300 cards siguen por debajo de
@@ -277,21 +289,21 @@ texto + 3 nodos de texto, más 18 de chrome). 300 cards siguen por debajo de
 
 1280x800:
 
-| Variante | wall | frame | gpu | readback | png | vértices | glyph | image | WS | pagefile |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| cards-030 | 493.0 | **190.0** | 35.8 | 115.6 | 41.0 | 300 | 4164 | 90 | 74.6 | 360.2 |
-| cards-100 | 496.1 | **191.6** | 36.3 | 117.6 | 43.6 | 720 | 4170 | 90 | 75.7 | 359.7 |
-| cards-300 | 477.6 | **193.0** | 34.6 | 116.9 | 38.3 | 1920 | 4170 | 90 | 77.9 | 361.6 |
-| nodes-1000 | 325.5 | **71.1** | 1.7 | 35.8 | 33.3 | 5826 | 0 | 0 | 63.2 | 349.2 |
+| Variante   |  wall |     frame |  gpu | readback |  png | vértices | glyph | image |   WS | pagefile |
+| ---------- | ----: | --------: | ---: | -------: | ---: | -------: | ----: | ----: | ---: | -------: |
+| cards-030  | 493.0 | **190.0** | 35.8 |    115.6 | 41.0 |      300 |  4164 |    90 | 74.6 |    360.2 |
+| cards-100  | 496.1 | **191.6** | 36.3 |    117.6 | 43.6 |      720 |  4170 |    90 | 75.7 |    359.7 |
+| cards-300  | 477.6 | **193.0** | 34.6 |    116.9 | 38.3 |     1920 |  4170 |    90 | 77.9 |    361.6 |
+| nodes-1000 | 325.5 |  **71.1** |  1.7 |     35.8 | 33.3 |     5826 |     0 |     0 | 63.2 |    349.2 |
 
 Los tiempos están en ms; WS/pagefile en **MiB** (1024²). 800x600:
 
-| Variante | wall | frame | gpu | readback | png | vértices | glyph | image | WS | pagefile |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| cards-030 | 421.0 | **126.8** | 25.7 | 79.9 | 19.2 | 264 | 2688 | 54 | 64.3 | 354.0 |
-| cards-100 | 420.7 | **129.4** | 24.7 | 83.7 | 20.1 | 684 | 2694 | 54 | 65.8 | 355.1 |
-| cards-300 | 402.6 | **130.7** | 24.2 | 83.7 | 19.5 | 1884 | 2694 | 54 | 67.8 | 356.4 |
-| nodes-1000 | 324.9 | **62.5** | 1.9 | 43.0 | 17.6 | 5826 | 0 | 0 | 57.2 | 347.2 |
+| Variante   |  wall |     frame |  gpu | readback |  png | vértices | glyph | image |   WS | pagefile |
+| ---------- | ----: | --------: | ---: | -------: | ---: | -------: | ----: | ----: | ---: | -------: |
+| cards-030  | 421.0 | **126.8** | 25.7 |     79.9 | 19.2 |      264 |  2688 |    54 | 64.3 |    354.0 |
+| cards-100  | 420.7 | **129.4** | 24.7 |     83.7 | 20.1 |      684 |  2694 |    54 | 65.8 |    355.1 |
+| cards-300  | 402.6 | **130.7** | 24.2 |     83.7 | 19.5 |     1884 |  2694 |    54 | 67.8 |    356.4 |
+| nodes-1000 | 324.9 |  **62.5** |  1.9 |     43.0 | 17.6 |     5826 |     0 |     0 | 57.2 |    347.2 |
 
 Lectura clave a 1280x800: el frame de **30 cards (190.0 ms)** y el de **300
 cards (193.0 ms)** es prácticamente el mismo (**x1.02**). El motivo es que el
@@ -318,21 +330,21 @@ la banda de acento se mide en el PNG. La banda esperada es
 
 1280x800, `scroll_max = 14592`:
 
-| Escenario | delta | offset esperado | offsets observados | banda Y observada | frame | wall |
-|---|---:|---:|---|---:|---:|---:|
-| shift | 100 | 100 | 100 ×7 | 90–97 | 226.3 | 546.7 |
-| offset400 | 400 | 400 | 400 ×7 | 302–309 | 211.2 | 514.5 |
-| clamp | 999999 | **14592** | 14592 ×7 | 702–709 | 186.8 | 477.1 |
-| outside (sidebar) | 400 | 0 | 0 ×7 | 190–197 | 192.6 | 478.9 |
+| Escenario         |  delta | offset esperado | offsets observados | banda Y observada | frame |  wall |
+| ----------------- | -----: | --------------: | ------------------ | ----------------: | ----: | ----: |
+| shift             |    100 |             100 | 100 ×7             |             90–97 | 226.3 | 546.7 |
+| offset400         |    400 |             400 | 400 ×7             |           302–309 | 211.2 | 514.5 |
+| clamp             | 999999 |       **14592** | 14592 ×7           |           702–709 | 186.8 | 477.1 |
+| outside (sidebar) |    400 |               0 | 0 ×7               |           190–197 | 192.6 | 478.9 |
 
 800x600, `scroll_max = 25032`:
 
-| Escenario | delta | offset esperado | offsets observados | banda Y observada | frame | wall |
-|---|---:|---:|---|---:|---:|---:|
-| shift | 100 | 100 | 100 ×7 | 90–97 | 133.7 | 431.5 |
-| offset400 | 400 | 400 | 400 ×7 | 302–309 | 131.0 | 429.8 |
-| clamp | 999999 | **25032** | 25032 ×7 | 502–509 | 134.2 | 459.3 |
-| outside (sidebar) | 400 | 0 | 0 ×7 | 190–197 | 134.3 | 436.7 |
+| Escenario         |  delta | offset esperado | offsets observados | banda Y observada | frame |  wall |
+| ----------------- | -----: | --------------: | ------------------ | ----------------: | ----: | ----: |
+| shift             |    100 |             100 | 100 ×7             |             90–97 | 133.7 | 431.5 |
+| offset400         |    400 |             400 | 400 ×7             |           302–309 | 131.0 | 429.8 |
+| clamp             | 999999 |       **25032** | 25032 ×7           |           502–509 | 134.2 | 459.3 |
+| outside (sidebar) |    400 |               0 | 0 ×7               |           190–197 | 134.3 | 436.7 |
 
 En el clamp, la última fila queda pegada al borde inferior del grid
 (`last_row.y + 240 == grid.y + grid.h`): 536+240=776 a 1280x800 y 336+240=576 a
@@ -349,14 +361,15 @@ problema es de **medición**: el segundo layout no está en `layout_ms` ni
 `--states` renderiza 4 frames en un proceso. El frame 1 decodifica con WIC las
 imágenes visibles únicas; los frames 2–4 reutilizan la caché por path.
 
-| Variante | Imágenes (nodos) | Posters únicos | Frío | Caliente | Diferencia |
-|---|---:|---:|---:|---:|---:|
-| cards-030 | 30 | 30 | 188.8 | 93.4 | **+95.5** |
-| cards-100 | 100 | 30 | 184.0 | 93.6 | **+90.4** |
-| cards-300 | 300 | 30 | 184.1 | 91.7 | **+92.5** |
-| piloto 30 | 30 | 30 | 175.2 | 88.9 | +86.3 |
+| Variante  | Imágenes (nodos) | Posters únicos |  Frío | Caliente | Diferencia |
+| --------- | ---------------: | -------------: | ----: | -------: | ---------: |
+| cards-030 |               30 |             30 | 188.8 |     93.4 |  **+95.5** |
+| cards-100 |              100 |             30 | 184.0 |     93.6 |  **+90.4** |
+| cards-300 |              300 |             30 | 184.1 |     91.7 |  **+92.5** |
+| piloto 30 |               30 |             30 | 175.2 |     88.9 |      +86.3 |
 
 **300 imágenes no cuestan más que 30 en el primer frame** en este fixture:
+
 - solo se decodifican las imágenes que sobreviven al culling del viewport
   (~15 únicas a 1280x800, ~9 a 800x600);
 - los 300 nodos reutilizan los mismos 30 archivos, así que la caché por path
@@ -372,15 +385,15 @@ visibles sería el mismo, pero la caché crecería con el catálogo (ver §6).
 WS = `WorkingSetSize` pico; pagefile = `PeakPagefileUsage`. Unidades **MiB**
 (1024²), no MB decimales.
 
-| Variante | Viewport | WS pico | Pagefile pico |
-|---|---|---:|---:|
-| cards-030 | 1280x800 | 74.6 MiB | 360.2 MiB |
-| cards-100 | 1280x800 | 75.7 MiB | 359.7 MiB |
-| cards-300 | 1280x800 | **77.9 MiB** | **361.6 MiB** |
-| nodes-1000 | 1280x800 | 63.2 MiB | 349.2 MiB |
-| cards-030 | 800x600 | 64.3 MiB | 354.0 MiB |
-| cards-300 | 800x600 | 67.8 MiB | 356.4 MiB |
-| nodes-1000 | 800x600 | 57.2 MiB | 347.2 MiB |
+| Variante   | Viewport |      WS pico | Pagefile pico |
+| ---------- | -------- | -----------: | ------------: |
+| cards-030  | 1280x800 |     74.6 MiB |     360.2 MiB |
+| cards-100  | 1280x800 |     75.7 MiB |     359.7 MiB |
+| cards-300  | 1280x800 | **77.9 MiB** | **361.6 MiB** |
+| nodes-1000 | 1280x800 |     63.2 MiB |     349.2 MiB |
+| cards-030  | 800x600  |     64.3 MiB |     354.0 MiB |
+| cards-300  | 800x600  |     67.8 MiB |     356.4 MiB |
+| nodes-1000 | 800x600  |     57.2 MiB |     347.2 MiB |
 
 De 30 a 300 cards el WS sube ~3.3 MiB y el pagefile ~1.4 MiB. El pagefile está
 dominado por WARP (~350 MiB incluso sin imágenes). La caché de 30 posters
@@ -395,20 +408,20 @@ usa cards 180x320 (poster 180x240 + meta 80) y más chrome; el stress usa cards
 180x240 (poster 180x180 + meta 60). La comparación es de orden de magnitud, no
 de píxeles idénticos.
 
-| Métrica (1280x800) | Piloto 30 | Stress 30 | Stress 300 |
-|---|---:|---:|---:|
-| Nodos UI | 301 | 288 | 2718 |
-| Layout avg | 0.025 ms | 0.025 ms | 0.300 ms |
-| Frame offscreen | 169.4 ms | 190.0 ms | 193.0 ms |
-| gpu | 32.7 ms | 35.8 ms | 34.6 ms |
-| readback | 101.9 ms | 115.6 ms | 116.9 ms |
-| png | 35.2 ms | 41.0 ms | 38.3 ms |
-| Vértices sólidos | 324 | 300 | 1920 |
-| Glyph vertices | 4482 | 4164 | 4170 |
-| Image vertices | 90 | 90 | 90 |
-| WS / pagefile | 74.0 / 358.0 MiB | 74.6 / 360.2 MiB | 77.9 / 361.6 MiB |
-| Frío / caliente (states) | 175.2 / 88.9 ms | 188.8 / 93.4 ms | 184.1 / 91.7 ms |
-| `scroll_max` 800x600 | 2792 | 1992 | 25032 |
+| Métrica (1280x800)       |        Piloto 30 |        Stress 30 |       Stress 300 |
+| ------------------------ | ---------------: | ---------------: | ---------------: |
+| Nodos UI                 |              301 |              288 |             2718 |
+| Layout avg               |         0.025 ms |         0.025 ms |         0.300 ms |
+| Frame offscreen          |         169.4 ms |         190.0 ms |         193.0 ms |
+| gpu                      |          32.7 ms |          35.8 ms |          34.6 ms |
+| readback                 |         101.9 ms |         115.6 ms |         116.9 ms |
+| png                      |          35.2 ms |          41.0 ms |          38.3 ms |
+| Vértices sólidos         |              324 |              300 |             1920 |
+| Glyph vertices           |             4482 |             4164 |             4170 |
+| Image vertices           |               90 |               90 |               90 |
+| WS / pagefile            | 74.0 / 358.0 MiB | 74.6 / 360.2 MiB | 77.9 / 361.6 MiB |
+| Frío / caliente (states) |  175.2 / 88.9 ms |  188.8 / 93.4 ms |  184.1 / 91.7 ms |
+| `scroll_max` 800x600     |             2792 |             1992 |            25032 |
 
 El stress de 300 cards mantiene el frame en ~193 ms (+14% sobre el piloto,
 dentro de la variación de WARP) y multiplica el layout por 12. La diferencia de

@@ -1,5 +1,5 @@
 {
-  "runs": 3,
+  "runs": 1,
   "fixtures": {
     "contract": {
       "html": "benchmarks\\frontend-parity\\fixtures\\contract\\input.html",
@@ -19,100 +19,6 @@
     }
   },
   "frontends": {
-    "python": {
-      "contract": {
-        "fixture": "contract",
-        "status": "PASS",
-        "mode": "direct",
-        "error": "",
-        "wall_ms": {
-          "median": 386.318,
-          "min": 385.925,
-          "max": 418.976
-        },
-        "internal_timings_ms": {
-          "html": 15.448,
-          "css": 1.606,
-          "cascade": 0.809,
-          "fonts": 0.014,
-          "layout": 0.073,
-          "text+ir": 0.028,
-          "pipeline": 18.024,
-          "ops": 4
-        },
-        "ir": "benchmarks\\frontend-parity\\results\\python\\contract.ir.json"
-      },
-      "flex-page": {
-        "fixture": "flex-page",
-        "status": "PASS",
-        "mode": "direct",
-        "error": "",
-        "wall_ms": {
-          "median": 451.296,
-          "min": 431.557,
-          "max": 474.47
-        },
-        "internal_timings_ms": {
-          "html": 18.34,
-          "css": 7.253,
-          "cascade": 2.257,
-          "fonts": 0.017,
-          "layout": 0.255,
-          "text+ir": 0.052,
-          "pipeline": 28.216,
-          "ops": 23
-        },
-        "ir": "benchmarks\\frontend-parity\\results\\python\\flex-page.ir.json"
-      }
-    },
-    "cpp": {
-      "contract": {
-        "fixture": "contract",
-        "status": "PASS",
-        "mode": "direct",
-        "error": "",
-        "wall_ms": {
-          "median": 11.756,
-          "min": 10.981,
-          "max": 12.567
-        },
-        "internal_timings_ms": {
-          "html": 0.51,
-          "css": 0.042,
-          "cascade": 0.061,
-          "fonts": 0.0,
-          "layout": 0.007,
-          "text+ir": 0.004,
-          "pipeline": 0.624,
-          "ops": 4,
-          "peak_rss_kb": 3008
-        },
-        "ir": "benchmarks\\frontend-parity\\results\\cpp\\contract.ir.json"
-      },
-      "flex-page": {
-        "fixture": "flex-page",
-        "status": "PASS",
-        "mode": "direct",
-        "error": "",
-        "wall_ms": {
-          "median": 14.265,
-          "min": 13.384,
-          "max": 16.867
-        },
-        "internal_timings_ms": {
-          "html": 0.811,
-          "css": 0.193,
-          "cascade": 0.499,
-          "fonts": 0.0,
-          "layout": 0.032,
-          "text+ir": 0.021,
-          "pipeline": 1.558,
-          "ops": 23,
-          "peak_rss_kb": 3064
-        },
-        "ir": "benchmarks\\frontend-parity\\results\\cpp\\flex-page.ir.json"
-      }
-    },
     "rust": {
       "contract": {
         "fixture": "contract",
@@ -120,22 +26,22 @@
         "mode": "direct",
         "error": "",
         "wall_ms": {
-          "median": 10.158,
-          "min": 10.132,
-          "max": 10.496
+          "median": 155.047,
+          "min": 155.047,
+          "max": 155.047
         },
         "internal_timings_ms": {
-          "parse": 0.531,
-          "html": 0.531,
-          "css": 0.075,
-          "cascade": 0.122,
+          "parse": 18.713,
+          "html": 18.713,
+          "css": 0.179,
+          "cascade": 0.213,
           "fonts": 0.0,
-          "layout": 0.016,
+          "layout": 0.024,
           "text": 0.001,
-          "emit": 0.768,
-          "pipeline": 1.704,
+          "emit": 1.129,
+          "pipeline": 20.574,
           "ops": 4,
-          "peak_rss_kb": 3644
+          "peak_rss_kb": 3936
         },
         "ir": "benchmarks\\frontend-parity\\results\\rust\\contract.ir.json"
       },
@@ -145,70 +51,24 @@
         "mode": "direct",
         "error": "",
         "wall_ms": {
-          "median": 11.831,
-          "min": 11.317,
-          "max": 12.513
+          "median": 32.113,
+          "min": 32.113,
+          "max": 32.113
         },
         "internal_timings_ms": {
-          "parse": 0.602,
-          "html": 0.602,
-          "css": 0.222,
-          "cascade": 0.359,
+          "parse": 17.524,
+          "html": 17.524,
+          "css": 0.234,
+          "cascade": 0.44,
           "fonts": 0.0,
-          "layout": 0.028,
-          "text": 0.003,
-          "emit": 0.763,
-          "pipeline": 2.283,
+          "layout": 0.044,
+          "text": 0.001,
+          "emit": 0.851,
+          "pipeline": 19.512,
           "ops": 23,
-          "peak_rss_kb": 3752
+          "peak_rss_kb": 3784
         },
         "ir": "benchmarks\\frontend-parity\\results\\rust\\flex-page.ir.json"
-      }
-    },
-    "csharp": {
-      "contract": {
-        "fixture": "contract",
-        "status": "PASS",
-        "mode": "direct",
-        "error": "",
-        "wall_ms": {
-          "median": 30.211,
-          "min": 29.572,
-          "max": 30.374
-        },
-        "internal_timings_ms": {
-          "parse": 3.882,
-          "css": 5.226,
-          "cascade": 0.273,
-          "layout": 0.009,
-          "emit": 0.684,
-          "total": 10.08,
-          "ops": 4,
-          "peak_rss_kb": 17664
-        },
-        "ir": "benchmarks\\frontend-parity\\results\\csharp\\contract.ir.json"
-      },
-      "flex-page": {
-        "fixture": "flex-page",
-        "status": "PASS",
-        "mode": "direct",
-        "error": "",
-        "wall_ms": {
-          "median": 31.459,
-          "min": 31.248,
-          "max": 34.528
-        },
-        "internal_timings_ms": {
-          "parse": 4.017,
-          "css": 5.692,
-          "cascade": 0.603,
-          "layout": 0.027,
-          "emit": 0.851,
-          "total": 11.196,
-          "ops": 23,
-          "peak_rss_kb": 17948
-        },
-        "ir": "benchmarks\\frontend-parity\\results\\csharp\\flex-page.ir.json"
       }
     }
   }

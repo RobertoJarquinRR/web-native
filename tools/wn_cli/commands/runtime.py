@@ -21,8 +21,7 @@ FORBIDDEN_HEADER_TOKENS = re.compile(
 
 def _resolve_build_dir(config: str) -> Path:
     paths = get_paths()
-    return paths.build_debug if config == "Debug" else paths.build_release
-
+    return paths.runtime_build_debug if config == "Debug" else paths.runtime_build_release
 
 def cmd_emit(args: argparse.Namespace) -> int:
     paths = get_paths()

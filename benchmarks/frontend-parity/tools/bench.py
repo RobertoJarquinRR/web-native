@@ -32,10 +32,8 @@ sys.path.insert(0, str(TOOLS))
 from verify_ir import compare, load  # noqa: E402
 
 FRONTEND_DIRS = {
-    "python": ROOT / "src" / "frontend" / "python",
-    "cpp": ROOT / "src" / "frontend" / "cpp",
-    "rust": ROOT / "src" / "frontend" / "rust",
-    "csharp": ROOT / "src" / "frontend" / "csharp",
+    "rust": ROOT / "src" / "frontend",
+    
 }
 
 def rel(path: Path) -> str:

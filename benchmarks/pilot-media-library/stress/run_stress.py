@@ -50,7 +50,7 @@ LOGS = HERE / "logs"
 ARTIFACTS = HERE / "artifacts"
 REPORT_PATH = HERE / "stress_report.json"
 
-RUST_EXE = REPO / "src" / "frontend" / "rust" / "target" / "release" / "frontend-rust.exe"
+RUST_EXE = REPO / "src" / "frontend" / "target" / "release" / "frontend-rust.exe"
 SRC_PY = REPO / "src" / "frontend" / "python" / ".venv" / "Scripts" / "python.exe"
 EMITTER = REPO / "src" / "emitter" / "python" / "emit_ui.py"
 SPLIT_ESCAPES = PILOT / "tools" / "split_c_escapes.py"

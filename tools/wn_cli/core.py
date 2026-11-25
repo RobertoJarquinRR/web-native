@@ -1,4 +1,3 @@
-from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 import os
@@ -9,7 +8,35 @@ import sys
 
 
 class CliError(Exception):
-    """Controlled domain, configuration, or environment error."""
+    """Controlled CLI error with user-facing message."""
+
+@dataclass(frozen=True)
+class RepoPaths:
+    root: Path
+    runtime: Path
+    frontend_rust: Path
+    emitter: Path
+    generated: Path
+    runtime_build_release: Path
+    runtime_build_debug: Path
+    out_release: Path
+    out_debug: Path
+
+@lru_cache(maxsize=1)
+def get_paths() -> RepoPaths:
+    root = Path(__file__).resolve().parents[2]
+    runtime_dir = root / "src" / "runtime"
+    return RepoPaths(
+        root=root,
+        runtime=runtime_dir,
+        frontend_rust=root / "src" / "frontend",
+        emitter=root / "src" / "emitter" / "python" / "emit_ui.py",
+        generated=runtime_dir / "generated",
+        runtime_build_release=runtime_dir / "build" / "release",
+        runtime_build_debug=runtime_dir / "build" / "debug",
+        out_release=root / "build" / "release",
+        out_debug=root / "build" / "debug",
+    )
 
 def get_python_exe() -> Path:
     paths = get_paths()
@@ -22,32 +49,6 @@ def get_python_exe() -> Path:
         if candidate.is_file():
             return candidate
     return Path(sys.executable)
-
-@dataclass(frozen=True)
-class RepoPaths:
-    root: Path
-    runtime: Path
-    frontend_rust: Path
-    emitter: Path
-    third_party_wgpu: Path
-    build_release: Path
-    build_debug: Path
-    generated: Path
-
-
-def get_paths() -> RepoPaths:
-    root = Path(__file__).resolve().parents[2]
-    runtime = root / "src" / "runtime"
-    return RepoPaths(
-        root=root,
-        runtime=runtime,
-        frontend_rust=root / "src" / "frontend" / "rust",
-        emitter=root / "src" / "emitter" / "python" / "emit_ui.py",
-        third_party_wgpu=root / "third_party" / "wgpu-native",
-        build_release=runtime / "build_cmake",
-        build_debug=runtime / "build_debug",
-        generated=runtime / "generated",
-    )
 
 
 def exe_name(base: str) -> str:

@@ -11,11 +11,11 @@ sin Electron y sin FreeType ni HarfBuzz en el binario.
 
 ## Resultado
 
-| Fixture | Viewport | Ops | Paridad | Bytes |
-|---|---|---:|---|---|
-| `contract` | 400×300 | 4 | **PASS** `verify_ir.py` (tol. 0.01 px) | 594 (idéntico byte a byte al golden) |
-| `flex-page` | 480×320 | 23 | **PASS** `verify_ir.py` (tol. 0.01 px) | 3018 (idéntico byte a byte al golden) |
-| `text-card` | 400×240 | 6 (5 rect + 1 `text_run`) | **PASS** `verify_text.py` (19/19 checks) | 2030 (idéntico byte a byte a exp16 y al Python actual) |
+| Fixture     | Viewport |                       Ops | Paridad                                  | Bytes                                                  |
+| ----------- | -------- | ------------------------: | ---------------------------------------- | ------------------------------------------------------ |
+| `contract`  | 400×300  |                         4 | **PASS** `verify_ir.py` (tol. 0.01 px)   | 594 (idéntico byte a byte al golden)                   |
+| `flex-page` | 480×320  |                        23 | **PASS** `verify_ir.py` (tol. 0.01 px)   | 3018 (idéntico byte a byte al golden)                  |
+| `text-card` | 400×240  | 6 (5 rect + 1 `text_run`) | **PASS** `verify_text.py` (19/19 checks) | 2030 (idéntico byte a byte a exp16 y al Python actual) |
 
 El IR de `text-card` coincide **byte a byte** con
 `archive/experiments/16-text-atlas-c/display_list.json` y con lo que produce hoy
@@ -91,8 +91,8 @@ un árbol **pre-layout** para el runtime R2: sin geometría de cajas, con los
 valores computados y el texto ya shapeado. El pase de layout no se ejecuta.
 
 ```powershell
-frontend-rust.exe --html src\runtime\c-r2\page\index.html `
-                  --css  src\runtime\c-r2\page\style.css `
+frontend-rust.exe --html src\runtime\\page\index.html `
+                  --css  src\runtime\\page\style.css `
                   --width 960 --height 640 `
                   --emit-ui build\ui.json
 # -> build\ui.json + build\atlas.bin + build\atlas.json (si hay texto)
@@ -111,46 +111,46 @@ descritos en
 [Grid, scroll e imágenes v2](#grid-scroll-e-imágenes-v2-único-en---emit-ui) y
 [Bordes, radios, sombras y unidades relativas](#bordes-radios-sombras-y-unidades-relativas-v3).
 
-| Campo | Tipo | Semántica |
-|---|---|---|
-| `schema` | string | `"webnative.ui-tree/1"` o `"webnative.ui-tree/2"` |
-| `generator` | string | `"frontend-rust"` |
-| `source` | `{html, css}` | Rutas tal como se pasaron al CLI |
-| `viewport` | `{width, height}` | Viewport de compilación (960×640 en R2) |
-| `rule_count` | int | Reglas CSS que casaron (incluye reglas sin nodos) |
-| `node_count` | int | Longitud de `nodes` |
-| `text` | `{glyph_count, text_run_count}` | Conteos globales de texto |
-| `atlas` | objeto o `null` | `file`, `json`, `width`, `height`, `format`, `size_bytes`, `sha256`, `glyph_count`, `pixels_nonzero` |
-| `nodes[]` | array | Nodos en pre-orden |
+| Campo        | Tipo                            | Semántica                                                                                            |
+| ------------ | ------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `schema`     | string                          | `"webnative.ui-tree/1"` o `"webnative.ui-tree/2"`                                                    |
+| `generator`  | string                          | `"frontend-rust"`                                                                                    |
+| `source`     | `{html, css}`                   | Rutas tal como se pasaron al CLI                                                                     |
+| `viewport`   | `{width, height}`               | Viewport de compilación (960×640 en R2)                                                              |
+| `rule_count` | int                             | Reglas CSS que casaron (incluye reglas sin nodos)                                                    |
+| `node_count` | int                             | Longitud de `nodes`                                                                                  |
+| `text`       | `{glyph_count, text_run_count}` | Conteos globales de texto                                                                            |
+| `atlas`      | objeto o `null`                 | `file`, `json`, `width`, `height`, `format`, `size_bytes`, `sha256`, `glyph_count`, `pixels_nonzero` |
+| `nodes[]`    | array                           | Nodos en pre-orden                                                                                   |
 
 Cada nodo:
 
-| Campo | Tipo | Semántica |
-|---|---|---|
-| `id` | int | Índice en `nodes` |
-| `parent` | int | Índice del padre (`-1` en la raíz) |
-| `children` | int[] | Hijos en orden de emisión (texto propio primero) |
-| `kind` | `block` \| `flex` \| `grid` \| `text` \| `image` | Tipo de nodo (`grid`/`image` solo en `/2`) |
-| `name` | string | `tag#id.clase` con sufijo `[n]` para duplicados |
-| `tag` | string | Tag HTML (`#text` en nodos de texto) |
-| `classes` | string[] | `class` separado por whitespace |
-| `element_id` | string o null | Atributo `id` |
-| `style.display` | string o null | `block`/`flex`; `null` en texto |
-| `style.direction` | 0/1 | 0 row, 1 column (enum de R2) |
-| `style.justify` | 0..3 | start, center, end, space-between |
-| `style.align` | 0..3 | start, center, end, stretch |
-| `style.wrap` | 0/1 | `flex-wrap: wrap`/`wrap-reverse` |
-| `style.flex_direction`, `justify_content`, `align_items`, `flex_wrap` | string | Valores computados originales (además del enum numérico) |
-| `style.gap` | float | px |
-| `style.width_px`, `width_pct` | float | `-1` = auto; `%` conservado (30.0 = 30 %) |
-| `style.height_px`, `height_pct` | float | Igual |
-| `style.margin`, `padding` | float[4] | top, right, bottom, left |
-| `style.background` | string o null | `#rrggbb` normalizado |
-| `style.color` | string | Color de texto heredado (`#rrggbb`) |
-| `style.font_size`, `font_family`, `font_weight` | float/string | Computados y heredados |
-| `data.hover/press/selected/action` | string o null | Atributos `data-*` crudos |
-| `argb.background/text/hover/press/selected` | uint32 | `0xAARRGGBB` precalculado (0 = ninguno) |
-| `text` | objeto o null | Solo nodos `kind=text` |
+| Campo                                                                 | Tipo                                             | Semántica                                                |
+| --------------------------------------------------------------------- | ------------------------------------------------ | -------------------------------------------------------- |
+| `id`                                                                  | int                                              | Índice en `nodes`                                        |
+| `parent`                                                              | int                                              | Índice del padre (`-1` en la raíz)                       |
+| `children`                                                            | int[]                                            | Hijos en orden de emisión (texto propio primero)         |
+| `kind`                                                                | `block` \| `flex` \| `grid` \| `text` \| `image` | Tipo de nodo (`grid`/`image` solo en `/2`)               |
+| `name`                                                                | string                                           | `tag#id.clase` con sufijo `[n]` para duplicados          |
+| `tag`                                                                 | string                                           | Tag HTML (`#text` en nodos de texto)                     |
+| `classes`                                                             | string[]                                         | `class` separado por whitespace                          |
+| `element_id`                                                          | string o null                                    | Atributo `id`                                            |
+| `style.display`                                                       | string o null                                    | `block`/`flex`; `null` en texto                          |
+| `style.direction`                                                     | 0/1                                              | 0 row, 1 column (enum de R2)                             |
+| `style.justify`                                                       | 0..3                                             | start, center, end, space-between                        |
+| `style.align`                                                         | 0..3                                             | start, center, end, stretch                              |
+| `style.wrap`                                                          | 0/1                                              | `flex-wrap: wrap`/`wrap-reverse`                         |
+| `style.flex_direction`, `justify_content`, `align_items`, `flex_wrap` | string                                           | Valores computados originales (además del enum numérico) |
+| `style.gap`                                                           | float                                            | px                                                       |
+| `style.width_px`, `width_pct`                                         | float                                            | `-1` = auto; `%` conservado (30.0 = 30 %)                |
+| `style.height_px`, `height_pct`                                       | float                                            | Igual                                                    |
+| `style.margin`, `padding`                                             | float[4]                                         | top, right, bottom, left                                 |
+| `style.background`                                                    | string o null                                    | `#rrggbb` normalizado                                    |
+| `style.color`                                                         | string                                           | Color de texto heredado (`#rrggbb`)                      |
+| `style.font_size`, `font_family`, `font_weight`                       | float/string                                     | Computados y heredados                                   |
+| `data.hover/press/selected/action`                                    | string o null                                    | Atributos `data-*` crudos                                |
+| `argb.background/text/hover/press/selected`                           | uint32                                           | `0xAARRGGBB` precalculado (0 = ninguno)                  |
+| `text`                                                                | objeto o null                                    | Solo nodos `kind=text`                                   |
 
 En nodos de texto el objeto `style` es uniforme pero solo son significativos
 `width_px`/`height_px` (caja medida), `font_size`, `font_family`, `font_weight`
@@ -158,15 +158,15 @@ y `color`; los campos flex quedan en valores neutros y `display` es `null`.
 
 Nodo de texto (`text`):
 
-| Campo | Tipo | Semántica |
-|---|---|---|
-| `content` | string | Texto colapsado (`white-space: normal`) |
-| `baseline` | float | Ascender dentro del line box |
-| `glyphs[].gid` | int | Glyph id del TTF |
-| `glyphs[].advance` | float | Avance HarfBuzz (px; no lo consume R2) |
-| `glyphs[].x`, `y` | float | Esquina superior izquierda relativa al nodo |
-| `glyphs[].w`, `h` | int | Tamaño del bitmap |
-| `glyphs[].u0/v0/u1/v1` | float | UVs del atlas R8 256×256 |
+| Campo                  | Tipo   | Semántica                                   |
+| ---------------------- | ------ | ------------------------------------------- |
+| `content`              | string | Texto colapsado (`white-space: normal`)     |
+| `baseline`             | float  | Ascender dentro del line box                |
+| `glyphs[].gid`         | int    | Glyph id del TTF                            |
+| `glyphs[].advance`     | float  | Avance HarfBuzz (px; no lo consume R2)      |
+| `glyphs[].x`, `y`      | float  | Esquina superior izquierda relativa al nodo |
+| `glyphs[].w`, `h`      | int    | Tamaño del bitmap                           |
+| `glyphs[].u0/v0/u1/v1` | float  | UVs del atlas R8 256×256                    |
 
 `atlas.bin` es R8 puro (`width*height` bytes, 256×256 para este contrato) y
 `atlas.json` documenta tamaño, sha256, glyphs únicos y píxeles no cero. El
@@ -212,14 +212,14 @@ se emite cuando el schema es `/2`.
 Se añaden al objeto `style` de **todos** los nodos cuando el schema es `/2`
 (`null` = no declarado; los nodos de texto usan valores neutros):
 
-| Campo | Tipo | Semántica |
-|---|---|---|
-| `grid_template_columns` | `{mode, size_px}` o `null` | `{"mode":"auto_fill","size_px":180.0}`; solo `auto-fill` |
-| `grid_auto_rows` | `{"px": n}`, `"auto"` o `null` | altura de fila; `auto` = máximo de los hijos |
-| `row_gap`, `column_gap` | float | px efectivos: el longhand gana a `gap` (`row-gap ?? gap ?? 0`) |
-| `overflow` | `"hidden" \| "auto" \| "scroll"` o `null` | scroll solo vertical en v2 |
-| `display` | string | en contenedores `block`/`flex`/`grid`; en imágenes se conserva el computado (`inline` o el que fije el CSS) |
-| `height_px`, `width_px` | float | `-1.0` = auto (en imágenes, tamaño intrínseco del runtime) |
+| Campo                   | Tipo                                      | Semántica                                                                                                   |
+| ----------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `grid_template_columns` | `{mode, size_px}` o `null`                | `{"mode":"auto_fill","size_px":180.0}`; solo `auto-fill`                                                    |
+| `grid_auto_rows`        | `{"px": n}`, `"auto"` o `null`            | altura de fila; `auto` = máximo de los hijos                                                                |
+| `row_gap`, `column_gap` | float                                     | px efectivos: el longhand gana a `gap` (`row-gap ?? gap ?? 0`)                                              |
+| `overflow`              | `"hidden" \| "auto" \| "scroll"` o `null` | scroll solo vertical en v2                                                                                  |
+| `display`               | string                                    | en contenedores `block`/`flex`/`grid`; en imágenes se conserva el computado (`inline` o el que fije el CSS) |
+| `height_px`, `width_px` | float                                     | `-1.0` = auto (en imágenes, tamaño intrínseco del runtime)                                                  |
 
 `gap` se mantiene con la semántica v1 (shorthand o fallback truthy a
 `row-gap`/`column-gap`). `row_gap`/`column_gap` son los valores que debe usar el
@@ -227,14 +227,14 @@ runtime para separar celdas y filas.
 
 Valores CSS aceptados (el resto se ignora y el subset lo diagnostica):
 
-| Propiedad | Formas válidas |
-|---|---|
-| `display` | `block`, `flex`, `grid` (v2), `none` |
-| `grid-template-columns` | `repeat(auto-fill, 180px)`; espacios y mayúsculas libres. Sin `auto-fit`, `fr`, `minmax()`, `span` ni varias pistas |
-| `grid-auto-rows` | `240px` (o número sin unidad) o `auto` |
-| `gap`, `row-gap`, `column-gap` | px (ya en v1) |
-| `overflow` | `hidden`, `auto`, `scroll` (`visible` = sin campo) |
-| `object-fit` | `fill`, `cover`, `contain` (default `fill`) |
+| Propiedad                      | Formas válidas                                                                                                      |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `display`                      | `block`, `flex`, `grid` (v2), `none`                                                                                |
+| `grid-template-columns`        | `repeat(auto-fill, 180px)`; espacios y mayúsculas libres. Sin `auto-fit`, `fr`, `minmax()`, `span` ni varias pistas |
+| `grid-auto-rows`               | `240px` (o número sin unidad) o `auto`                                                                              |
+| `gap`, `row-gap`, `column-gap` | px (ya en v1)                                                                                                       |
+| `overflow`                     | `hidden`, `auto`, `scroll` (`visible` = sin campo)                                                                  |
+| `object-fit`                   | `fill`, `cover`, `contain` (default `fill`)                                                                         |
 
 #### Nodo imagen
 
@@ -242,14 +242,14 @@ Un `<img>` produce `kind:"image"` con `image` (solo en ese tipo de nodo):
 
 ```json
 {
-  "kind": "image",
-  "tag": "img",
-  "style": { "width_px": 180.0, "height_px": 240.0, "...": "..." },
-  "image": {
-    "src": "poster.png",
-    "alt": "Demo",
-    "object_fit": "cover"
-  }
+	"kind": "image",
+	"tag": "img",
+	"style": { "width_px": 180.0, "height_px": 240.0, "...": "..." },
+	"image": {
+		"src": "poster.png",
+		"alt": "Demo",
+		"object_fit": "cover"
+	}
 }
 ```
 
@@ -291,15 +291,15 @@ r1: 3 features solo-R2 ignoradas en el IR (usa --emit-ui para el arbol v2)
 `grid` y `overflow` (auto/scroll) son **extensiones del piloto**; `object-fit`
 también. `img` es v1. La matriz es:
 
-| Feature | default | `--strict-subset` sin `--pilot` | `--pilot` |
-|---|---|---|---|
-| `display: grid` | warning | error, exit ≠ 0 | permitida |
-| `grid-template-columns: repeat(auto-fill, <px>)` | warning | error, exit ≠ 0 | permitida |
-| `grid-auto-rows: <px> \| auto` | warning | error, exit ≠ 0 | permitida |
-| `overflow: auto \| scroll` | warning | error, exit ≠ 0 | permitida |
-| `object-fit: fill \| cover \| contain` | warning | error, exit ≠ 0 | permitida |
-| `overflow: hidden` | limpio (v1) | limpio | limpio |
-| `<img>` y sus atributos `src`/`alt`/`width`/`height` | limpio (v1) | limpio | limpio |
+| Feature                                              | default     | `--strict-subset` sin `--pilot` | `--pilot` |
+| ---------------------------------------------------- | ----------- | ------------------------------- | --------- |
+| `display: grid`                                      | warning     | error, exit ≠ 0                 | permitida |
+| `grid-template-columns: repeat(auto-fill, <px>)`     | warning     | error, exit ≠ 0                 | permitida |
+| `grid-auto-rows: <px> \| auto`                       | warning     | error, exit ≠ 0                 | permitida |
+| `overflow: auto \| scroll`                           | warning     | error, exit ≠ 0                 | permitida |
+| `object-fit: fill \| cover \| contain`               | warning     | error, exit ≠ 0                 | permitida |
+| `overflow: hidden`                                   | limpio (v1) | limpio                          | limpio    |
+| `<img>` y sus atributos `src`/`alt`/`width`/`height` | limpio (v1) | limpio                          | limpio    |
 
 `--pilot` no relaja valores inválidos: `grid-template-columns: 1fr`,
 `grid-auto-rows: minmax(...)` o `object-fit: zoom` se siguen diagnosticando.
@@ -333,13 +333,13 @@ emitiendo `/1` **byte a byte idénticas**.
 
 Bordes (uniformes + detalle por lado):
 
-| Campo | Tipo | Semántica |
-|---|---|---|
-| `border_width_px` | float | Ancho efectivo uniforme: máximo de los lados visibles (`solid` y ancho > 0); `0.0` si no hay borde |
-| `border_width_em`/`_rem`/`_vh`/`_vw` | float o `null` | Unidad declarada si **los cuatro** lados visibles comparten exactamente la misma unidad relativa |
-| `border_color` | string o `null` | Color del primer lado visible (top→left), `#rrggbb` o `#rrggbbaa` (alfa conservado); `null` sin borde visible |
-| `border_style` | `"solid"` \| `"none"` | `solid` si algún lado visible es sólido; `none` si no hay borde efectivo |
-| `border_sides` | objeto | `{ "top" \| "right" \| "bottom" \| "left": { "width_px": float, "width_em" \| "_rem" \| "_vh" \| "_vw": float \| null, "color": string \| null, "style": "solid" \| "none" } }`. El ancho se conserva aunque `style` sea `none` |
+| Campo                                | Tipo                  | Semántica                                                                                                                                                                                                                       |
+| ------------------------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `border_width_px`                    | float                 | Ancho efectivo uniforme: máximo de los lados visibles (`solid` y ancho > 0); `0.0` si no hay borde                                                                                                                              |
+| `border_width_em`/`_rem`/`_vh`/`_vw` | float o `null`        | Unidad declarada si **los cuatro** lados visibles comparten exactamente la misma unidad relativa                                                                                                                                |
+| `border_color`                       | string o `null`       | Color del primer lado visible (top→left), `#rrggbb` o `#rrggbbaa` (alfa conservado); `null` sin borde visible                                                                                                                   |
+| `border_style`                       | `"solid"` \| `"none"` | `solid` si algún lado visible es sólido; `none` si no hay borde efectivo                                                                                                                                                        |
+| `border_sides`                       | objeto                | `{ "top" \| "right" \| "bottom" \| "left": { "width_px": float, "width_em" \| "_rem" \| "_vh" \| "_vw": float \| null, "color": string \| null, "style": "solid" \| "none" } }`. El ancho se conserva aunque `style` sea `none` |
 
 `border_sides.top.width_px` etc. solo se resuelven a px en build time; la
 unidad relativa uniforme se expone en `border_width_*`. Si los lados mezclan
@@ -348,35 +348,35 @@ máximo px como fallback).
 
 Radio y sombras:
 
-| Campo | Tipo | Semántica |
-|---|---|---|
-| `border_radius_px` | float | Radio uniforme; si las esquinas difieren, el máximo (el runtime puede usar `border_radii_px`) |
-| `border_radius_em`/`_rem`/`_vh`/`_vw` | float o `null` | Radio declarado uniforme (las 4 esquinas con la misma unidad) |
-| `border_radii_px` | float[4] | `[top-left, top-right, bottom-right, bottom-left]`, px resueltos |
-| `box_shadow` | array o `null` | Lista de sombras; `null` = sin sombra |
-| `box_shadow[].offset_x_px`/`.offset_y_px` | float | Desplazamiento (px; puede ser negativo) |
-| `box_shadow[].blur_px` | float | Radio de difuminado (≥ 0) |
-| `box_shadow[].spread_px` | float | Expansión (puede ser negativa) |
-| `box_shadow[].color` | string | `#rrggbb` o `#rrggbbaa`; alfa `rgba()` conservado |
-| `box_shadow[].inset` | bool | Sombra interior |
-| `opacity` | float | `0.0`–`1.0` (se emite en `/2`; el valor inicial es `1.0`) |
+| Campo                                     | Tipo           | Semántica                                                                                     |
+| ----------------------------------------- | -------------- | --------------------------------------------------------------------------------------------- |
+| `border_radius_px`                        | float          | Radio uniforme; si las esquinas difieren, el máximo (el runtime puede usar `border_radii_px`) |
+| `border_radius_em`/`_rem`/`_vh`/`_vw`     | float o `null` | Radio declarado uniforme (las 4 esquinas con la misma unidad)                                 |
+| `border_radii_px`                         | float[4]       | `[top-left, top-right, bottom-right, bottom-left]`, px resueltos                              |
+| `box_shadow`                              | array o `null` | Lista de sombras; `null` = sin sombra                                                         |
+| `box_shadow[].offset_x_px`/`.offset_y_px` | float          | Desplazamiento (px; puede ser negativo)                                                       |
+| `box_shadow[].blur_px`                    | float          | Radio de difuminado (≥ 0)                                                                     |
+| `box_shadow[].spread_px`                  | float          | Expansión (puede ser negativa)                                                                |
+| `box_shadow[].color`                      | string         | `#rrggbb` o `#rrggbbaa`; alfa `rgba()` conservado                                             |
+| `box_shadow[].inset`                      | bool           | Sombra interior                                                                               |
+| `opacity`                                 | float          | `0.0`–`1.0` (se emite en `/2`; el valor inicial es `1.0`)                                     |
 
 Unidades relativas y `min/max`:
 
-| Campo | Tipo | Semántica |
-|---|---|---|
-| `width_em`/`_rem`/`_vh`/`_vw` | float o `null` | Unidad declarada de `width`; `width_px` sigue siendo la resolución en build time |
-| `height_em`/`_rem`/`_vh`/`_vw` | float o `null` | Igual para `height` |
-| `min_width_px`/`_pct`, `max_width_px`/`_pct` | float | `min_*_px`/`max_*_px` = `-1.0` si no se declaró; `%` se conserva en `*_pct` |
-| `min_width_em`/`_rem`/`_vh`/`_vw` | float o `null` | Unidad declarada de `min-width` |
-| `max_width_em`/`_rem`/`_vh`/`_vw` | float o `null` | Unidad declarada de `max-width` |
-| `min_height_px`/`_pct`/`_em`/`_rem`/`_vh`/`_vw` | float/`null` | Igual para `min-height` |
-| `max_height_px`/`_pct`/`_em`/`_rem`/`_vh`/`_vw` | float/`null` | Igual para `max-height` |
-| `margin_em`/`_rem`/`_vh`/`_vw` | `(float\|null)[4]` | `[top, right, bottom, left]`; `null` por lado si no usa esa unidad |
-| `padding_em`/`_rem`/`_vh`/`_vw` | `(float\|null)[4]` | Igual para padding |
-| `gap_em`/`_rem`/`_vh`/`_vw` | float o `null` | Unidad declarada de `gap` |
-| `row_gap_em`/`_rem`/`_vh`/`_vw` | float o `null` | Unidad efectiva de `row-gap` (si no se declaró, hereda la de `gap`, igual que el px) |
-| `column_gap_em`/`_rem`/`_vh`/`_vw` | float o `null` | Unidad efectiva de `column-gap` |
+| Campo                                           | Tipo               | Semántica                                                                            |
+| ----------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------ |
+| `width_em`/`_rem`/`_vh`/`_vw`                   | float o `null`     | Unidad declarada de `width`; `width_px` sigue siendo la resolución en build time     |
+| `height_em`/`_rem`/`_vh`/`_vw`                  | float o `null`     | Igual para `height`                                                                  |
+| `min_width_px`/`_pct`, `max_width_px`/`_pct`    | float              | `min_*_px`/`max_*_px` = `-1.0` si no se declaró; `%` se conserva en `*_pct`          |
+| `min_width_em`/`_rem`/`_vh`/`_vw`               | float o `null`     | Unidad declarada de `min-width`                                                      |
+| `max_width_em`/`_rem`/`_vh`/`_vw`               | float o `null`     | Unidad declarada de `max-width`                                                      |
+| `min_height_px`/`_pct`/`_em`/`_rem`/`_vh`/`_vw` | float/`null`       | Igual para `min-height`                                                              |
+| `max_height_px`/`_pct`/`_em`/`_rem`/`_vh`/`_vw` | float/`null`       | Igual para `max-height`                                                              |
+| `margin_em`/`_rem`/`_vh`/`_vw`                  | `(float\|null)[4]` | `[top, right, bottom, left]`; `null` por lado si no usa esa unidad                   |
+| `padding_em`/`_rem`/`_vh`/`_vw`                 | `(float\|null)[4]` | Igual para padding                                                                   |
+| `gap_em`/`_rem`/`_vh`/`_vw`                     | float o `null`     | Unidad declarada de `gap`                                                            |
+| `row_gap_em`/`_rem`/`_vh`/`_vw`                 | float o `null`     | Unidad efectiva de `row-gap` (si no se declaró, hereda la de `gap`, igual que el px) |
+| `column_gap_em`/`_rem`/`_vh`/`_vw`              | float o `null`     | Unidad efectiva de `column-gap`                                                      |
 
 Los arrays `margin`/`padding` (px) y `gap`/`row_gap`/`column_gap` (px) siguen
 existiendo con la semántica v1. Para cada propiedad, si el campo `*_em`,
@@ -444,14 +444,14 @@ El subset v1 mantiene **limpios** `border`/`border-width`/`border-style:
 solid`/`border-color` y `border-radius` en px (contrato congelado, ver
 `docs/subset-v1.md`). Las extensiones nuevas son del **piloto v3**:
 
-| Feature | default | `--strict-subset` sin `--pilot` | `--pilot` |
-|---|---|---|---|
-| `box-shadow` válido | warning | error, exit ≠ 0 | permitida |
-| `border-<side>-*` y `border-<side>` | warning | error, exit ≠ 0 | permitida |
-| `min-width`/`max-width`/`min-height`/`max-height` válidos | warning | error, exit ≠ 0 | permitida |
-| unidades `em/rem/vh/vw` en width/height/padding/margin/gap/border-width/radio | warning | error, exit ≠ 0 | permitida |
-| `border: ...` con ancho relativo | warning | error, exit ≠ 0 | permitida |
-| `border: <px> solid <color>` y `border-radius: <px>` | limpio (v1) | limpio | limpio |
+| Feature                                                                       | default     | `--strict-subset` sin `--pilot` | `--pilot` |
+| ----------------------------------------------------------------------------- | ----------- | ------------------------------- | --------- |
+| `box-shadow` válido                                                           | warning     | error, exit ≠ 0                 | permitida |
+| `border-<side>-*` y `border-<side>`                                           | warning     | error, exit ≠ 0                 | permitida |
+| `min-width`/`max-width`/`min-height`/`max-height` válidos                     | warning     | error, exit ≠ 0                 | permitida |
+| unidades `em/rem/vh/vw` en width/height/padding/margin/gap/border-width/radio | warning     | error, exit ≠ 0                 | permitida |
+| `border: ...` con ancho relativo                                              | warning     | error, exit ≠ 0                 | permitida |
+| `border: <px> solid <color>` y `border-radius: <px>`                          | limpio (v1) | limpio                          | limpio    |
 
 `--pilot` no relaja valores inválidos: `box-shadow: 1px`, `border-style:
 dashed`, `border-radius: 1 / 2` o una unidad desconocida siguen siendo
@@ -488,15 +488,15 @@ resuelto.
 `emit_ui.py --compare` compara dos `ui_data.h`: nodos, estilos, `data-*`,
 glyphs, runs y atlas. Resultado con este fixture (960×640):
 
-| Dimensión | Resultado |
-|---|---|
-| Nodos / padres / hijos / kind | 28 = 28, 0 diferencias |
-| Campos de estilo (incl. `%`, wrap, márgenes, padding, colores) | 0 diferencias |
-| Nombres y `data-*` (`ui_meta.json`) | Idéntico |
-| Glyphs / runs | 35 / 6 = 35 / 6 |
-| Avances y `x` de glyph | 35/35 exactos |
-| UVs | 33/35 exactas; 2 siguen a una caja 1 px distinta |
-| Atlas | 256×256 = 256×256; 1 242/65 536 bytes distintos (AA) |
+| Dimensión                                                      | Resultado                                            |
+| -------------------------------------------------------------- | ---------------------------------------------------- |
+| Nodos / padres / hijos / kind                                  | 28 = 28, 0 diferencias                               |
+| Campos de estilo (incl. `%`, wrap, márgenes, padding, colores) | 0 diferencias                                        |
+| Nombres y `data-*` (`ui_meta.json`)                            | Idéntico                                             |
+| Glyphs / runs                                                  | 35 / 6 = 35 / 6                                      |
+| Avances y `x` de glyph                                         | 35/35 exactos                                        |
+| UVs                                                            | 33/35 exactas; 2 siguen a una caja 1 px distinta     |
+| Atlas                                                          | 256×256 = 256×256; 1 242/65 536 bytes distintos (AA) |
 
 Única diferencia: el glyph `i` (gid 76) a 24 px. FreeType aplica TrueType
 hinting y deja `bitmap_top=17`, `rows=17`; `ab_glyph` (sin hinting) da
@@ -507,8 +507,8 @@ y está reportada por `--compare` como `known`, no como fallo semántico.
 
 ```powershell
 # oráculo Python para la misma página
-python src\emitter\python\emit_ui.py --html src\runtime\c-r2\page\index.html `
-  --css src\runtime\c-r2\page\style.css `
+python src\emitter\python\emit_ui.py --html src\runtime\\page\index.html `
+  --css src\runtime\\page\style.css `
   --out build\oracle\ui_data.h --meta build\oracle\ui_meta.json
 
 # comparación semántica (sale 1 solo con diferencias reales)
@@ -549,7 +549,7 @@ mismas estructuras de datos:
    propiedades de `cascade.INHERITED`, se ofertan las declaraciones de las
    reglas que casan y luego el `style=""`, con la misma clave de prioridad que
    el Python: `(!important, inline, especificidad, orden de regla, índice de
-   declaración)` y reemplazo con `>=` (gana la última). Finalmente se normaliza
+declaración)` y reemplazo con `>=` (gana la última). Finalmente se normaliza
    a `ComputedStyle`: longitudes en px, `background-color` con prioridad sobre
    `background`, `display` con fallback a la tabla UA (head/link/style/... →
    `none`, `a`/`span`/... → `inline`, resto `block`), `gap` con el
@@ -562,7 +562,7 @@ mismas estructuras de datos:
    en (0,0) y traslado posterior del subárbol, `stretch` solo cuando el hijo no
    fijó la dimensión cruzada, y altura automática a partir del contenido.
    **Texto**: el texto propio del nodo se colapsa con `normalize_text` (`" ".join(
-   text.split())`), se coloca antes de los hijos en `content_x`, con
+text.split())`), se coloca antes de los hijos en `content_x`, con
    `baseline = content_y + ascender`, y avanza `ascender + descender` en y.
    Las métricas se inyectan como closure (`MetricsFn`) para que layout no
    dependa del rasterizador. Una sola línea por nodo, LTR.
@@ -606,12 +606,12 @@ mismas estructuras de datos:
 
 El contrato de paridad es **contenido, posiciones y avances**:
 
-| gid | glyph | x | y | w | h | adv | UV (u0,v0,u1,v1) |
-|---:|---|---:|---:|---:|---:|---:|---|
-| 43 | H | 22.0 | 31.0 | 16 | 20 | 19.875 | 0.001953, 0.001953, 0.033203, 0.041016 |
-| 82 | o | 40.875 | 37.0 | 15 | 14 | 16.4062 | 0.037109, 0.001953, 0.066406, 0.029297 |
-| 79 | l | 58.281 | 30.0 | 3 | 21 | 6.7812 | 0.070312, 0.001953, 0.076172, 0.042969 |
-| 68 | a | 64.062 | 37.0 | 12 | 14 | 14.25 | 0.080078, 0.001953, 0.103516, 0.029297 |
+| gid | glyph |      x |    y |   w |   h |     adv | UV (u0,v0,u1,v1)                       |
+| --: | ----- | -----: | ---: | --: | --: | ------: | -------------------------------------- |
+|  43 | H     |   22.0 | 31.0 |  16 |  20 |  19.875 | 0.001953, 0.001953, 0.033203, 0.041016 |
+|  82 | o     | 40.875 | 37.0 |  15 |  14 | 16.4062 | 0.037109, 0.001953, 0.066406, 0.029297 |
+|  79 | l     | 58.281 | 30.0 |   3 |  21 |  6.7812 | 0.070312, 0.001953, 0.076172, 0.042969 |
+|  68 | a     | 64.062 | 37.0 |  12 |  14 |   14.25 | 0.080078, 0.001953, 0.103516, 0.029297 |
 
 Los 4 valores coinciden con exp16 sin tolerancia (el IR completo es idéntico).
 Las **UVs coinciden porque el packing también**: rects `(1,1,16,20)`,
@@ -632,11 +632,11 @@ tiene 462 bytes no nulos frente a 455 de FreeType, y mismas cajas/UVs.
 
 `font-family` se resuelve con el mismo mapa que `webnative/fonts.py`
 
-| Familia CSS | Fichero |
-|---|---|
-| `Segoe UI` / `system-ui` / `sans-serif` | `%WINDIR%\Fonts\segoeui.ttf` |
-| `Arial` / `Helvetica` / `Helvetica Neue` | `%WINDIR%\Fonts\arial.ttf` |
-| `Verdana`, `Tahoma`, `Calibri`, `Georgia`, `Times New Roman`, `Consolas`, `Courier New`, `Segoe UI Light/Semibold/Semilight` | sus TTF de Windows |
+| Familia CSS                                                                                                                  | Fichero                      |
+| ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| `Segoe UI` / `system-ui` / `sans-serif`                                                                                      | `%WINDIR%\Fonts\segoeui.ttf` |
+| `Arial` / `Helvetica` / `Helvetica Neue`                                                                                     | `%WINDIR%\Fonts\arial.ttf`   |
+| `Verdana`, `Tahoma`, `Calibri`, `Georgia`, `Times New Roman`, `Consolas`, `Courier New`, `Segoe UI Light/Semibold/Semilight` | sus TTF de Windows           |
 
 Si la familia no está mapeada se busca una coincidencia parcial; si no, se cae
 a `segoeui.ttf` y después a `arial.ttf`. El path absoluto acaba en el IR como
@@ -644,12 +644,12 @@ a `segoeui.ttf` y después a `arial.ttf`. El path absoluto acaba en el IR como
 
 ## Crates y versiones
 
-| Crate | Versión fijada | Uso |
-|---|---|---|
-| `html5ever` | `=0.39.0` | tokenizer + tree builder HTML5 |
-| `cssparser` | `=0.37.0` | troceado de reglas, bloques y declaraciones |
-| `rustybuzz` | `=0.20.1` | shaping (puerto puro Rust de HarfBuzz) |
-| `ab_glyph` | `=0.2.32` | contornos + rasterización grayscale |
+| Crate       | Versión fijada | Uso                                         |
+| ----------- | -------------- | ------------------------------------------- |
+| `html5ever` | `=0.39.0`      | tokenizer + tree builder HTML5              |
+| `cssparser` | `=0.37.0`      | troceado de reglas, bloques y declaraciones |
+| `rustybuzz` | `=0.20.1`      | shaping (puerto puro Rust de HarfBuzz)      |
+| `ab_glyph`  | `=0.2.32`      | contornos + rasterización grayscale         |
 
 Dependencias transitivas relevantes (resueltas en `Cargo.lock`):
 `ttf-parser 0.25.1`, `owned_ttf_parser 0.25.1`, `ab_glyph_rasterizer 0.1.10`,
@@ -718,12 +718,12 @@ frontend-rust.exe --html page.html --width 960 --height 640 `
                   --out page.ir.json --strict-subset
 ```
 
-| Modo | Salida | Exit |
-|---|---|---|
-| sin flag (default) | `warning[subset] ...` por stderr; el pipeline continúa | 0 |
-| `--pilot` | igual, pero no diagnostica `display: grid`, `grid-*`, `overflow: auto\|scroll`, `object-fit`, `box-shadow`, los bordes por lado, `min/max-*` ni las unidades `em/rem/vh/vw` (pilotos v2/v3) | 0 |
-| `--strict-subset` | `error[subset] ...` por stderr; IR/atlas se escriben igual | 1 si hay ≥1 diagnóstico |
-| `--strict-subset --pilot` | solo errores reales (valores inválidos, otras propiedades) | 1 si hay ≥1 error |
+| Modo                      | Salida                                                                                                                                                                                      | Exit                    |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------- |
+| sin flag (default)        | `warning[subset] ...` por stderr; el pipeline continúa                                                                                                                                      | 0                       |
+| `--pilot`                 | igual, pero no diagnostica `display: grid`, `grid-*`, `overflow: auto\|scroll`, `object-fit`, `box-shadow`, los bordes por lado, `min/max-*` ni las unidades `em/rem/vh/vw` (pilotos v2/v3) | 0                       |
+| `--strict-subset`         | `error[subset] ...` por stderr; IR/atlas se escriben igual                                                                                                                                  | 1 si hay ≥1 diagnóstico |
+| `--strict-subset --pilot` | solo errores reales (valores inválidos, otras propiedades)                                                                                                                                  | 1 si hay ≥1 error       |
 
 Formato de cada línea (archivo y línea siempre que el parser los da; si no, el
 contexto entre corchetes es el selector, la propiedad o la etiqueta):
@@ -901,23 +901,23 @@ sha256 de los tres ficheros: 8d32d008b37694c6ed92056641d3204b747973da14b32b1059d
 
 Atlas de la fixture (`text-card.atlas.bin`):
 
-| Dato | Valor |
-|---|---|
-| Tamaño | 512×512 R8 crudo, 262.144 bytes |
-| Glyphs | 4 (H, o, l, a) |
-| Bytes no nulos | 462 (FreeType: 455) |
-| sha256 | `cd8ece2213648b45a419823f58381e675837914d6d59948a6783c737105588a0` |
-| Rects shelf | `(1,1,16,20)`, `(19,1,15,14)`, `(36,1,3,21)`, `(41,1,12,14)` |
-| Guarda 1 px / exterior | todo 0 |
+| Dato                   | Valor                                                              |
+| ---------------------- | ------------------------------------------------------------------ |
+| Tamaño                 | 512×512 R8 crudo, 262.144 bytes                                    |
+| Glyphs                 | 4 (H, o, l, a)                                                     |
+| Bytes no nulos         | 462 (FreeType: 455)                                                |
+| sha256                 | `cd8ece2213648b45a419823f58381e675837914d6d59948a6783c737105588a0` |
+| Rects shelf            | `(1,1,16,20)`, `(19,1,15,14)`, `(36,1,3,21)`, `(41,1,12,14)`       |
+| Guarda 1 px / exterior | todo 0                                                             |
 
 Diferencia de cobertura contra el atlas de FreeType (misma caja y UV):
 
-| gid | w×h | píxeles no nulos (ref/rust) | cobertura (ref/rust) | max diff | mean diff | píxeles idénticos |
-|---:|---|---|---|---:|---:|---:|
-| 43 H | 16×20 | 150 / 160 | 28810 / 28313 | 101 | 1,853 | 74,69 % |
-| 82 o | 15×14 | 120 / 117 | 20298 / 20476 | 78 | 10,762 | 52,86 % |
-| 79 l | 3×21 | 63 / 63 | 12075 / 11835 | 70 | 3,810 | 31,75 % |
-| 68 a | 12×14 | 122 / 122 | 20900 / 20564 | 105 | 15,845 | 39,88 % |
+|  gid | w×h   | píxeles no nulos (ref/rust) | cobertura (ref/rust) | max diff | mean diff | píxeles idénticos |
+| ---: | ----- | --------------------------- | -------------------- | -------: | --------: | ----------------: |
+| 43 H | 16×20 | 150 / 160                   | 28810 / 28313        |      101 |     1,853 |           74,69 % |
+| 82 o | 15×14 | 120 / 117                   | 20298 / 20476        |       78 |    10,762 |           52,86 % |
+| 79 l | 3×21  | 63 / 63                     | 12075 / 11835        |       70 |     3,810 |           31,75 % |
+| 68 a | 12×14 | 122 / 122                   | 20900 / 20564        |      105 |    15,845 |           39,88 % |
 
 La cobertura total por glyph difiere menos del 2 %; lo que cambia es el
 antialiasing (unhinted vs hinting TrueType), no la geometría.
@@ -940,26 +940,26 @@ y fallback a Arial) y 38 glyphs se comparó contra `build_all` del Python:
 Metodología directa: 2 warmups + 10 ejecuciones del binario (sin PowerShell),
 midiendo wall con `time.perf_counter` y timings internos del JSON.
 
-| Fixture | Wall mediana | Wall min | Wall max | Pipeline mediana |
-|---|---:|---:|---:|---:|
-| `contract` | 10,097 ms | 9,724 ms | 11,595 ms | 1,357 ms |
-| `flex-page` | 10,780 ms | 10,256 ms | 12,079 ms | 1,800 ms |
-| `text-card` | 15,674 ms | 14,808 ms | 16,078 ms | 6,729 ms |
+| Fixture     | Wall mediana |  Wall min |  Wall max | Pipeline mediana |
+| ----------- | -----------: | --------: | --------: | ---------------: |
+| `contract`  |    10,097 ms |  9,724 ms | 11,595 ms |         1,357 ms |
+| `flex-page` |    10,780 ms | 10,256 ms | 12,079 ms |         1,800 ms |
+| `text-card` |    15,674 ms | 14,808 ms | 16,078 ms |         6,729 ms |
 
 Timings internos medianos (`bench-rust.ps1`, 10 runs, ms):
 
-| Etapa | `contract` | `flex-page` | `text-card` |
-|---|---:|---:|---:|
-| `html` (parse HTML + hojas) | 0,507 | 0,631 | 0,598 |
-| `css` (parse CSS) | 0,068 | 0,197 | 0,097 |
-| `cascade` | 0,084 | 0,242 | 0,106 |
-| `fonts` (crear motor) | 0,000 | 0,000 | 0,000 |
-| `layout` (+ métricas de texto) | 0,007 | 0,027 | 1,074 |
-| `text` (shaping + raster + atlas) | 0,002 | 0,004 | 0,611 |
-| `emit` (IR + atlas a disco) | 0,717 | 0,766 | 4,204 |
-| `pipeline` | **1,380** | **1,854** | **6,717** |
-| `ops` | 4 | 23 | 6 |
-| `peak_rss_kb` | 4.052 | 4.152 | 5.736 |
+| Etapa                             | `contract` | `flex-page` | `text-card` |
+| --------------------------------- | ---------: | ----------: | ----------: |
+| `html` (parse HTML + hojas)       |      0,507 |       0,631 |       0,598 |
+| `css` (parse CSS)                 |      0,068 |       0,197 |       0,097 |
+| `cascade`                         |      0,084 |       0,242 |       0,106 |
+| `fonts` (crear motor)             |      0,000 |       0,000 |       0,000 |
+| `layout` (+ métricas de texto)    |      0,007 |       0,027 |       1,074 |
+| `text` (shaping + raster + atlas) |      0,002 |       0,004 |       0,611 |
+| `emit` (IR + atlas a disco)       |      0,717 |       0,766 |       4,204 |
+| `pipeline`                        |  **1,380** |   **1,854** |   **6,717** |
+| `ops`                             |          4 |          23 |           6 |
+| `peak_rss_kb`                     |      4.052 |       4.152 |       5.736 |
 
 `layout` en `text-card` incluye la lectura y validación del TTF de 955 KB la
 primera vez; `emit` incluye escribir el atlas de 262 KB (de ahí sus ~4,2 ms,
@@ -968,10 +968,10 @@ sí es **~0,6 ms**.
 
 Comparación con la referencia Python en la misma máquina para `text-card`:
 
-| Implementación | Primera ejecución (frío) | Mediana en caliente (6 builds en el mismo proceso) |
-|---|---:|---:|
-| Python `build_all` (IR, sin atlas) | 214,9 ms (192 ms cargando FreeType/HarfBuzz/fuente) | 7,68 ms |
-| Rust release (IR + atlas) | 6,72 ms de pipeline (15,7 ms wall con arranque) | 6,72 ms |
+| Implementación                     |                            Primera ejecución (frío) | Mediana en caliente (6 builds en el mismo proceso) |
+| ---------------------------------- | --------------------------------------------------: | -------------------------------------------------: |
+| Python `build_all` (IR, sin atlas) | 214,9 ms (192 ms cargando FreeType/HarfBuzz/fuente) |                                            7,68 ms |
+| Rust release (IR + atlas)          |     6,72 ms de pipeline (15,7 ms wall con arranque) |                                            6,72 ms |
 
 En caliente ambos pipelines son comparables (Rust además escribe el atlas);
 en frío Rust evita la inicialización de FreeType/HarfBuzz y las DLLs de Python.
@@ -1009,7 +1009,7 @@ el arranque de PowerShell, no el frontend (el harness lanza un proceso nuevo).
 - **Hijos renderizables**: solo `display: block` o `flex`; `inline`, `none` y
   el resto se descartan para layout, igual que `_renderable_children`.
 - **Sin colapso de márgenes**: `margin-top` de un hijo suma, no colapsa.
-- **Motor de texto perezoso**: el Python crea `TextEngine` si *cualquier* estilo
+- **Motor de texto perezoso**: el Python crea `TextEngine` si _cualquier_ estilo
   tiene texto no vacío (incluido el CSS de un `<style>`); el Rust solo lo usa
   cuando un nodo con texto se layouta. La salida es idéntica y las fixtures rect
   no pagan la lectura del TTF. Es una desviación consciente, solo de rendimiento.
@@ -1035,7 +1035,7 @@ el arranque de PowerShell, no el frontend (el harness lanza un proceso nuevo).
   (`round(ymax)`/`round(ymin)`) reproduce a FreeType en la fixture (Segoe UI
   28 px) y en Segoe UI 12 / Verdana 20, pero puede desviar ±1 px en otras
   combinaciones (p. ej. Arial 16: `A`, `V`, `W`, `T`, `o`, `a`). Es una
-  diferencia de *posicionamiento de bitmap*, no de avance ni de contenido.
+  diferencia de _posicionamiento de bitmap_, no de avance ni de contenido.
 - **Antialiasing distinto**: los bytes del atlas no son los de FreeType (misma
   caja y UV, cobertura distinta). La paridad de píxeles con exp09 no se puede
   afirmar para el atlas Rust; sí la paridad de IR/geometría.

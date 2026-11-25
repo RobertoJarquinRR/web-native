@@ -17,7 +17,7 @@ Se compara:
 - viewport fijo, DPR 1, 96 DPI, fondo opaco y sRGB;
 - layout, color, bordes, radio, texto y posters locales;
 - todos los fixtures se compilan y renderizan con el motor (`build.ps1 -Html ...
-  -Css ... -OutDir ...` + `runtime_r2.exe --render`); no hay pipeline estático
+-Css ... -OutDir ...` + `runtime_r2.exe --render`); no hay pipeline estático
   paralelo;
 - Chromium headless **pinned por Playwright**, nunca Edge/WebView2 instalados.
 
@@ -74,11 +74,11 @@ caché de Playwright (`%LOCALAPPDATA%\ms-playwright\chromium_headless_shell-1194
 fuentes, tolerancias y modo nativo. **No copia fixtures**: reutiliza los del
 repo.
 
-| Fixture | Origen | Viewport | Cobertura | Gate |
-|---|---|---:|---|---|
-| `flex-page` | `benchmarks/frontend-parity/fixtures/flex-page` | 480×320 | flex anidado, gap, space-between, align | sí |
-| `contract` | `benchmarks/frontend-parity/fixtures/contract` | 400×300 | block flow, padding, margin, color | sí |
-| `media-library` | `benchmarks/pilot-media-library/page` | 1280×800 | grid, sidebar, detalle, imágenes, texto | no (informativo) |
+| Fixture         | Origen                                          | Viewport | Cobertura                               | Gate             |
+| --------------- | ----------------------------------------------- | -------: | --------------------------------------- | ---------------- |
+| `flex-page`     | `benchmarks/frontend-parity/fixtures/flex-page` |  480×320 | flex anidado, gap, space-between, align | sí               |
+| `contract`      | `benchmarks/frontend-parity/fixtures/contract`  |  400×300 | block flow, padding, margin, color      | sí               |
+| `media-library` | `benchmarks/pilot-media-library/page`           | 1280×800 | grid, sidebar, detalle, imágenes, texto | no (informativo) |
 
 Regiones actuales:
 
@@ -108,16 +108,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File benchmarks\visual-parity\run
 
 Opciones:
 
-| Flag | Uso |
-|---|---|
-| `-Fixtures a,b` | fixtures (coma o array). Por defecto, todos. |
-| `-OutDir <ruta>` | salida alternativa (por defecto `benchmarks/visual-parity/out`). |
-| `-SkipChromium` | reutiliza capturas Chromium existentes. |
-| `-SkipNative` | reutiliza PNGs nativos existentes. |
+| Flag             | Uso                                                                                                       |
+| ---------------- | --------------------------------------------------------------------------------------------------------- |
+| `-Fixtures a,b`  | fixtures (coma o array). Por defecto, todos.                                                              |
+| `-OutDir <ruta>` | salida alternativa (por defecto `benchmarks/visual-parity/out`).                                          |
+| `-SkipChromium`  | reutiliza capturas Chromium existentes.                                                                   |
+| `-SkipNative`    | reutiliza PNGs nativos existentes.                                                                        |
 | `-RebuildNative` | recompila cada fixture con `build.ps1 -Html ... -Css ... -OutDir ... -SkipRustBuild` antes de renderizar. |
-| `-AllowPartial` | continúa si Chromium/nativo falla (genera reporte con ERROR). |
-| `-EnforceGate` | sale con código 1 si un fixture `gate=true` falla. |
-| `-NoArchive` | no copia el reporte a `reports/<timestamp>/`. |
+| `-AllowPartial`  | continúa si Chromium/nativo falla (genera reporte con ERROR).                                             |
+| `-EnforceGate`   | sale con código 1 si un fixture `gate=true` falla.                                                        |
+| `-NoArchive`     | no copia el reporte a `reports/<timestamp>/`.                                                             |
 
 Salida esperada:
 
@@ -202,12 +202,12 @@ globales y por región, umbrales, artefactos, método y caveats.
 
 Umbrales iniciales (se calibran con la baseline, no son un gate definitivo):
 
-| Ámbito | SSIM | Pixel diff |
-|---|---:|---:|
-| `strict` rect-only | ≥ 0.995 | ≤ 0.2 % |
-| `strict` con imágenes/grid | ≥ 0.980 | ≤ 0.5 % |
-| `text` | ≥ 0.950 | ≤ 2 % (+ geometría) |
-| Global | ≥ 0.980 | ≤ 1.0 % |
+| Ámbito                     |    SSIM |          Pixel diff |
+| -------------------------- | ------: | ------------------: |
+| `strict` rect-only         | ≥ 0.995 |             ≤ 0.2 % |
+| `strict` con imágenes/grid | ≥ 0.980 |             ≤ 0.5 % |
+| `text`                     | ≥ 0.950 | ≤ 2 % (+ geometría) |
+| Global                     | ≥ 0.980 |             ≤ 1.0 % |
 
 ---
 
@@ -272,14 +272,14 @@ Chromium no bloquea build ni producto; el benchmark es opcional.
 
 ## 10. Troubleshooting
 
-| Síntoma | Acción |
-|---|---|
-| `Harness venv not found` | Ejecutar los tres comandos de instalación de §2. |
-| `CHROMIUM NOT AVAILABLE` | `...python.exe -m playwright install chromium-headless-shell`. No usar Edge/WebView2. |
-| `missing fixture fonts` | Instalar la fuente de la allowlist o quitar el fixture; no se compara un fallback. |
-| `r2 build prerequisites missing` | Compilar `frontend-rust`, revisar MSVC/`vcvars64.bat` y `third_party/wgpu-native`. |
-| `no runtime_r2.exe found` | Compilar el piloto con `src\runtime\c-r2\build.ps1 -Pilot -SkipRustBuild` o reutilizar el exe existente. |
-| `dimension mismatch` | El capturador/backend no respetó el viewport. No se reescala: corregir el fixture o el render. |
+| Síntoma                                         | Acción                                                                                                                  |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `Harness venv not found`                        | Ejecutar los tres comandos de instalación de §2.                                                                        |
+| `CHROMIUM NOT AVAILABLE`                        | `...python.exe -m playwright install chromium-headless-shell`. No usar Edge/WebView2.                                   |
+| `missing fixture fonts`                         | Instalar la fuente de la allowlist o quitar el fixture; no se compara un fallback.                                      |
+| `r2 build prerequisites missing`                | Compilar `frontend-rust`, revisar MSVC/`vcvars64.bat` y `third_party/wgpu-native`.                                      |
+| `no runtime_r2.exe found`                       | Compilar el piloto con `src\runtime\\build.ps1 -Pilot -SkipRustBuild` o reutilizar el exe existente.                    |
+| `dimension mismatch`                            | El capturador/backend no respetó el viewport. No se reescala: corregir el fixture o el render.                          |
 | `native check` falla por ediciones concurrentes | Usar el `build_pilot/runtime_r2.exe` existente y reportar el error exacto; no modificar build scripts desde el harness. |
 
 ---

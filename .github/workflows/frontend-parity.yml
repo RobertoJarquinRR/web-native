@@ -7,18 +7,12 @@ on:
     paths:
       - 'src/ir/**'
       - 'benchmarks/frontend-parity/**'
-      - 'src/frontend/python/**'
-      - 'src/frontend/rust/**'
-      - 'src/frontend/cpp/**'
-      - 'src/frontend/csharp/**'
+      - 'src/frontend/**'
   pull_request:
     paths:
       - 'src/ir/**'
       - 'benchmarks/frontend-parity/**'
-      - 'src/frontend/python/**'
-      - 'src/frontend/rust/**'
-      - 'src/frontend/cpp/**'
-      - 'src/frontend/csharp/**'
+      - 'src/frontend/**'
 
 permissions:
   contents: read
@@ -30,7 +24,7 @@ concurrency:
 jobs:
   parity:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -38,38 +32,18 @@ jobs:
         with:
           python-version: '3.12'
 
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Toolchain versions
         shell: pwsh
         run: |
           python --version
-          dotnet --version
           rustc --version
           cargo --version
 
-      - name: Python frontend dependencies
-        shell: pwsh
-        run: |
-          python -m venv src/frontend/python/.venv
-          src/frontend/python/.venv/Scripts/python.exe -m pip install --upgrade pip
-          src/frontend/python/.venv/Scripts/python.exe -m pip install -r src/frontend/python/requirements.txt
-
       - name: Build Rust frontend
         shell: pwsh
-        run: cargo build --release --manifest-path src/frontend/rust/Cargo.toml
-
-      - name: Build C++ frontend
-        shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File src/frontend/cpp/build.ps1
-
-      - name: Build C# frontend (JIT, no AOT workload)
-        shell: pwsh
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File src/frontend/csharp/build.ps1 -Jit
+        run: cargo build --release --manifest-path src/frontend/Cargo.toml
 
       - name: Frozen parity (SPEC.md)
         shell: pwsh
