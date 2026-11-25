@@ -404,8 +404,9 @@ def run_input() -> int:
         "ABI 5",
         "input: PASS",
         "set_value(abc) -> WN_OK",
-        "set_value(Omega) -> WN_ERR_UNSUPPORTED",
+        "set_value(Omega) -> WN_OK",
         "set_value(13 chars) -> WN_ERR_INVALID_ARGUMENT",
+        "value survived rejects = \"abc\"",
         "clipboard copy + paste",
         "cut all",
         "escape -> focused=0",
@@ -507,7 +508,8 @@ def run_text() -> int:
     atlas_exe = out / "atlas_test.exe"
     _compile(
         exe,
-        [suite / "measure_test.c", runtime / "text" / "text_directwrite.cpp"],
+        [suite / "measure_test.c", runtime / "text" / "text_runtime.c",
+         runtime / "text" / "text_directwrite.cpp"],
         [get_paths().root / "include", runtime],
         ["dwrite.lib"],
     )
@@ -551,6 +553,16 @@ def run_text() -> int:
         CORE_LIBS,
     )
     _expect(_run(document_exe, [], out), ["document_text_test: PASS"], "document text test")
+
+    log_step("text: greedy wrapping")
+    wrap_exe = out / "wrap_test.exe"
+    _compile(
+        wrap_exe,
+        [suite / "wrap_test.c", *[runtime / item for item in CORE_SOURCES]],
+        [get_paths().root / "include", runtime, fixture],
+        CORE_LIBS,
+    )
+    _expect(_run(wrap_exe, [], out), ["wrap_test: PASS"], "text wrap test")
     log_info("runtime text v0: PASS")
     return 0
 

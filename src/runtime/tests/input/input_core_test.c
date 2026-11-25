@@ -3,9 +3,10 @@
  * (ui-tree/3 + ABI v4 core surface).
  *
  * Compiles against tests/input/fixture/ui_data.h and the core only (no GPU,
- * no window). Exercises focus/caret, typing, Backspace/Delete, arrows,
- * Home/End, Shift selection, copy/cut/paste, max_length, set_value/get_value,
- * Escape blur and input cloning.
+ * no window). Exercises focus/caret, typing (UTF-8 codepoints), Backspace/
+ * Delete over multibyte characters, arrows, Home/End, Shift selection,
+ * drag selection, copy/cut/paste, max_length, set_value/get_value, Escape
+ * blur and input cloning.
  *
  *   input_core_test.exe out/core_events.jsonl
  */
@@ -15,6 +16,11 @@
 
 #include "ui_data.h"
 #include "wn_core.h"
+#include "wn_internal.h"
+
+/* Core-internal blink helpers exercised by this suite. */
+extern int wn_core_caret_visible(const wn_core *core);
+extern void wn_core_set_caret_epoch(wn_core *core, double ms);
 
 static wn_core *g_core;
 static int g_failures;
@@ -48,6 +54,45 @@ static int type_text(int node, const char *text, int *changes)
         if (changed) {
             ++*changes;
         }
+    }
+    return 1;
+}
+
+/* Types a UTF-8 string one codepoint at a time (the host decodes WM_CHAR). */
+static int type_utf8(int node, const char *text, int *changes)
+{
+    int offset = 0;
+    while (text[offset] != '\0') {
+        const unsigned char *p = (const unsigned char *)text + offset;
+        uint32_t cp;
+        int extra;
+        int length;
+        int changed = 0;
+        int visual = 0;
+        if (*p < 0x80u) {
+            cp = *p;
+            extra = 0;
+        } else if ((*p & 0xE0u) == 0xC0u) {
+            cp = (uint32_t)(*p & 0x1Fu);
+            extra = 1;
+        } else if ((*p & 0xF0u) == 0xE0u) {
+            cp = (uint32_t)(*p & 0x0Fu);
+            extra = 2;
+        } else {
+            cp = (uint32_t)(*p & 0x07u);
+            extra = 3;
+        }
+        length = extra + 1;
+        for (int i = 1; i <= extra; ++i) {
+            cp = (cp << 6) | (uint32_t)(p[i] & 0x3Fu);
+        }
+        if (wn_core_input_char(g_core, cp, &changed, &visual) != node) {
+            return 0;
+        }
+        if (changed) {
+            ++*changes;
+        }
+        offset += length;
     }
     return 1;
 }
@@ -219,6 +264,31 @@ int main(int argc, char **argv)
                        state.cursor == 2, "End moves the caret to len");
     write_state(report, "editing", search, changes);
 
+    /* ---------------------------------------------------- UTF-8 editing */
+    press_key(search, WN_KEY_END, 0, &changes);
+    check("insert accented", type_utf8(search, "\xc3\xa1", &changes),
+          "a-acute inserted as one codepoint");
+    expect_value("value after accented", search, "bc\xc3\xa1");
+    if (wn_core_input_state(g_core, search, &state) == 0) {
+        check("cursor counts codepoints", state.cursor == 3, "cursor=3 after bc + a-acute");
+    }
+    press_key(search, WN_KEY_BACKSPACE, 0, &changes);
+    expect_value("backspace multibyte", search, "bc");
+    press_key(search, WN_KEY_END, 0, &changes);
+    check("insert omega", type_utf8(search, "\xce\xa9", &changes), "omega inserted");
+    expect_value("value after omega", search, "bc\xce\xa9");
+    press_key(search, WN_KEY_BACKSPACE, 0, &changes);
+    expect_value("backspace omega", search, "bc");
+    check("paste Cafe", wn_core_input_paste(g_core, "Caf\xc3\xa9", NULL, NULL) == search,
+          "Cafe-acute pasted");
+    expect_value("value after paste Cafe", search, "bcCaf\xc3\xa9");
+    if (wn_core_input_state(g_core, search, &state) == 0) {
+        check("paste cursor counts codepoints", state.cursor == 6,
+              "cursor=6 after bc + Cafe-acute");
+    }
+    check("reset before selection", wn_core_set_input_value(g_core, search, "bc") == 0,
+          "value reset to bc");
+
     /* ------------------------------------------------------ selection */
     check("select all", wn_core_input_select_all(g_core, NULL) == search,
           "Ctrl+A equivalent");
@@ -246,8 +316,16 @@ int main(int argc, char **argv)
     check("set_value too long",
           wn_core_set_input_value(g_core, search, "0123456789abc") == 2,
           "13 chars rejected with code 2");
-    check("set_value non-ascii", wn_core_set_input_value(g_core, search, "a\xce\xa9") == 1,
-          "non-ASCII rejected with code 1");
+    check("set_value control rejected", wn_core_set_input_value(g_core, search, "a\x01") == 1,
+          "control character rejected with code 1");
+    check("set_value utf8", wn_core_set_input_value(g_core, search, "Caf\xc3\xa9") == 0,
+          "UTF-8 value accepted");
+    expect_value("value after set_value utf8", search, "Caf\xc3\xa9");
+    if (wn_core_input_state(g_core, search, &state) == 0) {
+        check("set_value utf8 cursor", state.cursor == 4, "cursor counts 4 codepoints");
+    }
+    check("set_value 12 again", wn_core_set_input_value(g_core, search, "0123456789ab") == 0,
+          "ASCII value restored");
     expect_value("value preserved after rejects", search, "0123456789ab");
     wn_core_input_select_all(g_core, NULL);
     press_key(search, WN_KEY_DELETE, 0, &changes);
@@ -258,6 +336,32 @@ int main(int argc, char **argv)
         check("caret after clamp", state.cursor == 12, "caret stays at maxlength");
     }
     write_state(report, "max-length", search, changes);
+
+    /* ---------------------------------------------------- drag selection */
+    check("reset for drag", wn_core_set_input_value(g_core, search, "abcdef") == 0,
+          "value reset to abcdef");
+    press_key(search, WN_KEY_HOME, 0, &changes);
+    for (int i = 0; i < 4; ++i) {
+        press_key(search, WN_KEY_RIGHT, 0, &changes);
+    }
+    if (wn_core_input_state(g_core, search, &state) == 0) {
+        float x4 = state.caret_x;
+        float mid_y = search_rect.y + search_rect.h * 0.5f;
+        wn_core_pointer_down(g_core, search_rect.x + 1.0f, mid_y);
+        wn_core_pointer_move(g_core, x4, mid_y);
+        wn_core_pointer_up(g_core, x4, mid_y);
+        if (wn_core_input_state(g_core, search, &state) == 0) {
+            check("drag selection", state.anchor == 0 && state.cursor == 4 &&
+                                    state.selection_x1 > state.selection_x0,
+                  "drag from 0 to 4 selects a range");
+        }
+    }
+    check("drag type replaces selection", type_text(search, "Z", &changes),
+          "typing over the drag selection");
+    expect_value("value after drag type", search, "Zef");
+    check("restore before focus switch",
+          wn_core_set_input_value(g_core, search, "0123456789ab") == 0,
+          "value restored after the drag test");
 
     /* ------------------------------------------------ focus switching + Esc */
     check("select before leaving", wn_core_input_select_all(g_core, NULL) == search,
@@ -290,6 +394,37 @@ int main(int argc, char **argv)
               "clone has its own value buffer");
         expect_value("original unchanged", search, "0123456789ab");
         check("clone remove", wn_core_remove(g_core, clone) == 0, "clone removed");
+    }
+
+    /* ------------------------------------------------------- caret blink */
+    {
+        double now;
+        check("focus for blink",
+              wn_core_focus_input(g_core, search, search_rect.x + 1.0f) == search,
+              "search is editable again");
+        check("blink value reset", wn_core_set_input_value(g_core, search, "ab") == 0,
+              "short value for the edit reset");
+        now = wn_now_ms();
+        wn_core_set_caret_epoch(g_core, now);
+        check("caret phase on", wn_core_caret_visible(g_core) == 1,
+              "elapsed 0 is visible");
+        wn_core_set_caret_epoch(g_core, now - 600.0);
+        check("caret phase off", wn_core_caret_visible(g_core) == 0,
+              "past half a period is hidden");
+        wn_core_set_caret_epoch(g_core, now - 1100.0);
+        check("caret phase on again", wn_core_caret_visible(g_core) == 1,
+              "second period is visible");
+        wn_core_set_caret_epoch(g_core, now - 600.0);
+        check("blink edit", type_text(search, "z", &changes), "typing resets the epoch");
+        check("edit resets caret blink", wn_core_caret_visible(g_core) == 1,
+              "an edit restarts the visible phase");
+        wn_core_set_caret_epoch(g_core, now - 600.0);
+        wn_core_blur_input(g_core);
+        check("blink refocus",
+              wn_core_focus_input(g_core, search, search_rect.x + 1.0f) == search,
+              "focus restored for the reset check");
+        check("focus resets caret blink", wn_core_caret_visible(g_core) == 1,
+              "focus restarts the visible phase");
     }
 
     /* ---------------------------------------------------------- report end */

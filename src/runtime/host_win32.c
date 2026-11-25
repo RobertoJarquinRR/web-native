@@ -26,6 +26,8 @@ typedef struct {
     int running;
     int continuous;
     int mouse_tracking;
+    int button_down;
+    int caret_blink;
     char *title;
     wn_host_event_fn on_event;
     wn_host_frame_fn on_frame;
@@ -151,17 +153,38 @@ static LRESULT CALLBACK host_wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         return 0;
     }
     case WM_MOUSELEAVE:
+        /* A captured drag keeps ownership of the pointer outside the client
+         * area: do not translate the leave into a pointer_leave while the
+         * button is down, or the selection would be abandoned mid-drag. */
         host->mouse_tracking = 0;
-        emit_event(host, WN_EVENT_POINTER_MOVE, NULL,
-                   -1000000.0f, -1000000.0f, 0, 0, 0, 0);
+        if (!host->button_down) {
+            emit_event(host, WN_EVENT_POINTER_MOVE, NULL,
+                       -1000000.0f, -1000000.0f, 0, 0, 0, 0);
+        }
         return 0;
     case WM_LBUTTONDOWN:
+        host->button_down = 1;
         SetCapture(hwnd);
         emit_pointer(host, WN_EVENT_POINTER_DOWN, lparam);
         return 0;
     case WM_LBUTTONUP:
+        host->button_down = 0;
         emit_pointer(host, WN_EVENT_POINTER_UP, lparam);
         ReleaseCapture();
+        return 0;
+    case WM_TIMER:
+        /* Caret blink: the core derives the on/off phase from wn_now_ms(). */
+        InvalidateRect(hwnd, NULL, FALSE);
+        return 0;
+    case WM_CAPTURECHANGED:
+        /* Capture stolen while the button was held: drop hover/press so
+         * nothing sticks. A normal button-up clears button_down first. */
+        host->mouse_tracking = 0;
+        if (host->button_down) {
+            host->button_down = 0;
+            emit_event(host, WN_EVENT_POINTER_MOVE, NULL,
+                       -1000000.0f, -1000000.0f, 0, 0, 0, 0);
+        }
         return 0;
     case WM_MOUSEWHEEL:
         emit_wheel(host, lparam, GET_WHEEL_DELTA_WPARAM(wparam), 0);
@@ -187,6 +210,11 @@ static LRESULT CALLBACK host_wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         emit_event(host, WN_EVENT_FOCUS_IN, NULL, 0.0f, 0.0f, 0, 0, 0, 0);
         return 0;
     case WM_KILLFOCUS:
+        /* The window lost the pointer capture context with the focus. */
+        host->mouse_tracking = 0;
+        host->button_down = 0;
+        emit_event(host, WN_EVENT_POINTER_MOVE, NULL,
+                   -1000000.0f, -1000000.0f, 0, 0, 0, 0);
         emit_event(host, WN_EVENT_FOCUS_OUT, NULL, 0.0f, 0.0f, 0, 0, 0, 0);
         return 0;
     default:
@@ -384,6 +412,23 @@ static void host_set_continuous(void *context, int enabled)
     }
 }
 
+static void host_set_caret_blink(void *context, int enabled)
+{
+    WnHostWin32 *host = (WnHostWin32 *)context;
+    if (host == NULL || host->hwnd == NULL) {
+        return;
+    }
+    if (enabled != 0) {
+        if (!host->caret_blink) {
+            SetTimer(host->hwnd, 1, 530, NULL);
+            host->caret_blink = 1;
+        }
+    } else if (host->caret_blink) {
+        KillTimer(host->hwnd, 1);
+        host->caret_blink = 0;
+    }
+}
+
 static void host_destroy(void *context)
 {
     WnHostWin32 *host = (WnHostWin32 *)context;
@@ -391,6 +436,10 @@ static void host_destroy(void *context)
         return;
     }
     if (host->hwnd != NULL) {
+        if (host->caret_blink) {
+            KillTimer(host->hwnd, 1);
+            host->caret_blink = 0;
+        }
         DestroyWindow(host->hwnd);
         host->hwnd = NULL;
     }
@@ -408,6 +457,7 @@ static const wn_host_ops g_host_win32_ops = {
     host_surface_handle,
     host_set_client_size,
     host_set_continuous,
+    host_set_caret_blink,
     host_destroy
 };
 

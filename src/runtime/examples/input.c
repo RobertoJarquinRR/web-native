@@ -5,8 +5,8 @@
  *
  * The document is the compiled fixture in tests/input/fixture/ui_data.h.
  * The demo exercises the host-facing surface only:
- *   - wn_node_set_value / wn_node_get_value (WN_ERR_UNSUPPORTED for non-ASCII,
- *     WN_ERR_INVALID_ARGUMENT above maxlength),
+ *   - wn_node_set_value / wn_node_get_value (UTF-8; WN_ERR_UNSUPPORTED for
+ *     control characters, WN_ERR_INVALID_ARGUMENT above maxlength),
  *   - WN_EVENT_INPUT delivered on every user-driven value change, with
  *     wn_node_get_value readable from inside the callback,
  *   - typing, Backspace, Home/Shift+Right selection, Ctrl+C/X/V clipboard and
@@ -187,8 +187,9 @@ int main(int argc, char **argv)
     expect_value("initial value", "");
     expect_status("set_value(abc)", wn_node_set_value(g_app, g_search, "abc"), WN_OK);
     expect_value("after set_value", "abc");
-    expect_status("set_value(Omega)", wn_node_set_value(g_app, g_search, "\xce\xa9"),
-                  WN_ERR_UNSUPPORTED);
+    expect_status("set_value(Omega)", wn_node_set_value(g_app, g_search, "\xce\xa9"), WN_OK);
+    expect_value("after Omega", "\xce\xa9");
+    expect_status("set_value(abc again)", wn_node_set_value(g_app, g_search, "abc"), WN_OK);
     expect_status("set_value(13 chars)",
                   wn_node_set_value(g_app, g_search, "0123456789abc"),
                   WN_ERR_INVALID_ARGUMENT);

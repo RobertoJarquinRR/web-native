@@ -630,6 +630,13 @@ wn_status wn_view_event(wn_view *view, const wn_event *event)
     switch (event->type) {
     case WN_EVENT_POINTER_MOVE: {
         int previous_hover = wn_core_hover(view->core);
+        /* The Win32 host reports leave/capture-loss as an out-of-window move. */
+        if (event->x <= -100000.0f || event->y <= -100000.0f) {
+            wn_core_pointer_leave(view->core);
+            hit = -1;
+            changed = previous_hover >= 0;
+            break;
+        }
         hit = wn_core_pointer_move(view->core, event->x, event->y);
         changed = hit != previous_hover;
         break;
@@ -728,6 +735,11 @@ wn_status wn_view_render(wn_view *view)
     }
     if (wn_core_needs_layout(view->core)) {
         wn_core_relayout(view->core);
+        view->geometry_dirty = 1;
+    }
+    if (wn_core_input_focused(view->core) >= 0) {
+        /* The caret blink phase is time based and lives outside the cached
+         * display list, so a focused input rebuilds it on every frame. */
         view->geometry_dirty = 1;
     }
     if (view->geometry_dirty) {
@@ -1257,12 +1269,13 @@ wn_status wn_view_set_value(wn_view *view, wn_node_id node, const char *utf8)
     }
     result = wn_core_set_input_value(view->core, index, utf8);
     if (result == 1) {
-        wn_set_error("wn_node_set_value: '%s' is not printable ASCII (32..126); "
-                     "runtime shaping/IME are out of ABI v4", utf8);
+        wn_set_error("wn_node_set_value: '%s' is not valid UTF-8 or contains a "
+                     "control character (tab is allowed)", utf8);
         return WN_ERR_UNSUPPORTED;
     }
     if (result == 2) {
-        wn_set_error("wn_node_set_value: '%s' exceeds the input max_length", utf8);
+        wn_set_error("wn_node_set_value: '%s' exceeds the input max_length or byte capacity",
+                     utf8);
         return WN_ERR_INVALID_ARGUMENT;
     }
     if (result != 0) {

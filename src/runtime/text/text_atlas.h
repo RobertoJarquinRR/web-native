@@ -39,6 +39,8 @@ const wn_atlas_glyph *wn_text_atlas_glyph(wn_text_atlas *atlas, const char *fami
                                           int weight, int glyph);
 const wn_atlas_run *wn_text_atlas_shape(wn_text_atlas *atlas, const char *text, const char *family,
                                         float size, int weight);
+/* Run-cache counters (glyph entries are not part of this cache). */
+void wn_text_atlas_cache_stats(const wn_text_atlas *atlas, wn_text_cache_stats *out);
 
 #if defined(__cplusplus)
 }

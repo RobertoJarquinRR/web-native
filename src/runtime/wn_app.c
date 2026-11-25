@@ -29,11 +29,27 @@ struct wn_app {
     int frames;
     int resize_demo;
     int demo_stage;
+    int caret_blink;
     double created_ms;
     wn_event_cb callback;
     void *userdata;
     wn_app_stats stats;
 };
+
+/* The host timer only runs while a text input owns the focus. */
+static void app_sync_caret_blink(wn_app *app)
+{
+    int focused;
+    if (app == NULL || app->view == NULL || app->host_ops == NULL ||
+        app->host == NULL || app->host_ops->set_caret_blink == NULL) {
+        return;
+    }
+    focused = wn_view_input_focused(app->view) ? 1 : 0;
+    if (focused != app->caret_blink) {
+        app->caret_blink = focused;
+        app->host_ops->set_caret_blink(app->host, focused);
+    }
+}
 
 static void app_host_event(void *userdata, const wn_event *event)
 {
@@ -57,6 +73,7 @@ static void app_host_event(void *userdata, const wn_event *event)
     }
     if (app->view != NULL) {
         (void)wn_view_event(app->view, event);
+        app_sync_caret_blink(app);
     }
 }
 

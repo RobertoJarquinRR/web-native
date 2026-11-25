@@ -161,6 +161,12 @@ void push_quad(wn_core *c, float x, float y, float w, float h,
     if (a == 0) {
         return;
     }
+    /* Reserve the whole quad before writing: a partial quad would paint a
+     * degenerate triangle if the growth failed mid-way. */
+    ensure_vertex_capacity(c, c->vertex_count + 6);
+    if (c->vertex_count + 6 > c->vertex_capacity) {
+        return;
+    }
     r = (uint8_t)((argb >> 16) & 0xFFu);
     g = (uint8_t)((argb >> 8) & 0xFFu);
     b = (uint8_t)(argb & 0xFFu);
@@ -241,6 +247,10 @@ static void push_rounded_quad(wn_core *c, float x, float y, float w, float h,
     r = (uint8_t)((argb >> 16) & 0xFFu);
     g = (uint8_t)((argb >> 8) & 0xFFu);
     b = (uint8_t)(argb & 0xFFu);
+    ensure_vertex_capacity(c, c->vertex_count + WN_ROUND_POINTS * 3);
+    if (c->vertex_count + WN_ROUND_POINTS * 3 > c->vertex_capacity) {
+        return;
+    }
     rounded_outline(x, y, w, h, radius, points);
     cx = x + w * 0.5f;
     cy = y + h * 0.5f;
@@ -309,6 +319,10 @@ void push_rounded_ring(wn_core *c, float x, float y, float w, float h,
     r = (uint8_t)((argb >> 16) & 0xFFu);
     g = (uint8_t)((argb >> 8) & 0xFFu);
     b = (uint8_t)(argb & 0xFFu);
+    ensure_vertex_capacity(c, c->vertex_count + WN_ROUND_POINTS * 6);
+    if (c->vertex_count + WN_ROUND_POINTS * 6 > c->vertex_capacity) {
+        return;
+    }
     for (i = 0; i < WN_ROUND_POINTS; ++i) {
         int next = (i + 1) % WN_ROUND_POINTS;
         push_vertex(c, outer[i][0], outer[i][1], (float)c->width,
@@ -384,6 +398,12 @@ void push_glyph_quad(wn_core *c, float x, float y, float w, float h,
                             uint8_t r, uint8_t g, uint8_t b, uint8_t a)
 {
     float x1 = x + w, y1 = y + h;
+    /* Reserve the whole glyph up front: a half-written quad would paint a
+     * degenerate triangle if the growth failed mid-way. */
+    ensure_glyph_capacity(c, c->glyph_vertex_count + 6);
+    if (c->glyph_vertex_count + 6 > c->glyph_vertex_capacity) {
+        return;
+    }
     push_glyph_vertex(c, x, y, u0, v0, vw, vh, r, g, b, a);
     push_glyph_vertex(c, x1, y, u1, v0, vw, vh, r, g, b, a);
     push_glyph_vertex(c, x1, y1, u1, v1, vw, vh, r, g, b, a);
@@ -511,6 +531,11 @@ static void push_image_textured(wn_core *c, float x, float y, float w, float h,
     float vh = (float)c->height;
     float x1 = x + w;
     float y1 = y + h;
+    int needed = radius > 0.5f ? WN_ROUND_POINTS * 3 : 6;
+    ensure_image_capacity(c, c->image_vertex_count + needed);
+    if (c->image_vertex_count + needed > c->image_vertex_capacity) {
+        return;
+    }
     if (radius <= 0.5f) {
         push_image_vertex(c, x, y, u0, v0, vw, vh);
         push_image_vertex(c, x1, y, u1, v0, vw, vh);
@@ -622,26 +647,11 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
         const wn_rect *r;
         unsigned int color;
         uint8_t a, cr, cg, cb;
-        float align_dx = 0.0f;
         int j;
         if (!c->visible_eff[node] || n->kind != R2_NODE_TEXT) {
             continue;
         }
         r = &c->rects[node];
-        /* `text-align`: a text node is the inline content of a block
-         * container, so shift the run inside the parent content box. Flex and
-         * grid parents already position the text item (justify/align), so the
-         * shift would double-apply there. */
-        if (WN_TEXT_ALIGN(n) != 0 && c->parent[node] >= 0) {
-            const UiNode *p = &c->nodes[c->parent[node]];
-            if (p->kind == R2_NODE_BLOCK) {
-                float avail = c->rects[c->parent[node]].w - p->padding[1] - p->padding[3];
-                float room = avail - r->w;
-                if (room > 0.0f) {
-                    align_dx = WN_TEXT_ALIGN(n) == 1 ? room * 0.5f : room;
-                }
-            }
-        }
         color = n->text_color;
         a = (uint8_t)((color >> 24) & 0xFFu);
         if (a == 0) {
@@ -657,31 +667,67 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
 
         {
             const char *text = c->text_override[node] != NULL ? c->text_override[node] : n->text;
-            const wn_atlas_run *run = wn_text_atlas_shape(c->text_atlas, text, n->font_family,
-                                                          n->font_size, n->font_weight);
+            float wrap_width = fmaxf(r->w - n->padding[1] - n->padding[3], 0.0f);
+            const wn_text_line_layout *layout = wn_text_line_layout_get(
+                text, n->font_family, n->font_size, n->font_weight, wrap_width);
             float natural;
-            float leading = 0.0f;
-            if (run == NULL) {
+            float line_height;
+            float box_height;
+            float node_leading;
+            float half_leading;
+            float avail = 0.0f;
+            int align_per_line = 0;
+            if (layout == NULL) {
                 continue;
             }
-            natural = run->ascent + run->descent;
-            if (natural > 0.0f && r->h > natural) {
-                leading = (r->h - natural) * 0.5f;
+            natural = layout->line_height > 0.0f ? layout->line_height : 1.0f;
+            line_height = WN_LINE_HEIGHT(n) > 0.0f ? WN_LINE_HEIGHT(n) : natural;
+            box_height = (float)layout->line_count * line_height;
+            node_leading = r->h > box_height ? (r->h - box_height) * 0.5f : 0.0f;
+            half_leading = (line_height - natural) * 0.5f;
+            /* `text-align` shifts each line inside the parent content box.
+             * Flex and grid parents already position the text item. */
+            if (WN_TEXT_ALIGN(n) != 0 && c->parent[node] >= 0) {
+                const UiNode *p = &c->nodes[c->parent[node]];
+                if (p->kind == R2_NODE_BLOCK) {
+                    avail = c->rects[c->parent[node]].w - p->padding[1] - p->padding[3];
+                    align_per_line = 1;
+                }
             }
-            for (j = 0; j < run->count; ++j) {
-                const wn_text_glyph *glyph = &run->glyphs[j];
-                const wn_atlas_glyph *packed = wn_text_atlas_glyph(
-                    c->text_atlas, n->font_family, n->font_size, n->font_weight, glyph->glyph);
-                float x;
-                float y;
-                if (packed == NULL || packed->width <= 0 || packed->height <= 0) {
+            for (int line_index = 0; line_index < layout->line_count; ++line_index) {
+                const wn_text_line *line = &layout->lines[line_index];
+                const wn_atlas_run *run = wn_text_atlas_shape(
+                    c->text_atlas, line->text, n->font_family, n->font_size, n->font_weight);
+                float align_dx = 0.0f;
+                float baseline;
+                if (run == NULL) {
                     continue;
                 }
-                x = floorf(r->x + align_dx + glyph->x + (float)packed->bearing_x + 0.5f);
-                y = floorf(r->y + leading + run->ascent + (float)packed->bearing_y + 0.5f);
-                push_glyph_quad(c, x, y, (float)packed->width, (float)packed->height,
-                                packed->u0, packed->v0, packed->u1, packed->v1,
-                                viewport_w, viewport_h, cr, cg, cb, a);
+                if (align_per_line) {
+                    float extent = layout->line_count == 1 ? r->w : line->width;
+                    float room = avail - extent;
+                    if (room > 0.0f) {
+                        align_dx = WN_TEXT_ALIGN(n) == 1 ? room * 0.5f : room;
+                    }
+                }
+                baseline = r->y + node_leading + half_leading + layout->ascent +
+                           (float)line_index * line_height;
+                for (j = 0; j < run->count; ++j) {
+                    const wn_text_glyph *glyph = &run->glyphs[j];
+                    const wn_atlas_glyph *packed = wn_text_atlas_glyph(
+                        c->text_atlas, n->font_family, n->font_size, n->font_weight,
+                        glyph->glyph);
+                    float x;
+                    float y;
+                    if (packed == NULL || packed->width <= 0 || packed->height <= 0) {
+                        continue;
+                    }
+                    x = floorf(r->x + align_dx + glyph->x + (float)packed->bearing_x + 0.5f);
+                    y = floorf(baseline + (float)packed->bearing_y + 0.5f);
+                    push_glyph_quad(c, x, y, (float)packed->width, (float)packed->height,
+                                    packed->u0, packed->v0, packed->u1, packed->v1,
+                                    viewport_w, viewport_h, cr, cg, cb, a);
+                }
             }
         }
     }
