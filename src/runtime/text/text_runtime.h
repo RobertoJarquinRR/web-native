@@ -9,6 +9,13 @@ extern "C" {
 
 int wn_text_measure_string(const char *utf8, const char *family, float size, int weight,
                            float max_width, wn_text_metrics *out);
+
+int wn_text_shape_string(const char *utf8, const char *family, float size, int weight,
+                         wn_text_glyph *glyphs, int capacity, wn_text_shaped *out);
+
+int wn_text_rasterize_glyph(const char *family, float size, int weight, int glyph,
+                            unsigned char *pixels, int capacity, wn_text_bitmap *out);
+
 int wn_text_runtime_cache_misses(void);
 void wn_text_runtime_shutdown(void);
 

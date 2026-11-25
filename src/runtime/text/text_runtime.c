@@ -94,8 +94,33 @@ int wn_text_measure_string(const char *utf8, const char *family, float size, int
     return g_ops->measure(g_context, utf8 != NULL ? utf8 : "", &style, max_width, out);
 }
 
-int wn_text_runtime_cache_misses(void)
+int wn_text_shape_string(const char *utf8, const char *family, float size, int weight,
+                         wn_text_glyph *glyphs, int capacity, wn_text_shaped *out)
 {
+    wn_text_style style;
+    if (out == NULL || !ensure_backend()) {
+        return 1;
+    }
+    style.family = resolve_family(family);
+    style.size = size > 0.0f ? size : 16.0f;
+    style.weight = weight > 0 ? weight : 400;
+    return g_ops->shape(g_context, utf8 != NULL ? utf8 : "", &style, glyphs, capacity, out);
+}
+
+int wn_text_rasterize_glyph(const char *family, float size, int weight, int glyph,
+                            unsigned char *pixels, int capacity, wn_text_bitmap *out)
+{
+    wn_text_style style;
+    if (out == NULL || !ensure_backend()) {
+        return 1;
+    }
+    style.family = resolve_family(family);
+    style.size = size > 0.0f ? size : 16.0f;
+    style.weight = weight > 0 ? weight : 400;
+    return g_ops->rasterize(g_context, &style, glyph, pixels, capacity, out);
+}
+
+int wn_text_runtime_cache_misses(void){
     if (!ensure_backend()) {
         return -1;
     }
