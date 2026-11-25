@@ -1,8 +1,8 @@
-//! CSS -> reglas. Usa `cssparser` para trocear bloques y valores crudos.
+//! CSS -> rules. Uses `cssparser` to split blocks and raw values.
 //!
-//! Subconjunto de selectores soportado (el del SPEC): tipo, `.clase`, `#id`,
-//! compuestos, descendiente (` `) e hijo (`>`), y listas con coma.
-//! Cualquier construccion no soportada descarta esa regla (nunca hace panic).
+//! Supported selector subset (the one in the SPEC): type, `.class`, `#id`,
+//! compounds, descendant (` `) and child (`>`), and comma-separated lists.
+//! Any unsupported construct drops that rule (it never panics).
 
 use cssparser::{Delimiter, ParseError, Parser, ParserInput, Token};
 
@@ -48,8 +48,8 @@ enum Combinator {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Selector {
-    /// `parts[i].0` es el combinador que une `parts[i-1]` con `parts[i]`
-    /// (el de `parts[0]` no se usa).
+    /// `parts[i].0` is the combinator joining `parts[i-1]` to `parts[i]`
+    /// (the one in `parts[0]` is unused).
     parts: Vec<(Combinator, Compound)>,
     spec: (u32, u32, u32),
 }
@@ -198,8 +198,9 @@ fn push_rule(prelude: &str, block: &str, rules: &mut Vec<Rule>) {
     }
 }
 
-/// Elimina comentarios `/* ... */` fuera de cadenas. El oraculo (tinycss2) no
-/// los incluye en el preludio; `cssparser` los conserva al cortar por offsets.
+/// Removes `/* ... */` comments outside strings. The oracle (tinycss2) does
+/// not include them in the prelude; `cssparser` keeps them when slicing by
+/// offsets.
 fn strip_comments(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
@@ -294,9 +295,9 @@ fn split_declaration(raw: &str) -> Option<(String, String, bool)> {
     Some((name, value, important))
 }
 
-/// Expande shorthands a longhands, igual que `css_parse._expand` mas las
-/// extensiones v3 (bordes por lado). Las propiedades v3 que no son shorthand
-/// (`border-radius`, `box-shadow`, ...) pasan tal cual.
+/// Expands shorthands into longhands, same as `css_parse._expand` plus the v3
+/// extensions (per-side borders). v3 properties that are not shorthands
+/// (`border-radius`, `box-shadow`, ...) pass through unchanged.
 fn expand_shorthand(name: &str, value: &str) -> Vec<(String, String)> {
     match name {
         "margin" | "padding" => {
@@ -331,7 +332,7 @@ fn expand_shorthand(name: &str, value: &str) -> Vec<(String, String)> {
     }
 }
 
-/// 1-4 valores con la semantica CSS (top, right, bottom, left).
+/// 1-4 values with CSS semantics (top, right, bottom, left).
 fn expand_four(parts: &[String]) -> Option<[String; 4]> {
     let first = parts.first()?.clone();
     if parts.len() > 4 {
@@ -343,9 +344,9 @@ fn expand_four(parts: &[String]) -> Option<[String; 4]> {
     Some([first, second, third, fourth])
 }
 
-/// `border`/`border-<side>`: ancho + estilo + color con los valores iniciales
-/// de CSS (`medium none currentcolor`). Una declaracion invalida se devuelve
-/// sin expandir para que la cascada la ignore entera, como haria el navegador.
+/// `border`/`border-<side>`: width + style + color with the CSS initial values
+/// (`medium none currentcolor`). An invalid declaration is returned unexpanded
+/// so the cascade drops it as a whole, like a browser would.
 fn expand_border(name: &str, value: &str, side: Option<&str>) -> Vec<(String, String)> {
     let components = split_components(value);
     if components.is_empty() || components.len() > 3 {

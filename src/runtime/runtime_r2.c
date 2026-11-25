@@ -1,15 +1,6 @@
 /*
- * runtime_r2.c - webnative R2 core runtime (src/runtime/c-r2).
- *
- * A real runtime, not an AOT viewer:
- *   - layout is computed in C at runtime from the generated UiNode table,
- *   - the Win32 window is resizable and WM_SIZE triggers a full re-layout,
- *   - hit testing drives hover / pressed / selected state,
- *   - all rectangles are rendered by wgpu-native (D3D12 on this machine),
- *   - the same layout engine can render deterministic offscreen PNGs.
- *
- * There is no browser, no WebView, no Skia, no Electron and no Python at
- * runtime. Build-time Python only produces ui_data.h (node table + strings).
+ * runtime_r2.c - reference driver for the R2 core: CLI, layout report,
+ * offscreen renders and the standalone Win32 window.
  *
  * Usage:
  *   runtime_r2.exe --render 960 640 out.png
@@ -93,8 +84,8 @@ static void on_log(WGPULogLevel level, WGPUStringView message, void *userdata)
 
 /*
  * The layout, state machine, hit testing and display-list generation live in
- * wn_core.c. runtime_r2.c keeps only the CLI, reporting, Win32 and wgpu code,
- * so the reference executable and the ABI layer share one engine.
+ * wn_core.c. runtime_r2.c keeps only the CLI, reporting and Win32 code, so the
+ * reference executable and the ABI layer share one engine.
  */
 
 typedef wn_rect Rect;
@@ -239,7 +230,7 @@ static int render_offscreen_vt(int width, int height, const wchar_t *path,
 }
 
 /* Persistent offscreen view for the multi-stage suites: the renderer (and its
- * image cache) survives across stages, like the old single-GPU loop. */
+ * image cache) survives across stages. */
 static wn_view *g_core_view = NULL;
 static int g_core_view_w = 0;
 static int g_core_view_h = 0;

@@ -1,17 +1,17 @@
-//! Diagnostico del contrato `subset v1` (`docs/subset-v1.md`).
+//! `subset v1` contract diagnostics (`docs/subset-v1.md`).
 //!
-//! Solo inspecciona el HTML/CSS de entrada: no participa en la cascada ni en
-//! la emision, de modo que la salida no cambia. Los
-//! diagnosticos llevan archivo y linea (CSS via `cssparser`; HTML con un
-//! escaner de etiquetas propio) y un contexto legible (selector, propiedad o
-//! etiqueta).
+//! It only inspects the input HTML/CSS: it takes no part in the cascade or the
+//! emission, so the output never changes. Diagnostics carry file and line
+//! (CSS via `cssparser`; HTML via a dedicated tag scanner) and a readable
+//! context (selector, property or tag).
 //!
-//! Modo por defecto: warnings y el pipeline continua (compatibilidad).
-//! `--strict-subset`: errores y exit != 0 si hay cualquier feature fuera del
-//! contrato. `--pilot`: permite las extensiones del piloto v2 (`display: grid`,
-//! `grid-*`, `overflow: auto|scroll`, `object-fit`) y las del piloto v3
-//! (`box-shadow`, propiedades por lado, `min/max-*` y unidades `em/rem/vh/vw`);
-//! sin el flag se avisan como extensiones y `--strict-subset` las rechaza.
+//! Default mode: warnings and the pipeline continues (compatibility).
+//! `--strict-subset`: errors and exit != 0 on any feature outside the
+//! contract. `--pilot`: allows the v2 pilot extensions (`display: grid`,
+//! `grid-*`, `overflow: auto|scroll`, `object-fit`) and the v3 ones
+//! (`box-shadow`, per-side properties, `min/max-*` and `em/rem/vh/vw` units);
+//! without the flag they are reported as extensions and `--strict-subset`
+//! rejects them.
 
 use std::fs;
 use std::path::Path;
@@ -21,20 +21,20 @@ use cssparser::{Delimiter, ParseError, Parser, ParserInput, Token};
 use crate::style::grid::{parse_grid_auto_rows, parse_grid_template_columns};
 use crate::style::style_ext::{box_shadow_is_valid, is_relative_length};
 
-/// Etiquetas del subconjunto v1. `input` es la extension del piloto v2
-/// (widget text input, `ui-tree/3`) y se diagnostica sin `--pilot`.
+/// Tags of the v1 subset. `input` is the v2 pilot extension (text input
+/// widget, `ui-tree/3`) and is diagnosed without `--pilot`.
 const SUPPORTED_TAGS: [&str; 20] = [
     "html", "head", "body", "div", "span", "p", "h1", "h2", "h3", "h4", "h5", "h6", "button",
     "img", "input", "ul", "ol", "li", "link", "style",
 ];
 
-/// Etiquetas que el contrato nombra explicitamente como fuera de v1.
+/// Tags the contract explicitly names as outside v1.
 const OUT_OF_V1_TAGS: [&str; 13] = [
     "script", "iframe", "form", "select", "table", "canvas", "video", "audio", "svg",
     "template", "slot", "object", "embed",
 ];
 
-/// Atributos aceptados en cualquier etiqueta soportada.
+/// Attributes accepted on any supported tag.
 const GLOBAL_ATTRIBUTES: [&str; 8] = [
     "id",
     "class",
@@ -46,8 +46,9 @@ const GLOBAL_ATTRIBUTES: [&str; 8] = [
     "title",
 ];
 
-/// Pseudo-clases aceptadas. `:root` y las estructurales ya las resuelve el
-/// motor; las cuatro primeras son los estados que nombra el contrato.
+/// Accepted pseudo-classes. `:root` and the structural ones are already
+/// resolved by the engine; the first four are the states named by the
+/// contract.
 const ALLOWED_PSEUDO_CLASSES: [&str; 8] = [
     "hover",
     "active",
@@ -111,16 +112,16 @@ pub(crate) fn print_diagnostics(diagnostics: &[Diagnostic], strict: bool) {
     }
 }
 
-/// Comprueba un documento HTML completo y todas las hojas que referencia.
-/// Variante sin piloto (tests y llamadas que no pasan `--pilot`).
+/// Checks a full HTML document and every stylesheet it references.
+/// Variant without the pilot flag (tests and callers that omit `--pilot`).
 #[allow(dead_code)]
 pub(crate) fn check_document(html: &str, html_path: &Path, base_dir: &Path) -> Vec<Diagnostic> {
     check_document_pilot(html, html_path, base_dir, false)
 }
 
-/// Igual que [`check_document`] pero con las extensiones del piloto v2:
-/// `display: grid`, scroll (`overflow: auto|scroll`), `grid-*` e `object-fit`
-/// dejan de diagnosticarse cuando `pilot` es `true`.
+/// Same as [`check_document`] but with the v2 pilot extensions:
+/// `display: grid`, scroll (`overflow: auto|scroll`), `grid-*` and `object-fit`
+/// stop being diagnosed when `pilot` is `true`.
 pub(crate) fn check_document_pilot(
     html: &str,
     html_path: &Path,
@@ -148,7 +149,7 @@ struct HtmlScanner<'a> {
     bytes: &'a [u8],
     path: &'a Path,
     base_dir: &'a Path,
-    /// Extensiones del piloto v2 permitidas (`--pilot`).
+    /// v2 pilot extensions allowed (`--pilot`).
     pilot: bool,
     pos: usize,
     line: u32,
@@ -255,7 +256,7 @@ impl<'a> HtmlScanner<'a> {
                 self.pos += 1;
             }
             if self.pos == attr_start {
-                // Byte raro (p. ej. comilla suelta): avanzar para no ciclar.
+                // Odd byte (e.g. a stray quote): advance so the loop cannot spin.
                 self.pos += 1;
                 continue;
             }
@@ -299,8 +300,8 @@ impl<'a> HtmlScanner<'a> {
 
         self.check_tag(&tag, &attrs, tag_line);
 
-        // En HTML el flag `/` se ignora en elementos no void: `<style />`,
-        // `<script />`, `<iframe />`... siguen abriendo contenido raw text.
+        // In HTML the `/` flag is ignored on non-void elements: `<style />`,
+        // `<script />`, `<iframe />`... still open raw-text content.
         if tag == "style" {
             self.consume_raw_text("style", true);
         } else if matches!(
@@ -348,7 +349,7 @@ impl<'a> HtmlScanner<'a> {
                 None,
                 format!("etiqueta <{tag}> no soportada por subset v1{suffix}"),
             );
-            // Los atributos de una etiqueta ya rechazada no aportan nada.
+            // Attributes of an already-rejected tag add nothing.
             return;
         }
 
@@ -460,9 +461,9 @@ impl<'a> HtmlScanner<'a> {
 
 fn attribute_supported(tag: &str, name: &str) -> bool {
     GLOBAL_ATTRIBUTES.contains(&name)
-        // `alt`, `width` y `height` son parte del nodo `kind:image` de v2: el
-        // runtime necesita el texto alternativo y el tamano intrinseco. Son
-        // aditivos al subset v1 (que solo nombra `src`).
+        // `alt`, `width` and `height` are part of the v2 `kind:image` node: the
+        // runtime needs the alternative text and the intrinsic size. They are
+        // additive to subset v1 (which only names `src`).
         || (tag == "img" && matches!(name, "src" | "alt" | "width" | "height"))
         || (tag == "input"
             && matches!(
@@ -521,7 +522,7 @@ fn find_ci(bytes: &[u8], needle: &[u8], from: usize) -> Option<usize> {
     None
 }
 
-/// Busca `</tag` seguido de whitespace, `/` o `>` (regla de end tag de HTML).
+/// Finds `</tag` followed by whitespace, `/` or `>` (the HTML end-tag rule).
 fn find_raw_text_end(bytes: &[u8], tag: &str, from: usize) -> Option<usize> {
     let needle = format!("</{tag}");
     let mut index = from;
@@ -541,10 +542,10 @@ fn find_raw_text_end(bytes: &[u8], tag: &str, from: usize) -> Option<usize> {
 
 // -------------------------------------------------------------------- CSS
 
-/// Valida una hoja de estilos. `base_line` es la linea (1-based) del primer
-/// caracter de `text` dentro de `path`; para ficheros CSS es 1 y para bloques
-/// `<style>` es la linea del HTML donde empieza el contenido.
-/// Variante sin piloto (tests).
+/// Validates a stylesheet. `base_line` is the 1-based line of the first
+/// character of `text` inside `path`; for CSS files it is 1 and for `<style>`
+/// blocks it is the HTML line where the content starts.
+/// Variant without the pilot flag (tests).
 #[allow(dead_code)]
 pub(crate) fn check_stylesheet(
     text: &str,
@@ -555,7 +556,7 @@ pub(crate) fn check_stylesheet(
     check_stylesheet_pilot(text, path, base_line, false, diagnostics)
 }
 
-/// Igual que [`check_stylesheet`] permitiendo las extensiones del piloto v2.
+/// Same as [`check_stylesheet`] but allowing the v2 pilot extensions.
 pub(crate) fn check_stylesheet_pilot(
     text: &str,
     path: &Path,
@@ -669,8 +670,8 @@ fn check_block<'i, 't>(
     });
 }
 
-/// Valida el contenido de un `style="..."` inline.
-/// Variante sin piloto (tests).
+/// Validates the content of an inline `style="..."`.
+/// Variant without the pilot flag (tests).
 #[allow(dead_code)]
 pub(crate) fn check_inline_style(
     text: &str,
@@ -682,7 +683,7 @@ pub(crate) fn check_inline_style(
     check_inline_style_pilot(text, path, base_line, context, false, diagnostics)
 }
 
-/// Igual que [`check_inline_style`] permitiendo las extensiones del piloto v2.
+/// Same as [`check_inline_style`] but allowing the v2 pilot extensions.
 pub(crate) fn check_inline_style_pilot(
     text: &str,
     path: &Path,
@@ -913,7 +914,7 @@ fn check_property(
         }
     }
 
-    // Extensiones del piloto v2: warning por defecto, silencio con `--pilot`.
+    // v2 pilot extensions: warning by default, silent with `--pilot`.
     let pilot_extension = |feature: &str, report: &mut dyn FnMut(String)| {
         if !pilot {
             report(format!(
@@ -921,7 +922,7 @@ fn check_property(
             ));
         }
     };
-    // Extensiones del piloto v3 (capa CSS de bordes/radios/sombras/unidades).
+    // v3 pilot extensions (the CSS layer for borders/radii/shadows/units).
     let pilot_v3_extension = |feature: &str, report: &mut dyn FnMut(String)| {
         if !pilot {
             report(format!(
@@ -1220,7 +1221,7 @@ fn check_property(
             }
         }
         "min-width" | "max-width" | "min-height" | "max-height" => {
-            // Propiedad nueva del piloto v3: px/%/auto/unidad relativa.
+            // New v3 pilot property: px/%/auto/relative unit.
             let valid = check_lengths(
                 name,
                 trimmed,
@@ -1330,8 +1331,8 @@ fn check_keyword(
     }
 }
 
-/// Componente valido de `border`/`border-<side>`: ancho (px o relativo),
-/// estilo (`solid`/`none`) o color.
+/// Valid component of `border`/`border-<side>`: width (px or relative),
+/// style (`solid`/`none`) or color.
 fn border_component_is_valid(component: &str) -> bool {
     component.eq_ignore_ascii_case("solid")
         || component.eq_ignore_ascii_case("none")
@@ -1592,7 +1593,7 @@ fn first_non_ws(text: &str, start: usize, end: usize) -> usize {
     start + slice.len() - slice.trim_start().len()
 }
 
-/// Primer indice que no es whitespace ni comentario `/* ... */`.
+/// First index that is neither whitespace nor a `/* ... */` comment.
 fn first_content_index(text: &str, start: usize, end: usize) -> usize {
     let bytes = text.as_bytes();
     let mut index = start;
@@ -1616,8 +1617,8 @@ fn first_content_index(text: &str, start: usize, end: usize) -> usize {
     }
 }
 
-/// Sustituye los comentarios por espacios conservando bytes y saltos de linea,
-/// de modo que las posiciones de `cssparser` y `line_at` sigan siendo validas.
+/// Replaces comments with spaces while preserving bytes and line breaks, so
+/// `cssparser` positions and `line_at` stay valid.
 fn mask_comments(text: &str) -> String {
     let bytes = text.as_bytes();
     let mut out = bytes.to_vec();
@@ -1663,7 +1664,7 @@ fn mask_comments(text: &str) -> String {
     String::from_utf8(out).unwrap_or_else(|_| text.to_string())
 }
 
-/// Elimina comentarios de un preludio conservando el texto restante.
+/// Strips comments from a prelude while keeping the remaining text.
 fn strip_comments(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars().peekable();
@@ -1711,7 +1712,7 @@ fn line_at(text: &str, base_line: u32, byte_index: usize) -> u32 {
             .count() as u32
 }
 
-/// Resuelve una hoja enlazada solo si es local, igual que `dom::stylesheet_texts`.
+/// Resolves a linked stylesheet only if it is local, same as `dom::stylesheet_texts`.
 fn read_linked_stylesheet(href: &str, base_dir: &Path) -> Option<(String, std::path::PathBuf)> {
     if href.is_empty()
         || href.starts_with("http:")

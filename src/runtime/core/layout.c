@@ -1,8 +1,8 @@
 /*
  * layout.c - hierarchy, intrinsic sizes, block/flex/grid layout and clipping.
  *
- * Behaviour is intentionally identical to the original single-file engine:
- * same block/flex algorithm, same wrap shrink rule, same margin:auto handling.
+ * Keeps the documented R2 behaviour: same block/flex algorithm, same wrap
+ * shrink rule, same margin:auto handling.
  */
 #include <math.h>
 #include <stdlib.h>
@@ -149,8 +149,8 @@ static float intrinsic_width(wn_core *c, int node, float available)
         return n->grid_column_px + n->padding[1] + n->padding[3];
     }
     if (n->kind == R2_NODE_INPUT) {
-        /* Ancho por defecto de un campo sin CSS: 20 caracteres aproximados,
-         * acotado por max_length cuando existe. */
+        /* Default width of a field without CSS: roughly 20 characters,
+         * bounded by max_length when the field declares one. */
         const WnInputRecord *rec = input_record(c, node);
         float width = 200.0f;
         if (rec != NULL && rec->max_length > 0) {
@@ -506,7 +506,7 @@ static float layout_flex_children(wn_core *c, int parent, float content_x,
         if (free < 0.0f) {
             free = 0.0f;
         }
-        /* E1: main-axis auto margins absorb the free space before
+        /* Main-axis auto margins absorb the free space before
          * justify-content (CSS). `margin-top:auto` in a column pins the item
          * to the bottom; `margin-left/right:auto` centres/splits in a row. */
         float auto_unit = 0.0f;
@@ -807,8 +807,8 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
         return h + n->margin[2];
     }
     if (n->kind == R2_NODE_INPUT) {
-        /* Editor de una linea: hoja sin hijos. Sin CSS la altura es la linea
-         * de la fuente (ascender + descender) mas el padding. */
+        /* Single-line editor: a leaf with no children. Without CSS the height
+         * is the font line (ascender + descender) plus the padding. */
         float h;
         if (n->height >= 0.0f) {
             h = n->height + WN_DECL_H(n);
@@ -840,7 +840,7 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
                 continue;
             }
             used = layout_node(c, child, content_x, cursor, content_w, content_h, 0, -1.0f);
-            /* E1: `margin-left/right:auto` in a block container. Both auto
+            /* `margin-left/right:auto` in a block container. Both auto
              * margins centre the box; only left pushes it to the right. */
             {
                 int auto_left = WN_MARGIN_AUTO(&c->nodes[child], 3);

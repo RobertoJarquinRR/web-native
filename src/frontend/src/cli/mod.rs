@@ -1,3 +1,3 @@
-//! Modo CLI: diagnostico del subset v1 sobre el HTML/CSS de entrada.
+//! CLI mode: `subset v1` diagnostics over the input HTML/CSS.
 
 pub(crate) mod subset;

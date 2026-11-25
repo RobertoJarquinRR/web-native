@@ -165,10 +165,10 @@ int wn_core_press(const wn_core *core);
 int wn_core_selected(const wn_core *core);
 
 /* Runtime text override.
- * Returns 0 on success, 1 when the text cannot be represented with the
- * pre-shaped glyphs of this document/font size (WN_ERR_UNSUPPORTED at the ABI
- * layer), -1 for an invalid node/argument.
- * Layout keeps the compiled text metrics; v0 has no runtime shaping. */
+ * Returns 0 on success, 1 when the text contains control characters other
+ * than tab (WN_ERR_UNSUPPORTED at the ABI layer), -1 for an invalid
+ * node/argument. Glyphs missing from the document atlas are shaped and packed
+ * into the runtime atlas on demand. */
 int wn_core_set_text(wn_core *core, int node, const char *text);
 int wn_core_text_override_supported(const wn_core *core, int node,
                                     const char *text);

@@ -1,7 +1,7 @@
-//! Cascada: selector -> estilo computado por nodo, con herencia y `style=""`.
+//! Cascade: selector -> computed style per node, with inheritance and `style=""`.
 //!
-//! Reproduce `cascade.compute_styles` del Python: clave de prioridad
-//! `(!important, inline, especificidad, orden de regla, indice de declaracion)`.
+//! Reproduces Python's `cascade.compute_styles`: priority key
+//! `(!important, inline, specificity, rule order, declaration index)`.
 
 use std::collections::HashMap;
 
@@ -30,8 +30,8 @@ const INHERITED: [&str; 7] = [
 
 type Key = (u8, u8, (u32, u32, u32), u32, u32);
 
-/// Campos `color`/`font_size`/`font_family` se calculan para mantener la
-/// paridad de la cascada aunque esta ronda no emita texto.
+/// `color`/`font_size`/`font_family` are computed to keep cascade parity even
+/// though this round does not emit text.
 #[allow(dead_code)]
 pub(crate) struct ComputedStyle {
     pub(crate) raw: HashMap<String, String>,
@@ -41,7 +41,7 @@ pub(crate) struct ComputedStyle {
     pub(crate) padding: [f64; 4],
     pub(crate) width: Option<f64>,
     pub(crate) height: Option<f64>,
-    /// `width: 30%` -> 30.0; 0.0 si no hay porcentaje (contrato de `UiNode`).
+    /// `width: 30%` -> 30.0; 0.0 when there is no percentage (`UiNode` contract).
     pub(crate) width_pct: f64,
     pub(crate) height_pct: f64,
     pub(crate) background: Option<String>,
@@ -49,13 +49,13 @@ pub(crate) struct ComputedStyle {
     pub(crate) font_size: f64,
     pub(crate) font_family: String,
     pub(crate) font_weight: String,
-    /// `left | center | right` (E1). Heredado.
+    /// `left | center | right` (E1). Inherited.
     pub(crate) text_align: String,
-    /// `line-height` resuelto a px; 0.0 = `normal` (metricas de la fuente).
+    /// `line-height` resolved to px; 0.0 = `normal` (font metrics).
     pub(crate) line_height: f64,
-    /// `margin-*: auto` por lado (top, right, bottom, left). E1.
+    /// `margin-*: auto` per side (top, right, bottom, left). E1.
     pub(crate) margin_auto: [bool; 4],
-    /// `box-sizing: border-box` (E8/A). false = content-box, el default de CSS.
+    /// `box-sizing: border-box` (E8/A). false = content-box, the CSS default.
     pub(crate) box_sizing_border: bool,
     /// `flex-grow` / `flex-shrink` / `flex-basis` (px, -1 = auto). E8.
     pub(crate) flex_grow: f64,
@@ -66,24 +66,24 @@ pub(crate) struct ComputedStyle {
     pub(crate) align_items: String,
     pub(crate) flex_wrap: String,
     pub(crate) gap: f64,
-    /// v2: `gap` resuelto por eje (`row-gap`/`column-gap` ganan a `gap`).
+    /// v2: `gap` resolved per axis (`row-gap`/`column-gap` win over `gap`).
     pub(crate) row_gap: f64,
     pub(crate) column_gap: f64,
-    /// v2: solo `repeat(auto-fill, <px>)`; el resto queda `None`.
+    /// v2: only `repeat(auto-fill, <px>)`; anything else stays `None`.
     pub(crate) grid_template_columns: Option<GridTemplateColumns>,
-    /// v2: `<px>` o `auto`.
+    /// v2: `<px>` or `auto`.
     pub(crate) grid_auto_rows: Option<GridAutoRows>,
-    /// v2: `hidden | auto | scroll`; `visible`/desconocido -> `None`.
+    /// v2: `hidden | auto | scroll`; `visible`/unknown -> `None`.
     pub(crate) overflow: Option<String>,
-    /// v2: `fill | cover | contain`; se emite dentro de `image.object_fit`.
+    /// v2: `fill | cover | contain`; emitted inside `image.object_fit`.
     pub(crate) object_fit: Option<String>,
-    /// `data-hover` / `data-press` / `data-selected` / `data-action` crudos.
-    /// La cascada los transporta porque el runtime R2 los necesita por nodo.
+    /// Raw `data-hover` / `data-press` / `data-selected` / `data-action`.
+    /// The cascade carries them because the runtime needs them per node.
     pub(crate) data_hover: Option<String>,
     pub(crate) data_press: Option<String>,
     pub(crate) data_selected: Option<String>,
     pub(crate) data_action: Option<String>,
-    /// Extensiones CSS v3 (bordes, radio, sombras, unidades relativas).
+    /// v3 CSS extensions (borders, radius, shadows, relative units).
     pub(crate) css3: StyleV3,
 }
 
@@ -94,8 +94,8 @@ pub(crate) fn compute_styles(
 ) -> Vec<Option<ComputedStyle>> {
     let mut styles: Vec<Option<ComputedStyle>> = Vec::with_capacity(dom.nodes.len());
     styles.resize_with(dom.nodes.len(), || None);
-    // `rem` se resuelve contra el font-size computado de `html`. El preorden
-    // garantiza que la raiz se calcula antes que body y sus descendientes.
+    // `rem` resolves against the computed `html` font-size. Pre-order
+    // guarantees the root is computed before body and its descendants.
     let mut root_font_size = 16.0f64;
 
     for id in dom.preorder() {
@@ -105,9 +105,9 @@ pub(crate) fn compute_styles(
             if let Some(parent_style) = styles[parent].as_ref() {
                 parent_font_size = parent_style.font_size;
                 for name in INHERITED {
-                    // `font-size` se hereda como valor computado, no como token:
-                    // un hijo sin font-size propio no debe re-resolver el `em`
-                    // del padre contra si mismo.
+                    // `font-size` is inherited as a computed value, not as a
+                    // token: a child without its own font-size must not
+                    // re-resolve the parent's `em` against itself.
                     if name == "font-size" {
                         continue;
                     }
@@ -183,7 +183,7 @@ fn resolve(
         .get("font-size")
         .and_then(|value| resolve_font_size(value, parent_font_size, root_font_size))
         .unwrap_or(parent_font_size);
-    // Contexto de resolucion de `em`/`rem`/`vh`/`vw` a px en build time.
+    // Context for resolving `em`/`rem`/`vh`/`vw` to px at build time.
     let ctx = LengthCtx {
         font_size,
         root_font_size,
@@ -223,9 +223,9 @@ fn resolve(
     let (max_height, max_height_pct, max_height_rel) =
         resolve_box_length(raw.get("max-height"), &ctx);
 
-    // `gap` con el mismo cortocircuito "truthy" que el Python (0.0 es falsy).
-    // `row_gap`/`column_gap` son los valores efectivos por eje: el longhand
-    // gana al shorthand (CSS), y `gap` sigue calculandose igual que en v1.
+    // `gap` with the same "truthy" short-circuit as Python (0.0 is falsy).
+    // `row_gap`/`column_gap` are the effective per-axis values: the longhand
+    // wins over the shorthand (CSS), and `gap` is still computed as in v1.
     let (gap_direct, _, gap_rel) = resolve_box_length(raw.get("gap"), &ctx);
     let (row_gap_decl, _, row_gap_rel_decl) = resolve_box_length(raw.get("row-gap"), &ctx);
     let (column_gap_decl, _, column_gap_rel_decl) = resolve_box_length(raw.get("column-gap"), &ctx);
@@ -239,7 +239,7 @@ fn resolve(
     };
     let row_gap = row_gap_decl.or(gap_direct).unwrap_or(0.0);
     let column_gap = column_gap_decl.or(gap_direct).unwrap_or(0.0);
-    // La unidad relativa efectiva sigue la misma precedencia que el px.
+    // The effective relative unit follows the same precedence as the px value.
     let row_gap_rel = if row_gap_decl.is_some() {
         row_gap_rel_decl
     } else {
@@ -294,8 +294,8 @@ fn resolve(
         .map(|value| value.clamp(0.0, 1.0))
         .unwrap_or(1.0);
 
-    // E1: text-align es discreto y heredado; line-height se resuelve a px
-    // (`normal` -> 0.0 para que el runtime use ascender + descender).
+    // E1: text-align is discrete and inherited; line-height resolves to px
+    // (`normal` -> 0.0 so the runtime uses ascender + descender).
     let text_align = keyword_value(raw.get("text-align"), &["left", "center", "right"])
         .unwrap_or_else(|| "left".to_string());
     let line_height = resolve_line_height(raw.get("line-height"), font_size, root_font_size);
@@ -387,12 +387,12 @@ fn resolve_side(
     )
 }
 
-/// Resuelve una propiedad de caja a `(px, pct, unidad declarada)`.
+/// Resolves a box property to `(px, pct, declared unit)`.
 ///
-/// - `30%` -> `(None, 30.0, None)` (el contrato v1 conserva el porcentaje).
-/// - `2em` -> `(px resuelto, 0.0, Some(2em))`.
+/// - `30%` -> `(None, 30.0, None)` (the v1 contract keeps the percentage).
+/// - `2em` -> `(resolved px, 0.0, Some(2em))`.
 /// - `12px`/`12` -> `(Some(12.0), 0.0, None)`.
-/// - `auto`/`none`/desconocido -> `(None, 0.0, None)`.
+/// - `auto`/`none`/unknown -> `(None, 0.0, None)`.
 fn resolve_box_length(
     value: Option<&String>,
     ctx: &LengthCtx,
@@ -416,7 +416,7 @@ fn resolve_box_length(
     (None, 0.0, None)
 }
 
-/// `font-size` computado: px/numero, `em` (padre), `rem` (raiz) o `%` (padre).
+/// Computed `font-size`: px/number, `em` (parent), `rem` (root) or `%` (parent).
 fn resolve_font_size(value: &str, parent: f64, root: f64) -> Option<f64> {
     let text = value.trim().to_ascii_lowercase();
     if text.is_empty() {
@@ -444,18 +444,18 @@ fn keyword(raw: &HashMap<String, String>, name: &str, default: &str) -> String {
     }
 }
 
-/// `line-height: normal | <px> | <numero> | <porcentaje>` -> px.
+/// `line-height: normal | <px> | <number> | <percentage>` -> px.
 ///
-/// `normal` (o un valor no reconocido) devuelve 0.0: el runtime usa entonces
-/// `ascender + descender` de la fuente. Un numero sin unidad es un multiplo del
-/// `font-size` computado (CSS), aunque el subset solo acepte px|normal.
+/// `normal` (or an unrecognized value) returns 0.0: the runtime then uses the
+/// font's `ascender + descender`. A unitless number is a multiple of the
+/// computed `font-size` (CSS), even though the subset only accepts px|normal.
 fn resolve_line_height(value: Option<&String>, font_size: f64, root_font_size: f64) -> f64 {
     let Some(raw) = value else { return 0.0 };
     let text = raw.trim().to_ascii_lowercase();
     if text.is_empty() || text == "normal" {
         return 0.0;
     }
-    // `24px` es px absoluto; un numero suelto es multiplicador del font-size.
+    // `24px` is absolute px; a bare number multiplies the font-size.
     if text.ends_with("px") {
         return match length(Some(&text)) {
             Some(px) if px > 0.0 => px,
@@ -473,10 +473,10 @@ fn resolve_line_height(value: Option<&String>, font_size: f64, root_font_size: f
         }
     }
     if let Some(px) = length(Some(&text)) {
-        // Cualquier otra longitud absoluta que `length` acepte.
+        // Any other absolute length that `length` accepts.
         return if px > 0.0 { px } else { 0.0 };
     }
-    // `1.5em`/`2rem`: longitud relativa al font-size computado del nodo.
+    // `1.5em`/`2rem`: a length relative to the node's computed font-size.
     if let Some(rel) = parse_rel_length(&text) {
         let ctx = LengthCtx {
             font_size,
@@ -489,7 +489,7 @@ fn resolve_line_height(value: Option<&String>, font_size: f64, root_font_size: f
     0.0
 }
 
-/// Numero CSS sin unidad (admite signo y decimales).
+/// Unitless CSS number (accepts sign and decimals).
 fn parse_number_unitless(text: &str) -> Option<(f64, &str)> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -519,8 +519,8 @@ fn parse_number_unitless(text: &str) -> Option<(f64, &str)> {
     Some((value, &trimmed[end..]))
 }
 
-/// `flex-grow`, `flex-shrink` y `flex-basis` (px; -1 = auto), incluido el
-/// shorthand `flex: <grow> [<shrink>] [<basis>]`.
+/// `flex-grow`, `flex-shrink` and `flex-basis` (px; -1 = auto), including the
+/// `flex: <grow> [<shrink>] [<basis>]` shorthand.
 fn resolve_flex(raw: &HashMap<String, String>) -> (f64, f64, f64) {
     let mut grow = raw
         .get("flex-grow")
@@ -574,7 +574,7 @@ fn flex_basis_px(value: Option<&String>) -> Option<f64> {
     }
 }
 
-/// Palabra clave normalizada si pertenece a `allowed`; si no, `None`.
+/// Normalized keyword if it belongs to `allowed`; otherwise `None`.
 fn keyword_value(value: Option<&String>, allowed: &[&str]) -> Option<String> {
     let keyword = value?.trim().to_ascii_lowercase();
     if allowed.contains(&keyword.as_str()) {

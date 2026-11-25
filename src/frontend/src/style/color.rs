@@ -1,9 +1,9 @@
-//! Helpers de valores CSS con la misma semantica que `cascade.length` /
-//! `cascade.parse_color` del frontend Python.
+//! CSS value helpers with the same semantics as `cascade.length` /
+//! `cascade.parse_color` in the Python frontend.
 
 use crate::emit::round_py;
 
-/// `px` o numero sin unidad; `auto`/`none`/`normal`/porcentajes -> `None`.
+/// `px` or a unitless number; `auto`/`none`/`normal`/percentages -> `None`.
 pub(crate) fn length(value: Option<&str>) -> Option<f64> {
     let raw = value?;
     let text = raw.trim().to_ascii_lowercase();
@@ -17,7 +17,7 @@ pub(crate) fn length(value: Option<&str>) -> Option<f64> {
     number.parse::<f64>().ok()
 }
 
-/// `-?(\d+\.?\d*|\.\d+)` (el mismo `_LEN` del Python, sin exponentes).
+/// `-?(\d+\.?\d*|\.\d+)` (the same `_LEN` as Python, no exponents).
 fn is_css_number(text: &str) -> bool {
     let mut chars = text.chars().peekable();
     if chars.peek() == Some(&'-') {
@@ -48,10 +48,10 @@ fn is_css_number(text: &str) -> bool {
     }
 }
 
-/// Porcentaje CSS (`30%`) -> `30.0`; cualquier otra cosa -> `0.0`.
+/// CSS percentage (`30%`) -> `30.0`; anything else -> `0.0`.
 ///
-/// Misma semantica que `_PCT` de `emit_ui.py`: sin signo `+`, sin exponentes y
-/// con `%` obligatorio al final.
+/// Same semantics as `_PCT` in `emit_ui.py`: no `+` sign, no exponents and a
+/// mandatory trailing `%`.
 pub(crate) fn percentage(value: Option<&str>) -> f64 {
     let Some(raw) = value else { return 0.0 };
     let text = raw.trim().to_ascii_lowercase();
@@ -66,8 +66,8 @@ pub(crate) fn percentage(value: Option<&str>) -> f64 {
     }
 }
 
-/// `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()` y una tabla corta
-/// de nombres. Alfa 0 -> sin fondo (`None`), como el Python.
+/// `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()` and a short name
+/// table. Alpha 0 -> no background (`None`), same as Python.
 pub(crate) fn parse_color(value: Option<&str>) -> Option<String> {
     let raw = value?;
     let text = raw.trim().to_ascii_lowercase();
@@ -117,12 +117,12 @@ pub(crate) fn parse_color(value: Option<&str>) -> Option<String> {
     named_color(&text).map(str::to_string)
 }
 
-/// Color normalizado conservando el alfa en formato `#rrggbb` / `#rrggbbaa`.
+/// Normalized color keeping alpha in `#rrggbb` / `#rrggbbaa` form.
 ///
-/// `parse_color` descarta el alfa (y el color entero si es 0) porque el
-/// contrato v1 solo emite `background`/`color` opacos. Las sombras y los bordes
-/// v3 necesitan el alfa (`rgba(0,0,0,0.4)` -> `#00000066`) y `transparent`
-/// (`#00000000`), asi que este helper no colapsa esos casos.
+/// `parse_color` drops alpha (and the whole color when it is 0) because the v1
+/// contract only emits opaque `background`/`color`. v3 shadows and borders need
+/// alpha (`rgba(0,0,0,0.4)` -> `#00000066`) and `transparent`
+/// (`#00000000`), so this helper does not collapse those cases.
 pub(crate) fn color_with_alpha(value: Option<&str>) -> Option<String> {
     let raw = value?;
     let text = raw.trim().to_ascii_lowercase();
@@ -204,7 +204,7 @@ fn rgb_inner_alpha(inner: &str) -> Option<String> {
     ))
 }
 
-/// Cuerpo de `rgb()`/`rgba()`: canales separados por coma o espacios.
+/// Body of `rgb()`/`rgba()`: channels separated by commas or spaces.
 fn rgb_inner(inner: &str) -> Option<String> {
     let tokens: Vec<&str> = inner
         .split(|c: char| c == ',' || c == '/' || c.is_whitespace())
@@ -261,7 +261,7 @@ fn alpha_value(token: &str) -> Option<f64> {
     }
 }
 
-/// Tabla corta: el subconjunto del benchmark solo usa hex.
+/// Short table: the benchmark subset only uses hex.
 fn named_color(text: &str) -> Option<&'static str> {
     Some(match text {
         "black" => "#000000",

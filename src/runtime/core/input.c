@@ -12,8 +12,6 @@
 #include "wn_core_internal.h"
 #include "wn_internal.h"
 
-/* ---------------------------------------------------------- text input v4 */
-
 const WnInputRecord *input_record(const wn_core *c, int node)
 {
     int index;
@@ -331,8 +329,8 @@ int wn_core_input_char(wn_core *core, uint32_t codepoint,
         cursor = len;
     }
     if (len >= limit) {
-        /* Consumido pero sin cambio: el host no debe hacer beep al teclear
-         * sobre un campo lleno. */
+        /* Consumed but unchanged: the host must not beep when typing into a
+         * full field. */
         return node;
     }
     memmove(value + cursor + 1, value + cursor, (size_t)(len - cursor) + 1u);

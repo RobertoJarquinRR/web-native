@@ -1,5 +1,5 @@
 /*
- * fidelity_core_test.c - headless acceptance for the E1 visual/layout gaps:
+ * fidelity_core_test.c - headless acceptance for the style extras:
  *
  *   1. real font-weight 700 (Segoe UI Bold) vs 400,
  *   2. text-align left/center/right shifting the run inside the block,

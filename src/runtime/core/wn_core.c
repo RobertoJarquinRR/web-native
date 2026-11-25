@@ -793,8 +793,8 @@ int wn_core_clone(wn_core *core, int template_node, int parent)
             (core->image_override[dst] = wn_strdup_(core->image_override[src])) == NULL) {
             oom = 1;
         }
-        /* Un clon de un input comparte la piscina de glyphs del template pero
-         * recibe su propia copia editable del valor. */
+        /* A cloned input shares the template's glyph pool but gets its own
+         * editable copy of the value. */
         core->input_map[dst] = core->input_map[src];
         if (core->input_map[src] >= 0) {
             const char *source_value =

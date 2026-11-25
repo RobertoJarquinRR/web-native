@@ -1,27 +1,27 @@
-//! Extensiones de estilo CSS v3: bordes, radio, sombras y unidades relativas.
+//! v3 CSS style extensions: borders, radius, shadows and relative units.
 //!
-//! El frontend las **parsea, cascadea y emite** en `ui.json` (`webnative.ui-tree/2`);
-//! el layout y el pintado siguen siendo responsabilidad del runtime R2. Este
-//! modulo solo resuelve los px que el documento transporta.
+//! The frontend **parses, cascades and emits** them in `ui.json`
+//! (`webnative.ui-tree/2`); layout and painting remain the runtime's
+//! responsibility. This module only resolves the px the document carries.
 //!
-//! Unidades relativas soportadas: `em`, `rem`, `vh`, `vw`. La resolucion a px
-//! usa el contexto de build (`LengthCtx`): font-size computado del nodo,
-//! font-size del elemento raiz y viewport de compilacion. El valor declarado se
-//! conserva en `RelLength` para que el runtime pueda recalcularlo al cambiar el
-//! viewport (`width_em`, `width_rem`, ...).
+//! Supported relative units: `em`, `rem`, `vh`, `vw`. Resolution to px uses
+//! the build context (`LengthCtx`): the node's computed font-size, the root
+//! element's font-size and the compile-time viewport. The declared value is
+//! kept in `RelLength` so the runtime can recompute it when the viewport
+//! changes (`width_em`, `width_rem`, ...).
 //!
-//! Semantica alineada con CSS:
-//! - `em` usa el `font-size` del propio nodo;
-//! - `rem` usa el `font-size` del elemento raiz (`html`);
-//! - `vh`/`vw` son porcentajes del viewport (1vh = height/100).
+//! CSS-aligned semantics:
+//! - `em` uses the node's own `font-size`;
+//! - `rem` uses the root element's `font-size` (`html`);
+//! - `vh`/`vw` are viewport percentages (1vh = height/100).
 //!
-//! Los bordes solo se consideran visibles con `border-style: solid` y ancho > 0
-//! (`border-style: none` es el valor inicial). El color inicial es
-//! `currentColor`, igual que CSS.
+//! Borders are only considered visible with `border-style: solid` and width > 0
+//! (`border-style: none` is the initial value). The initial color is
+//! `currentColor`, as in CSS.
 
 use crate::style::color::{color_with_alpha, length};
 
-/// Unidad de una longitud CSS v3.
+/// Unit of a v3 CSS length.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Unit {
     Px,
@@ -32,7 +32,7 @@ pub(crate) enum Unit {
 }
 
 impl Unit {
-    /// Sufijo usado en los campos JSON (`width_em`, `width_rem`, ...).
+    /// Suffix used in the JSON fields (`width_em`, `width_rem`, ...).
     pub(crate) fn suffix(self) -> &'static str {
         match self {
             Unit::Px => "px",
@@ -44,7 +44,7 @@ impl Unit {
     }
 }
 
-/// Longitud declarada: valor numerico + unidad.
+/// Declared length: numeric value + unit.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct RelLength {
     pub(crate) value: f64,
@@ -52,7 +52,7 @@ pub(crate) struct RelLength {
 }
 
 impl RelLength {
-    /// Valor declarado si la unidad coincide (`2em` -> `Some(2.0)` para `Em`).
+    /// Declared value if the unit matches (`2em` -> `Some(2.0)` for `Em`).
     pub(crate) fn in_unit(self, unit: Unit) -> Option<f64> {
         if self.unit == unit {
             Some(self.value)
@@ -62,12 +62,12 @@ impl RelLength {
     }
 }
 
-/// Contexto de resolucion a px en build time.
+/// Context for resolving to px at build time.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct LengthCtx {
-    /// `font-size` computado del nodo (px).
+    /// Node's computed `font-size` (px).
     pub(crate) font_size: f64,
-    /// `font-size` computado de `html` (px).
+    /// Computed `font-size` of `html` (px).
     pub(crate) root_font_size: f64,
     pub(crate) viewport_width: f64,
     pub(crate) viewport_height: f64,
@@ -96,7 +96,7 @@ impl LengthCtx {
     }
 }
 
-/// Numero CSS simple (`-?(\d+\.?\d*|\.\d+)`), sin exponentes ni unidades.
+/// Simple CSS number (`-?(\d+\.?\d*|\.\d+)`), no exponents and no units.
 pub(crate) fn parse_number(text: &str) -> Option<f64> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -130,9 +130,9 @@ pub(crate) fn parse_number(text: &str) -> Option<f64> {
     trimmed.parse::<f64>().ok()
 }
 
-/// `2em`, `1.5rem`, `12px`, `10` -> `RelLength`; `%`, `auto` y basura -> `None`.
+/// `2em`, `1.5rem`, `12px`, `10` -> `RelLength`; `%`, `auto` and garbage -> `None`.
 ///
-/// El orden de los sufijos importa: `rem` antes que `em`.
+/// Suffix order matters: `rem` before `em`.
 pub(crate) fn parse_rel_length(token: &str) -> Option<RelLength> {
     let text = token.trim().to_ascii_lowercase();
     if text.is_empty() {
@@ -155,7 +155,7 @@ pub(crate) fn parse_rel_length(token: &str) -> Option<RelLength> {
     Some(RelLength { value, unit })
 }
 
-/// `true` si el token es una unidad relativa valida (`em/rem/vh/vw`).
+/// `true` if the token is a valid relative unit (`em/rem/vh/vw`).
 pub(crate) fn is_relative_length(token: &str) -> bool {
     matches!(
         parse_rel_length(token),
@@ -166,8 +166,8 @@ pub(crate) fn is_relative_length(token: &str) -> bool {
     )
 }
 
-/// Divide por whitespace respetando parentesis, corchetes y comillas.
-/// Mantiene `rgb(0, 0, 0)` / `rgba(0, 0, 0, .4)` como un solo componente.
+/// Splits on whitespace, respecting parentheses, brackets and quotes.
+/// Keeps `rgb(0, 0, 0)` / `rgba(0, 0, 0, .4)` as a single component.
 pub(crate) fn split_components(value: &str) -> Vec<String> {
     let bytes = value.as_bytes();
     let mut out = Vec::new();
@@ -272,17 +272,17 @@ fn split_commas(value: &str) -> Vec<String> {
     out.into_iter().filter(|item| !item.is_empty()).collect()
 }
 
-// ------------------------------------------------------------------- bordes
+// ------------------------------------------------------------------ borders
 
-/// Un lado de borde ya computado. `width_px` es la resolucion en build time y
-/// `width_rel` conserva la unidad declarada (si era `em`/`rem`/`vh`/`vw`).
+/// An already-computed border side. `width_px` is the build-time resolution and
+/// `width_rel` keeps the declared unit (if it was `em`/`rem`/`vh`/`vw`).
 #[derive(Debug, Clone)]
 pub(crate) struct BorderSide {
     pub(crate) width_px: f64,
     pub(crate) width_rel: Option<RelLength>,
-    /// `solid` o `none` (cualquier otro valor CSS se ignora -> `none`).
+    /// `solid` or `none` (any other CSS value is ignored -> `none`).
     pub(crate) style: String,
-    /// Color normalizado; `#rrggbb` o `#rrggbbaa`. `None` si no se pudo parsear.
+    /// Normalized color; `#rrggbb` or `#rrggbbaa`. `None` if it could not be parsed.
     pub(crate) color: Option<String>,
 }
 
@@ -298,7 +298,7 @@ impl Default for BorderSide {
 }
 
 impl BorderSide {
-    /// Un borde solo pinta si es `solid` y tiene ancho > 0.
+    /// A border only paints if it is `solid` and wider than 0.
     pub(crate) fn visible(&self) -> bool {
         self.style == "solid" && self.width_px > 0.0
     }
@@ -322,7 +322,7 @@ impl BorderOut {
         ]
     }
 
-    /// `true` si el CSS declaro algo de borde (aunque sea invisible).
+    /// `true` if CSS declared anything about borders (even if invisible).
     pub(crate) fn any_declared(&self) -> bool {
         self.sides().iter().any(|(_, side)| {
             side.width_px != 0.0
@@ -336,8 +336,8 @@ impl BorderOut {
         self.sides().iter().any(|(_, side)| side.visible())
     }
 
-    /// Ancho efectivo uniforme (maximo de los lados visibles) y, si los cuatro
-    /// lados comparten exactamente la misma unidad relativa, esa declaracion.
+    /// Effective uniform width (maximum across visible sides) and, if all four
+    /// sides share exactly the same relative unit, that declaration.
     pub(crate) fn uniform_width(&self) -> (f64, Option<RelLength>) {
         let mut width = 0.0f64;
         let mut rel: Option<RelLength> = None;
@@ -351,7 +351,7 @@ impl BorderOut {
                 rel = side.width_rel.filter(|value| value.unit != Unit::Px);
                 first = false;
             } else if rel.is_none() || side.width_rel != rel {
-                // Unidad ausente, distinta o mezclada: no hay campo uniforme.
+                // Unit missing, different or mixed: there is no uniform field.
                 rel = None;
             }
         }
@@ -366,7 +366,7 @@ impl BorderOut {
         }
     }
 
-    /// Color del primer lado visible (top, right, bottom, left).
+    /// Color of the first visible side (top, right, bottom, left).
     pub(crate) fn visible_color(&self) -> Option<&str> {
         self.sides()
             .iter()
@@ -383,7 +383,7 @@ fn border_width_token(token: Option<&String>) -> (f64, Option<RelLength>) {
     };
     let text = raw.trim().to_ascii_lowercase();
     match text.as_str() {
-        // Anchos nominales de CSS (`medium` = 3px); no son unidades relativas.
+        // CSS nominal widths (`medium` = 3px); they are not relative units.
         "thin" => return (1.0, None),
         "medium" => return (3.0, None),
         "thick" => return (5.0, None),
@@ -399,7 +399,7 @@ fn border_width_token(token: Option<&String>) -> (f64, Option<RelLength>) {
     (0.0, None)
 }
 
-/// Computa un lado de borde con los valores ya cascadeados (longhands).
+/// Computes a border side from the already-cascaded values (longhands).
 pub(crate) fn resolve_border_side(
     width: Option<&String>,
     style: Option<&String>,
@@ -416,15 +416,15 @@ pub(crate) fn resolve_border_side(
         Some(value) if value == "solid" => "solid".to_string(),
         _ => "none".to_string(),
     };
-    // Ancho inicial de CSS (`medium` = 3px) cuando `border-style: solid` no
-    // trae un `border-width` explicito.
+    // CSS initial width (`medium` = 3px) when `border-style: solid` comes
+    // without an explicit `border-width`.
     if width.is_none() && style == "solid" {
         width_px = 3.0;
     }
-    // El color inicial de CSS es `currentColor`; una declaracion invalida
-    // tambien cae a currentColor (el subset la diagnostica aparte). Si no se
-    // declaro nada de borde, el lado queda neutro (`None`) para que
-    // `BorderOut::any_declared()` no marque todos los nodos.
+    // The CSS initial color is `currentColor`; an invalid declaration also
+    // falls back to currentColor (the subset diagnoses it separately). If
+    // nothing border-related was declared, the side stays neutral (`None`) so
+    // `BorderOut::any_declared()` does not flag every node.
     let color = if !declared {
         None
     } else {
@@ -447,7 +447,7 @@ pub(crate) fn resolve_border_side(
 }
 
 fn expand4<T: Copy>(values: &[T]) -> [T; 4] {
-    // 1-4 valores con la semantica CSS (top, right, bottom, left).
+    // 1-4 values with CSS semantics (top, right, bottom, left).
     let first = values[0];
     if values.len() == 1 {
         return [first; 4];
@@ -458,10 +458,10 @@ fn expand4<T: Copy>(values: &[T]) -> [T; 4] {
     [first, second, third, fourth]
 }
 
-/// `border-radius` (uniforme o 1-4 esquinas). Devuelve px por esquina y la
-/// declaracion relativa uniforme si las cuatro esquinas usan la misma unidad.
-/// La sintaxis `a / b` (radios elipticos) solo usa la parte horizontal: el
-/// subset la rechaza, el runtime v3 solo soporta radios circulares.
+/// `border-radius` (uniform or 1-4 corners). Returns px per corner and the
+/// uniform relative declaration if the four corners use the same unit.
+/// The `a / b` syntax (elliptical radii) only uses the horizontal part: the
+/// subset rejects it, and the v3 runtime only supports circular radii.
 pub(crate) fn resolve_border_radius(
     value: Option<&str>,
     ctx: &LengthCtx,
@@ -494,7 +494,7 @@ pub(crate) fn resolve_border_radius(
     (px, uniform)
 }
 
-// ------------------------------------------------------------------ sombras
+// ------------------------------------------------------------------ shadows
 
 #[derive(Debug, Clone)]
 pub(crate) struct BoxShadow {
@@ -502,16 +502,16 @@ pub(crate) struct BoxShadow {
     pub(crate) offset_y_px: f64,
     pub(crate) blur_px: f64,
     pub(crate) spread_px: f64,
-    /// `#rrggbb` o `#rrggbbaa` (alfa conservado).
+    /// `#rrggbb` or `#rrggbbaa` (alpha preserved).
     pub(crate) color: String,
     pub(crate) inset: bool,
 }
 
-/// Parsea `box-shadow: <x> <y> [blur] [spread] [color] [, ...]`.
+/// Parses `box-shadow: <x> <y> [blur] [spread] [color] [, ...]`.
 ///
-/// Acepta `none`, listas separadas por coma y `inset`. Un `color` omitido usa
-/// `currentColor` (el color computado del nodo). Devuelve `None` si alguna
-/// sombra es invalida (la declaracion CSS se ignora entera, como en CSS).
+/// Accepts `none`, comma-separated lists and `inset`. An omitted `color` uses
+/// `currentColor` (the node's computed color). Returns `None` if any shadow is
+/// invalid (the CSS declaration is dropped as a whole, as in CSS).
 pub(crate) fn parse_box_shadows(
     value: &str,
     ctx: &LengthCtx,
@@ -585,16 +585,16 @@ pub(crate) fn parse_box_shadows(
     }
 }
 
-/// Validacion sin contexto (subset): mismo parser con un contexto neutro.
+/// Validation without context (subset): the same parser with a neutral context.
 pub(crate) fn box_shadow_is_valid(value: &str) -> bool {
     parse_box_shadows(value, &LengthCtx::default(), "#000000").is_some()
 }
 
-/// Campos de estilo v3 que acompanan a `webnative.ui-tree/2`.
+/// v3 style fields that accompany `webnative.ui-tree/2`.
 ///
-/// Los px resueltos (`width_px`, `margin`, ...) siguen en `ComputedStyle`; este
-/// bloque guarda lo que necesita el runtime para re-resolver al cambiar el
-/// viewport (unidades declaradas), ademas de bordes, radio y sombras.
+/// The resolved px (`width_px`, `margin`, ...) still live in `ComputedStyle`;
+/// this block keeps what the runtime needs to re-resolve when the viewport
+/// changes (declared units), plus borders, radius and shadows.
 #[derive(Debug, Clone)]
 pub(crate) struct StyleV3 {
     pub(crate) width_rel: Option<RelLength>,
@@ -611,7 +611,7 @@ pub(crate) struct StyleV3 {
     pub(crate) max_height: Option<f64>,
     pub(crate) max_height_pct: f64,
     pub(crate) max_height_rel: Option<RelLength>,
-    /// Unidad relativa declarada por lado (top, right, bottom, left).
+    /// Relative unit declared per side (top, right, bottom, left).
     pub(crate) margin_rel: [Option<RelLength>; 4],
     pub(crate) padding_rel: [Option<RelLength>; 4],
     pub(crate) gap_rel: Option<RelLength>,
@@ -619,8 +619,8 @@ pub(crate) struct StyleV3 {
     pub(crate) column_gap_rel: Option<RelLength>,
     pub(crate) border: BorderOut,
     pub(crate) border_radius: [f64; 4],
-    /// Declaracion relativa uniforme de `border-radius` (si las 4 esquinas
-    /// comparten la misma unidad).
+    /// Uniform relative `border-radius` declaration (if all 4 corners share
+    /// the same unit).
     pub(crate) border_radius_rel: Option<RelLength>,
     pub(crate) box_shadow: Vec<BoxShadow>,
     pub(crate) opacity: f64,
@@ -658,8 +658,8 @@ impl Default for StyleV3 {
 }
 
 impl StyleV3 {
-    /// `true` si la pagina usa la capa v3 y por tanto necesita schema `/2`
-    /// (los campos v3 no se escriben en `/1`).
+    /// `true` if the page uses the v3 layer and therefore needs schema `/2`
+    /// (v3 fields are not written under `/1`).
     pub(crate) fn declares_style(&self) -> bool {
         self.width_rel.is_some()
             || self.height_rel.is_some()

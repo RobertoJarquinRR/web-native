@@ -1,13 +1,13 @@
-//! CLI: HTML+CSS -> arbol de estilos pre-layout (`ui.json`) para el runtime R2.
+//! CLI: HTML+CSS -> pre-layout style tree (`ui.json`) for the runtime.
 //!
-//! Uso:
+//! Usage:
 //!   frontend-rust.exe --html <path> --width <W> --height <H> --emit-ui <ui.json>
 //!                     [--emit-blob <app.wnui>] [--css <path>]
 //!                     [--strict-subset] [--pilot]
 //!
-//! `--strict-subset` valida el contrato `docs/subset-v1.md` y devuelve exit
-//! != 0 si encuentra cualquier feature fuera del subset. `--pilot` permite las
-//! extensiones v2/v3 (grid, scroll, imagenes, object-fit, input).
+//! `--strict-subset` validates the `docs/subset-v1.md` contract and exits
+//! non-zero on any feature outside the subset. `--pilot` allows the v2/v3
+//! extensions (grid, scroll, images, object-fit, input).
 
 mod cli;
 mod emit;
@@ -28,13 +28,13 @@ struct Args {
     width: u32,
     height: u32,
     css: Option<PathBuf>,
-    /// `--emit-ui <path>`: arbol de estilos pre-layout que consume el runtime.
+    /// Pre-layout style tree consumed by the runtime.
     emit_ui: PathBuf,
-    /// `--emit-blob <path>`: documento `.wnui` v2 (opcional).
+    /// Optional `.wnui` v2 document output.
     emit_blob: Option<PathBuf>,
-    /// `--strict-subset`: diagnosticos de subset v1 como errores (exit != 0).
+    /// Report subset-v1 diagnostics as errors (exit != 0).
     strict_subset: bool,
-    /// `--pilot`: permite las extensiones del piloto v2 (grid, scroll, imagenes).
+    /// Allow the v2 pilot extensions (grid, scroll, images).
     pilot: bool,
 }
 
@@ -153,9 +153,8 @@ fn run() -> Result<bool, String> {
     let stylesheets = dom::stylesheet_texts(&document, &base_dir)?;
     let rules = css::parse_stylesheets(&stylesheets);
 
-    // `subset v1`: inspeccion del HTML/CSS de entrada. No toca la cascada ni la
-    // emision; sin `--strict-subset` solo imprime warnings.
-    // `--pilot` permite las extensiones v2 (grid, scroll, object-fit).
+    // `subset v1`: inspects the input HTML/CSS only. It does not affect the
+    // cascade or emission; without `--strict-subset` it only prints warnings.
     let diagnostics = subset::check_document_pilot(&html, &args.html, &base_dir, args.pilot);
     subset::print_diagnostics(&diagnostics, args.strict_subset);
     let subset_ok = !args.strict_subset || diagnostics.is_empty();

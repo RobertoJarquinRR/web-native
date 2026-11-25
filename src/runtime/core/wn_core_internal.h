@@ -31,7 +31,7 @@ typedef struct {
 #define WN_INPUT_PLACEHOLDER_COLOR 0xFF6B7785u
 #define WN_INPUT_CARET_WIDTH 2.0f
 
-/* E1 style extras are emitted only for pages that use them (the generated
+/* Style extras are emitted only for pages that use them (the generated
  * header defines UI_STYLE_EXTRAS). Source pages without text-align,
  * line-height or margin:auto compile with the zero defaults, so their
  * geometry stays byte-identical. */

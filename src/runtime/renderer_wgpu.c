@@ -1,8 +1,8 @@
 /*
  * renderer_wgpu.c - wgpu-native renderer backend behind wn_renderer_ops.
  *
- * This is the R2 wgpu code (solid pipeline + R8 text pipeline + surface
- * swapchain) moved behind the renderer vtable. wgpu types stay in this file.
+ * Solid pipeline, R8 glyph-atlas text pipeline and the surface swapchain.
+ * wgpu types stay in this file.
  */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>

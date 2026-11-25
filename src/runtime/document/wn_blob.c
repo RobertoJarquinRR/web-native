@@ -271,7 +271,7 @@ wn_document *wn_document_load_blob(const char *path)
         dst->flex_shrink = src->flex_shrink;
         dst->flex_basis = src->flex_basis;
 #else
-        /* Headers without E1 extras have no slots for them; the blob keeps
+        /* Headers without the style extras have no slots for them; the blob keeps
          * the fields but this build ignores them. */
         (void)src->text_align;
         (void)src->line_height;

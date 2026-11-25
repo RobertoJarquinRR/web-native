@@ -1,5 +1,5 @@
-//! Emision del arbol de estilos `--emit-ui`, del blob `.wnui` y helpers JSON
-//! compartidos.
+//! Emission of the `--emit-ui` style tree, the `.wnui` blob, and shared JSON
+//! helpers.
 
 pub(crate) mod blob;
 pub(crate) mod emit;

@@ -1,24 +1,23 @@
 #!/usr/bin/env python3
-"""Build-time emitter for the R2 style-tree runtime (`src/runtime`).
+"""Build-time emitter for the style-tree runtime (`src/runtime`).
 
 Two input modes, one output contract:
 
 1. **Python tree (oracle, TEST-ONLY)** — `--html/--css`: parses HTML+CSS with
    the archived Python frontend (`archive/frontends-legacy/python/webnative`),
    computes styles with cssselect2 and flattens the styled tree to a pre-order
-   UiNode array. HarfBuzz/FreeType shape and raster the text and pack the
-   atlas. This oracle is pending retirement; the Rust frontend is the only
+   UiNode array. Kept only for parity tests; the Rust frontend is the only
    compiler.
 2. **Rust tree** — `--ui-json <ui.json>`: consumes the pre-layout style tree
-   emitted by `src/frontend` (`frontend-rust --emit-ui`, plus its `atlas.bin`)
-   and emits the same `ui_data.h` / `ui_meta.json`. This mode does not import
-   `webnative`; only the color parser (tinycss2) is shared.
+   emitted by `src/frontend` (`frontend-rust --emit-ui`) and emits the same
+   `ui_data.h` / `ui_meta.json`. This mode does not import `webnative`; only the
+   color parser (tinycss2) is shared.
 
 `--compare A.h B.h` parses two generated headers and reports semantic
-differences (nodes, styles, glyphs, runs, atlas dimensions/bytes).
+differences (nodes, styles, runs, atlas dimensions/bytes).
 
-R2-specific data merged here (the oracle's ComputedStyle deliberately drops
-it from its display-list IR):
+Data merged only here (the oracle's ComputedStyle deliberately drops it from its
+display-list IR):
   - percentage width/height (width_pct / height_pct)
   - flex-wrap
   - data-hover / data-press / data-selected / data-action from HTML attributes
@@ -503,8 +502,8 @@ class Emitter:
             "image_src": image_src,
             "image_alt": image_alt,
             "object_fit": object_fit,
-            # El oraculo Python no modela CSS v3 (bordes/sombras): el arbol
-            # Rust (--ui-json) es la unica fuente de estos campos en v1.
+            # The Python oracle does not model v3 CSS (borders/shadows): the
+            # Rust tree (--ui-json) is the only source of these fields in v1.
             **ZERO_CSS_FIELDS,
             "flex_grow": 0.0,
             "flex_shrink": 1.0,
@@ -538,7 +537,7 @@ class Emitter:
             } if kind == KIND_IMAGE else None,
         })
 
-        # Own text first, exactly like exp09's "texto propio antes de hijos".
+        # Own text first, same order as the oracle ("own text before children").
         text = normalize_text(node.text)
         if text:
             self._emit_text(node, style, index, name, text)
@@ -716,8 +715,8 @@ def write_header(nodes: list[dict], meta: list[dict], out: Path,
                  inputs: list[dict] | None = None,
                  blob_path: Path | None = None) -> None:
     inputs = inputs or []
-    # E1: los campos de text-align/line-height/margin:auto solo se escriben si
-    # alguna pagina los usa. Los headers existentes quedan byte a byte iguales.
+    # E1: the text-align/line-height/margin:auto fields are only written if some
+    # page uses them. Existing headers stay byte-for-byte identical.
     extras = any(int(node.get("text_align") or 0) != 0
                  or float(node.get("line_height") or 0.0) > 0.0
                  or int(node.get("margin_auto") or 0) != 0
@@ -732,7 +731,7 @@ def write_header(nodes: list[dict], meta: list[dict], out: Path,
     lines.append("")
     node_kinds = "R2_NODE_BLOCK, R2_NODE_FLEX, R2_NODE_TEXT, R2_NODE_GRID, R2_NODE_IMAGE"
     if inputs:
-        # ui-tree/3: aditivo, solo presente en paginas con <input>.
+        # ui-tree/3: additive, only present on pages with <input>.
         node_kinds += ", R2_NODE_INPUT"
     lines.append(f"typedef enum {{ {node_kinds} }} NodeKind;")
     lines.append("typedef enum { JUSTIFY_START, JUSTIFY_CENTER, JUSTIFY_END, JUSTIFY_SPACE_BETWEEN } Justify;")
@@ -909,7 +908,7 @@ def load_ui_json(path: Path) -> tuple[dict, bytes | None, int]:
 
 
 def validate_ui_tree(data: dict) -> list[str]:
-    """Estructura pre-orden: ids secuenciales y parent/children consistentes."""
+    """Pre-order structure: sequential ids and consistent parent/children."""
     nodes = data.get("nodes") or []
     errors: list[str] = []
     declared = int(data.get("node_count", len(nodes)))
@@ -1069,11 +1068,12 @@ def emit_from_ui_json(ui_path: Path, out_path: Path, meta_path: Path,
             "image_src": image_src,
             "image_alt": image_alt,
             "object_fit": object_fit,
-            # CSS core v1: radio uniforme, primer borde y primera sombra.
+            # CSS core v1: uniform radius, first border and first shadow.
             **css_node_fields(style),
         })
         if kind == KIND_TEXT:
-            # El runtime mide el texto; el tamano horneado ya no viaja al documento.
+            # The runtime measures the text; the baked size no longer travels in
+            # the document.
             nodes[-1]["width"] = -1.0
             nodes[-1]["height"] = -1.0
         meta.append({
@@ -1382,8 +1382,8 @@ def compare_headers(left_path: Path, right_path: Path, strict: bool) -> int:
         if left.get(name) or right.get(name):
             failures.append(f"{name}: the document no longer carries baked text")
 
-    # ui-tree/3: solo cuando alguna cabecera tiene inputs (el oraculo Python no
-    # los emite; la paridad de paginas con input no se compara contra el).
+    # ui-tree/3: only when some header has inputs (the Python oracle does not
+    # emit them; input-page parity is not compared against it).
     if left["input_count"] or right["input_count"]:
         for key in ("input_count",):
             if left[key] != right[key]:

@@ -36,7 +36,9 @@ typedef struct {
     uint32_t reserved;
 } WnBlobHeader;
 
-/* Offsets are byte offsets into the strings section; 0 means NULL. */
+/* Fixed-width on-disk projection of UiNode: every string becomes a byte
+ * offset into the strings section (0 means NULL). The field order and width
+ * must match the BLOB_NODE struct that emit_ui.py writes. */
 typedef struct {
     int32_t parent;
     int32_t kind;

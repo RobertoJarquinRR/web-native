@@ -174,7 +174,7 @@ void push_quad(wn_core *c, float x, float y, float w, float h,
     push_vertex(c, x, y1, vw, vh, r, g, b, a);
 }
 
-/* CSS core v1: 8 segments per corner, clockwise from the top-right arc.
+/* 8 segments per corner, clockwise from the top-right arc.
  * A zero/negative radius falls back to the exact 6-vertex push_quad path so
  * pages without border-radius keep byte-identical geometry. */
 #define WN_CORNER_SEGMENTS 8
@@ -252,7 +252,6 @@ static void push_rounded_quad(wn_core *c, float x, float y, float w, float h,
     }
 }
 
-/* Border box fill: rounded when the node has a radius, exact quad otherwise. */
 static void push_box_shape(wn_core *c, float x, float y, float w, float h,
                            float radius, unsigned int argb)
 {
@@ -260,9 +259,9 @@ static void push_box_shape(wn_core *c, float x, float y, float w, float h,
                       (float)c->width, (float)c->height, argb);
 }
 
-/* Hollow rounded ring (E1 focus ring): band between the outer rounded rect and
- * the same rect inset by `ring`. A square box keeps the exact 4-quad path so
- * inputs without border-radius stay byte-identical. */
+/* Hollow rounded ring (input focus ring): band between the outer rounded rect
+ * and the same rect inset by `ring`. A square box keeps the exact 4-quad path
+ * so inputs without border-radius stay byte-identical. */
 void push_rounded_ring(wn_core *c, float x, float y, float w, float h,
                               float radius, float ring, unsigned int argb)
 {
@@ -481,10 +480,10 @@ static void push_image_vertex(wn_core *c, float x, float y, float u, float v,
     out->v = v;
 }
 
-/* CSS core v1: an image is clipped by its own border-radius, or by the radius
- * of a parent with overflow:hidden (the media-library pilot cards rely on
- * this). The parent radius is reduced by its border width, matching the
- * padding-box clip. Uniform radius only; the same value rounds all corners. */
+/* An image is clipped by its own border-radius, or by the radius of a parent
+ * with overflow:hidden (the media-library pilot cards rely on this). The
+ * parent radius is reduced by its border width, matching the padding-box clip.
+ * Uniform radius only; the same value rounds all corners. */
 static float image_corner_radius(const wn_core *c, int node, float w, float h)
 {
     const UiNode *n = &c->nodes[node];
@@ -629,7 +628,7 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
             continue;
         }
         r = &c->rects[node];
-        /* E1 `text-align`: a text node is the inline content of a block
+        /* `text-align`: a text node is the inline content of a block
          * container, so shift the run inside the parent content box. Flex and
          * grid parents already position the text item (justify/align), so the
          * shift would double-apply there. */
@@ -688,7 +687,7 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
     }
 }
 
-/* E1: visible vertical scrollbar for `overflow:auto|scroll` boxes that really
+/* Visible vertical scrollbar for `overflow:auto|scroll` boxes that really
  * overflow. Subtle track + rounded thumb; painted inside the node clip before
  * images/text. Wheel scrolling needs no hit test on the bar. */
 static void build_scrollbars(wn_core *c)

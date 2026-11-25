@@ -117,7 +117,7 @@ fn font_weight_700_is_recorded_and_text_is_not_baked() {
     fs::write(dir.join("page.html"), BOLD_PAGE).unwrap();
     let json = emit_ui(&dir, "page.html", "ui.json", &[]);
 
-    // La pagina no usa features v2: sigue siendo /1 (sin campos extra).
+    // The page uses no v2 feature: it stays /1 (no extra fields).
     assert!(json.contains("\"schema\": \"webnative.ui-tree/1\""), "{json}");
     assert_eq!(
         field_string(&json, "body.root/div#regular.row/text", "font_weight"),
@@ -127,7 +127,7 @@ fn font_weight_700_is_recorded_and_text_is_not_baked() {
         field_string(&json, "body.root/div#bold.row/text[1]", "font_weight"),
         "700"
     );
-    // El runtime mide y shapea: el documento no lleva caja ni glifos.
+    // The runtime measures and shapes: the document carries no box or glyphs.
     assert_eq!(
         field_number(&json, "body.root/div#bold.row/text[1]", "width_px"),
         0.0
@@ -168,7 +168,7 @@ fn text_align_is_cascaded_to_the_text_run() {
         field_string(&json, "body.root/div#right.row/text[2]", "text_align"),
         "right"
     );
-    // El nodo de texto hereda la alineacion del elemento.
+    // The text node inherits the element's alignment.
     assert_eq!(
         field_string(&json, "body.root/div#center.row/text[1]", "text_align"),
         "center"
@@ -215,7 +215,7 @@ fn line_height_sets_the_text_box() {
         field_number(&json, "body.root/div#tall.row/text[1]", "line_height"),
         40.0
     );
-    // `baseline` no se hornea: vive en el runtime que shapea el texto.
+    // `baseline` is not baked: it lives in the runtime that shapes the text.
     assert!(!json.contains("\"baseline\""), "baseline is not baked: {json}");
 }
 
@@ -248,8 +248,8 @@ fn margin_auto_is_parsed_and_emitted_per_side() {
         field_raw(&json, "body.root/div#box.box/div#mid.mid", "margin_auto"),
         "[0, 1, 0, 1]".to_string()
     );
-    // `margin: 0 auto` y `margin-top: auto` ya no son errores de subset v1:
-    // con --strict-subset la pagina sigue emitiendo.
+    // `margin: 0 auto` and `margin-top: auto` are no longer subset-v1 errors:
+    // the page still emits under --strict-subset.
     let strict = run(&dir, "page.html", &["--emit-ui", "ui.json", "--strict-subset"]);
     assert!(
         strict.status.success(),

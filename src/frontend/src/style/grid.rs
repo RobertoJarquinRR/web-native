@@ -1,19 +1,19 @@
-//! Valores CSS v2 para grid (`docs/ui-tree-v2.md`).
+//! v2 CSS values for grid (`docs/ui-tree-v2.md`).
 //!
-//! Solo el modo del contrato:
+//! Only the mode covered by the contract:
 //!   - `grid-template-columns: repeat(auto-fill, <px>)`
 //!   - `grid-auto-rows: <px> | auto`
 //!
-//! No hay `fr`, `minmax()`, `auto-fit`, `span` ni grid anidado. El parseo es
-//! tolerante con espacios y mayusculas, pero estricto con la forma: cualquier
-//! otra construccion devuelve `None` y el diagnostico de subset la rechaza.
+//! There is no `fr`, `minmax()`, `auto-fit`, `span` or nested grid. Parsing is
+//! tolerant of spaces and case but strict about the shape: any other construct
+//! returns `None` and the subset diagnostic rejects it.
 
 use crate::style::color::length;
 
-/// `repeat(auto-fill, <px>)` ya normalizado para `ui.json`.
+/// `repeat(auto-fill, <px>)` already normalized for `ui.json`.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct GridTemplateColumns {
-    /// Siempre `"auto_fill"` en v2.
+    /// Always `"auto_fill"` in v2.
     pub(crate) mode: String,
     pub(crate) size_px: f64,
 }
@@ -22,7 +22,7 @@ pub(crate) struct GridTemplateColumns {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum GridAutoRows {
     Px(f64),
-    /// `auto` = altura maxima de los hijos (lo calcula el runtime).
+    /// `auto` = maximum height of the children (computed by the runtime).
     Auto,
 }
 
@@ -64,7 +64,7 @@ pub(crate) fn parse_grid_auto_rows(value: &str) -> Option<GridAutoRows> {
     Some(GridAutoRows::Px(px))
 }
 
-/// Comas de primer nivel (respeta parentesis y comillas).
+/// Top-level commas (respects parentheses and quotes).
 fn split_top_level_commas(text: &str) -> Vec<&str> {
     let bytes = text.as_bytes();
     let mut out = Vec::new();

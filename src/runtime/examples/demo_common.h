@@ -100,7 +100,7 @@ static int demo_resolve_page(char *html_path, size_t html_cap,
     snprintf(candidates[1], sizeof(candidates[1]), "%s\\page\\index.html", dir);
     snprintf(candidates[2], sizeof(candidates[2]), "page\\index.html");
     snprintf(candidates[3], sizeof(candidates[3]), "..\\page\\index.html");
-    snprintf(candidates[4], sizeof(candidates[4]), "..\\..\\src\\runtime\\c-r2\\page\\index.html");
+    snprintf(candidates[4], sizeof(candidates[4]), "..\\..\\src\\runtime\\page\\index.html");
     candidates[5][0] = '\0';
 
     for (i = 0; candidates[i][0] != '\0'; ++i) {

@@ -1,11 +1,10 @@
 /*
  * renderer_d3d11.c - Direct3D 11 renderer backend behind wn_renderer_ops.
  *
- * A second, independent implementation of the same vtable consumed by
- * wn_view.c. It renders the existing wn_display_list (solid vertices, R8
- * glyph atlas + glyph vertices and RGBA image batches) into a DXGI swapchain
- * bound to an HWND, using D3D11 hardware by default and WARP only as an
- * explicit fallback. No D3D/DXGI type crosses the vtable.
+ * Renders the wn_display_list (solid vertices, R8 glyph atlas + glyph
+ * vertices and RGBA image batches) into a DXGI swapchain bound to an HWND,
+ * using D3D11 hardware by default and WARP only as an explicit fallback. No
+ * D3D/DXGI type crosses the vtable.
  *
  * Shaders are HLSL compiled at runtime with D3DCompile(); images are decoded
  * through WIC and cached by path. Vertex data uses the exact engine structs:

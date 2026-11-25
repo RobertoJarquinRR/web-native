@@ -1,11 +1,11 @@
-//! `--emit-blob`: documento `.wnui` v2 (mismas secciones que `write_blob`
-//! de `src/emitter/python/emit_ui.py`).
+//! `--emit-blob`: the `.wnui` v2 document (same sections as `write_blob` in
+//! `src/emitter/python/emit_ui.py`).
 //!
-//! El arbol ya esta parseado en `NodeOut`; este modulo solo reproduce las
-//! normalizaciones que el emisor Python aplica al leer `ui.json`, para que el
-//! blob sea byte a byte identico. `detailed == false` (schema `/1`) implica
-//! que `ui.json` no lleva la seccion v2: ahi el contrato es usar `gap` como
-//! `row_gap`/`column_gap`, grid a cero y `overflow` a 0.
+//! The tree is already parsed into `NodeOut`; this module only reproduces the
+//! normalizations the Python emitter applies when reading `ui.json`, so the
+//! blob is byte-for-byte identical. `detailed == false` (schema `/1`) implies
+//! `ui.json` carries no v2 section: the contract there is to use `gap` for
+//! `row_gap`/`column_gap`, grid at zero and `overflow` at 0.
 
 use std::collections::HashMap;
 use std::fs;
@@ -24,7 +24,7 @@ const SECTION_NAMES: u32 = 2;
 const SECTION_STRINGS: u32 = 3;
 const SECTION_INPUTS: u32 = 4;
 
-/// Pool de strings del blob: byte 0 = NUL, dedupe en orden de primer uso.
+/// Blob string pool: byte 0 is NUL, deduped in first-use order.
 struct StringPool {
     data: Vec<u8>,
     offsets: HashMap<String, u32>,
@@ -38,7 +38,7 @@ impl StringPool {
         }
     }
 
-    /// Offset del string en el pool; `None` y `""` son 0 (NULL).
+    /// String offset in the pool; `None` and `""` are both 0 (NULL).
     fn offset(&mut self, value: Option<&str>) -> u32 {
         let Some(text) = value else {
             return 0;
@@ -69,7 +69,7 @@ fn push_f32(out: &mut Vec<u8>, value: f64) {
     out.extend_from_slice(&(value as f32).to_le_bytes());
 }
 
-/// `argb()` de Python para un color ya normalizado a `#rrggbb[aa]`.
+/// Python's `argb()` for a color already normalized to `#rrggbb[aa]`.
 fn argb_hex(value: Option<&str>) -> u32 {
     let Some(text) = value else {
         return 0;
@@ -136,7 +136,7 @@ fn text_align_code(value: &str) -> i32 {
     }
 }
 
-/// `font_weight_value()` de Python: keyword, numero 100..900 o 400.
+/// Python's `font_weight_value()`: keyword, number 100..900, or 400.
 fn font_weight_code(value: &str) -> i32 {
     let text = value.trim().to_ascii_lowercase();
     match text.as_str() {
@@ -174,13 +174,13 @@ fn grid_rows(rows: Option<&GridAutoRows>) -> f64 {
     }
 }
 
-/// `border_width_value()`: ancho uniforme de los lados visibles.
+/// `border_width_value()`: uniform width across the visible sides.
 fn border_width(css3: &crate::style::style_ext::StyleV3) -> f64 {
     let (width, _) = css3.border.uniform_width();
     width.max(0.0)
 }
 
-/// `first_box_shadow()`: primera sombra no `inset`.
+/// `first_box_shadow()`: first non-`inset` shadow.
 fn first_shadow(
     css3: &crate::style::style_ext::StyleV3,
 ) -> Option<&crate::style::style_ext::BoxShadow> {
@@ -250,8 +250,8 @@ fn jpeg_size(data: &[u8]) -> Option<(u32, u32)> {
     None
 }
 
-/// Tamano intrinseco PNG/JPEG resuelto contra el directorio de `ui.json`,
-/// igual que `image_size()` del emisor Python.
+/// Intrinsic PNG/JPEG size resolved against the `ui.json` directory, same as
+/// the Python emitter's `image_size()`.
 fn image_size(source: Option<&str>, base_dir: &Path) -> (f64, f64) {
     let Some(source) = source else {
         return (0.0, 0.0);
@@ -392,7 +392,7 @@ fn push_node_record(
     push_i32(out, font_weight_code(&style.font_weight));
 }
 
-/// Escribe el `.wnui` v2 con el mismo arbol que `ui.json`.
+/// Writes the v2 `.wnui` with the same tree as `ui.json`.
 pub(crate) fn write_blob(
     path: &Path,
     nodes: &[NodeOut],

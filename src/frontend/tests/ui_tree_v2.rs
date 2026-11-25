@@ -1,8 +1,8 @@
-//! Tests de integracion del contrato `webnative.ui-tree/2`.
+//! Integration tests for the `webnative.ui-tree/2` contract.
 //!
-//! Ejecutan el binario real (`--emit-ui`) sobre fixtures temporales.
-//! No usan el runtime C ni comparan contra el oraculo Python: solo verifican
-//! que el frontend Rust parsea y emite los campos v2 acordados en
+//! They run the real binary (`--emit-ui`) on temporary fixtures.
+//! They do not use the C runtime or compare against the Python oracle: they
+//! only verify that the Rust frontend parses and emits the v2 fields agreed in
 //! `docs/ui-tree-v2.md`.
 
 use std::fs;
@@ -298,7 +298,7 @@ fn style_str<'a>(node: &'a Json, key: &str) -> Option<&'a str> {
         .and_then(Json::as_str)
 }
 
-/// Array de 4 (o N) numeros del style; los `null` se conservan como `None`.
+/// Array of 4 (or N) style numbers; `null` entries are kept as `None`.
 fn style_array_opt(node: &Json, key: &str) -> Vec<Option<f64>> {
     node.get("style")
         .and_then(|style| style.get(key))
@@ -408,7 +408,7 @@ fn grid_overflow_and_images_emit_schema_2() {
         Some(&Json::String("auto".to_string()))
     );
 
-    // El body no usa features v2, pero el schema /2 incluye los campos.
+    // The body uses no v2 feature, but schema /2 includes the fields.
     let body = &nodes(&doc)[0];
     assert_eq!(node_str(body, "kind"), Some("block"));
     assert_eq!(
@@ -436,7 +436,7 @@ fn grid_overflow_and_images_emit_schema_2() {
         Some("cover")
     );
 
-    // CSS gana a los atributos; sin object-fit el default es fill.
+    // CSS wins over attributes; without object-fit the default is fill.
     let css_sized = images[1];
     assert_eq!(style_f64(css_sized, "width_px"), 180.0);
     assert_eq!(style_f64(css_sized, "height_px"), 240.0);
@@ -448,7 +448,7 @@ fn grid_overflow_and_images_emit_schema_2() {
         Some("fill")
     );
 
-    // Solo `width`; la altura queda auto (-1) para el tamano intrinseco.
+    // Only `width`; height stays auto (-1) for the intrinsic size.
     let width_only = images[2];
     assert_eq!(style_f64(width_only, "width_px"), 100.0);
     assert_eq!(style_f64(width_only, "height_px"), -1.0);
@@ -457,13 +457,13 @@ fn grid_overflow_and_images_emit_schema_2() {
         Some(&Json::Null)
     );
 
-    // `width: auto`/`height: auto` en CSS ganan a los atributos: el runtime
-    // mide el tamano intrinseco.
+    // `width: auto`/`height: auto` in CSS win over the attributes: the runtime
+    // measures the intrinsic size.
     let css_auto = images[3];
     assert_eq!(style_f64(css_auto, "width_px"), -1.0);
     assert_eq!(style_f64(css_auto, "height_px"), -1.0);
 
-    // `image` solo existe en nodos imagen.
+    // `image` only exists on image nodes.
     for node in nodes(&doc) {
         let is_image = node.get("kind").and_then(Json::as_str) == Some("image");
         assert_eq!(node.get("image").is_some(), is_image, "{node:#?}");
@@ -580,12 +580,12 @@ fn object_fit_defaults_to_fill_without_css() {
             .and_then(Json::as_str),
         Some("fill")
     );
-    // Sin tamano: el runtime usa el intrinseco (WIC).
+    // No size: the runtime uses the intrinsic one (WIC).
     assert_eq!(style_f64(images[0], "width_px"), -1.0);
     assert_eq!(style_f64(images[0], "height_px"), -1.0);
 }
 
-// ------------------------------------------------------- CSS v3 (bordes/radios/sombras/unidades)
+// ------------------------------------------------------- CSS v3 (borders/radii/shadows/units)
 
 const CSS_V3_PAGE: &str = r##"<!doctype html>
 <html>
@@ -680,7 +680,7 @@ fn css_v3_emits_border_radius_shadow_and_relative_units() {
         Some("#ff0000")
     );
 
-    // em usa el font-size del nodo (20px); rem el de html (16px).
+    // em uses the node's font-size (20px); rem uses html's (16px).
     assert_eq!(style_f64(card, "width_px"), 400.0);
     assert_eq!(style_f64(card, "width_em"), 20.0);
     assert_eq!(style_value(card, "width_rem"), Some(&Json::Null));
@@ -688,7 +688,7 @@ fn css_v3_emits_border_radius_shadow_and_relative_units() {
     assert_eq!(style_f64(card, "height_rem"), 15.0);
     assert_eq!(style_value(card, "height_em"), Some(&Json::Null));
 
-    // min/max px/%/relativos.
+    // min/max px/%/relative.
     assert_eq!(style_f64(card, "min_width_px"), 240.0);
     assert_eq!(style_f64(card, "max_width_px"), 288.0);
     assert_eq!(style_f64(card, "max_width_vw"), 60.0);
@@ -696,7 +696,7 @@ fn css_v3_emits_border_radius_shadow_and_relative_units() {
     assert_eq!(style_f64(card, "max_height_px"), 288.0);
     assert_eq!(style_f64(card, "max_height_vh"), 90.0);
 
-    // padding/margin/gap conservan px resueltos y la unidad declarada.
+    // padding/margin/gap keep the resolved px and the declared unit.
     assert_eq!(
         style_array_opt(card, "padding"),
         vec![Some(20.0), Some(32.0), Some(20.0), Some(32.0)]
@@ -718,14 +718,14 @@ fn css_v3_emits_border_radius_shadow_and_relative_units() {
     assert_eq!(style_f64(card, "row_gap_vh"), 1.0);
     assert_eq!(style_f64(card, "column_gap_vh"), 1.0);
 
-    // Hijo: % se conserva como width_pct y `2vw` resuelve a 9.6 px.
+    // Child: `%` is kept as width_pct and `2vw` resolves to 9.6 px.
     let inner = node_with_id(&doc, "inner");
     assert_eq!(style_f64(inner, "width_px"), -1.0);
     assert_eq!(style_f64(inner, "width_pct"), 50.0);
     assert_eq!(style_f64(inner, "height_px"), 9.6);
     assert_eq!(style_f64(inner, "height_vw"), 2.0);
 
-    // Longhands por lado: gana el longhand posterior al shorthand.
+    // Per-side longhands: a longhand after the shorthand wins.
     let edge = node_with_id(&doc, "edge");
     assert_eq!(style_f64(edge, "border_width_px"), 16.0);
     assert_eq!(style_str(edge, "border_style"), Some("solid"));
@@ -740,7 +740,7 @@ fn css_v3_emits_border_radius_shadow_and_relative_units() {
     let bottom = sides.get("bottom").expect("border_sides.bottom");
     assert_eq!(bottom.get("style").and_then(Json::as_str), Some("none"));
 
-    // `border-style: none` apaga el borde aunque ancho/color sigan declarados.
+    // `border-style: none` turns the border off even if width/color stay declared.
     let none = node_with_id(&doc, "none");
     assert_eq!(style_f64(none, "border_width_px"), 0.0);
     assert_eq!(style_str(none, "border_style"), Some("none"));
@@ -750,7 +750,7 @@ fn css_v3_emits_border_radius_shadow_and_relative_units() {
         .expect("border_sides.top");
     assert_eq!(none_top.get("width_px").and_then(Json::as_f64), Some(5.0));
 
-    // Borde uniforme con ancho relativo: px resuelto + unidad declarada.
+    // Uniform border with a relative width: resolved px + declared unit.
     let relative = node_with_id(&doc, "rel");
     assert_eq!(style_f64(relative, "border_width_px"), 16.0);
     assert_eq!(style_f64(relative, "border_width_em"), 1.0);
@@ -841,11 +841,11 @@ fn input_emits_schema_3_with_spec_only() {
     );
     assert_eq!(input.get("max_length").and_then(Json::as_f64), Some(5.0));
     assert_eq!(input.get("password"), Some(&Json::Bool(false)));
-    // El runtime shapea el texto: no se hornean glifos ni metricas de linea.
+    // The runtime shapes the text: no glyphs or line metrics are baked.
     for field in ["glyphs", "baseline", "line_height"] {
         assert!(input.get(field).is_none(), "input must not carry {field}");
     }
-    // No se escribe atlas: el documento lo declara null y no deja ficheros.
+    // No atlas is written: the document declares it null and leaves no files.
     assert_eq!(doc.get("atlas"), Some(&Json::Null));
     assert!(
         !dir.join("atlas.bin").is_file(),
@@ -856,7 +856,7 @@ fn input_emits_schema_3_with_spec_only() {
         "no atlas.json is written"
     );
 
-    // /3 hereda los campos v2 del estilo (aditivo, no regresivo).
+    // /3 inherits the v2 style fields (additive, not regressive).
     assert_eq!(style_f64(search, "width_px"), 320.0);
     assert_eq!(style_f64(search, "height_px"), 34.0);
     assert_eq!(style_f64(search, "gap"), 0.0);
@@ -868,7 +868,7 @@ fn input_emits_schema_3_with_spec_only() {
         "/3 keeps the v2 style fields"
     );
 
-    // maxlength recorta el valor inicial; sin `type` se asume text.
+    // maxlength truncates the initial value; without `type` it is assumed text.
     let empty = node_with_id(&doc, "empty");
     let empty_input = empty.get("input").expect("input object");
     assert_eq!(empty_input.get("value").and_then(Json::as_str), Some("abcde"));
@@ -878,7 +878,7 @@ fn input_emits_schema_3_with_spec_only() {
         Some("Otro")
     );
 
-    // Solo los nodos input llevan `input`.
+    // Only input nodes carry `input`.
     for node in nodes(&doc) {
         let is_input = node.get("kind").and_then(Json::as_str) == Some("input");
         assert_eq!(node.get("input").is_some(), is_input, "{node:#?}");

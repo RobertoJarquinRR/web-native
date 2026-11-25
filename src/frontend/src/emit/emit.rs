@@ -1,8 +1,8 @@
-//! Helpers JSON con el mismo formato que `json.dumps(..., indent=2)` de Python.
+//! JSON helpers matching Python's `json.dumps(..., indent=2)` output.
 
 use std::fmt::Write;
 
-/// `round()` de Python para floats: redondeo a par mas cercano (banker's).
+/// Python's `round()` for floats: round half to even (banker's rounding).
 pub(crate) fn round_py(value: f64) -> i64 {
     if !value.is_finite() {
         return 0;
@@ -10,8 +10,8 @@ pub(crate) fn round_py(value: f64) -> i64 {
     value.round_ties_even() as i64
 }
 
-/// Float con la representacion corta de `repr()` de Python (siempre con `.0`
-/// si es integral, porque el valor original era float).
+/// Float formatted like Python's `repr()` (always keeps `.0` for integral
+/// values, because the original value was a float).
 pub(crate) fn py_float(value: f64) -> String {
     let mut text = format!("{value}");
     if !text.contains('.') && !text.contains('e') && !text.contains('E') {

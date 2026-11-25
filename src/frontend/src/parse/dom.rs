@@ -1,8 +1,8 @@
-//! HTML -> DOM usando html5ever con un TreeSink propio.
+//! HTML -> DOM using html5ever with a custom `TreeSink`.
 //!
-//! El arbol resultante imita al de `html5lib` con `treebuilder="etree"`:
-//! solo elementos, `text` guarda el texto propio que precede a los hijos y
-//! los nodos de comentario/doctype se descartan.
+//! The resulting tree mimics `html5lib` with `treebuilder="etree"`: elements
+//! only, `text` holds the node's own text before its children, and comment and
+//! doctype nodes are dropped.
 
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
@@ -21,7 +21,7 @@ const NON_RENDERED: [&str; 10] = [
     "head", "title", "meta", "link", "style", "script", "base", "template", "noscript", "track",
 ];
 
-/// Nombre propio (clonado) para poder devolverlo desde un `RefCell`.
+/// Owned (cloned) name so it can be returned out of a `RefCell`.
 pub(crate) struct OwnedName {
     ns: Namespace,
     local: LocalName,
@@ -429,7 +429,7 @@ fn convert(raw: &[RawNode], id: NodeId, parent: Option<NodeId>, out: &mut Vec<No
 }
 
 pub(crate) fn parse_html(text: &str) -> Dom {
-    // html5lib usa scripting=False por defecto; html5ever arranca con true.
+    // html5lib defaults to scripting=False; html5ever starts with true.
     let options = html5ever::driver::ParseOpts {
         tree_builder: html5ever::tree_builder::TreeBuilderOpts {
             scripting_enabled: false,
@@ -443,7 +443,7 @@ pub(crate) fn parse_html(text: &str) -> Dom {
         .one(text.as_bytes())
 }
 
-/// CSS en orden de documento: `<style>` inline y `<link rel=stylesheet>`.
+/// CSS in document order: inline `<style>` and `<link rel=stylesheet>`.
 pub(crate) fn stylesheet_texts(dom: &Dom, base_dir: &Path) -> Result<Vec<String>, String> {
     let mut texts = Vec::new();
     for id in dom.preorder() {
@@ -477,7 +477,7 @@ pub(crate) fn stylesheet_texts(dom: &Dom, base_dir: &Path) -> Result<Vec<String>
     Ok(texts)
 }
 
-/// Nodos no renderizados por la hoja de estilo del navegador (como Python).
+/// Nodes not rendered by the browser's UA stylesheet (same as Python).
 pub(crate) fn ua_display(tag: &str) -> &'static str {
     if NON_RENDERED.contains(&tag) {
         "none"

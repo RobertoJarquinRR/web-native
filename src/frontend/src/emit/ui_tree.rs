@@ -1,27 +1,28 @@
-//! `--emit-ui`: arbol de estilos **pre-layout** para el runtime R2.
+//! `--emit-ui`: **pre-layout** style tree for the runtime.
 //!
-//! El arbol sale de la cascada con los valores computados y sin geometria:
-//! `emit_ui.py` lo consume y lo convierte en `ui_data.h`. El texto viaja como
-//! string + estilo; el runtime lo mide, lo shapea y lo rasteriza.
+//! The tree comes out of the cascade with computed values and no geometry:
+//! `emit_ui.py` consumes it and turns it into `ui_data.h`. Text travels as a
+//! string plus style; the runtime measures, shapes and rasterizes it.
 //!
-//! El aplanado reproduce `Emitter` de `src/emitter/python/emit_ui.py`:
-//! pre-orden, texto propio antes de los hijos, nombres `tag#id.clase` con
-//! sufijo `[n]` para duplicados, y `%` conservados como `width_pct`.
+//! Flattening mirrors `Emitter` in `src/emitter/python/emit_ui.py`: pre-order,
+//! own text before children, `tag#id.class` names with an `[n]` suffix for
+//! duplicates, and `%` kept as `width_pct`.
 //!
-//! Salida: `ui.json` (arbol + estilos + data-*). No se escribe atlas.
+//! Output: `ui.json` (tree + styles + data-*) with `atlas: null`.
 //!
-//! No ejecuta el pase de layout: no hay x/y/w/h de cajas, solo el estilo.
-//! Emite `webnative.ui-tree/1` si la pagina no usa features v2 y
-//! `webnative.ui-tree/2` si emite grid, scroll (`overflow: auto|scroll`) o
-//! imagenes (`docs/ui-tree-v2.md`). `webnative.ui-tree/3` es aditivo: la pagina
-//! usa un `<input type="text">` y anade `kind:"input"` + `input{}` con
-//! `value`, `placeholder`, `max_length` y `password`. El texto del input lo
-//! shapea el runtime.
+//! No layout pass runs: there are no box x/y/w/h, only style. Emits
+//! `webnative.ui-tree/1` when the page uses no v2 feature and
+//! `webnative.ui-tree/2` when it emits grid, scroll (`overflow: auto|scroll`) or
+//! images (`docs/ui-tree-v2.md`). `webnative.ui-tree/3` is additive: the page
+//! uses an `<input type="text">` and gains `kind:"input"` + `input{}` with
+//! `value`, `placeholder`, `max_length` and `password`. The input text is
+//! shaped by the runtime.
 //!
-//! E1 (fidelidad visual) es tambien aditivo y por pagina: si algun nodo usa
-//! `text-align`, `line-height` o `margin: auto`, cada nodo emite ademas
-//! `text_align`, `line_height` y `margin_auto`. Las paginas que no los usan no
-//! cambian ni un byte (y `UI_STYLE_EXTRAS` solo se define en esos headers).
+//! E1 (visual fidelity) is also additive and per page: if any node uses
+//! `text-align`, `line-height` or `margin: auto`, every node also emits
+//! `text_align`, `line_height` and `margin_auto`. Pages that do not use them do
+//! not change a single byte (and `UI_STYLE_EXTRAS` is only defined in those
+//! headers).
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -35,11 +36,11 @@ use crate::style::color::parse_color;
 use crate::style::grid::{GridAutoRows, GridTemplateColumns};
 use crate::style::style_ext::{BorderOut, BoxShadow, RelLength, StyleV3, Unit};
 
-/// Schema sin features v2 (grid/scroll/imagenes). Identico al contrato previo.
+/// Schema without v2 features (grid/scroll/images). Same as the previous contract.
 pub(crate) const SCHEMA_V1: &str = "webnative.ui-tree/1";
-/// Schema v2 cuando la pagina usa grid, scroll o imagenes.
+/// Schema v2, used when the page uses grid, scroll or images.
 pub(crate) const SCHEMA_V2: &str = "webnative.ui-tree/2";
-/// Schema v3 (aditivo) cuando la pagina usa `<input type="text">`.
+/// Schema v3 (additive), used when the page uses `<input type="text">`.
 pub(crate) const SCHEMA_V3: &str = "webnative.ui-tree/3";
 
 pub(crate) const KIND_BLOCK: u32 = 0;
@@ -49,7 +50,7 @@ pub(crate) const KIND_GRID: u32 = 3;
 pub(crate) const KIND_IMAGE: u32 = 4;
 pub(crate) const KIND_INPUT: u32 = 5;
 
-/// Limite duro del buffer de edicion; `maxlength` del HTML puede ser menor.
+/// Hard cap of the edit buffer; the HTML `maxlength` may be lower.
 pub(crate) const INPUT_MAX_BYTES: usize = 255;
 
 const DEFAULT_FAMILY: &str = "Segoe UI";
@@ -71,7 +72,7 @@ fn align_code(name: &str) -> u32 {
         "center" => 1,
         "flex-end" | "end" => 2,
         "stretch" => 3,
-        // El oraculo usa `ALIGN.get(..., 3)`: desconocido = stretch.
+        // The oracle uses `ALIGN.get(..., 3)`: unknown means stretch.
         _ => 3,
     }
 }
@@ -95,7 +96,7 @@ fn kind_name(kind: u32) -> &'static str {
     }
 }
 
-/// `argb()` del oraculo para un color ya normalizado a `#rrggbb`.
+/// The oracle's `argb()` for a color already normalized to `#rrggbb`.
 fn argb_from_hex(value: Option<&str>) -> u32 {
     let Some(text) = value else { return 0 };
     let Some(hex) = text.strip_prefix('#') else {
@@ -110,7 +111,7 @@ fn argb_from_hex(value: Option<&str>) -> u32 {
     }
 }
 
-/// `argb()` sobre un atributo CSS crudo (`data-hover="#2a3140"`).
+/// `argb()` over a raw CSS attribute (`data-hover="#2a3140"`).
 fn argb_from_attr(value: Option<&str>) -> u32 {
     argb_from_hex(parse_color(value).as_deref())
 }
@@ -119,8 +120,8 @@ fn normalize_text(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// `<input type="text">` es el unico widget de entrada de v3. Sin `type` se
-/// asume `text` (como el navegador); cualquier otro tipo queda fuera.
+/// `<input type="text">` is the only v3 input widget. Without `type` it is
+/// assumed to be `text` (like the browser); any other type is out of scope.
 fn input_type_is_text(node: &Node) -> bool {
     match node.attr("type") {
         None => true,
@@ -131,7 +132,7 @@ fn input_type_is_text(node: &Node) -> bool {
     }
 }
 
-/// `maxlength` -> 0 (sin limite) o 1..=255. Valores invalidos se ignoran.
+/// `maxlength` -> 0 (no limit) or 1..=255. Invalid values are ignored.
 fn input_max_length(value: Option<&str>) -> u32 {
     value
         .and_then(|text| text.trim().parse::<u32>().ok())
@@ -139,8 +140,8 @@ fn input_max_length(value: Option<&str>) -> u32 {
         .unwrap_or(0)
 }
 
-/// Solo ASCII imprimible (32..126), sin recortar palabras ni normalizar
-/// espacios. `limit == 0` no recorta; el resto se descarta.
+/// Printable ASCII only (32..126), without trimming words or normalizing
+/// spaces. `limit == 0` does not truncate; the rest is dropped.
 fn sanitize_input_text(text: &str, limit: u32) -> String {
     let max = if limit == 0 {
         INPUT_MAX_BYTES
@@ -164,7 +165,7 @@ pub(crate) struct StyleOut {
     pub(crate) align_items: String,
     pub(crate) flex_wrap: String,
     pub(crate) gap: f64,
-    /// v2 (solo se serializan con schema `/2`).
+    /// v2 (only serialized with schema `/2`).
     pub(crate) row_gap: f64,
     pub(crate) column_gap: f64,
     pub(crate) grid_template_columns: Option<GridTemplateColumns>,
@@ -181,18 +182,18 @@ pub(crate) struct StyleOut {
     pub(crate) font_size: f64,
     pub(crate) font_family: String,
     pub(crate) font_weight: String,
-    /// E1: alineacion horizontal del texto y caja de linea (solo se
-    /// serializan cuando la pagina usa la feature).
+    /// E1: horizontal text alignment and line box (only serialized when the
+    /// page uses the feature).
     pub(crate) text_align: String,
     pub(crate) line_height: f64,
     pub(crate) margin_auto: [bool; 4],
-    /// `box-sizing: border-box` (A). false = content-box (CSS default).
+    /// `box-sizing: border-box` (A). false = content-box (the CSS default).
     pub(crate) box_sizing_border: bool,
     /// Flex growth (E8): grow, shrink, basis px (-1 = auto).
     pub(crate) flex_grow: f64,
     pub(crate) flex_shrink: f64,
     pub(crate) flex_basis: f64,
-    /// v3: bordes, radio, sombras y unidades relativas (solo schema `/2`).
+    /// v3: borders, radius, shadows and relative units (only schema `/2`).
     pub(crate) css3: StyleV3,
 }
 
@@ -215,14 +216,14 @@ pub(crate) struct TextOut {
     pub(crate) content: String,
 }
 
-/// Contenido de un nodo `kind:"image"` (solo schema `/2`).
+/// Content of a `kind:"image"` node (only schema `/2`).
 pub(crate) struct ImageOut {
     pub(crate) src: Option<String>,
     pub(crate) alt: Option<String>,
     pub(crate) object_fit: String,
 }
 
-/// Contenido de un nodo `kind:"input"` (schema `/3`).
+/// Content of a `kind:"input"` node (schema `/3`).
 pub(crate) struct InputOut {
     pub(crate) value: String,
     pub(crate) placeholder: String,
@@ -246,7 +247,7 @@ pub(crate) struct NodeOut {
     pub(crate) input: Option<InputOut>,
 }
 
-/// Resumen para el log del build.
+/// Summary for the build log.
 pub(crate) struct UiSummary {
     pub(crate) nodes: usize,
     pub(crate) runs: usize,
@@ -309,17 +310,18 @@ impl<'a> Builder<'a> {
             .as_ref()
             .ok_or_else(|| format!("nodo {} sin estilo computado", id))?;
         let is_image = self.dom.nodes[id].tag == "img";
-        // `<input type="text">` (o sin `type`) es un widget editable de v3.
-        // `password`, `checkbox`, etc. no forman parte de este contrato y se
-        // emiten como bloque normal (subset avisa).
+        // `<input type="text">` (or no `type`) is an editable v3 widget.
+        // `password`, `checkbox`, etc. are not part of this contract and are
+        // emitted as a normal block (the subset validator warns).
         let is_input = self.dom.nodes[id].tag == "input" && input_type_is_text(&self.dom.nodes[id]);
         let mut width_px = style.width.unwrap_or(-1.0);
         let mut width_pct = style.width_pct;
         let mut height_px = style.height.unwrap_or(-1.0);
         let mut height_pct = style.height_pct;
-        // Imagen: `width`/`height` del HTML son presentational hints. Solo se
-        // usan si el CSS no fijo la dimension (el CSS siempre gana; `auto`
-        // explicito tambien gana y deja que el runtime mida el intrinseco).
+        // Image: the HTML `width`/`height` are presentational hints. They are
+        // only used if CSS did not fix the dimension (CSS always wins; an
+        // explicit `auto` also wins and lets the runtime measure the intrinsic
+        // size).
         if is_image {
             if width_px < 0.0 && width_pct == 0.0 && !css_auto(style, "width") {
                 if let Some(value) = attribute_length(self.dom.nodes[id].attr("width")) {
@@ -332,7 +334,7 @@ impl<'a> Builder<'a> {
                 }
             }
         }
-        // Raiz: `%` contra el viewport, igual que el oraculo.
+        // Root: `%` against the viewport, same as the oracle.
         if is_root {
             if width_pct == 0.0 && width_px < 0.0 {
                 width_px = -1.0;
@@ -343,10 +345,10 @@ impl<'a> Builder<'a> {
                 height_pct = 100.0;
             }
         }
-        // Un `<img>`/`<input>` inline si se emite; el resto de `inline` no.
+        // An inline `<img>`/`<input>` is emitted; other `inline` nodes are not.
         if style.display == "none" || (style.display == "inline" && !is_image && !is_input) {
-            // El oraculo filtra por block/flex antes de llamar; los nodos no
-            // renderizables de la raiz son un error de fixture.
+            // The oracle filters by block/flex before calling; a non-renderable
+            // root node is a fixture error.
             if is_root {
                 return Err("body is not renderable".to_string());
             }
@@ -465,12 +467,12 @@ impl<'a> Builder<'a> {
             input,
         });
 
-        // `<img>` y `<input>` son void: no tienen texto propio ni hijos.
+        // `<img>` and `<input>` are void: they have no own text and no children.
         if is_image || is_input {
             return Ok(index);
         }
 
-        // Texto propio primero, como `Emitter._emit_element`.
+        // Own text first, like `Emitter._emit_element`.
         let text = normalize_text(&self.dom.nodes[id].text);
         if !text.is_empty() {
             let text_index = self.emit_text(style, index, name, &text)?;
@@ -493,8 +495,8 @@ impl<'a> Builder<'a> {
         Ok(index)
     }
 
-    /// Hijos que el arbol v2/v3 conserva: block/flex/grid, `<img>` e
-    /// `<input>` renderizables. `inline`, `none` y el resto se descartan.
+    /// Children kept by the v2/v3 tree: block/flex/grid, `<img>` and
+    /// renderable `<input>`. `inline`, `none` and everything else is dropped.
     fn is_renderable(&self, child: NodeId) -> bool {
         let Some(style) = self.styles[child].as_ref() else {
             return false;
@@ -639,8 +641,8 @@ fn push_opt_string(out: &mut String, value: Option<&str>) {
     }
 }
 
-/// Escribe `"<prefix>_em"`, `"<prefix>_rem"`, `"<prefix>_vh"` y
-/// `"<prefix>_vw"` (float o null) para una longitud declarada.
+/// Writes `"<prefix>_em"`, `"<prefix>_rem"`, `"<prefix>_vh"` and
+/// `"<prefix>_vw"` (float or null) for a declared length.
 fn push_unit_fields(out: &mut String, prefix: &str, rel: Option<RelLength>) {
     for unit in [Unit::Em, Unit::Rem, Unit::Vh, Unit::Vw] {
         let _ = write!(out, ",\n        \"{prefix}_{}\": ", unit.suffix());
@@ -651,8 +653,8 @@ fn push_unit_fields(out: &mut String, prefix: &str, rel: Option<RelLength>) {
     }
 }
 
-/// Cuatro arrays (`<name>_em`, `<name>_rem`, `<name>_vh`, `<name>_vw`) con la
-/// unidad declarada por lado; `null` en los lados que no usan esa unidad.
+/// Four arrays (`<name>_em`, `<name>_rem`, `<name>_vh`, `<name>_vw`) with the
+/// unit declared per side; `null` on sides that do not use that unit.
 fn push_unit_arrays4(out: &mut String, name: &str, values: &[Option<RelLength>; 4]) {
     for unit in [Unit::Em, Unit::Rem, Unit::Vh, Unit::Vw] {
         let _ = write!(out, ",\n        \"{name}_{}\": [", unit.suffix());
@@ -806,9 +808,9 @@ fn push_style(out: &mut String, style: &StyleOut, detailed: bool, extras: bool) 
     out.push_str(",\n        \"gap\": ");
     push_float(out, style.gap);
     if detailed {
-        // Campos v2 (`docs/ui-tree-v2.md`). En `/1` no se escriben para que
-        // las paginas existentes sigan siendo byte a byte identicas. `/3` los
-        // hereda de `/2` (es aditivo).
+        // v2 fields (`docs/ui-tree-v2.md`). Under `/1` they are not written so
+        // existing pages stay byte-for-byte identical. `/3` inherits them from
+        // `/2` (it is additive).
         out.push_str(",\n        \"row_gap\": ");
         push_float(out, style.row_gap);
         out.push_str(",\n        \"column_gap\": ");
@@ -860,8 +862,8 @@ fn push_style(out: &mut String, style: &StyleOut, detailed: bool, extras: bool) 
     out.push_str(",\n        \"font_weight\": ");
     push_json_string(out, &style.font_weight);
     if extras {
-        // E1 (`text-align`, `line-height`, `margin:auto`). Solo se escriben si
-        // la pagina usa alguna: las paginas existentes siguen byte a byte.
+        // E1 (`text-align`, `line-height`, `margin:auto`). Only written if the
+        // page uses one of them: existing pages stay byte-identical.
         out.push_str(",\n        \"text_align\": ");
         push_json_string(out, &style.text_align);
         out.push_str(",\n        \"line_height\": ");
@@ -957,7 +959,7 @@ fn push_nodes_json(out: &mut String, nodes: &[NodeOut], detailed: bool, extras: 
                 out.push_str("\n      }");
             }
         }
-        // Solo los nodos input llevan `input` (schema `/3`).
+        // Only input nodes carry `input` (schema `/3`).
         if let Some(input) = &node.input {
             out.push_str(",\n      \"input\": {\n        \"value\": ");
             push_json_string(out, &input.value);
@@ -970,7 +972,7 @@ fn push_nodes_json(out: &mut String, nodes: &[NodeOut], detailed: bool, extras: 
                 if input.password { "true" } else { "false" }
             );
         }
-        // Solo los nodos imagen llevan `image`; asi `/1` no cambia.
+        // Only image nodes carry `image`, so `/1` does not change.
         if let Some(image) = &node.image {
             out.push_str(",\n      \"image\": {\n        \"src\": ");
             push_opt_string(out, image.src.as_deref());
@@ -986,7 +988,7 @@ fn push_nodes_json(out: &mut String, nodes: &[NodeOut], detailed: bool, extras: 
 
 // ------------------------------------------------------------------ driver
 
-/// `width="180"` / `height="240px"` -> px; `%`/`auto`/basura -> `None`.
+/// `width="180"` / `height="240px"` -> px; `%`/`auto`/garbage -> `None`.
 fn attribute_length(value: Option<&str>) -> Option<f64> {
     let px = crate::style::color::length(value)?;
     if px.is_finite() && px >= 0.0 {
@@ -996,7 +998,7 @@ fn attribute_length(value: Option<&str>) -> Option<f64> {
     }
 }
 
-/// `true` si el CSS declaro `auto` explicitamente para `width`/`height`.
+/// `true` if CSS explicitly declared `auto` for `width`/`height`.
 fn css_auto(style: &ComputedStyle, name: &str) -> bool {
     style
         .raw
@@ -1004,10 +1006,10 @@ fn css_auto(style: &ComputedStyle, name: &str) -> bool {
         .is_some_and(|value| value.trim().eq_ignore_ascii_case("auto"))
 }
 
-/// Una pagina emite `/2` si algun nodo del arbol usa grid, scroll o imagen.
-/// Se decide sobre los nodos ya emitidos (no sobre CSS muerto): un `<img>`
-/// dentro de `display:none` no cuenta. `overflow: hidden` no fuerza v2: ya
-/// existia en v1 y no anade scroll.
+/// A page emits `/2` if any node of the tree uses grid, scroll or an image.
+/// Decided on the already-emitted nodes (not on dead CSS): an `<img>` inside
+/// `display:none` does not count. `overflow: hidden` does not force v2: it
+/// already existed in v1 and adds no scroll.
 fn nodes_use_v2(nodes: &[NodeOut]) -> bool {
     nodes.iter().any(|node| {
         node.kind == KIND_GRID
@@ -1022,17 +1024,17 @@ fn nodes_use_v2(nodes: &[NodeOut]) -> bool {
     })
 }
 
-/// Una pagina emite `/3` (aditivo sobre `/2`) si algun nodo emitido es un
-/// `<input type="text">`. El schema se decide sobre nodos ya emitidos: un
-/// input dentro de `display:none` no cuenta.
+/// A page emits `/3` (additive over `/2`) if any emitted node is an
+/// `<input type="text">`. The schema is decided on already-emitted nodes: an
+/// input inside `display:none` does not count.
 fn nodes_have_input(nodes: &[NodeOut]) -> bool {
     nodes.iter().any(|node| node.input.is_some())
 }
 
-/// Emite `ui.json` desde el DOM y la cascada ya calculados.
+/// Emits `ui.json` from the DOM and the already-computed cascade.
 ///
-/// `ui_path` es el fichero `ui.json`; no se escribe ningun atlas al lado.
-/// Si `blob_path` es `Some`, tambien escribe el `.wnui` v2 con el mismo arbol.
+/// `ui_path` is the `ui.json` file; no atlas is written next to it. If
+/// `blob_path` is `Some`, it also writes the v2 `.wnui` with the same tree.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_ui_tree(
     dom: &Dom,
@@ -1066,9 +1068,9 @@ pub(crate) fn emit_ui_tree(
     let v3 = nodes_have_input(&nodes);
     let v2 = nodes_use_v2(&nodes);
     let detailed = v2 || v3;
-    // E1: la pagina usa text-align/line-height/margin:auto en algun nodo. Solo
-    // entonces se serializan los campos nuevos (las paginas existentes no
-    // cambian ni un byte).
+    // E1: the page uses text-align/line-height/margin:auto on some node. Only
+    // then are the new fields serialized (existing pages do not change a
+    // single byte).
     let extras = nodes.iter().any(|node| {
         node.style.text_align != "left"
             || node.style.line_height != 0.0
@@ -1114,13 +1116,14 @@ pub(crate) fn emit_ui_tree(
             .parent()
             .filter(|parent| !parent.as_os_str().is_empty())
             .unwrap_or_else(|| Path::new("."));
-        // El blob reproduce lo que `emit_ui.py` lee de `ui.json`: en `/1` los
-        // campos v2 no se serializan y el escritor debe ignorarlos igual.
+        // The blob reproduces what `emit_ui.py` reads from `ui.json`: under
+        // `/1` the v2 fields are not serialized and the writer must ignore
+        // them the same way.
         crate::emit::blob::write_blob(blob_path, &nodes, viewport, ui_dir, detailed)?;
     }
 
-    // El documento ya no referencia un atlas: retirar uno viejo evita que se
-    // confunda con una salida de esta ejecucion.
+    // The document no longer references an atlas: removing a stale one avoids
+    // confusing it with output from this run.
     for name in ["atlas.bin", "atlas.json"] {
         let stale = ui_path.with_file_name(name);
         if stale.exists() {

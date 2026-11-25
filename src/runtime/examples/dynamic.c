@@ -4,9 +4,10 @@
  *   dynamic.exe [--frames N] [--image-b PATH]
  *
  * The document is the compiled fixture in tests/dynamic/fixture/ui_data.h,
- * built by tests/dynamic/run_dynamic.ps1. The demo hides/shows a card, clones
+ * emitted by the `dynamic` test suite. The demo hides/shows a card, clones
  * the card template, swaps its image and text, re-parents and removes it, then
- * verifies WN_ERR_UNSUPPORTED for text that is not pre-shaped.
+ * checks the error surface: set_image on a text node is WN_ERR_UNSUPPORTED and
+ * the document root cannot be removed.
  *
  * The window auto-closes after N presented frames (default 8) so the script is
  * headless.

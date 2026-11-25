@@ -4,7 +4,7 @@
  *   standalone.exe [--frames N] [--width W] [--height H] [--resize-demo]
  *
  * With --frames N the demo closes itself after N presented frames, which is
- * what build_abi.ps1 uses for the headless acceptance run.
+ * what the headless acceptance runs use.
  */
 #include "webnative.h"
 #include "wn_app.h"
