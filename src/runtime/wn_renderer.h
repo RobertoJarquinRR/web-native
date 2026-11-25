@@ -41,6 +41,7 @@ typedef struct wn_renderer_stats {
     int frames;
     double last_cpu_ms;     /* acquire + encode + submit, present excluded */
     double last_present_ms;
+    int image_failures;     /* images skipped because decode/cache failed */
 } wn_renderer_stats;
 
 typedef struct wn_renderer_ops {
@@ -57,6 +58,8 @@ typedef struct wn_renderer_ops {
     int (*readback)(void *context, const char *png_path);
     /* Optional diagnostics: decoded images currently cached. -1 if unknown. */
     int (*image_cache_count)(void *context);
+    /* Optional diagnostics: decoded bytes held by the image cache. -1 if unknown. */
+    long long (*image_cache_bytes)(void *context);
 } wn_renderer_ops;
 
 const wn_renderer_ops *wn_renderer_wgpu(void);

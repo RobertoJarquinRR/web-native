@@ -23,7 +23,9 @@
 #include <wchar.h>
 
 #include <wincodec.h>
+#if WN_WGPU
 #include <wgpu.h>
+#endif
 
 #include "ui_data.h"
 #include "wn_core.h"
@@ -49,6 +51,7 @@ static double now_ms(void)
     return (double)tick.QuadPart * 1000.0 / (double)freq.QuadPart;
 }
 
+#if WN_WGPU
 static void fprint_view(FILE *stream, WGPUStringView view)
 {
     if (view.data == NULL || view.length == 0) {
@@ -79,6 +82,7 @@ static void on_log(WGPULogLevel level, WGPUStringView message, void *userdata)
         fflush(stderr);
     }
 }
+#endif /* WN_WGPU */
 
 /* ------------------------------------------------------- core bridge (R2) */
 
@@ -1500,8 +1504,10 @@ int main(int argc, char **argv)
     setvbuf(stdout, NULL, _IONBF, 0);
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
     SetProcessDPIAware();
+#if WN_WGPU
     wgpuSetLogLevel(WGPULogLevel_Warn);
     wgpuSetLogCallback(on_log, NULL);
+#endif
 
     for (int i = 1; i + 1 < argc; ++i) {
         if (strcmp(argv[i], "--document") == 0) {

@@ -44,6 +44,9 @@ typedef struct {
     ID3D11ShaderResourceView *view;
     int width;
     int height;
+    size_t bytes;                 /* decoded RGBA bytes (LRU accounting) */
+    unsigned long long last_used; /* monotonic touch counter */
+    unsigned long long frame;     /* last frame that referenced the entry */
 } WnD3D11Image;
 
 typedef struct {
@@ -54,6 +57,7 @@ typedef struct {
     D3D_FEATURE_LEVEL feature_level;
     int driver_hardware;
     int flip_model;
+    UINT swapchain_flags;
     int offscreen;   /* 1 when rendering into a texture (no swapchain) */
     int width;
     int height;
@@ -93,6 +97,10 @@ typedef struct {
     WnD3D11Image *images;
     int image_count;
     int image_cache_capacity;
+    size_t image_cache_bytes;
+    size_t image_cache_budget;
+    unsigned long long image_cache_tick;
+    unsigned long long image_frame;
     IWICImagingFactory *wic;
     int com_initialized;
 
@@ -452,6 +460,7 @@ static int create_swapchain(WnD3D11 *gpu, void *handle, int width, int height)
     desc1.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     desc1.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
     desc1.Flags = 0;
+    gpu->swapchain_flags = desc1.Flags;
 
     if (factory2 != NULL) {
         hr = factory2->lpVtbl->CreateSwapChainForHwnd(factory2, (IUnknown *)gpu->device,
@@ -652,11 +661,111 @@ fail:
     return 1;
 }
 
+/*
+ * Image cache budget. Decoded textures are cached by path; the cache is an LRU
+ * bounded by decoded bytes so a media library cannot exhaust VRAM. Entries
+ * referenced by the frame being uploaded are pinned and never evicted for that
+ * frame; if one frame alone exceeds the budget the cache overflows by design
+ * (correct pixels beat the accounting limit) and shrinks at the next upload.
+ */
+#define WN_IMAGE_CACHE_DEFAULT_MB 256
+
+static size_t image_cache_budget_bytes(void)
+{
+    const char *env = getenv("WN_IMAGE_CACHE_MB");
+    long mb = WN_IMAGE_CACHE_DEFAULT_MB;
+
+    if (env != NULL && env[0] != '\0') {
+        char *end = NULL;
+        long parsed = strtol(env, &end, 10);
+        if (end != env && end != NULL && *end == '\0' && parsed >= 0 && parsed <= 16384) {
+            mb = parsed;
+        }
+    }
+    return (size_t)mb * 1024u * 1024u;
+}
+
+static void release_image_entry(WnD3D11Image *entry)
+{
+    if (entry->view != NULL) {
+        entry->view->lpVtbl->Release(entry->view);
+    }
+    if (entry->texture != NULL) {
+        entry->texture->lpVtbl->Release(entry->texture);
+    }
+    wn_free_(entry->path);
+    memset(entry, 0, sizeof(*entry));
+}
+
+static void remove_image_entry(WnD3D11 *gpu, int index)
+{
+    WnD3D11Image *entry = &gpu->images[index];
+
+    gpu->image_cache_bytes -= entry->bytes;
+    release_image_entry(entry);
+    if (index + 1 < gpu->image_count) {
+        memmove(&gpu->images[index], &gpu->images[index + 1],
+                (size_t)(gpu->image_count - index - 1) * sizeof(WnD3D11Image));
+    }
+    --gpu->image_count;
+}
+
+/* Evicts least-recently-used entries not pinned by the current frame. */
+static void evict_images_for(WnD3D11 *gpu, size_t incoming_bytes)
+{
+    while (gpu->image_cache_bytes + incoming_bytes > gpu->image_cache_budget) {
+        int victim = -1;
+        unsigned long long oldest = 0;
+        int i;
+
+        for (i = 0; i < gpu->image_count; ++i) {
+            if (gpu->images[i].frame == gpu->image_frame) {
+                continue;
+            }
+            if (victim < 0 || gpu->images[i].last_used < oldest) {
+                victim = i;
+                oldest = gpu->images[i].last_used;
+            }
+        }
+        if (victim < 0) {
+            break;
+        }
+        remove_image_entry(gpu, victim);
+    }
+}
+
+/* Marks every cached image of the incoming frame as pinned and recently used. */
+static void touch_frame_images(WnD3D11 *gpu, const wn_display_list *list)
+{
+    int b;
+
+    ++gpu->image_frame;
+    if (list == NULL) {
+        return;
+    }
+    for (b = 0; b < list->image_batch_count; ++b) {
+        const wn_image_batch *batch = &list->image_batches[b];
+        int i;
+        if (batch->src == NULL) {
+            continue;
+        }
+        for (i = 0; i < gpu->image_count; ++i) {
+            if (strcmp(gpu->images[i].path, batch->src) == 0) {
+                gpu->images[i].frame = gpu->image_frame;
+                gpu->images[i].last_used = ++gpu->image_cache_tick;
+                break;
+            }
+        }
+    }
+}
+
 static WnD3D11Image *find_cached_image(WnD3D11 *gpu, const char *path)
 {
     int i;
     for (i = 0; i < gpu->image_count; ++i) {
         if (strcmp(gpu->images[i].path, path) == 0) {
+            gpu->images[i].frame = gpu->image_frame;
+            gpu->images[i].last_used = ++gpu->image_cache_tick;
             return &gpu->images[i];
         }
     }
@@ -680,6 +789,7 @@ static WnD3D11Image *ensure_image_texture(WnD3D11 *gpu, const char *path)
     if (decode_image_rgba(gpu, path, &pixels, &width, &height) != 0) {
         return NULL;
     }
+    evict_images_for(gpu, (size_t)width * (size_t)height * 4u);
     if (gpu->image_count >= gpu->image_cache_capacity) {
         int capacity = gpu->image_cache_capacity > 0 ? gpu->image_cache_capacity * 2 : 8;
         WnD3D11Image *grown = (WnD3D11Image *)realloc(
@@ -735,6 +845,10 @@ static WnD3D11Image *ensure_image_texture(WnD3D11 *gpu, const char *path)
     }
     entry->width = width;
     entry->height = height;
+    entry->bytes = (size_t)width * (size_t)height * 4u;
+    entry->last_used = ++gpu->image_cache_tick;
+    entry->frame = gpu->image_frame;
+    gpu->image_cache_bytes += entry->bytes;
     ++gpu->image_count;
     return entry;
 }
@@ -929,6 +1043,7 @@ static int renderer_init(void **out, const wn_surface_desc *surface, int width, 
     gpu->info.width = gpu->width;
     gpu->info.height = gpu->height;
     gpu->capture_frame = 1;
+    gpu->image_cache_budget = image_cache_budget_bytes();
 
     hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
     gpu->com_initialized = SUCCEEDED(hr) ? 1 : 0;
@@ -1067,9 +1182,7 @@ fail:
         if (gpu->text_buffer != NULL) gpu->text_buffer->lpVtbl->Release(gpu->text_buffer);
         if (gpu->image_buffer != NULL) gpu->image_buffer->lpVtbl->Release(gpu->image_buffer);
         for (i = 0; i < gpu->image_count; ++i) {
-            if (gpu->images[i].view != NULL) gpu->images[i].view->lpVtbl->Release(gpu->images[i].view);
-            if (gpu->images[i].texture != NULL) gpu->images[i].texture->lpVtbl->Release(gpu->images[i].texture);
-            wn_free_(gpu->images[i].path);
+            release_image_entry(&gpu->images[i]);
         }
         wn_free_(gpu->images);
         if (gpu->wic != NULL) gpu->wic->lpVtbl->Release(gpu->wic);
@@ -1101,6 +1214,9 @@ fail:
 static void renderer_resize(void *context, int width, int height)
 {
     WnD3D11 *gpu = (WnD3D11 *)context;
+    int old_width;
+    int old_height;
+    UINT old_flags;
     HRESULT hr;
 
     if (gpu == NULL) {
@@ -1111,6 +1227,10 @@ static void renderer_resize(void *context, int width, int height)
     if (gpu->width == width && gpu->height == height && gpu->rtv != NULL) {
         return;
     }
+    /* Capture before overwriting: the ResizeBuffers failure path restores these. */
+    old_width = gpu->width;
+    old_height = gpu->height;
+    old_flags = gpu->swapchain_flags;
     gpu->width = width;
     gpu->height = height;
     gpu->info.width = width;
@@ -1127,17 +1247,31 @@ static void renderer_resize(void *context, int width, int height)
         return;
     }
 
-    com_release((IUnknown *)gpu->rtv);
-    gpu->rtv = NULL;
-    com_release((IUnknown *)gpu->backbuffer);
-    gpu->backbuffer = NULL;
+    {
+        com_release((IUnknown *)gpu->rtv);
+        gpu->rtv = NULL;
+        com_release((IUnknown *)gpu->backbuffer);
+        gpu->backbuffer = NULL;
 
-    hr = gpu->swapchain->lpVtbl->ResizeBuffers(gpu->swapchain, 0, (UINT)width,
-                                               (UINT)height, DXGI_FORMAT_UNKNOWN, 0);
-    if (FAILED(hr)) {
-        set_error(gpu, "ResizeBuffers(%dx%d) failed (hr=0x%08lX)", width, height,
-                  (unsigned long)hr);
-        return;
+        hr = gpu->swapchain->lpVtbl->ResizeBuffers(gpu->swapchain, 0, (UINT)width,
+                                                   (UINT)height, DXGI_FORMAT_UNKNOWN,
+                                                   old_flags);
+        if (FAILED(hr)) {
+            set_error(gpu, "ResizeBuffers(%dx%d) failed (hr=0x%08lX)", width, height,
+                      (unsigned long)hr);
+            /* The swapchain kept its old buffers: restore the last valid state
+             * and reacquire its backbuffer/RTV so rendering can continue. */
+            gpu->width = old_width;
+            gpu->height = old_height;
+            gpu->info.width = old_width;
+            gpu->info.height = old_height;
+            gpu->swapchain_flags = old_flags;
+            if (create_render_target(gpu) != 0) {
+                gpu->info.width = 0;
+                gpu->info.height = 0;
+            }
+            return;
+        }
     }
     (void)create_render_target(gpu);
 }
@@ -1153,6 +1287,7 @@ static int renderer_upload(void *context, const wn_display_list *list)
     gpu->uploaded_vertices = 0;
     gpu->uploaded_glyphs = 0;
     gpu->uploaded_images = 0;
+    touch_frame_images(gpu, list);
 
     if (list->atlas.pixels != NULL) {
         if (upload_atlas(gpu, &list->atlas) != 0) {
@@ -1192,7 +1327,11 @@ static int renderer_upload(void *context, const wn_display_list *list)
                 continue;
             }
             if (ensure_image_texture(gpu, batch->src) == NULL) {
-                return 1;
+                /* A broken poster only drops that quad; the frame stays alive. */
+                gpu->stats.image_failures += 1;
+                set_error(gpu, "image '%s' skipped (decode/cache failure #%d)",
+                          batch->src, gpu->stats.image_failures);
+                continue;
             }
         }
     }
@@ -1409,9 +1548,7 @@ static void renderer_destroy(void *context)
     com_release((IUnknown *)gpu->text_buffer);
     com_release((IUnknown *)gpu->image_buffer);
     for (i = 0; i < gpu->image_count; ++i) {
-        com_release((IUnknown *)gpu->images[i].view);
-        com_release((IUnknown *)gpu->images[i].texture);
-        wn_free_(gpu->images[i].path);
+        release_image_entry(&gpu->images[i]);
     }
     wn_free_(gpu->images);
     com_release((IUnknown *)gpu->wic);
@@ -1488,6 +1625,12 @@ static int renderer_image_cache_count(void *context)
     return gpu != NULL ? gpu->image_count : -1;
 }
 
+static long long renderer_image_cache_bytes(void *context)
+{
+    WnD3D11 *gpu = (WnD3D11 *)context;
+    return gpu != NULL ? (long long)gpu->image_cache_bytes : -1;
+}
+
 static const wn_renderer_ops g_d3d11_ops = {
     "d3d11",
     renderer_init,
@@ -1499,7 +1642,8 @@ static const wn_renderer_ops g_d3d11_ops = {
     renderer_get_info,
     renderer_get_stats,
     renderer_readback,
-    renderer_image_cache_count
+    renderer_image_cache_count,
+    renderer_image_cache_bytes
 };
 
 const wn_renderer_ops *wn_renderer_d3d11(void)

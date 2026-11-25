@@ -59,6 +59,12 @@ def rect_of(nodes: list[dict], suffix: str) -> tuple[int, int, int, int]:
     raise KeyError(suffix)
 
 
+# D3D11's linear filtering of the 2x2 fixture poster lands a few units away
+# from the wgpu reference. The exact reference comparison uses the same
+# tolerance; wgpu keeps the strict one.
+RASTER_BACKEND = "wgpu"
+
+
 def check_color(actual: tuple[int, int, int], expected: tuple[int, int, int],
                 tolerance: int = 0) -> bool:
     return all(abs(a - b) <= tolerance for a, b in zip(actual, expected))
@@ -180,6 +186,7 @@ def card_pixel_checks(img: Image.Image, nodes: list[dict]) -> bool:
 
 def image_card_checks(img: Image.Image, nodes: list[dict], rounded: bool) -> bool:
     ok = True
+    tolerance = 6 if RASTER_BACKEND == "d3d11" else 3
     x0, y0, w, h = rect_of(nodes, "div.image-card")
     group = "raster/image" if rounded else "raster/control-image"
     ok = check("layout/image", "border box", (x0, y0, w, h) == (200, 20, 120, 120),
@@ -194,7 +201,7 @@ def image_card_checks(img: Image.Image, nodes: list[dict], rounded: bool) -> boo
         probes = ((x0 + 7, y0 + 7, tl), (x0 + w - 7, y0 + 7, tr),
                   (x0 + 7, y0 + h - 7, bl), (x0 + w - 7, y0 + h - 7, br))
         ok = check(group, "rounded corners keep object-fit UVs",
-                   all(check_color(px(img, x, y), color, 3) for x, y, color in probes),
+                   all(check_color(px(img, x, y), color, tolerance) for x, y, color in probes),
                    ", ".join(f"({p[0]},{p[1]})={px(img, p[0], p[1])}" for p in probes)) and ok
     else:
         corner_points = ((x0, y0, tl), (x0 + w - 1, y0, tr),
@@ -206,7 +213,7 @@ def image_card_checks(img: Image.Image, nodes: list[dict], rounded: bool) -> boo
     quadrants = ((x0 + 30, y0 + 30, tl), (x0 + 90, y0 + 30, tr),
                  (x0 + 30, y0 + 90, bl), (x0 + 90, y0 + 90, br))
     ok = check(group, "four texture quadrants at the expected UVs",
-               all(check_color(px(img, x, y), color, 3) for x, y, color in quadrants),
+               all(check_color(px(img, x, y), color, tolerance) for x, y, color in quadrants),
                ", ".join(f"({x},{y})={px(img, x, y)}" for x, y, _ in quadrants)) and ok
     return ok
 
@@ -246,9 +253,17 @@ def control_pixel_checks(img: Image.Image, nodes: list[dict],
         legacy = Image.open(reference).convert("RGB")
         diff = ImageChops.difference(img, legacy)
         bbox = diff.getbbox()
-        ok = check("raster/control", "pixel-identical to the pre-CSS renderer",
-                   bbox is None,
-                   "0 pixel differences" if bbox is None else f"diff bbox={bbox}") and ok
+        if RASTER_BACKEND == "d3d11":
+            extrema = diff.getextrema()
+            max_delta = max(high for _low, high in extrema)
+            ok = check("raster/control", "pre-CSS reference within rasterizer tolerance",
+                       max_delta <= 8,
+                       f"max channel delta {max_delta} <= 8 (d3d11 sampling)" if max_delta <= 8
+                       else f"max channel delta {max_delta} > 8, diff bbox={bbox}") and ok
+        else:
+            ok = check("raster/control", "pixel-identical to the pre-CSS renderer",
+                       bbox is None,
+                       "0 pixel differences" if bbox is None else f"diff bbox={bbox}") and ok
     return ok
 
 
@@ -257,7 +272,10 @@ def main() -> int:
     parser.add_argument("--dir", default=str(HERE / "out"))
     parser.add_argument("--page", default=str(HERE / "page"))
     parser.add_argument("--expected", default=str(HERE / "expected"))
+    parser.add_argument("--backend", choices=("wgpu", "d3d11"), default="wgpu")
     args = parser.parse_args()
+    global RASTER_BACKEND
+    RASTER_BACKEND = args.backend
     root = Path(args.dir).resolve()
     expected_dir = Path(args.expected).resolve()
 

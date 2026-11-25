@@ -20,6 +20,7 @@ typedef struct wn_view_stats {
     double cpu_frame_total_ms;/* upload + encode + submit, present excluded */
     double last_layout_ms;
     double last_render_ms;
+    int image_failures;       /* images skipped by the backend so far */
 } wn_view_stats;
 
 int wn_view_get_stats(const wn_view *view, wn_view_stats *stats);
@@ -44,7 +45,9 @@ wn_status wn_view_set_state(wn_view *view, int node, int state, int enabled);
 /* Applies the wheel and returns the scroll container node, or -1. */
 int wn_view_wheel_node(wn_view *view, float x, float y, float delta_x, float delta_y);
 void wn_view_display_counts(const wn_view *view, int *vertices, int *glyphs, int *images);
-int wn_view_image_cache_count(const wn_view *view);const char *wn_view_backend(const wn_view *view);
+int wn_view_image_cache_count(const wn_view *view);
+long long wn_view_image_cache_bytes(const wn_view *view);
+const char *wn_view_backend(const wn_view *view);
 const char *wn_view_device(const wn_view *view);
 int wn_view_render_width(const wn_view *view);
 int wn_view_render_height(const wn_view *view);

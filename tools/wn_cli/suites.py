@@ -26,6 +26,11 @@ RUNTIME_SOURCES = (
     "text/text_atlas.c",
     "text/text_directwrite.cpp",
 )
+# renderer_wgpu.c is replaced by a link-time stub when wgpu is disabled.
+RUNTIME_SOURCES_NO_WGPU = tuple(
+    "renderer_wgpu_stub.c" if source == "renderer_wgpu.c" else source
+    for source in RUNTIME_SOURCES
+)
 CORE_SOURCES = ("core/wn_core.c", "core/layout.c", "core/paint.c", "core/input.c",
                 "core/hit_test.c", "wn_common.c", "document/wn_blob.c",
                 "text/text_runtime.c", "text/text_atlas.c", "text/text_directwrite.cpp")
@@ -58,6 +63,53 @@ def _wgpu_dir() -> Path:
     return get_paths().root / "third_party" / "wgpu-native"
 
 
+_wgpu_requested = True
+
+
+def set_wgpu_enabled(enabled: bool) -> None:
+    """Selects whether suite builds include the wgpu-native backend."""
+    global _wgpu_requested
+    _wgpu_requested = enabled
+
+
+def wgpu_available() -> bool:
+    """True when the backend was requested and its pinned artifacts exist."""
+    if not _wgpu_requested:
+        return False
+    root = _wgpu_dir()
+    return (root / "lib" / "wgpu_native.dll.lib").is_file() and \
+        (root / "bin" / "wgpu_native.dll").is_file()
+
+
+def runtime_sources(skip_main: bool = False) -> list[Path]:
+    runtime = get_paths().runtime
+    names = RUNTIME_SOURCES if wgpu_available() else RUNTIME_SOURCES_NO_WGPU
+    selected = names[1:] if skip_main else names
+    return [runtime / name for name in selected]
+
+
+def runtime_includes(*extra: Path) -> list[Path]:
+    includes = [get_paths().root / "include", get_paths().runtime, *extra]
+    if wgpu_available():
+        includes.append(_wgpu_dir() / "include")
+    return includes
+
+
+def runtime_libs() -> list[str]:
+    libs = list(RUNTIME_LIBS)
+    if wgpu_available():
+        libs.insert(0, str(_wgpu_dir() / "lib" / "wgpu_native.dll.lib"))
+    return libs
+
+
+def copy_wgpu_dll(dest_dir: Path) -> None:
+    if not wgpu_available():
+        return
+    run_cmd(["cmd", "/d", "/c", "copy", "/Y",
+             str(_wgpu_dir() / "bin" / "wgpu_native.dll"),
+             str(dest_dir / "wgpu_native.dll")])
+
+
 def _compile(
     exe: Path,
     sources: Sequence[Path],
@@ -72,6 +124,8 @@ def _compile(
     objects_dir = exe.parent / "obj"
     objects_dir.mkdir(parents=True, exist_ok=True)
     include_flags = [f"/I{path}" for path in includes]
+    cflags = list(CFLAGS)
+    cflags.append(f"/DWN_WGPU={1 if wgpu_available() else 0}")
     objects: list[str] = []
     stems = [Path(source).stem for source in sources]
     for source in sources:
@@ -81,14 +135,14 @@ def _compile(
             stem = f"{source.parent.name}_{stem}"
         object_file = objects_dir / f"{stem}.obj"
         run_cmd(
-            [cl, *CFLAGS, *_language_flags(source), *include_flags, "/c",
+            [cl, *cflags, *_language_flags(source), *include_flags, "/c",
              f"/Fo{object_file}", str(source)],
             cwd=exe.parent,
             use_build_env=True,
         )
         objects.append(str(object_file))
 
-    command = [cl, *CFLAGS, *objects, f"/Fe{exe}"]
+    command = [cl, *cflags, *objects, f"/Fe{exe}"]
     if libs:
         command += ["/link", *libs]
     run_cmd(command, cwd=exe.parent, use_build_env=True)
@@ -175,15 +229,16 @@ def run_css() -> int:
         emit_dir = out / "emit" / name
         _compile(
             out / "build" / name / f"runtime_css_{name}.exe",
-            [runtime / source for source in RUNTIME_SOURCES],
-            [get_paths().root / "include", runtime, _wgpu_dir() / "include", emit_dir],
-            [str(_wgpu_dir() / "lib" / "wgpu_native.dll.lib"), *RUNTIME_LIBS],
+            runtime_sources(),
+            runtime_includes(emit_dir),
+            runtime_libs(),
         )
-        run_cmd(["cmd", "/d", "/c", "copy", "/Y",
-                 str(_wgpu_dir() / "bin" / "wgpu_native.dll"),
-                 str(out / "build" / name / "wgpu_native.dll")])
+        copy_wgpu_dll(out / "build" / name)
 
-    backends = {"WN_RENDERER": "wgpu"}
+    # The css reference was captured with wgpu; use D3D11 when wgpu is compiled
+    # out (the verifier relaxes only the poster-sampling tolerance there).
+    backend = "wgpu" if wgpu_available() else "d3d11"
+    backends = {"WN_RENDERER": backend}
     card_exe = out / "build" / "card" / "runtime_css_card.exe"
     control_exe = out / "build" / "control" / "runtime_css_control.exe"
 
@@ -193,7 +248,8 @@ def run_css() -> int:
     _run(control_exe, ["--render", "400", "240", str(out / "render_control.png")], page, backends)
 
     log_step("css: verify")
-    _python(suite / "verify_css.py", ["--dir", str(out), "--page", str(page)], cwd=suite)
+    _python(suite / "verify_css.py", ["--dir", str(out), "--page", str(page),
+                                      "--backend", backend], cwd=suite)
     log_info("css core v1: PASS")
     return 0
 
@@ -254,12 +310,11 @@ def run_fidelity() -> int:
     runtime_exe = out / "runtime_fidelity.exe"
     _compile(
         runtime_exe,
-        [runtime / source for source in RUNTIME_SOURCES],
-        [get_paths().root / "include", runtime, _wgpu_dir() / "include", out / "emit"],
-        [str(_wgpu_dir() / "lib" / "wgpu_native.dll.lib"), *RUNTIME_LIBS],
+        runtime_sources(),
+        runtime_includes(out / "emit"),
+        runtime_libs(),
     )
-    run_cmd(["cmd", "/d", "/c", "copy", "/Y",
-             str(_wgpu_dir() / "bin" / "wgpu_native.dll"), str(out / "wgpu_native.dll")])
+    copy_wgpu_dll(out)
     _run(runtime_exe, ["--render", "480", "560", str(out / "render.png")], out)
     _run(runtime_exe, ["--render", "480", "560", str(out / "render_wheel.png"), "--wheel", "100", "350", "150"], out)
 
@@ -312,8 +367,8 @@ def run_dynamic() -> int:
     _emit_fixture(suite, page, 400, 300, fixture / "ui_data.h")
 
     runtime = get_paths().runtime
-    includes = [get_paths().root / "include", runtime, fixture, _wgpu_dir() / "include"]
-    libs = [str(_wgpu_dir() / "lib" / "wgpu_native.dll.lib"), *RUNTIME_LIBS]
+    includes = runtime_includes(fixture)
+    libs = runtime_libs()
 
     log_step("dynamic: core test")
     core_exe = out / "dynamic_core_test.exe"
@@ -322,8 +377,8 @@ def run_dynamic() -> int:
 
     log_step("dynamic: runtime stages")
     runtime_exe = out / "runtime_dynamic.exe"
-    _compile(runtime_exe, [runtime / item for item in RUNTIME_SOURCES], includes, libs)
-    run_cmd(["cmd", "/d", "/c", "copy", "/Y", str(_wgpu_dir() / "bin" / "wgpu_native.dll"), str(out / "wgpu_native.dll")])
+    _compile(runtime_exe, runtime_sources(), includes, libs)
+    copy_wgpu_dll(out)
     for stale in out.glob("stage_*.png"):
         stale.unlink()
     _expect(_run(runtime_exe, ["--dynamic", str(out / "stage")], page),
@@ -331,7 +386,7 @@ def run_dynamic() -> int:
 
     log_step("dynamic: abi demo")
     abi_exe = out / "dynamic.exe"
-    _compile(abi_exe, [runtime / item for item in RUNTIME_SOURCES[1:]] + [runtime / "examples" / "dynamic.c"], includes, libs)
+    _compile(abi_exe, runtime_sources(skip_main=True) + [runtime / "examples" / "dynamic.c"], includes, libs)
     abi_text = _run(abi_exe, ["--frames", "8", "--image-b", str(page / "images" / "b.png")], page)
     _expect(abi_text, [
         "ABI 5",
@@ -373,8 +428,8 @@ def run_input() -> int:
     _emit_fixture(suite, page, 480, 240, fixture / "ui_data.h", pilot=True)
 
     runtime = get_paths().runtime
-    includes = [get_paths().root / "include", runtime, fixture, _wgpu_dir() / "include"]
-    libs = [str(_wgpu_dir() / "lib" / "wgpu_native.dll.lib"), *RUNTIME_LIBS]
+    includes = runtime_includes(fixture)
+    libs = runtime_libs()
 
     log_step("input: core test")
     core_exe = out / "input_core_test.exe"
@@ -384,8 +439,8 @@ def run_input() -> int:
 
     log_step("input: runtime stages")
     runtime_exe = out / "runtime_input.exe"
-    _compile(runtime_exe, [runtime / item for item in RUNTIME_SOURCES], includes, libs)
-    run_cmd(["cmd", "/d", "/c", "copy", "/Y", str(_wgpu_dir() / "bin" / "wgpu_native.dll"), str(out / "wgpu_native.dll")])
+    _compile(runtime_exe, runtime_sources(), includes, libs)
+    copy_wgpu_dll(out)
     for stale in out.glob("stage_*.png"):
         stale.unlink()
     _expect(_run_logged(runtime_exe, ["--input", str(out / "stage")], page,
@@ -404,7 +459,7 @@ def run_input() -> int:
 
     log_step("input: abi demo")
     abi_exe = out / "input.exe"
-    _compile(abi_exe, [runtime / item for item in RUNTIME_SOURCES[1:]] + [runtime / "examples" / "input.c"], includes, libs)
+    _compile(abi_exe, runtime_sources(skip_main=True) + [runtime / "examples" / "input.c"], includes, libs)
     abi_text = _run_logged(abi_exe, ["--frames", "8"], page, out / "abi_input.log")
     _expect(abi_text, [
         "ABI 5",
@@ -425,13 +480,27 @@ def run_input() -> int:
     return 0
 
 
+def _run_image_cache(out: Path, suite: Path, cache_exe: Path, backend: str) -> None:
+    cache_page = suite / "cache_page"
+    png = out / f"image_cache_{backend}.png"
+    missing_png = out / f"image_cache_missing_{backend}.png"
+    log_step(f"offscreen: image cache budget ({backend})")
+    _run(cache_exe, [str(png), str(missing_png)], cache_page,
+         {"WN_RENDERER": backend, "WN_IMAGE_CACHE_MB": "4"})
+    _python(suite / "verify_cache.py", ["--png", str(png)], cwd=suite)
+    _python(suite / "verify_cache.py", ["--png", str(missing_png)], cwd=suite)
+
+
 def run_offscreen() -> int:
     suite = _suite_dir("offscreen")
     out = suite / "out"
     fixture = out / "fixture"
+    cache_fixture = out / "cache_fixture"
     out.mkdir(parents=True, exist_ok=True)
     fixture.mkdir(parents=True, exist_ok=True)
+    cache_fixture.mkdir(parents=True, exist_ok=True)
     runtime = get_paths().runtime
+    wgpu = wgpu_available()
 
     log_step("offscreen: canonical fixture")
     rust_exe = get_paths().frontend_rust / "target" / "release" / "frontend-rust.exe"
@@ -455,11 +524,11 @@ def run_offscreen() -> int:
     exe = out / "offscreen_test.exe"
     _compile(
         exe,
-        [runtime / item for item in RUNTIME_SOURCES if item != "runtime_r2.c"] + [suite / "offscreen_test.c"],
-        [get_paths().root / "include", runtime, _wgpu_dir() / "include", fixture],
-        [str(_wgpu_dir() / "lib" / "wgpu_native.dll.lib"), *RUNTIME_LIBS],
+        runtime_sources(skip_main=True) + [suite / "offscreen_test.c"],
+        runtime_includes(fixture),
+        runtime_libs(),
     )
-    run_cmd(["cmd", "/d", "/c", "copy", "/Y", str(_wgpu_dir() / "bin" / "wgpu_native.dll"), str(out / "wgpu_native.dll")])
+    copy_wgpu_dll(out)
 
     log_step("offscreen: input fixture blob (destroy-in-callback)")
     input_blob = _blob_emit(runtime / "tests" / "input" / "page",
@@ -467,40 +536,67 @@ def run_offscreen() -> int:
 
     d3d11_png = out / "offscreen_d3d11.png"
     wgpu_png = out / "offscreen_wgpu.png"
-    log_step("offscreen: render both backends")
+    log_step("offscreen: render d3d11" + (" and wgpu" if wgpu else ""))
     _run(exe, ["960", "640", str(d3d11_png), str(input_blob)], out, {"WN_RENDERER": "d3d11"})
-    _run(exe, ["960", "640", str(wgpu_png), str(input_blob)], out, {"WN_RENDERER": "wgpu"})
+    if not wgpu:
+        log_info("offscreen: wgpu backend unavailable (WN_WGPU=OFF or wgpu-native "
+                 "artifacts missing); skipping the d3d11-vs-wgpu pixel comparison")
+    else:
+        _run(exe, ["960", "640", str(wgpu_png), str(input_blob)], out, {"WN_RENDERER": "wgpu"})
 
-    harness_python = get_paths().root / "benchmarks" / "visual-parity" / ".venv" / "Scripts" / "python.exe"
-    python = str(harness_python) if harness_python.is_file() else str(get_python_exe())
-    compare = out / "offscreen_compare.json"
-    log_step("offscreen: compare backends")
-    completed = subprocess.run(
-        [
-            python,
-            str(runtime / "tests" / "d3d11" / "verify_d3d11.py"),
-            "--capture", str(d3d11_png),
-            "--reference", str(wgpu_png),
-            "--report", str(compare),
-            "--label", "offscreen-d3d11-vs-wgpu",
-        ],
-        cwd=out,
-        capture_output=True,
-        text=True,
-    )
-    for line in (completed.stdout + completed.stderr).splitlines():
-        if line.strip():
-            log_info(line.rstrip())
-    if completed.returncode != 0:
-        raise CliError("offscreen pixel comparison failed")
-
-    checks = json.loads(compare.read_text(encoding="utf-8"))["checks"]
-    log_info(
-        "offscreen: {0}x{1} max_diff={2} bad={3:.2%} exact={4:.2%}".format(
-            checks["capture_size"][0], checks["capture_size"][1],
-            checks["max_channel_diff"], checks["bad_fraction"], checks["exact_fraction"],
+        harness_python = get_paths().root / "benchmarks" / "visual-parity" / ".venv" / "Scripts" / "python.exe"
+        python = str(harness_python) if harness_python.is_file() else str(get_python_exe())
+        compare = out / "offscreen_compare.json"
+        log_step("offscreen: compare backends")
+        completed = subprocess.run(
+            [
+                python,
+                str(runtime / "tests" / "d3d11" / "verify_d3d11.py"),
+                "--capture", str(d3d11_png),
+                "--reference", str(wgpu_png),
+                "--report", str(compare),
+                "--label", "offscreen-d3d11-vs-wgpu",
+            ],
+            cwd=out,
+            capture_output=True,
+            text=True,
         )
+        for line in (completed.stdout + completed.stderr).splitlines():
+            if line.strip():
+                log_info(line.rstrip())
+        if completed.returncode != 0:
+            raise CliError("offscreen pixel comparison failed")
+
+        checks = json.loads(compare.read_text(encoding="utf-8"))["checks"]
+        log_info(
+            "offscreen: {0}x{1} max_diff={2} bad={3:.2%} exact={4:.2%}".format(
+                checks["capture_size"][0], checks["capture_size"][1],
+                checks["max_channel_diff"], checks["bad_fraction"], checks["exact_fraction"],
+            )
+        )
+
+    log_step("offscreen: image cache fixture")
+    _python(suite / "make_posters.py", [], cwd=suite)
+    _python(
+        get_paths().emitter,
+        ["--ui-json", str(suite / "cache_page" / "cache.json"),
+         "--out", str(cache_fixture / "ui_data.h"),
+         "--meta", str(cache_fixture / "ui_meta.json")],
+        cwd=get_paths().root,
     )
+    cache_exe = out / "image_cache_test.exe"
+    _compile(
+        cache_exe,
+        runtime_sources(skip_main=True) + [suite / "image_cache_test.c"],
+        runtime_includes(cache_fixture),
+        runtime_libs(),
+    )
+    copy_wgpu_dll(out)
+
+    _run_image_cache(out, suite, cache_exe, "d3d11")
+    if wgpu:
+        _run_image_cache(out, suite, cache_exe, "wgpu")
+
     log_info("offscreen vtable: PASS")
     return 0
 
@@ -633,12 +729,11 @@ def run_blob() -> int:
     runtime_exe = out / "runtime_blob.exe"
     _compile(
         runtime_exe,
-        [runtime / item for item in RUNTIME_SOURCES],
-        [get_paths().root / "include", runtime, _wgpu_dir() / "include", fixture],
-        [str(_wgpu_dir() / "lib" / "wgpu_native.dll.lib"), *RUNTIME_LIBS],
+        runtime_sources(),
+        runtime_includes(fixture),
+        runtime_libs(),
     )
-    run_cmd(["cmd", "/d", "/c", "copy", "/Y",
-             str(_wgpu_dir() / "bin" / "wgpu_native.dll"), str(out / "wgpu_native.dll")])
+    copy_wgpu_dll(out)
     builtin_png = out / "render_builtin.png"
     blob_png = out / "render_blob.png"
     environment = {"WN_RENDERER": "d3d11"}

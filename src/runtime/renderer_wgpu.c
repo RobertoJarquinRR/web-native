@@ -32,6 +32,9 @@ typedef struct {
     WGPUBindGroup bind;
     int width;
     int height;
+    size_t bytes;                 /* decoded RGBA bytes (LRU accounting) */
+    unsigned long long last_used; /* monotonic touch counter */
+    unsigned long long frame;     /* last frame that referenced the entry */
 } WnImageTexture;
 
 typedef struct {
@@ -91,6 +94,10 @@ typedef struct {
     WnImageTexture *images;
     int image_count;
     int image_cache_capacity;
+    size_t image_cache_bytes;
+    size_t image_cache_budget;
+    unsigned long long image_cache_tick;
+    unsigned long long image_frame;
     IWICImagingFactory *wic;
     int com_initialized;
 
@@ -643,6 +650,9 @@ static int create_pipelines(WnWgpu *gpu)
     return 0;
 }
 
+static size_t image_cache_budget_bytes(void);
+static void renderer_destroy(void *context);
+
 static int renderer_init(void **out, const wn_surface_desc *surface, int width, int height)
 {
     WnWgpu *gpu;
@@ -669,6 +679,7 @@ static int renderer_init(void **out, const wn_surface_desc *surface, int width, 
     gpu->format = WGPUTextureFormat_BGRA8Unorm;
     gpu->info.width = gpu->width;
     gpu->info.height = gpu->height;
+    gpu->image_cache_budget = image_cache_budget_bytes();
 
     {
         HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
@@ -819,12 +830,13 @@ static int renderer_init(void **out, const wn_surface_desc *surface, int width, 
     return 0;
 
 fail:
-    if (gpu->surface != NULL) wgpuSurfaceRelease(gpu->surface);
-    if (gpu->queue != NULL) wgpuQueueRelease(gpu->queue);
-    if (gpu->device != NULL) wgpuDeviceRelease(gpu->device);
-    if (gpu->adapter != NULL) wgpuAdapterRelease(gpu->adapter);
-    if (gpu->instance != NULL) wgpuInstanceRelease(gpu->instance);
-    free(gpu);
+    if (gpu->error[0] != '\0') {
+        fprintf(stderr, "renderer: wgpu init failed: %s\n", gpu->error);
+        fflush(stderr);
+    }
+    /* One cleanup path: renderer_destroy() releases every partial resource and
+     * balances CoInitializeEx, so a failed init cannot leak shaders/layouts. */
+    renderer_destroy(gpu);
     return 1;
 }
 
@@ -1027,11 +1039,114 @@ fail:
     return 1;
 }
 
+/*
+ * Image cache budget. Decoded textures are cached by path; the cache is an LRU
+ * bounded by decoded bytes so a media library cannot exhaust VRAM. Entries
+ * referenced by the frame being uploaded are pinned and never evicted for that
+ * frame; if one frame alone exceeds the budget the cache overflows by design
+ * (correct pixels beat the accounting limit) and shrinks at the next upload.
+ */
+#define WN_IMAGE_CACHE_DEFAULT_MB 256
+
+static size_t image_cache_budget_bytes(void)
+{
+    const char *env = getenv("WN_IMAGE_CACHE_MB");
+    long mb = WN_IMAGE_CACHE_DEFAULT_MB;
+
+    if (env != NULL && env[0] != '\0') {
+        char *end = NULL;
+        long parsed = strtol(env, &end, 10);
+        if (end != env && end != NULL && *end == '\0' && parsed >= 0 && parsed <= 16384) {
+            mb = parsed;
+        }
+    }
+    return (size_t)mb * 1024u * 1024u;
+}
+
+static void release_image_entry(WnImageTexture *entry)
+{
+    if (entry->bind != NULL) {
+        wgpuBindGroupRelease(entry->bind);
+    }
+    if (entry->view != NULL) {
+        wgpuTextureViewRelease(entry->view);
+    }
+    if (entry->texture != NULL) {
+        wgpuTextureRelease(entry->texture);
+    }
+    wn_free_(entry->path);
+    memset(entry, 0, sizeof(*entry));
+}
+
+static void remove_image_entry(WnWgpu *gpu, int index)
+{
+    WnImageTexture *entry = &gpu->images[index];
+
+    gpu->image_cache_bytes -= entry->bytes;
+    release_image_entry(entry);
+    if (index + 1 < gpu->image_count) {
+        memmove(&gpu->images[index], &gpu->images[index + 1],
+                (size_t)(gpu->image_count - index - 1) * sizeof(WnImageTexture));
+    }
+    --gpu->image_count;
+}
+
+/* Evicts least-recently-used entries not pinned by the current frame. */
+static void evict_images_for(WnWgpu *gpu, size_t incoming_bytes)
+{
+    while (gpu->image_cache_bytes + incoming_bytes > gpu->image_cache_budget) {
+        int victim = -1;
+        unsigned long long oldest = 0;
+        int i;
+
+        for (i = 0; i < gpu->image_count; ++i) {
+            if (gpu->images[i].frame == gpu->image_frame) {
+                continue;
+            }
+            if (victim < 0 || gpu->images[i].last_used < oldest) {
+                victim = i;
+                oldest = gpu->images[i].last_used;
+            }
+        }
+        if (victim < 0) {
+            break;
+        }
+        remove_image_entry(gpu, victim);
+    }
+}
+
+/* Marks every cached image of the incoming frame as pinned and recently used. */
+static void touch_frame_images(WnWgpu *gpu, const wn_display_list *list)
+{
+    int b;
+
+    ++gpu->image_frame;
+    if (list == NULL) {
+        return;
+    }
+    for (b = 0; b < list->image_batch_count; ++b) {
+        const wn_image_batch *batch = &list->image_batches[b];
+        int i;
+        if (batch->src == NULL) {
+            continue;
+        }
+        for (i = 0; i < gpu->image_count; ++i) {
+            if (strcmp(gpu->images[i].path, batch->src) == 0) {
+                gpu->images[i].frame = gpu->image_frame;
+                gpu->images[i].last_used = ++gpu->image_cache_tick;
+                break;
+            }
+        }
+    }
+}
+
 static WnImageTexture *find_cached_image(WnWgpu *gpu, const char *path)
 {
     int i;
     for (i = 0; i < gpu->image_count; ++i) {
         if (strcmp(gpu->images[i].path, path) == 0) {
+            gpu->images[i].frame = gpu->image_frame;
+            gpu->images[i].last_used = ++gpu->image_cache_tick;
             return &gpu->images[i];
         }
     }
@@ -1059,6 +1174,7 @@ static WnImageTexture *ensure_image_texture(WnWgpu *gpu, const char *path)
     if (decode_image_rgba(gpu, path, &pixels, &width, &height) != 0) {
         return NULL;
     }
+    evict_images_for(gpu, (size_t)width * (size_t)height * 4u);
     if (gpu->image_count >= gpu->image_cache_capacity) {
         int capacity = gpu->image_cache_capacity > 0 ? gpu->image_cache_capacity * 2 : 8;
         WnImageTexture *grown = (WnImageTexture *)realloc(
@@ -1168,6 +1284,10 @@ static WnImageTexture *ensure_image_texture(WnWgpu *gpu, const char *path)
     }
     entry->width = width;
     entry->height = height;
+    entry->bytes = (size_t)width * (size_t)height * 4u;
+    entry->last_used = ++gpu->image_cache_tick;
+    entry->frame = gpu->image_frame;
+    gpu->image_cache_bytes += entry->bytes;
     ++gpu->image_count;
     return entry;
 }
@@ -1183,6 +1303,7 @@ static int renderer_upload(void *context, const wn_display_list *list)
     gpu->uploaded_vertices = 0;
     gpu->uploaded_glyphs = 0;
     gpu->uploaded_images = 0;
+    touch_frame_images(gpu, list);
 
     if (list->atlas.pixels != NULL) {
         if (upload_atlas(gpu, &list->atlas) != 0) {
@@ -1230,7 +1351,11 @@ static int renderer_upload(void *context, const wn_display_list *list)
                 continue;
             }
             if (ensure_image_texture(gpu, batch->src) == NULL) {
-                return 1;
+                /* A broken poster only drops that quad; the frame stays alive. */
+                gpu->stats.image_failures += 1;
+                set_error(gpu, "image '%s' skipped (decode/cache failure #%d)",
+                          batch->src, gpu->stats.image_failures);
+                continue;
             }
         }
     } else {
@@ -1300,6 +1425,7 @@ static int create_offscreen_target(WnWgpu *gpu)
 
 typedef struct {
     volatile int done;
+    volatile int abandoned; /* waiter timed out; the callback owns the free */
     WGPUMapAsyncStatus status;
 } WnMapResult;
 
@@ -1309,10 +1435,15 @@ static void on_map(WGPUMapAsyncStatus status, WGPUStringView message, void *user
     WnMapResult *result = (WnMapResult *)userdata1;
     (void)message;
     (void)userdata2;
-    if (result != NULL) {
-        result->status = status;
-        result->done = 1;
+    if (result == NULL) {
+        return;
     }
+    if (result->abandoned) {
+        free(result);
+        return;
+    }
+    result->status = status;
+    result->done = 1;
 }
 
 static int write_png_bgra_file(WnWgpu *gpu, const char *path, const unsigned char *pixels,
@@ -1385,7 +1516,7 @@ static int renderer_readback(void *context, const char *path)
     WGPUCommandEncoder encoder;
     WGPUCommandBuffer command;
     WGPUBufferMapCallbackInfo callback_info;
-    WnMapResult map_result;
+    WnMapResult *map_result = NULL;
     WGPUBuffer buffer = NULL;
     void *mapped;
     unsigned int stride;
@@ -1446,27 +1577,38 @@ static int renderer_readback(void *context, const char *path)
     wgpuQueueSubmit(gpu->queue, 1, &command);
     wgpuCommandBufferRelease(command);
 
-    memset(&map_result, 0, sizeof(map_result));
+    map_result = (WnMapResult *)calloc(1, sizeof(*map_result));
+    if (map_result == NULL) {
+        set_error(gpu, "readback map state allocation failed");
+        goto done;
+    }
     memset(&callback_info, 0, sizeof(callback_info));
     callback_info.mode = WGPUCallbackMode_AllowProcessEvents;
     callback_info.callback = on_map;
-    callback_info.userdata1 = &map_result;
+    callback_info.userdata1 = map_result;
     (void)wgpuBufferMapAsync(buffer, WGPUMapMode_Read, 0, bytes, callback_info);
-    if (map_result.done == 0) {
+    if (map_result->done == 0) {
         DWORD start = GetTickCount();
-        while (!map_result.done) {
+        while (!map_result->done) {
             wgpuInstanceProcessEvents(gpu->instance);
             if (GetTickCount() - start > 30000u) {
+                /* The callback still owns this heap block; it frees itself. */
+                map_result->abandoned = 1;
+                map_result = NULL;
                 set_error(gpu, "readback map timed out");
                 goto done;
             }
             Sleep(1);
         }
     }
-    if (map_result.status != WGPUMapAsyncStatus_Success) {
-        set_error(gpu, "readback map failed (status %d)", (int)map_result.status);
+    if (map_result->status != WGPUMapAsyncStatus_Success) {
+        set_error(gpu, "readback map failed (status %d)", (int)map_result->status);
+        free(map_result);
+        map_result = NULL;
         goto done;
     }
+    free(map_result);
+    map_result = NULL;
     mapped = wgpuBufferGetMappedRange(buffer, 0, bytes);
     if (mapped == NULL) {
         set_error(gpu, "readback mapped range is NULL");
@@ -1652,8 +1794,12 @@ static int renderer_render(void *context, const wn_display_list *list)
     command = wgpuCommandEncoderFinish(encoder, NULL);
     if (command == NULL) {
         wgpuCommandEncoderRelease(encoder);
-        wgpuTextureViewRelease(view);
-        wgpuTextureRelease(surface_texture.texture);
+        /* Offscreen `view` is gpu->target_view and must stay alive for the next
+         * frame; only a surface view created here is ours to release. */
+        if (!gpu->offscreen) {
+            wgpuTextureViewRelease(view);
+            wgpuTextureRelease(surface_texture.texture);
+        }
         set_error(gpu, "command encoder finish failed");
         return 1;
     }
@@ -1692,10 +1838,7 @@ static void renderer_destroy(void *context)
     if (gpu->target_view != NULL) wgpuTextureViewRelease(gpu->target_view);
     if (gpu->target != NULL) wgpuTextureRelease(gpu->target);
     for (i = 0; i < gpu->image_count; ++i) {
-        if (gpu->images[i].bind != NULL) wgpuBindGroupRelease(gpu->images[i].bind);
-        if (gpu->images[i].view != NULL) wgpuTextureViewRelease(gpu->images[i].view);
-        if (gpu->images[i].texture != NULL) wgpuTextureRelease(gpu->images[i].texture);
-        wn_free_(gpu->images[i].path);
+        release_image_entry(&gpu->images[i]);
     }
     wn_free_(gpu->images);
     if (gpu->wic != NULL) gpu->wic->lpVtbl->Release(gpu->wic);
@@ -1751,6 +1894,12 @@ static int renderer_image_cache_count(void *context)
     return gpu != NULL ? gpu->image_count : -1;
 }
 
+static long long renderer_image_cache_bytes(void *context)
+{
+    WnWgpu *gpu = (WnWgpu *)context;
+    return gpu != NULL ? (long long)gpu->image_cache_bytes : -1;
+}
+
 static const wn_renderer_ops g_wgpu_ops = {
     "wgpu-native",
     renderer_init,
@@ -1762,7 +1911,8 @@ static const wn_renderer_ops g_wgpu_ops = {
     renderer_get_info,
     renderer_get_stats,
     renderer_readback,
-    renderer_image_cache_count
+    renderer_image_cache_count,
+    renderer_image_cache_bytes
 };
 
 const wn_renderer_ops *wn_renderer_wgpu(void)

@@ -133,7 +133,7 @@ def _write(path: Path, args, checks: dict, failures: list[str]) -> int:
         },
     }
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    return 0
+    return 0 if not failures else 1
 
 
 if __name__ == "__main__":

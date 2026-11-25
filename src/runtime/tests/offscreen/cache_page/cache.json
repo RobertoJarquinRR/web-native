@@ -1,0 +1,134 @@
+{
+  "schema": "webnative.ui-tree/2",
+  "source": { "html": "tests/offscreen/cache_page/cache.json", "css": "" },
+  "viewport": { "width": 800, "height": 300 },
+  "rule_count": 0,
+  "node_count": 4,
+  "nodes": [
+    {
+      "id": 0,
+      "parent": -1,
+      "children": [1, 2, 3],
+      "kind": "flex",
+      "name": "body.root",
+      "tag": "body",
+      "classes": [],
+      "element_id": null,
+      "style": {
+        "display": "flex",
+        "direction": 0,
+        "justify": 0,
+        "align": 0,
+        "wrap": 0,
+        "width_px": -1.0,
+        "height_px": -1.0,
+        "width_pct": 100.0,
+        "height_pct": 100.0,
+        "margin": [0, 0, 0, 0],
+        "padding": [20, 20, 20, 20],
+        "gap": 20.0,
+        "font_size": 16.0,
+        "background": "#101010"
+      }
+    },
+    {
+      "id": 1,
+      "parent": 0,
+      "children": [],
+      "kind": "image",
+      "name": "body.root/img.slot0",
+      "tag": "img",
+      "classes": ["poster"],
+      "element_id": null,
+      "style": {
+        "display": "block",
+        "direction": 0,
+        "justify": 0,
+        "align": 0,
+        "wrap": 0,
+        "width_px": 240.0,
+        "height_px": 240.0,
+        "width_pct": 0.0,
+        "height_pct": 0.0,
+        "margin": [0, 0, 0, 0],
+        "padding": [0, 0, 0, 0],
+        "gap": 0.0,
+        "font_size": 16.0,
+        "background": null,
+        "border_radius_px": 0.0,
+        "object_fit": "fill"
+      },
+      "image": {
+        "src": "posters/p0.png",
+        "alt": "poster 0",
+        "object_fit": "fill"
+      }
+    },
+    {
+      "id": 2,
+      "parent": 0,
+      "children": [],
+      "kind": "image",
+      "name": "body.root/img.slot1",
+      "tag": "img",
+      "classes": ["poster"],
+      "element_id": null,
+      "style": {
+        "display": "block",
+        "direction": 0,
+        "justify": 0,
+        "align": 0,
+        "wrap": 0,
+        "width_px": 240.0,
+        "height_px": 240.0,
+        "width_pct": 0.0,
+        "height_pct": 0.0,
+        "margin": [0, 0, 0, 0],
+        "padding": [0, 0, 0, 0],
+        "gap": 0.0,
+        "font_size": 16.0,
+        "background": null,
+        "border_radius_px": 0.0,
+        "object_fit": "fill"
+      },
+      "image": {
+        "src": "posters/p1.png",
+        "alt": "poster 1",
+        "object_fit": "fill"
+      }
+    },
+    {
+      "id": 3,
+      "parent": 0,
+      "children": [],
+      "kind": "image",
+      "name": "body.root/img.slot2",
+      "tag": "img",
+      "classes": ["poster"],
+      "element_id": null,
+      "style": {
+        "display": "block",
+        "direction": 0,
+        "justify": 0,
+        "align": 0,
+        "wrap": 0,
+        "width_px": 240.0,
+        "height_px": 240.0,
+        "width_pct": 0.0,
+        "height_pct": 0.0,
+        "margin": [0, 0, 0, 0],
+        "padding": [0, 0, 0, 0],
+        "gap": 0.0,
+        "font_size": 16.0,
+        "background": null,
+        "border_radius_px": 0.0,
+        "object_fit": "fill"
+      },
+      "image": {
+        "src": "posters/p2.png",
+        "alt": "poster 2",
+        "object_fit": "fill"
+      }
+    }
+  ]
+}
