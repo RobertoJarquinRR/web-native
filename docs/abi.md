@@ -58,7 +58,7 @@ handles son válidos hasta que el nodo (o un ancestro) se elimina.
 | `wn_app_node_count(app)` | nodos vivos (diagnóstico) |
 | `wn_node_set_visible(app, node, visible)` | oculta/muestra el subárbol; fuera de layout, paint y hit test |
 | `wn_node_set_image(app, node, path)` | reemplaza el `src` de una imagen; reutiliza la cache |
-| `wn_node_set_text(app, node, utf8)` | cambia texto solo si los glifos ya están pre-shapeados |
+| `wn_node_set_text(app, node, utf8)` | cambia texto; se shapea y rasteriza en runtime |
 | `wn_node_clone(app, template, parent)` | clona un subárbol y lo añade como último hijo |
 | `wn_node_remove(app, node)` | elimina el nodo y su subárbol |
 | `wn_node_clear_children(app, node)` | elimina todos los hijos |
@@ -174,8 +174,8 @@ private static partial nint wn_node_get_value(nint app, ulong node);
 - `wn_app_load` / `wn_view_load` **copian** HTML/CSS, pero el runtime renderiza
   el árbol compilado `ui_data.h`. **No hay parser HTML/CSS en runtime**; cambiar
   la página requiere recompilar el árbol.
-- `set_text` solo reutiliza glifos pre-shapeados al tamaño del nodo. Texto
-  arbitrario devuelve `WN_ERR_UNSUPPORTED`; el shaping en runtime es posterior.
+- `set_text` acepta cualquier UTF-8: el runtime shapea y rasteriza el texto. El
+  documento solo lleva cadena, familia, tamaño, peso y `line-height`.
 - `set_image` conserva el tamaño intrínseco compilado; no hay probe WIC nuevo.
 - Input v4: ASCII 32..126, sin IME/bidi/CJK/emoji, sin shaping/kerning, sin
   multilínea, sin password, sin undo/redo, sin drag-select, caret sin blink.
@@ -187,7 +187,7 @@ private static partial nint wn_node_get_value(nint app, ulong node);
 
 ## Fuera de v4
 
-- Shaping de texto en runtime (HarfBuzz/FreeType en el core).
+- Motor de texto en Linux (HarfBuzz/FreeType detrás de la misma vtable).
 - IME, bidi, CJK, emoji.
 - Virtualización de listas/grids y cache LRU de imágenes.
 - Render de bordes/radius/sombras en el core.

@@ -54,11 +54,27 @@
 ## Flujo
 
 ```
-HTML/CSS → frontend Rust --emit-ui → ui.json (+atlas)
-         → emit_ui.py → ui_data.h → cl.exe → app.exe
-runtime: eventos → estado → layout C → display list → renderer → ventana
+HTML/CSS → frontend Rust --emit-ui → ui.json (+ atlas de la piscina de input)
+         → emit_ui.py → ui_data.h → cl.exe → app.exe | webnative.dll
+runtime: eventos → estado → layout C (mide el texto) → display list
+         → renderer → ventana
 host: ABI v4 → set_visible/set_image/set_text/clone (v3) + input (v4)
 ```
+
+El texto no se hornea: el documento lleva cadena, familia, tamaño, peso y
+`line-height`, y el runtime shapea, rasteriza y mide. La vtable `wn_text`
+(`src/runtime/text/`) aísla la plataforma; hoy el backend es DirectWrite.
+
+| Módulo | Responsabilidad |
+|---|---|
+| `text/wn_text.h` | contrato: `measure`, `shape`, `rasterize` |
+| `text/text_directwrite.cpp` | backend Windows (caras, avances, cobertura gris) |
+| `text/text_runtime.c` | instancia única, familias genéricas |
+| `text/text_atlas.c` | atlas 1024², caché de glifos y de runs |
+
+`wn-cli build` produce también `webnative.dll` (objetivo CMake `webnative`,
+`WN_BUILD_DLL`), que un consumidor externo puede enlazar sin ver el repo. Hoy la
+DLL lleva el árbol compilado dentro; el blob `.wnui` es el paso siguiente.
 
 `renderer` es la vtable `wn_renderer`. En Windows el backend por defecto es
 **D3D11 hardware** (`renderer_d3d11.c`) con fallback a **wgpu-native**; en otras
