@@ -680,15 +680,6 @@ pub struct UiGlyphOut {
     pub v1: f64,
 }
 
-/// Resultado de hornear un texto: glyphs + metricas de la linea.
-pub struct BakedUiText {
-    pub glyphs: Vec<UiGlyphOut>,
-    /// Suma de avances (lo que `emit_ui.TextMetrics.measure` llama width).
-    pub width: f64,
-    pub ascender: f64,
-    pub descender: f64,
-}
-
 /// Atlas R8 incremental para el arbol de estilos (mismo shelf packer que
 /// `GlyphPacker` del oraculo: 256x256, guarda de 1 px, orden de aparicion).
 pub struct UiTextBaker {
@@ -714,55 +705,6 @@ impl UiTextBaker {
 
     pub fn atlas(&self) -> &Atlas {
         &self.atlas
-    }
-
-    /// Shape + raster + empaquetado de un texto, en el orden exacto del
-    /// oraculo: se avanza el pen con todos los glyphs y solo se registra el
-    /// glyph cuando su bitmap tiene area.
-    pub fn bake(
-        &mut self,
-        engine: &TextEngine,
-        text: &str,
-        font_family: &str,
-        size: f64,
-        weight: u16,
-    ) -> Result<BakedUiText, String> {
-        let face = engine.face_for_family_weighted(font_family, weight)?;
-        let (ascender, descender) = face.metrics(size);
-        let shaped = face.shape(text, size);
-        let path = face.path_string();
-        let key_size = size_key(size);
-        let mut glyphs: Vec<UiGlyphOut> = Vec::with_capacity(shaped.len());
-        let mut pen = 0.0f64;
-        let mut width = 0.0f64;
-        for item in &shaped {
-            width += item.adv;
-            let bitmap = face.raster(item.gid, size);
-            if bitmap.w > 0 && bitmap.h > 0 {
-                let key = (path.clone(), item.gid, key_size);
-                self.atlas.add(key.clone(), &bitmap)?;
-                let (u0, v0, u1, v1) = self.atlas.uv(&key);
-                glyphs.push(UiGlyphOut {
-                    gid: item.gid,
-                    advance: item.adv,
-                    x: pen + item.dx + f64::from(bitmap.left),
-                    y: ascender - item.dy - f64::from(bitmap.top),
-                    w: bitmap.w,
-                    h: bitmap.h,
-                    u0,
-                    v0,
-                    u1,
-                    v1,
-                });
-            }
-            pen += item.adv;
-        }
-        Ok(BakedUiText {
-            glyphs,
-            width,
-            ascender,
-            descender,
-        })
     }
 
     /// Piscina ASCII imprimible (32..126) para un `kind:"input"`: un glyph por

@@ -381,8 +381,6 @@ class TextMetrics:
         from webnative.text import TextEngine
         self.engine = TextEngine()
         self.packer = GlyphPacker(256)
-        self.glyphs: list[dict] = []
-        self.runs: list[dict] = []
         self._cache: dict[tuple[str, float, str], tuple[float, float, float]] = {}
 
     def measure(self, text: str, family: str, size: float) -> tuple[float, float, float]:
@@ -393,42 +391,6 @@ class TextMetrics:
             asc, desc = self.engine.metrics(family, size)
             self._cache[key] = (float(width), float(asc + desc), float(asc))
         return self._cache[key]
-
-    def bake(self, node_id: int, text: str, family: str, size: float) -> None:
-        """Shape with HarfBuzz and rasterize the used glyphs into the atlas.
-
-        Positions are stored relative to the text node's top-left, so the
-        runtime only adds the final layout rect. Baseline is taken from the
-        same FreeType metrics that produced the line box height.
-        """
-        face = self.engine.face(family)
-        asc, _desc = face.metrics(size)
-        shaped = face.shape(text, size)
-        first = len(self.glyphs)
-        pen = 0.0
-        for item in shaped:
-            bitmap = face.raster(item.gid, size)
-            if bitmap.w > 0 and bitmap.h > 0:
-                key = (str(face.path), item.gid, int(round(size)))
-                x, y, w, h = self.packer.add(key, bitmap.w, bitmap.h, bitmap.lines)
-                self.glyphs.append({
-                    "x": pen + item.dx + bitmap.left,
-                    "y": asc - item.dy - bitmap.top,
-                    "w": float(bitmap.w),
-                    "h": float(bitmap.h),
-                    "u0": x / self.packer.size,
-                    "v0": y / self.packer.size,
-                    "u1": (x + w) / self.packer.size,
-                    "v1": (y + h) / self.packer.size,
-                })
-            pen += item.adv
-        self.runs.append({
-            "node": node_id,
-            "first": first,
-            "count": len(self.glyphs) - first,
-            "baseline": float(asc),
-        })
-
 
 # ------------------------------------------------------------------ emitter
 
@@ -595,13 +557,6 @@ class Emitter:
     def _emit_text(self, node: Node, style, parent: int, parent_name: str, text: str) -> None:
         family = style.font_family or DEFAULT_FAMILY
         size = float(style.font_size or DEFAULT_SIZE)
-        width = height = 0.0
-        if self.metrics is not None:
-            width, height, _asc = self.metrics.measure(text, family, size)
-        if width <= 0:
-            width = 0.55 * size * len(text)
-        if height <= 0:
-            height = size * 1.25
         index = len(self.nodes)
         self.nodes.append({
             "parent": parent,
@@ -640,8 +595,6 @@ class Emitter:
             "box_sizing": 1 if str(style.raw.get("box-sizing") or "").strip().lower()
             == "border-box" else 0,
         })
-        if self.metrics is not None:
-            self.metrics.bake(index, text, family, size)
         text_name = self._unique_name("text")
         self.meta.append({
             "id": index, "name": f"{parent_name}/{text_name}", "tag": "#text",
@@ -845,17 +798,12 @@ def write_header(nodes: list[dict], meta: list[dict], out: Path,
         lines.append("};")
         lines.append("")
 
-    glyphs = metrics.glyphs if metrics is not None else []
-    runs = metrics.runs if metrics is not None else []
-    # With no glyphs, emit a 1x1 atlas so the runtime upload stays valid. La
-    # piscina de un input tambien cuenta: una pagina solo-input necesita atlas.
-    has_atlas = metrics is not None and bool(glyphs or input_glyphs)
+    # With no input glyphs, emit a 1x1 atlas so the runtime upload stays valid.
+    has_atlas = metrics is not None and bool(input_glyphs)
     atlas_size = metrics.packer.size if has_atlas else 1
 
-    lines.append("/* Pre-shaped text (HarfBuzz positions, FreeType R8 bitmaps). */")
+    lines.append("/* Input pool atlas (text is shaped by the runtime). */")
     lines.append(f"#define UI_ATLAS_SIZE {atlas_size}")
-    lines.append(f"#define UI_GLYPH_COUNT {len(glyphs)}")
-    lines.append(f"#define UI_TEXT_RUN_COUNT {len(runs)}")
     lines.append("")
     if has_atlas:
         lines.append(f"static const unsigned char kUiAtlas[UI_ATLAS_SIZE * UI_ATLAS_SIZE] = {{")
@@ -866,38 +814,6 @@ def write_header(nodes: list[dict], meta: list[dict], out: Path,
         lines.append("};")
     else:
         lines.append("static const unsigned char kUiAtlas[1] = {0};")
-    lines.append("")
-    lines.append("typedef struct {")
-    lines.append("    float x, y, w, h;          /* relative to the text node top-left */")
-    lines.append("    float u0, v0, u1, v1;      /* R8 atlas UVs */")
-    lines.append("} UiGlyph;")
-    lines.append("")
-    lines.append("typedef struct {")
-    lines.append("    int node;                  /* UiNode id (NODE_TEXT) */")
-    lines.append("    int first;                 /* first glyph in kUiGlyphs */")
-    lines.append("    int count;")
-    lines.append("    float baseline;            /* ascender inside the line box */")
-    lines.append("} UiTextRun;")
-    lines.append("")
-    lines.append("static const UiGlyph kUiGlyphs[UI_GLYPH_COUNT > 0 ? UI_GLYPH_COUNT : 1] = {")
-    if glyphs:
-        for glyph in glyphs:
-            lines.append(
-                "    { %s, %s, %s, %s, %s, %s, %s, %s },"
-                % tuple(c_float(glyph[key]) for key in
-                        ("x", "y", "w", "h", "u0", "v0", "u1", "v1")))
-    else:
-        lines.append("    { 0, 0, 0, 0, 0, 0, 0, 0 },")
-    lines.append("};")
-    lines.append("")
-    lines.append("static const UiTextRun kUiTextRuns[UI_TEXT_RUN_COUNT > 0 ? UI_TEXT_RUN_COUNT : 1] = {")
-    if runs:
-        for run in runs:
-            lines.append("    { %d, %d, %d, %s }," % (
-                run["node"], run["first"], run["count"], c_float(run["baseline"])))
-    else:
-        lines.append("    { -1, 0, 0, 0.0f },")
-    lines.append("};")
     lines.append("")
     lines.append("#endif /* UI_DATA_H */")
     lines.append("")
@@ -915,10 +831,8 @@ class AtlasShim:
 
 
 class UiJsonMetrics:
-    def __init__(self, size: int, data: bytes, glyphs: list[dict], runs: list[dict]) -> None:
+    def __init__(self, size: int, data: bytes) -> None:
         self.packer = AtlasShim(size, data)
-        self.glyphs = glyphs
-        self.runs = runs
 
 
 def load_ui_json(path: Path) -> tuple[dict, bytes | None, int]:
@@ -983,8 +897,6 @@ def emit_from_ui_json(ui_path: Path, out_path: Path, meta_path: Path) -> int:
           f"parents/children consistent)")
     nodes: list[dict] = []
     meta: list[dict] = []
-    glyphs: list[dict] = []
-    runs: list[dict] = []
     inputs: list[dict] = []
     input_glyphs: list[dict] = []
     input_blocks: dict[tuple, tuple[int, int]] = {}
@@ -1176,33 +1088,12 @@ def emit_from_ui_json(ui_path: Path, out_path: Path, meta_path: Path) -> int:
         })
         if input_meta is not None:
             meta[-1]["input"] = input_meta
-        if text:
-            first = len(glyphs)
-            for glyph in text.get("glyphs", []):
-                glyphs.append({
-                    "x": float(glyph["x"]),
-                    "y": float(glyph["y"]),
-                    "w": float(glyph["w"]),
-                    "h": float(glyph["h"]),
-                    "u0": float(glyph["u0"]),
-                    "v0": float(glyph["v0"]),
-                    "u1": float(glyph["u1"]),
-                    "v1": float(glyph["v1"]),
-                })
-            runs.append({
-                "node": int(item.get("id", len(nodes) - 1)),
-                "first": first,
-                "count": len(text.get("glyphs", [])),
-                "baseline": float(text.get("baseline", 0.0)),
-            })
 
     metrics = None
     if payload is not None:
-        metrics = UiJsonMetrics(atlas_size, payload, glyphs, runs)
-    elif glyphs or input_glyphs:
-        raise SystemExit("ui.json has glyphs but no atlas")
-    if glyphs and len(glyphs) != int((data.get("text") or {}).get("glyph_count", len(glyphs))):
-        print("warning: ui.json glyph_count does not match the node glyphs")
+        metrics = UiJsonMetrics(atlas_size, payload)
+    elif input_glyphs:
+        raise SystemExit("ui.json has input glyphs but no atlas")
 
     viewport = data.get("viewport") or {}
     width = int(viewport.get("width", 960))
@@ -1214,8 +1105,8 @@ def emit_from_ui_json(ui_path: Path, out_path: Path, meta_path: Path) -> int:
     css_path = Path(source.get("css") or "")
     meta_text = {
         "atlas_size": metrics.packer.size if metrics is not None else 0,
-        "glyph_count": len(glyphs),
-        "text_run_count": len(runs),
+        "glyph_count": 0,
+        "text_run_count": 0,
     }
     if inputs:
         meta_text["input_count"] = len(inputs)
@@ -1233,8 +1124,8 @@ def emit_from_ui_json(ui_path: Path, out_path: Path, meta_path: Path) -> int:
     }
     meta_path.write_text(json.dumps(meta_out, indent=2, ensure_ascii=False) + "\n",
                          encoding="utf-8")
-    print(f"emit_ui(ui-json): {len(nodes)} nodes, {len(glyphs)} glyphs, "
-          f"{len(runs)} runs, {len(inputs)} inputs ({len(input_glyphs)} input glyphs) "
+    print(f"emit_ui(ui-json): {len(nodes)} nodes, "
+          f"{len(inputs)} inputs ({len(input_glyphs)} input glyphs) "
           f"-> {out_path}, {meta_path}")
     for item, node in zip(meta, nodes):
         print("  [%2d] %-42s kind=%-5s size=%sx%s%s"
@@ -1259,9 +1150,6 @@ NODE_FIELDS = ("parent", "kind", "direction", "justify", "align", "wrap",
                "shadow_color",
                "text_align", "line_height", "margin_auto", "box_sizing",
                 "flex_grow", "flex_shrink", "flex_basis")
-
-GLYPH_FIELDS = ("x", "y", "w", "h", "u0", "v0", "u1", "v1")
-RUN_FIELDS = ("node", "first", "count", "baseline")
 
 INPUT_FIELDS = ("node", "max_length", "password", "baseline", "line_height",
                 "glyph_first", "glyph_count")
@@ -1393,22 +1281,6 @@ def parse_header(path: Path) -> dict:
             "font_weight": int(values[48]) if values[48] is not None else 400,
         })
 
-    glyphs = []
-    for line in _block(text, "static const UiGlyph kUiGlyphs").splitlines():
-        numbers = [float(v) for v in _NUM_RE.findall(line)]
-        if len(numbers) == len(GLYPH_FIELDS):
-            glyphs.append(dict(zip(GLYPH_FIELDS, numbers)))
-
-    runs = []
-    for line in _block(text, "static const UiTextRun kUiTextRuns").splitlines():
-        numbers = [float(v) for v in _NUM_RE.findall(line)]
-        if len(numbers) == len(RUN_FIELDS):
-            run = dict(zip(RUN_FIELDS, numbers))
-            run["node"] = int(run["node"])
-            run["first"] = int(run["first"])
-            run["count"] = int(run["count"])
-            runs.append(run)
-
     names = []
     name_re = re.compile(r'^\s*("(?:[^"\\]|\\.)*")\s*,\s*$')
     for line in _block(text, "static const char *const kUiNodeNames").splitlines():
@@ -1457,13 +1329,9 @@ def parse_header(path: Path) -> dict:
                 })
     return {
         "node_count": define("UI_NODE_COUNT"),
-        "glyph_count": define("UI_GLYPH_COUNT"),
-        "run_count": define("UI_TEXT_RUN_COUNT"),
         "atlas_size": define("UI_ATLAS_SIZE"),
         "viewport": (define("UI_VIEWPORT_WIDTH"), define("UI_VIEWPORT_HEIGHT")),
         "nodes": nodes,
-        "glyphs": glyphs,
-        "runs": runs,
         "names": names,
         "atlas": atlas,
         "input_count": input_count,
@@ -1490,14 +1358,12 @@ def compare_headers(left_path: Path, right_path: Path, strict: bool) -> int:
     right = parse_header(right_path)
     failures: list[str] = []
     differences: list[str] = []
-    bitmap_differences: list[str] = []
-    uv_shifted: list[str] = []
 
     def check(label: str, a, b) -> None:
         if _values_differ(label, a, b):
             differences.append(f"{label}: {a!r} != {b!r}")
 
-    for key in ("node_count", "glyph_count", "run_count", "atlas_size", "viewport"):
+    for key in ("node_count", "atlas_size", "viewport"):
         if left[key] != right[key]:
             failures.append(f"{key}: {left[key]!r} != {right[key]!r}")
 
@@ -1517,51 +1383,9 @@ def compare_headers(left_path: Path, right_path: Path, strict: bool) -> int:
         failures.append(f"names: {len(left['names'])} != {len(right['names'])}")
     node_differences = len(differences)
 
-    # El header no lleva gid: la unica evidencia de un bitmap distinto es que
-    # cambie w/h. Si un glyph tiene la misma caja pero otras UVs, es
-    # consecuencia de que el shelf se desplazo por una caja anterior.
-    box_changed = False
-    x_exact = 0
-    y_exact = 0
-    uv_exact = 0
-    for index in range(min(len(left["glyphs"]), len(right["glyphs"]))):
-        a = left["glyphs"][index]
-        b = right["glyphs"][index]
-        if abs(a["x"] - b["x"]) > 0.51:
-            differences.append(f"glyph[{index}].x: {a['x']} != {b['x']}")
-        else:
-            x_exact += 1
-        width_height_same = (
-            abs(a["w"] - b["w"]) <= 1e-6 and abs(a["h"] - b["h"]) <= 1e-6
-        )
-        if width_height_same and abs(a["y"] - b["y"]) <= 0.51:
-            y_exact += 1
-        if not width_height_same:
-            bitmap_differences.append(
-                f"glyph[{index}] bitmap box: y/h {a['y']}/{a['h']} -> "
-                f"{b['y']}/{b['h']} (rasterizer hinting)")
-            box_changed = True
-        elif abs(a["y"] - b["y"]) > 0.51:
-            differences.append(
-                f"glyph[{index}].y: {a['y']} != {b['y']} (same bitmap box)")
-        uv_same = all(abs(a[field] - b[field]) <= 1e-6
-                      for field in ("u0", "v0", "u1", "v1"))
-        if uv_same:
-            uv_exact += 1
-        elif (not width_height_same) or box_changed:
-            uv_shifted.append(
-                f"glyph[{index}]: UV follows a bitmap-box change "
-                f"({a['u0']},{a['v0']},{a['u1']},{a['v1']} -> "
-                f"{b['u0']},{b['v0']},{b['u1']},{b['v1']})")
-        else:
-            differences.append(
-                f"glyph[{index}].uv: ({a['u0']},{a['v0']},{a['u1']},{a['v1']}) != "
-                f"({b['u0']},{b['v0']},{b['u1']},{b['v1']})")
-
-    for index in range(min(len(left["runs"]), len(right["runs"]))):
-        for field in RUN_FIELDS:
-            check(f"run[{index}].{field}", left["runs"][index][field],
-                  right["runs"][index][field])
+    for name in ("glyphs", "runs"):
+        if left.get(name) or right.get(name):
+            failures.append(f"{name}: the document no longer carries baked text")
 
     # ui-tree/3: solo cuando alguna cabecera tiene inputs (el oraculo Python no
     # los emite; la paridad de paginas con input no se compara contra el).
@@ -1586,21 +1410,12 @@ def compare_headers(left_path: Path, right_path: Path, strict: bool) -> int:
     else:
         failures.append(f"atlas bytes: {len(left['atlas'])} != {len(right['atlas'])}")
 
-    glyph_count = len(left["glyphs"])
     print(f"compare: {left_path} vs {right_path}")
     print(f"  nodes  : {left['node_count']} vs {right['node_count']} "
           f"({node_differences} node/style/name diffs)")
-    print(f"  glyphs : {left['glyph_count']} vs {right['glyph_count']} "
-          f"(x {x_exact}/{glyph_count} exact, y {y_exact}/{glyph_count} within 0.5 px, "
-          f"UV {uv_exact}/{glyph_count} exact)")
-    print(f"  runs   : {left['run_count']} vs {right['run_count']}")
     print(f"  atlas  : {left['atlas_size']}x{left['atlas_size']} vs "
           f"{right['atlas_size']}x{right['atlas_size']}, "
           f"{atlas_diffs}/{len(left['atlas'])} bytes differ (AA)")
-    for item in bitmap_differences:
-        print(f"  known  : {item}")
-    for item in uv_shifted:
-        print(f"  known  : {item}")
     for item in failures:
         print(f"  FAIL {item}")
     if differences:
@@ -1611,11 +1426,8 @@ def compare_headers(left_path: Path, right_path: Path, strict: bool) -> int:
             print(f"    ... {len(differences) - 40} more")
     else:
         print("  semantic differences: 0")
-    if strict:
-        if atlas_diffs:
-            failures.append(f"atlas bytes differ ({atlas_diffs})")
-        failures.extend(bitmap_differences)
-        failures.extend(uv_shifted)
+    if strict and atlas_diffs:
+        failures.append(f"atlas bytes differ ({atlas_diffs})")
     ok = not failures and not differences
     print("compare:", "PASS" if ok else "FAIL",
           "(strict)" if strict else "(semantic; bitmap-box/AA differences allowed)")
@@ -1697,8 +1509,8 @@ def main() -> int:
         "rule_count": len(rules),
         "text": {
             "atlas_size": metrics.packer.size if metrics is not None else 0,
-            "glyph_count": len(metrics.glyphs) if metrics is not None else 0,
-            "text_run_count": len(metrics.runs) if metrics is not None else 0,
+            "glyph_count": 0,
+            "text_run_count": 0,
         },
         "nodes": emitter.meta,
     }

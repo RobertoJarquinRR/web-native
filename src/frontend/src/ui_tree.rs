@@ -39,7 +39,7 @@ use crate::grid::{GridAutoRows, GridTemplateColumns};
 use crate::sha256;
 use crate::style_ext::{BorderOut, BoxShadow, RelLength, StyleV3, Unit};
 use crate::text::{
-    parse_font_weight, Atlas, BakedInputPool, BakedUiText, TextEngine, UiGlyphOut, UiInputGlyphOut,
+    parse_font_weight, Atlas, BakedInputPool, TextEngine, UiGlyphOut, UiInputGlyphOut,
     UiTextBaker, UI_INPUT_ATLAS_SIZE,
 };
 
@@ -592,33 +592,18 @@ impl<'a> Builder<'a> {
             DEFAULT_SIZE
         };
         let weight = parse_font_weight(&style.font_weight);
-        let baked = self
-            .baker
-            .bake(self.engine, text, &family, size, weight)?;
-        let BakedUiText {
-            mut glyphs,
-            width,
-            ascender,
-            descender,
-        } = baked;
-        // E1: `line-height` define la caja de linea. El texto se centra en ella
-        // repartiendo el leading (half-leading de CSS) por arriba y por abajo;
-        // los glyphs y el baseline se desplazan con el leading superior.
-        let natural = ascender + descender;
-        let line_height = if style.line_height > 0.0 {
-            style.line_height
+        // Text is shaped, measured and rasterized by the runtime; the document
+        // only carries the string, the family, the size, the weight and an
+        // optional line box.
+        let glyphs = Vec::new();
+        let node_width = 0.0;
+        let node_height = if style.line_height > 0.0 {
+            style.line_height.ceil()
         } else {
-            natural
+            0.0
         };
-        let leading = (line_height - natural) * 0.5;
-        if leading != 0.0 {
-            for glyph in &mut glyphs {
-                glyph.y += leading;
-            }
-        }
-        let node_width = width.ceil();
-        let node_height = line_height.ceil();
-        let baseline = ascender + leading;
+        let baseline = 0.0;
+        let _ = weight;
         let text_name = self.unique_name("text");
         let index = self.nodes.len();
         self.nodes.push(NodeOut {

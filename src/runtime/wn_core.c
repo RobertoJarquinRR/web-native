@@ -3,8 +3,8 @@
  *
  * This is the runtime half of R2 extracted from runtime_r2.c. Behaviour is
  * intentionally identical: same block/flex algorithm, same wrap shrink rule,
- * same reverse hit testing, same press > hover > selected color priority and
- * the same pre-shaped glyph quads.
+ * same reverse hit testing and the same press > hover > selected priority.
+ * Text is shaped and rasterized by the runtime, never baked into the document.
  *
  * The compiled document comes from ui_data.h (build time). The core never
  * parses HTML/CSS and never touches a GPU or an OS window.
@@ -28,10 +28,6 @@ struct wn_document {
     const UiNode *nodes;
     int node_count;
     const char *const *names;
-    const UiGlyph *glyphs;
-    int glyph_count;
-    const UiTextRun *runs;
-    int run_count;
     const unsigned char *atlas;
     int atlas_width;
     int atlas_height;
@@ -43,10 +39,6 @@ static const wn_document g_builtin_document = {
     kUiNodes,
     UI_NODE_COUNT,
     kUiNodeNames,
-    kUiGlyphs,
-    UI_GLYPH_COUNT,
-    kUiTextRuns,
-    UI_TEXT_RUN_COUNT,
     kUiAtlas,
     UI_ATLAS_SIZE,
     UI_ATLAS_SIZE,
@@ -3582,7 +3574,7 @@ wn_core *wn_core_create(const wn_document *document)
     c->solid_batch_capacity = count > 0 ? count : 1;
     c->solid_batches = (wn_draw_batch *)calloc(
         (size_t)c->solid_batch_capacity, sizeof(wn_draw_batch));
-    c->glyph_vertex_capacity = (document->glyph_count > 0 ? document->glyph_count : 1) * 6;
+    c->glyph_vertex_capacity = count * 6;
     c->glyph_vertices = (wn_glyph_vertex *)calloc(
         (size_t)c->glyph_vertex_capacity, sizeof(wn_glyph_vertex));
     c->glyph_batch_capacity = count > 0 ? count : 1;

@@ -112,29 +112,28 @@ const BOLD_PAGE: &str = r##"<!doctype html>
 "##;
 
 #[test]
-fn font_weight_700_selects_a_real_bold_variant() {
+fn font_weight_700_is_recorded_and_text_is_not_baked() {
     let dir = temp_dir("e1-bold");
     fs::write(dir.join("page.html"), BOLD_PAGE).unwrap();
     let json = emit_ui(&dir, "page.html", "ui.json", &[]);
 
     // La pagina no usa features v2: sigue siendo /1 (sin campos extra).
     assert!(json.contains("\"schema\": \"webnative.ui-tree/1\""), "{json}");
-    let regular = field_number(&json, "body.root/div#regular.row/text", "width_px");
-    let bold = field_number(&json, "body.root/div#bold.row/text[1]", "width_px");
-    assert!(
-        bold >= regular + 2.0,
-        "bold must use a wider real variant: regular={regular}, bold={bold}"
-    );
-    let regular_h = field_number(&json, "body.root/div#regular.row/text", "height_px");
-    let bold_h = field_number(&json, "body.root/div#bold.row/text[1]", "height_px");
-    assert!(
-        (regular_h - bold_h).abs() < 0.01,
-        "bold must keep the regular line box: {regular_h} vs {bold_h}"
+    assert_eq!(
+        field_string(&json, "body.root/div#regular.row/text", "font_weight"),
+        "400"
     );
     assert_eq!(
         field_string(&json, "body.root/div#bold.row/text[1]", "font_weight"),
         "700"
     );
+    // El runtime mide y shapea: el documento no lleva caja ni glifos.
+    assert_eq!(
+        field_number(&json, "body.root/div#bold.row/text[1]", "width_px"),
+        0.0
+    );
+    let baked_glyphs = json.matches("\"x\": ").count();
+    assert_eq!(baked_glyphs, 0, "no glyph positions are baked: {json}");
 }
 
 const ALIGN_PAGE: &str = r##"<!doctype html>
@@ -210,19 +209,15 @@ fn line_height_sets_the_text_box_and_the_baseline() {
 
     let normal = field_number(&json, "body.root/div#normal.row/text", "height_px");
     let tall = field_number(&json, "body.root/div#tall.row/text[1]", "height_px");
-    assert!(normal < 30.0, "natural line box: {normal}");
-    assert!((tall - 40.0).abs() < 0.01, "line-height text box: {tall}");
+    assert_eq!(normal, 0.0, "auto box is measured at runtime");
+    assert_eq!(tall, 40.0, "declared line-height travels in the document");
     assert_eq!(
         field_number(&json, "body.root/div#tall.row/text[1]", "line_height"),
         40.0
     );
-    // `baseline` vive en el objeto text{}: half-leading por encima del ascender.
+    // `baseline` no se hornea: vive en el runtime que shapea el texto.
     let baseline = field_number(&json, "body.root/div#tall.row/text[1]", "baseline");
-    assert!(baseline > 0.0 && baseline < 40.0, "baseline: {baseline}");
-    assert!(
-        baseline > 20.0,
-        "half-leading pushes the baseline down: {baseline}"
-    );
+    assert_eq!(baseline, 0.0, "baseline is not baked: {baseline}");
 }
 
 const AUTO_PAGE: &str = r##"<!doctype html>
