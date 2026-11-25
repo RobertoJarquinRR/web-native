@@ -608,8 +608,8 @@ class Emitter:
             "kind": KIND_TEXT,
             "direction": 0,
             "justify": 0, "align": 0, "wrap": 0,
-            "width": float(math.ceil(width)),
-            "height": float(math.ceil(height)),
+            "width": -1.0,
+            "height": -1.0,
             "width_pct": 0.0, "height_pct": 0.0,
             "margin": [0.0, 0.0, 0.0, 0.0],
             "padding": [0.0, 0.0, 0.0, 0.0],
@@ -1144,6 +1144,10 @@ def emit_from_ui_json(ui_path: Path, out_path: Path, meta_path: Path) -> int:
             # CSS core v1: radio uniforme, primer borde y primera sombra.
             **css_node_fields(style),
         })
+        if kind == KIND_TEXT:
+            # El runtime mide el texto; el tamano horneado ya no viaja al documento.
+            nodes[-1]["width"] = -1.0
+            nodes[-1]["height"] = -1.0
         meta.append({
             "id": item.get("id", len(meta)),
             "name": item.get("name", ""),

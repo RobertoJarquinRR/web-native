@@ -17,8 +17,11 @@ RUNTIME_SOURCES = (
     "renderer_wgpu.c",
     "renderer_d3d11.c",
     "host_win32.c",
+    "text/text_runtime.c",
+    "text/text_directwrite.cpp",
 )
-CORE_SOURCES = ("wn_core.c", "wn_common.c")
+CORE_SOURCES = ("wn_core.c", "wn_common.c", "text/text_runtime.c", "text/text_directwrite.cpp")
+CORE_LIBS = ("dwrite.lib",)
 RUNTIME_LIBS = (
     "d3d11.lib",
     "dxgi.lib",
@@ -27,6 +30,7 @@ RUNTIME_LIBS = (
     "ole32.lib",
     "user32.lib",
     "gdi32.lib",
+    "dwrite.lib",
 )
 CFLAGS = ("/nologo", "/O2", "/W4", "/WX", "/D_CRT_SECURE_NO_WARNINGS", "/DWN_STATIC")
 CXX_SUFFIXES = (".cpp", ".cc", ".cxx")
@@ -220,6 +224,7 @@ def run_fidelity() -> int:
         core_exe,
         [suite / "fidelity_core_test.c", *[runtime / source for source in CORE_SOURCES]],
         [get_paths().root / "include", runtime, out / "emit"],
+        CORE_LIBS,
     )
     core_stdout = _run(core_exe, [], out)
     if "PASS" not in core_stdout:
@@ -292,7 +297,7 @@ def run_dynamic() -> int:
 
     log_step("dynamic: core test")
     core_exe = out / "dynamic_core_test.exe"
-    _compile(core_exe, [suite / "dynamic_core_test.c", *[runtime / item for item in CORE_SOURCES]], includes)
+    _compile(core_exe, [suite / "dynamic_core_test.c", *[runtime / item for item in CORE_SOURCES]], includes, CORE_LIBS)
     _expect(_run(core_exe, [str(out / "core_events.jsonl")], suite), ["dynamic_core_test: PASS"], "dynamic core test")
 
     log_step("dynamic: runtime stages")
@@ -341,7 +346,7 @@ def run_input() -> int:
 
     log_step("input: core test")
     core_exe = out / "input_core_test.exe"
-    _compile(core_exe, [suite / "input_core_test.c", *[runtime / item for item in CORE_SOURCES]], includes)
+    _compile(core_exe, [suite / "input_core_test.c", *[runtime / item for item in CORE_SOURCES]], includes, CORE_LIBS)
     _expect(_run(core_exe, [str(out / "core_events.jsonl")], suite), ["input_core_test: PASS"], "input core test")
 
     log_step("input: runtime stages")
@@ -484,10 +489,9 @@ def run_text() -> int:
     document_exe = out / "document_text_test.exe"
     _compile(
         document_exe,
-        [suite / "document_test.c", runtime / "text" / "text_runtime.c",
-         runtime / "text" / "text_directwrite.cpp"],
+        [suite / "document_test.c", *[runtime / item for item in CORE_SOURCES]],
         [get_paths().root / "include", runtime, fixture],
-        ["dwrite.lib"],
+        CORE_LIBS,
     )
     _expect(_run(document_exe, [], out), ["document_text_test: PASS"], "document text test")
     log_info("runtime text v0: PASS")

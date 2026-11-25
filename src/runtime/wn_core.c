@@ -15,6 +15,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "text/text_runtime.h"
 #include "ui_data.h"
 #include "wn_core.h"
 #include "wn_internal.h"
@@ -117,6 +118,7 @@ typedef struct {
  * geometry stays byte-identical. */
 #if defined(UI_STYLE_EXTRAS)
 #define WN_TEXT_ALIGN(n) ((n)->text_align)
+#define WN_LINE_HEIGHT(n) ((n)->line_height)
 #define WN_MARGIN_AUTO(n, bit) ((((n)->margin_auto) >> (bit)) & 1)
 /* 1 = border-box (width/height include padding); 0/absent = content-box (CSS
  * default). Pages that don't declare box-sizing keep the browser behaviour. */
@@ -126,6 +128,7 @@ typedef struct {
 #define WN_FLEX_BASIS(n) ((n)->flex_basis)
 #else
 #define WN_TEXT_ALIGN(n) 0
+#define WN_LINE_HEIGHT(n) 0.0f
 #define WN_MARGIN_AUTO(n, bit) 0
 #define WN_BOX_SIZING(n) 0
 #define WN_FLEX_GROW(n) 0.0f
@@ -584,6 +587,36 @@ static void mark_subtree_hidden(wn_core *c, int node)
     }
 }
 
+static void measure_text_node(const UiNode *n, float max_width, wn_text_metrics *out)
+{
+    const char *text = n->text != NULL ? n->text : "";
+    if (wn_text_measure_string(text, n->font_family, n->font_size, n->font_weight,
+                               max_width > 0.0f ? max_width : 0.0f, out) == 0) {
+        return;
+    }
+    out->width = n->font_size * 0.6f * (float)strlen(text);
+    out->height = n->font_size * 1.25f;
+    out->ascent = n->font_size;
+    out->descent = 0.0f;
+}
+
+static float text_node_width(const UiNode *n, float max_width)
+{
+    wn_text_metrics metrics;
+    measure_text_node(n, max_width, &metrics);
+    return ceilf(metrics.width) + WN_DECL_W(n);
+}
+
+static float text_node_height(const UiNode *n, float max_width)
+{
+    wn_text_metrics metrics;
+    if (WN_LINE_HEIGHT(n) > 0.0f) {
+        return ceilf(WN_LINE_HEIGHT(n)) + WN_DECL_H(n);
+    }
+    measure_text_node(n, max_width, &metrics);
+    return ceilf(metrics.height) + WN_DECL_H(n);
+}
+
 static float intrinsic_width(wn_core *c, int node, float available)
 {
     const UiNode *n = &c->nodes[node];
@@ -594,7 +627,7 @@ static float intrinsic_width(wn_core *c, int node, float available)
         return available * n->width_pct * 0.01f + WN_DECL_W(n);
     }
     if (n->kind == R2_NODE_TEXT) {
-        return n->width > 0.0f ? n->width : 0.0f;
+        return text_node_width(n, available);
     }
     if (n->kind == R2_NODE_IMAGE && n->image_width > 0.0f) {
         return n->image_width + n->padding[1] + n->padding[3];
@@ -1197,6 +1230,8 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
         w = n->width + WN_DECL_W(n);
     } else if (n->width_pct > 0.0f) {
         w = available_w * n->width_pct * 0.01f + WN_DECL_W(n);
+    } else if (n->kind == R2_NODE_TEXT) {
+        w = text_node_width(n, available_w - n->margin[1] - n->margin[3]);
     } else if (n->kind == R2_NODE_IMAGE && n->image_width > 0.0f) {
         w = n->image_width;
     } else {
@@ -1228,7 +1263,14 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
     const float content_y = y + pad_t;
 
     if (n->kind == R2_NODE_TEXT) {
-        float h = n->height >= 0.0f ? n->height + WN_DECL_H(n) : (content_h >= 0.0f ? content_h : 0.0f);
+        float h;
+        if (n->height >= 0.0f) {
+            h = n->height + WN_DECL_H(n);
+        } else if (content_h >= 0.0f) {
+            h = content_h;
+        } else {
+            h = text_node_height(n, content_w);
+        }
         c->rects[node].x = x;
         c->rects[node].y = y;
         c->rects[node].w = w;

@@ -13,6 +13,8 @@ set(WN_GENERATED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/generated" CACHE PATH "directo
 add_library(wn_runtime_obj OBJECT
     wn_common.c
     wn_core.c
+    text/text_runtime.c
+    text/text_directwrite.cpp
     wn_view.c 
     wn_app.c
     host_win32.c 
@@ -49,6 +51,7 @@ set(WN_LINK_LIBS
     ole32
     user32
     gdi32
+    dwrite
 )
 
 add_executable(runtime_r2
