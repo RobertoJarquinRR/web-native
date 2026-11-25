@@ -4,7 +4,7 @@
 use crate::emit::round_py;
 
 /// `px` o numero sin unidad; `auto`/`none`/`normal`/porcentajes -> `None`.
-pub fn length(value: Option<&str>) -> Option<f64> {
+pub(crate) fn length(value: Option<&str>) -> Option<f64> {
     let raw = value?;
     let text = raw.trim().to_ascii_lowercase();
     if text.is_empty() || text == "auto" || text == "none" || text == "normal" {
@@ -52,7 +52,7 @@ fn is_css_number(text: &str) -> bool {
 ///
 /// Misma semantica que `_PCT` de `emit_ui.py`: sin signo `+`, sin exponentes y
 /// con `%` obligatorio al final.
-pub fn percentage(value: Option<&str>) -> f64 {
+pub(crate) fn percentage(value: Option<&str>) -> f64 {
     let Some(raw) = value else { return 0.0 };
     let text = raw.trim().to_ascii_lowercase();
     let Some(number) = text.strip_suffix('%') else {
@@ -68,7 +68,7 @@ pub fn percentage(value: Option<&str>) -> f64 {
 
 /// `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()` y una tabla corta
 /// de nombres. Alfa 0 -> sin fondo (`None`), como el Python.
-pub fn parse_color(value: Option<&str>) -> Option<String> {
+pub(crate) fn parse_color(value: Option<&str>) -> Option<String> {
     let raw = value?;
     let text = raw.trim().to_ascii_lowercase();
     if text.is_empty() {
@@ -123,7 +123,7 @@ pub fn parse_color(value: Option<&str>) -> Option<String> {
 /// contrato v1 solo emite `background`/`color` opacos. Las sombras y los bordes
 /// v3 necesitan el alfa (`rgba(0,0,0,0.4)` -> `#00000066`) y `transparent`
 /// (`#00000000`), asi que este helper no colapsa esos casos.
-pub fn color_with_alpha(value: Option<&str>) -> Option<String> {
+pub(crate) fn color_with_alpha(value: Option<&str>) -> Option<String> {
     let raw = value?;
     let text = raw.trim().to_ascii_lowercase();
     if text.is_empty() {

@@ -8,26 +8,26 @@
 //! tolerante con espacios y mayusculas, pero estricto con la forma: cualquier
 //! otra construccion devuelve `None` y el diagnostico de subset la rechaza.
 
-use crate::color::length;
+use crate::style::color::length;
 
 /// `repeat(auto-fill, <px>)` ya normalizado para `ui.json`.
 #[derive(Debug, Clone, PartialEq)]
-pub struct GridTemplateColumns {
+pub(crate) struct GridTemplateColumns {
     /// Siempre `"auto_fill"` en v2.
-    pub mode: String,
-    pub size_px: f64,
+    pub(crate) mode: String,
+    pub(crate) size_px: f64,
 }
 
 /// `grid-auto-rows: <px> | auto`.
 #[derive(Debug, Clone, PartialEq)]
-pub enum GridAutoRows {
+pub(crate) enum GridAutoRows {
     Px(f64),
     /// `auto` = altura maxima de los hijos (lo calcula el runtime).
     Auto,
 }
 
 /// `repeat(auto-fill, 180px)` -> `{ mode: "auto_fill", size_px: 180.0 }`.
-pub fn parse_grid_template_columns(value: &str) -> Option<GridTemplateColumns> {
+pub(crate) fn parse_grid_template_columns(value: &str) -> Option<GridTemplateColumns> {
     let text = value.trim();
     let open = text.find('(')?;
     let close = text.rfind(')')?;
@@ -52,7 +52,7 @@ pub fn parse_grid_template_columns(value: &str) -> Option<GridTemplateColumns> {
 }
 
 /// `240px` -> `Px(240.0)`; `auto` -> `Auto`.
-pub fn parse_grid_auto_rows(value: &str) -> Option<GridAutoRows> {
+pub(crate) fn parse_grid_auto_rows(value: &str) -> Option<GridAutoRows> {
     let text = value.trim();
     if text.eq_ignore_ascii_case("auto") {
         return Some(GridAutoRows::Auto);

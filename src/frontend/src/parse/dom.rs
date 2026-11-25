@@ -15,14 +15,14 @@ use html5ever::interface::ElemName;
 use html5ever::tendril::{StrTendril, TendrilSink};
 use html5ever::{parse_document, Attribute, LocalName, Namespace, QualName};
 
-pub type NodeId = usize;
+pub(crate) type NodeId = usize;
 
 const NON_RENDERED: [&str; 10] = [
     "head", "title", "meta", "link", "style", "script", "base", "template", "noscript", "track",
 ];
 
 /// Nombre propio (clonado) para poder devolverlo desde un `RefCell`.
-pub struct OwnedName {
+pub(crate) struct OwnedName {
     ns: Namespace,
     local: LocalName,
 }
@@ -42,34 +42,34 @@ impl fmt::Debug for OwnedName {
     }
 }
 
-pub struct Node {
-    pub tag: String,
-    pub attrs: Vec<(String, String)>,
-    pub parent: Option<NodeId>,
-    pub children: Vec<NodeId>,
-    pub text: String,
+pub(crate) struct Node {
+    pub(crate) tag: String,
+    pub(crate) attrs: Vec<(String, String)>,
+    pub(crate) parent: Option<NodeId>,
+    pub(crate) children: Vec<NodeId>,
+    pub(crate) text: String,
 }
 
 impl Node {
-    pub fn attr(&self, name: &str) -> Option<&str> {
+    pub(crate) fn attr(&self, name: &str) -> Option<&str> {
         self.attrs
             .iter()
             .find(|(key, _)| key == name)
             .map(|(_, value)| value.as_str())
     }
 
-    pub fn classes(&self) -> impl Iterator<Item = &str> {
+    pub(crate) fn classes(&self) -> impl Iterator<Item = &str> {
         self.attr("class").unwrap_or("").split_whitespace()
     }
 }
 
-pub struct Dom {
-    pub nodes: Vec<Node>,
-    pub root: NodeId,
+pub(crate) struct Dom {
+    pub(crate) nodes: Vec<Node>,
+    pub(crate) root: NodeId,
 }
 
 impl Dom {
-    pub fn preorder(&self) -> Vec<NodeId> {
+    pub(crate) fn preorder(&self) -> Vec<NodeId> {
         let mut out = Vec::with_capacity(self.nodes.len());
         let mut stack = vec![self.root];
         while let Some(id) = stack.pop() {
@@ -81,7 +81,7 @@ impl Dom {
         out
     }
 
-    pub fn attr(&self, id: NodeId, name: &str) -> Option<&str> {
+    pub(crate) fn attr(&self, id: NodeId, name: &str) -> Option<&str> {
         self.nodes[id].attr(name)
     }
 }
@@ -428,7 +428,7 @@ fn convert(raw: &[RawNode], id: NodeId, parent: Option<NodeId>, out: &mut Vec<No
     index
 }
 
-pub fn parse_html(text: &str) -> Dom {
+pub(crate) fn parse_html(text: &str) -> Dom {
     // html5lib usa scripting=False por defecto; html5ever arranca con true.
     let options = html5ever::driver::ParseOpts {
         tree_builder: html5ever::tree_builder::TreeBuilderOpts {
@@ -444,7 +444,7 @@ pub fn parse_html(text: &str) -> Dom {
 }
 
 /// CSS en orden de documento: `<style>` inline y `<link rel=stylesheet>`.
-pub fn stylesheet_texts(dom: &Dom, base_dir: &Path) -> Result<Vec<String>, String> {
+pub(crate) fn stylesheet_texts(dom: &Dom, base_dir: &Path) -> Result<Vec<String>, String> {
     let mut texts = Vec::new();
     for id in dom.preorder() {
         let node = &dom.nodes[id];
@@ -478,7 +478,7 @@ pub fn stylesheet_texts(dom: &Dom, base_dir: &Path) -> Result<Vec<String>, Strin
 }
 
 /// Nodos no renderizados por la hoja de estilo del navegador (como Python).
-pub fn ua_display(tag: &str) -> &'static str {
+pub(crate) fn ua_display(tag: &str) -> &'static str {
     if NON_RENDERED.contains(&tag) {
         "none"
     } else if INLINE.contains(&tag) {

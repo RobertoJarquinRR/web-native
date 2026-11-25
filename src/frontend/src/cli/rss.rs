@@ -4,7 +4,7 @@
 //! variante porque es la que admite el tamano mayor en Windows 11.
 
 #[cfg(windows)]
-pub fn peak_rss_kb() -> u64 {
+pub(crate) fn peak_rss_kb() -> u64 {
     #[repr(C)]
     struct ProcessMemoryCounters {
         cb: u32,
@@ -46,6 +46,6 @@ pub fn peak_rss_kb() -> u64 {
 }
 
 #[cfg(not(windows))]
-pub fn peak_rss_kb() -> u64 {
+pub(crate) fn peak_rss_kb() -> u64 {
     0
 }

@@ -4,11 +4,11 @@
 use std::fmt::Write;
 
 use crate::layout::RectOp;
-use crate::sha256;
+use crate::util::sha256;
 use crate::text::{Atlas, TextOp};
 
 /// `round()` de Python para floats: redondeo a par mas cercano (banker's).
-pub fn round_py(value: f64) -> i64 {
+pub(crate) fn round_py(value: f64) -> i64 {
     if !value.is_finite() {
         return 0;
     }
@@ -16,7 +16,7 @@ pub fn round_py(value: f64) -> i64 {
 }
 
 /// `round(value, digits)` de Python: cuantizacion decimal con par mas cercano.
-pub fn round_digits(value: f64, digits: i32) -> f64 {
+pub(crate) fn round_digits(value: f64, digits: i32) -> f64 {
     if !value.is_finite() {
         return 0.0;
     }
@@ -26,7 +26,7 @@ pub fn round_digits(value: f64, digits: i32) -> f64 {
 
 /// Float con la representacion corta de `repr()` de Python (siempre con `.0`
 /// si es integral, porque el valor original era float).
-pub fn py_float(value: f64) -> String {
+pub(crate) fn py_float(value: f64) -> String {
     let mut text = format!("{value}");
     if !text.contains('.') && !text.contains('e') && !text.contains('E') {
         text.push_str(".0");
@@ -58,12 +58,12 @@ pub(crate) fn push_json_string(out: &mut String, value: &str) {
     out.push('"');
 }
 
-pub enum IrOp {
+pub(crate) enum IrOp {
     Rect(RectOp),
     Text(TextOp),
 }
 
-pub fn ir_json(viewport_width: u32, viewport_height: u32, ops: &[IrOp]) -> String {
+pub(crate) fn ir_json(viewport_width: u32, viewport_height: u32, ops: &[IrOp]) -> String {
     let mut out = String::with_capacity(256 + ops.len() * 256);
     let _ = write!(
         out,
@@ -137,7 +137,7 @@ pub fn ir_json(viewport_width: u32, viewport_height: u32, ops: &[IrOp]) -> Strin
     out
 }
 
-pub fn atlas_json(atlas: &Atlas) -> String {
+pub(crate) fn atlas_json(atlas: &Atlas) -> String {
     let hash = sha256::hex(&sha256::digest(&atlas.data));
     format!(
         "{{\n  \"width\": {},\n  \"height\": {},\n  \"format\": \"r8unorm\",\n  \"glyph_count\": {},\n  \"size_bytes\": {},\n  \"sha256\": \"{}\",\n  \"pixels_nonzero\": {}\n}}\n",
@@ -150,17 +150,17 @@ pub fn atlas_json(atlas: &Atlas) -> String {
     )
 }
 
-pub struct Timings {
-    pub html: f64,
-    pub css: f64,
-    pub cascade: f64,
-    pub fonts: f64,
-    pub layout: f64,
-    pub text: f64,
-    pub emit: f64,
-    pub pipeline: f64,
-    pub ops: usize,
-    pub peak_rss_kb: u64,
+pub(crate) struct Timings {
+    pub(crate) html: f64,
+    pub(crate) css: f64,
+    pub(crate) cascade: f64,
+    pub(crate) fonts: f64,
+    pub(crate) layout: f64,
+    pub(crate) text: f64,
+    pub(crate) emit: f64,
+    pub(crate) pipeline: f64,
+    pub(crate) ops: usize,
+    pub(crate) peak_rss_kb: u64,
 }
 
 /// Float con el estilo corto de Python (`0.044`, `37.115`, `12.0`).
@@ -177,7 +177,7 @@ fn timing_float(value: f64) -> String {
     text
 }
 
-pub fn timings_json(timings: &Timings) -> String {
+pub(crate) fn timings_json(timings: &Timings) -> String {
     let mut out = String::new();
     // `html`/`css` son los nombres del frontend Python; `parse` es el alias que
     // usa el SPEC para la etapa de parseo HTML.
@@ -203,7 +203,7 @@ pub fn timings_json(timings: &Timings) -> String {
     out
 }
 
-pub fn timings_inline(timings: &Timings) -> String {
+pub(crate) fn timings_inline(timings: &Timings) -> String {
     format!(
         "{{\"html\": {}, \"css\": {}, \"cascade\": {}, \"fonts\": {}, \"layout\": {}, \"text\": {}, \"emit\": {}, \"pipeline\": {}, \"ops\": {}, \"peak_rss_kb\": {}}}",
         timing_float(timings.html),

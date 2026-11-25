@@ -5,13 +5,13 @@
 
 use std::collections::HashMap;
 
-use crate::color::{length, parse_color, percentage};
-use crate::css::{parse_declarations, Rule};
-use crate::dom::{ua_display, Dom, NodeId};
-use crate::grid::{
+use crate::parse::css::{parse_declarations, Rule};
+use crate::parse::dom::{ua_display, Dom, NodeId};
+use crate::style::color::{length, parse_color, percentage};
+use crate::style::grid::{
     parse_grid_auto_rows, parse_grid_template_columns, GridAutoRows, GridTemplateColumns,
 };
-use crate::style_ext::{
+use crate::style::style_ext::{
     parse_box_shadows, parse_number, parse_rel_length, resolve_border_radius, resolve_border_side,
     BorderOut, LengthCtx, RelLength, StyleV3,
 };
@@ -33,62 +33,62 @@ type Key = (u8, u8, (u32, u32, u32), u32, u32);
 /// Campos `color`/`font_size`/`font_family` se calculan para mantener la
 /// paridad de la cascada aunque esta ronda no emita texto.
 #[allow(dead_code)]
-pub struct ComputedStyle {
-    pub raw: HashMap<String, String>,
-    pub display: String,
+pub(crate) struct ComputedStyle {
+    pub(crate) raw: HashMap<String, String>,
+    pub(crate) display: String,
     /// top, right, bottom, left
-    pub margin: [f64; 4],
-    pub padding: [f64; 4],
-    pub width: Option<f64>,
-    pub height: Option<f64>,
+    pub(crate) margin: [f64; 4],
+    pub(crate) padding: [f64; 4],
+    pub(crate) width: Option<f64>,
+    pub(crate) height: Option<f64>,
     /// `width: 30%` -> 30.0; 0.0 si no hay porcentaje (contrato de `UiNode`).
-    pub width_pct: f64,
-    pub height_pct: f64,
-    pub background: Option<String>,
-    pub color: String,
-    pub font_size: f64,
-    pub font_family: String,
-    pub font_weight: String,
+    pub(crate) width_pct: f64,
+    pub(crate) height_pct: f64,
+    pub(crate) background: Option<String>,
+    pub(crate) color: String,
+    pub(crate) font_size: f64,
+    pub(crate) font_family: String,
+    pub(crate) font_weight: String,
     /// `left | center | right` (E1). Heredado.
-    pub text_align: String,
+    pub(crate) text_align: String,
     /// `line-height` resuelto a px; 0.0 = `normal` (metricas de la fuente).
-    pub line_height: f64,
+    pub(crate) line_height: f64,
     /// `margin-*: auto` por lado (top, right, bottom, left). E1.
-    pub margin_auto: [bool; 4],
+    pub(crate) margin_auto: [bool; 4],
     /// `box-sizing: border-box` (E8/A). false = content-box, el default de CSS.
-    pub box_sizing_border: bool,
+    pub(crate) box_sizing_border: bool,
     /// `flex-grow` / `flex-shrink` / `flex-basis` (px, -1 = auto). E8.
-    pub flex_grow: f64,
-    pub flex_shrink: f64,
-    pub flex_basis: f64,
-    pub flex_direction: String,
-    pub justify_content: String,
-    pub align_items: String,
-    pub flex_wrap: String,
-    pub gap: f64,
+    pub(crate) flex_grow: f64,
+    pub(crate) flex_shrink: f64,
+    pub(crate) flex_basis: f64,
+    pub(crate) flex_direction: String,
+    pub(crate) justify_content: String,
+    pub(crate) align_items: String,
+    pub(crate) flex_wrap: String,
+    pub(crate) gap: f64,
     /// v2: `gap` resuelto por eje (`row-gap`/`column-gap` ganan a `gap`).
-    pub row_gap: f64,
-    pub column_gap: f64,
+    pub(crate) row_gap: f64,
+    pub(crate) column_gap: f64,
     /// v2: solo `repeat(auto-fill, <px>)`; el resto queda `None`.
-    pub grid_template_columns: Option<GridTemplateColumns>,
+    pub(crate) grid_template_columns: Option<GridTemplateColumns>,
     /// v2: `<px>` o `auto`.
-    pub grid_auto_rows: Option<GridAutoRows>,
+    pub(crate) grid_auto_rows: Option<GridAutoRows>,
     /// v2: `hidden | auto | scroll`; `visible`/desconocido -> `None`.
-    pub overflow: Option<String>,
+    pub(crate) overflow: Option<String>,
     /// v2: `fill | cover | contain`; se emite dentro de `image.object_fit`.
-    pub object_fit: Option<String>,
+    pub(crate) object_fit: Option<String>,
     /// `data-hover` / `data-press` / `data-selected` / `data-action` crudos.
     /// La cascada los transporta porque el runtime R2 los necesita por nodo y
     /// el IR de R1 los ignora deliberadamente.
-    pub data_hover: Option<String>,
-    pub data_press: Option<String>,
-    pub data_selected: Option<String>,
-    pub data_action: Option<String>,
+    pub(crate) data_hover: Option<String>,
+    pub(crate) data_press: Option<String>,
+    pub(crate) data_selected: Option<String>,
+    pub(crate) data_action: Option<String>,
     /// Extensiones CSS v3 (bordes, radio, sombras, unidades relativas).
-    pub css3: StyleV3,
+    pub(crate) css3: StyleV3,
 }
 
-pub fn compute_styles(
+pub(crate) fn compute_styles(
     dom: &Dom,
     rules: &[Rule],
     viewport: (f64, f64),
@@ -378,7 +378,7 @@ fn resolve_side(
     side: &str,
     ctx: &LengthCtx,
     color: &str,
-) -> crate::style_ext::BorderSide {
+) -> crate::style::style_ext::BorderSide {
     resolve_border_side(
         raw.get(&format!("border-{side}-width")),
         raw.get(&format!("border-{side}-style")),

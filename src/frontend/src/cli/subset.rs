@@ -18,8 +18,8 @@ use std::path::Path;
 
 use cssparser::{Delimiter, ParseError, Parser, ParserInput, Token};
 
-use crate::grid::{parse_grid_auto_rows, parse_grid_template_columns};
-use crate::style_ext::{box_shadow_is_valid, is_relative_length};
+use crate::style::grid::{parse_grid_auto_rows, parse_grid_template_columns};
+use crate::style::style_ext::{box_shadow_is_valid, is_relative_length};
 
 /// Etiquetas del subconjunto v1. `input` es la extension del piloto v2
 /// (widget text input, `ui-tree/3`) y se diagnostica sin `--pilot`.
@@ -60,11 +60,11 @@ const ALLOWED_PSEUDO_CLASSES: [&str; 8] = [
 ];
 
 #[derive(Debug, Clone)]
-pub struct Diagnostic {
-    pub file: String,
-    pub line: Option<u32>,
-    pub context: Option<String>,
-    pub message: String,
+pub(crate) struct Diagnostic {
+    pub(crate) file: String,
+    pub(crate) line: Option<u32>,
+    pub(crate) context: Option<String>,
+    pub(crate) message: String,
 }
 
 impl Diagnostic {
@@ -77,7 +77,7 @@ impl Diagnostic {
         }
     }
 
-    pub fn render(&self, strict: bool) -> String {
+    pub(crate) fn render(&self, strict: bool) -> String {
         let level = if strict { "error" } else { "warning" };
         let location = match self.line {
             Some(line) => format!("{}:{}", self.file, line),
@@ -92,7 +92,7 @@ impl Diagnostic {
     }
 }
 
-pub fn print_diagnostics(diagnostics: &[Diagnostic], strict: bool) {
+pub(crate) fn print_diagnostics(diagnostics: &[Diagnostic], strict: bool) {
     for diagnostic in diagnostics {
         eprintln!("{}", diagnostic.render(strict));
     }
@@ -114,14 +114,14 @@ pub fn print_diagnostics(diagnostics: &[Diagnostic], strict: bool) {
 /// Comprueba un documento HTML completo y todas las hojas que referencia.
 /// Variante sin piloto (tests y llamadas que no pasan `--pilot`).
 #[allow(dead_code)]
-pub fn check_document(html: &str, html_path: &Path, base_dir: &Path) -> Vec<Diagnostic> {
+pub(crate) fn check_document(html: &str, html_path: &Path, base_dir: &Path) -> Vec<Diagnostic> {
     check_document_pilot(html, html_path, base_dir, false)
 }
 
 /// Igual que [`check_document`] pero con las extensiones del piloto v2:
 /// `display: grid`, scroll (`overflow: auto|scroll`), `grid-*` e `object-fit`
 /// dejan de diagnosticarse cuando `pilot` es `true`.
-pub fn check_document_pilot(
+pub(crate) fn check_document_pilot(
     html: &str,
     html_path: &Path,
     base_dir: &Path,
@@ -546,7 +546,7 @@ fn find_raw_text_end(bytes: &[u8], tag: &str, from: usize) -> Option<usize> {
 /// `<style>` es la linea del HTML donde empieza el contenido.
 /// Variante sin piloto (tests).
 #[allow(dead_code)]
-pub fn check_stylesheet(
+pub(crate) fn check_stylesheet(
     text: &str,
     path: &Path,
     base_line: u32,
@@ -556,7 +556,7 @@ pub fn check_stylesheet(
 }
 
 /// Igual que [`check_stylesheet`] permitiendo las extensiones del piloto v2.
-pub fn check_stylesheet_pilot(
+pub(crate) fn check_stylesheet_pilot(
     text: &str,
     path: &Path,
     base_line: u32,
@@ -672,7 +672,7 @@ fn check_block<'i, 't>(
 /// Valida el contenido de un `style="..."` inline.
 /// Variante sin piloto (tests).
 #[allow(dead_code)]
-pub fn check_inline_style(
+pub(crate) fn check_inline_style(
     text: &str,
     path: &Path,
     base_line: u32,
@@ -683,7 +683,7 @@ pub fn check_inline_style(
 }
 
 /// Igual que [`check_inline_style`] permitiendo las extensiones del piloto v2.
-pub fn check_inline_style_pilot(
+pub(crate) fn check_inline_style_pilot(
     text: &str,
     path: &Path,
     base_line: u32,

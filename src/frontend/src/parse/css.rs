@@ -6,21 +6,21 @@
 
 use cssparser::{Delimiter, ParseError, Parser, ParserInput, Token};
 
-use crate::color::color_with_alpha;
-use crate::dom::Dom;
-use crate::style_ext::{parse_rel_length, split_components};
+use crate::parse::dom::Dom;
+use crate::style::color::color_with_alpha;
+use crate::style::style_ext::{parse_rel_length, split_components};
 
 #[derive(Debug, Clone)]
-pub struct Declaration {
-    pub name: String,
-    pub value: String,
-    pub important: bool,
+pub(crate) struct Declaration {
+    pub(crate) name: String,
+    pub(crate) value: String,
+    pub(crate) important: bool,
 }
 
 #[derive(Debug, Clone)]
-pub struct Rule {
-    pub selector: Selector,
-    pub declarations: Vec<Declaration>,
+pub(crate) struct Rule {
+    pub(crate) selector: Selector,
+    pub(crate) declarations: Vec<Declaration>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -47,7 +47,7 @@ enum Combinator {
 }
 
 #[derive(Debug, Clone)]
-pub struct Selector {
+pub(crate) struct Selector {
     /// `parts[i].0` es el combinador que une `parts[i-1]` con `parts[i]`
     /// (el de `parts[0]` no se usa).
     parts: Vec<(Combinator, Compound)>,
@@ -55,11 +55,11 @@ pub struct Selector {
 }
 
 impl Selector {
-    pub fn specificity(&self) -> (u32, u32, u32) {
+    pub(crate) fn specificity(&self) -> (u32, u32, u32) {
         self.spec
     }
 
-    pub fn matches(&self, dom: &Dom, node: usize) -> bool {
+    pub(crate) fn matches(&self, dom: &Dom, node: usize) -> bool {
         self.matches_at(dom, node, self.parts.len() - 1)
     }
 
@@ -144,7 +144,7 @@ fn capture_block<'i, 't>(parser: &mut Parser<'i, 't>) -> Result<String, ParseErr
     Ok(parser.slice_from(start).to_string())
 }
 
-pub fn parse_stylesheets(texts: &[String]) -> Vec<Rule> {
+pub(crate) fn parse_stylesheets(texts: &[String]) -> Vec<Rule> {
     let mut rules = Vec::new();
     for text in texts {
         parse_stylesheet(text, &mut rules);
@@ -152,7 +152,7 @@ pub fn parse_stylesheets(texts: &[String]) -> Vec<Rule> {
     rules
 }
 
-pub fn parse_stylesheet(text: &str, rules: &mut Vec<Rule>) {
+pub(crate) fn parse_stylesheet(text: &str, rules: &mut Vec<Rule>) {
     let mut input = ParserInput::new(text);
     let mut parser = Parser::new(&mut input);
     loop {
@@ -240,7 +240,7 @@ fn strip_comments(text: &str) -> String {
 
 // -------------------------------------------------------------- declarations
 
-pub fn parse_declarations(text: &str) -> Vec<Declaration> {
+pub(crate) fn parse_declarations(text: &str) -> Vec<Declaration> {
     let cleaned = strip_comments(text);
     let text = cleaned.as_str();
     let mut out = Vec::new();

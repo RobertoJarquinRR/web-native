@@ -10,55 +10,55 @@
 //! `baseline = content_y + ascender`, y avanza `ascender + descender` en y.
 //! El pintado es pre-orden: fondo del nodo, su texto y despues sus hijos.
 
-use crate::cascade::ComputedStyle;
-use crate::dom::{Dom, NodeId};
+use crate::parse::dom::{Dom, NodeId};
+use crate::style::cascade::ComputedStyle;
 
 const MAX_DEPTH: usize = 512;
 
 /// `(font-family, size-px) -> (ascender, descender)` en px.
-pub type MetricsFn<'a> = &'a dyn Fn(&str, f64) -> Result<(f64, f64), String>;
+pub(crate) type MetricsFn<'a> = &'a dyn Fn(&str, f64) -> Result<(f64, f64), String>;
 
 #[derive(Clone)]
-pub struct TextRun {
-    pub text: String,
-    pub x: f64,
-    pub baseline: f64,
-    pub font_family: String,
-    pub font_size: f64,
-    pub color: String,
+pub(crate) struct TextRun {
+    pub(crate) text: String,
+    pub(crate) x: f64,
+    pub(crate) baseline: f64,
+    pub(crate) font_family: String,
+    pub(crate) font_size: f64,
+    pub(crate) color: String,
 }
 
-pub struct RectOp {
-    pub x: f64,
-    pub y: f64,
-    pub w: f64,
-    pub h: f64,
-    pub fill: String,
+pub(crate) struct RectOp {
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) w: f64,
+    pub(crate) h: f64,
+    pub(crate) fill: String,
 }
 
 /// Op de pintado en orden de documento; las runs se shapean despues.
-pub enum PaintOp {
+pub(crate) enum PaintOp {
     Rect(RectOp),
     Run(TextRun),
 }
 
-pub struct LayoutBox {
-    pub x: f64,
-    pub y: f64,
-    pub width: f64,
-    pub height: f64,
-    pub background: Option<String>,
-    pub margin_bottom: f64,
-    pub children: Vec<LayoutBox>,
-    pub text_runs: Vec<TextRun>,
+pub(crate) struct LayoutBox {
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) width: f64,
+    pub(crate) height: f64,
+    pub(crate) background: Option<String>,
+    pub(crate) margin_bottom: f64,
+    pub(crate) children: Vec<LayoutBox>,
+    pub(crate) text_runs: Vec<TextRun>,
 }
 
 impl LayoutBox {
-    pub fn bottom(&self) -> f64 {
+    pub(crate) fn bottom(&self) -> f64 {
         self.y + self.height
     }
 
-    pub fn translate(&mut self, dx: f64, dy: f64) {
+    pub(crate) fn translate(&mut self, dx: f64, dy: f64) {
         self.x += dx;
         self.y += dy;
         for run in &mut self.text_runs {
@@ -72,18 +72,18 @@ impl LayoutBox {
 }
 
 /// Colapsa whitespace como `white-space: normal` en una sola linea.
-pub fn normalize_text(text: &str) -> String {
+pub(crate) fn normalize_text(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-pub fn find_body(dom: &Dom) -> NodeId {
+pub(crate) fn find_body(dom: &Dom) -> NodeId {
     dom.preorder()
         .into_iter()
         .find(|id| dom.nodes[*id].tag == "body")
         .unwrap_or(dom.root)
 }
 
-pub fn layout_tree(
+pub(crate) fn layout_tree(
     dom: &Dom,
     styles: &[Option<ComputedStyle>],
     viewport_width: f64,
@@ -351,7 +351,7 @@ fn justify(name: &str, free: f64, count: usize, gap: f64) -> (f64, f64) {
 }
 
 /// Pre-orden: fondo del nodo, su texto y despues los hijos (documento).
-pub fn paint(root: &LayoutBox, ops: &mut Vec<PaintOp>) {
+pub(crate) fn paint(root: &LayoutBox, ops: &mut Vec<PaintOp>) {
     if let Some(fill) = &root.background {
         ops.push(PaintOp::Rect(RectOp {
             x: root.x,

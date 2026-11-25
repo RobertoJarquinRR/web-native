@@ -20,11 +20,11 @@
 //! (`border-style: none` es el valor inicial). El color inicial es
 //! `currentColor`, igual que CSS.
 
-use crate::color::{color_with_alpha, length};
+use crate::style::color::{color_with_alpha, length};
 
 /// Unidad de una longitud CSS v3.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Unit {
+pub(crate) enum Unit {
     Px,
     Em,
     Rem,
@@ -34,7 +34,7 @@ pub enum Unit {
 
 impl Unit {
     /// Sufijo usado en los campos JSON (`width_em`, `width_rem`, ...).
-    pub fn suffix(self) -> &'static str {
+    pub(crate) fn suffix(self) -> &'static str {
         match self {
             Unit::Px => "px",
             Unit::Em => "em",
@@ -47,14 +47,14 @@ impl Unit {
 
 /// Longitud declarada: valor numerico + unidad.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct RelLength {
-    pub value: f64,
-    pub unit: Unit,
+pub(crate) struct RelLength {
+    pub(crate) value: f64,
+    pub(crate) unit: Unit,
 }
 
 impl RelLength {
     /// Valor declarado si la unidad coincide (`2em` -> `Some(2.0)` para `Em`).
-    pub fn in_unit(self, unit: Unit) -> Option<f64> {
+    pub(crate) fn in_unit(self, unit: Unit) -> Option<f64> {
         if self.unit == unit {
             Some(self.value)
         } else {
@@ -65,13 +65,13 @@ impl RelLength {
 
 /// Contexto de resolucion a px en build time.
 #[derive(Debug, Clone, Copy)]
-pub struct LengthCtx {
+pub(crate) struct LengthCtx {
     /// `font-size` computado del nodo (px).
-    pub font_size: f64,
+    pub(crate) font_size: f64,
     /// `font-size` computado de `html` (px).
-    pub root_font_size: f64,
-    pub viewport_width: f64,
-    pub viewport_height: f64,
+    pub(crate) root_font_size: f64,
+    pub(crate) viewport_width: f64,
+    pub(crate) viewport_height: f64,
 }
 
 impl Default for LengthCtx {
@@ -86,7 +86,7 @@ impl Default for LengthCtx {
 }
 
 impl LengthCtx {
-    pub fn resolve(self, rel: RelLength) -> f64 {
+    pub(crate) fn resolve(self, rel: RelLength) -> f64 {
         match rel.unit {
             Unit::Px => rel.value,
             Unit::Em => rel.value * self.font_size,
@@ -98,7 +98,7 @@ impl LengthCtx {
 }
 
 /// Numero CSS simple (`-?(\d+\.?\d*|\.\d+)`), sin exponentes ni unidades.
-pub fn parse_number(text: &str) -> Option<f64> {
+pub(crate) fn parse_number(text: &str) -> Option<f64> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return None;
@@ -134,7 +134,7 @@ pub fn parse_number(text: &str) -> Option<f64> {
 /// `2em`, `1.5rem`, `12px`, `10` -> `RelLength`; `%`, `auto` y basura -> `None`.
 ///
 /// El orden de los sufijos importa: `rem` antes que `em`.
-pub fn parse_rel_length(token: &str) -> Option<RelLength> {
+pub(crate) fn parse_rel_length(token: &str) -> Option<RelLength> {
     let text = token.trim().to_ascii_lowercase();
     if text.is_empty() {
         return None;
@@ -157,7 +157,7 @@ pub fn parse_rel_length(token: &str) -> Option<RelLength> {
 }
 
 /// `true` si el token es una unidad relativa valida (`em/rem/vh/vw`).
-pub fn is_relative_length(token: &str) -> bool {
+pub(crate) fn is_relative_length(token: &str) -> bool {
     matches!(
         parse_rel_length(token),
         Some(RelLength {
@@ -169,7 +169,7 @@ pub fn is_relative_length(token: &str) -> bool {
 
 /// Divide por whitespace respetando parentesis, corchetes y comillas.
 /// Mantiene `rgb(0, 0, 0)` / `rgba(0, 0, 0, .4)` como un solo componente.
-pub fn split_components(value: &str) -> Vec<String> {
+pub(crate) fn split_components(value: &str) -> Vec<String> {
     let bytes = value.as_bytes();
     let mut out = Vec::new();
     let mut depth = 0i32;
@@ -278,13 +278,13 @@ fn split_commas(value: &str) -> Vec<String> {
 /// Un lado de borde ya computado. `width_px` es la resolucion en build time y
 /// `width_rel` conserva la unidad declarada (si era `em`/`rem`/`vh`/`vw`).
 #[derive(Debug, Clone)]
-pub struct BorderSide {
-    pub width_px: f64,
-    pub width_rel: Option<RelLength>,
+pub(crate) struct BorderSide {
+    pub(crate) width_px: f64,
+    pub(crate) width_rel: Option<RelLength>,
     /// `solid` o `none` (cualquier otro valor CSS se ignora -> `none`).
-    pub style: String,
+    pub(crate) style: String,
     /// Color normalizado; `#rrggbb` o `#rrggbbaa`. `None` si no se pudo parsear.
-    pub color: Option<String>,
+    pub(crate) color: Option<String>,
 }
 
 impl Default for BorderSide {
@@ -300,21 +300,21 @@ impl Default for BorderSide {
 
 impl BorderSide {
     /// Un borde solo pinta si es `solid` y tiene ancho > 0.
-    pub fn visible(&self) -> bool {
+    pub(crate) fn visible(&self) -> bool {
         self.style == "solid" && self.width_px > 0.0
     }
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct BorderOut {
-    pub top: BorderSide,
-    pub right: BorderSide,
-    pub bottom: BorderSide,
-    pub left: BorderSide,
+pub(crate) struct BorderOut {
+    pub(crate) top: BorderSide,
+    pub(crate) right: BorderSide,
+    pub(crate) bottom: BorderSide,
+    pub(crate) left: BorderSide,
 }
 
 impl BorderOut {
-    pub fn sides(&self) -> [(&'static str, &BorderSide); 4] {
+    pub(crate) fn sides(&self) -> [(&'static str, &BorderSide); 4] {
         [
             ("top", &self.top),
             ("right", &self.right),
@@ -324,7 +324,7 @@ impl BorderOut {
     }
 
     /// `true` si el CSS declaro algo de borde (aunque sea invisible).
-    pub fn any_declared(&self) -> bool {
+    pub(crate) fn any_declared(&self) -> bool {
         self.sides().iter().any(|(_, side)| {
             side.width_px != 0.0
                 || side.width_rel.is_some()
@@ -333,13 +333,13 @@ impl BorderOut {
         })
     }
 
-    pub fn any_visible(&self) -> bool {
+    pub(crate) fn any_visible(&self) -> bool {
         self.sides().iter().any(|(_, side)| side.visible())
     }
 
     /// Ancho efectivo uniforme (maximo de los lados visibles) y, si los cuatro
     /// lados comparten exactamente la misma unidad relativa, esa declaracion.
-    pub fn uniform_width(&self) -> (f64, Option<RelLength>) {
+    pub(crate) fn uniform_width(&self) -> (f64, Option<RelLength>) {
         let mut width = 0.0f64;
         let mut rel: Option<RelLength> = None;
         let mut first = true;
@@ -359,7 +359,7 @@ impl BorderOut {
         (width, rel)
     }
 
-    pub fn style_name(&self) -> &'static str {
+    pub(crate) fn style_name(&self) -> &'static str {
         if self.any_visible() {
             "solid"
         } else {
@@ -368,7 +368,7 @@ impl BorderOut {
     }
 
     /// Color del primer lado visible (top, right, bottom, left).
-    pub fn visible_color(&self) -> Option<&str> {
+    pub(crate) fn visible_color(&self) -> Option<&str> {
         self.sides()
             .iter()
             .find(|(_, side)| side.visible())?
@@ -401,7 +401,7 @@ fn border_width_token(token: Option<&String>) -> (f64, Option<RelLength>) {
 }
 
 /// Computa un lado de borde con los valores ya cascadeados (longhands).
-pub fn resolve_border_side(
+pub(crate) fn resolve_border_side(
     width: Option<&String>,
     style: Option<&String>,
     color: Option<&String>,
@@ -463,7 +463,7 @@ fn expand4<T: Copy>(values: &[T]) -> [T; 4] {
 /// declaracion relativa uniforme si las cuatro esquinas usan la misma unidad.
 /// La sintaxis `a / b` (radios elipticos) solo usa la parte horizontal: el
 /// subset la rechaza, el runtime v3 solo soporta radios circulares.
-pub fn resolve_border_radius(
+pub(crate) fn resolve_border_radius(
     value: Option<&str>,
     ctx: &LengthCtx,
 ) -> ([f64; 4], Option<RelLength>) {
@@ -498,14 +498,14 @@ pub fn resolve_border_radius(
 // ------------------------------------------------------------------ sombras
 
 #[derive(Debug, Clone)]
-pub struct BoxShadow {
-    pub offset_x_px: f64,
-    pub offset_y_px: f64,
-    pub blur_px: f64,
-    pub spread_px: f64,
+pub(crate) struct BoxShadow {
+    pub(crate) offset_x_px: f64,
+    pub(crate) offset_y_px: f64,
+    pub(crate) blur_px: f64,
+    pub(crate) spread_px: f64,
     /// `#rrggbb` o `#rrggbbaa` (alfa conservado).
-    pub color: String,
-    pub inset: bool,
+    pub(crate) color: String,
+    pub(crate) inset: bool,
 }
 
 /// Parsea `box-shadow: <x> <y> [blur] [spread] [color] [, ...]`.
@@ -513,7 +513,7 @@ pub struct BoxShadow {
 /// Acepta `none`, listas separadas por coma y `inset`. Un `color` omitido usa
 /// `currentColor` (el color computado del nodo). Devuelve `None` si alguna
 /// sombra es invalida (la declaracion CSS se ignora entera, como en CSS).
-pub fn parse_box_shadows(
+pub(crate) fn parse_box_shadows(
     value: &str,
     ctx: &LengthCtx,
     current_color: &str,
@@ -587,7 +587,7 @@ pub fn parse_box_shadows(
 }
 
 /// Validacion sin contexto (subset): mismo parser con un contexto neutro.
-pub fn box_shadow_is_valid(value: &str) -> bool {
+pub(crate) fn box_shadow_is_valid(value: &str) -> bool {
     parse_box_shadows(value, &LengthCtx::default(), "#000000").is_some()
 }
 
@@ -597,34 +597,34 @@ pub fn box_shadow_is_valid(value: &str) -> bool {
 /// bloque guarda lo que necesita el runtime para re-resolver al cambiar el
 /// viewport (unidades declaradas), ademas de bordes, radio y sombras.
 #[derive(Debug, Clone)]
-pub struct StyleV3 {
-    pub width_rel: Option<RelLength>,
-    pub height_rel: Option<RelLength>,
-    pub min_width: Option<f64>,
-    pub min_width_pct: f64,
-    pub min_width_rel: Option<RelLength>,
-    pub max_width: Option<f64>,
-    pub max_width_pct: f64,
-    pub max_width_rel: Option<RelLength>,
-    pub min_height: Option<f64>,
-    pub min_height_pct: f64,
-    pub min_height_rel: Option<RelLength>,
-    pub max_height: Option<f64>,
-    pub max_height_pct: f64,
-    pub max_height_rel: Option<RelLength>,
+pub(crate) struct StyleV3 {
+    pub(crate) width_rel: Option<RelLength>,
+    pub(crate) height_rel: Option<RelLength>,
+    pub(crate) min_width: Option<f64>,
+    pub(crate) min_width_pct: f64,
+    pub(crate) min_width_rel: Option<RelLength>,
+    pub(crate) max_width: Option<f64>,
+    pub(crate) max_width_pct: f64,
+    pub(crate) max_width_rel: Option<RelLength>,
+    pub(crate) min_height: Option<f64>,
+    pub(crate) min_height_pct: f64,
+    pub(crate) min_height_rel: Option<RelLength>,
+    pub(crate) max_height: Option<f64>,
+    pub(crate) max_height_pct: f64,
+    pub(crate) max_height_rel: Option<RelLength>,
     /// Unidad relativa declarada por lado (top, right, bottom, left).
-    pub margin_rel: [Option<RelLength>; 4],
-    pub padding_rel: [Option<RelLength>; 4],
-    pub gap_rel: Option<RelLength>,
-    pub row_gap_rel: Option<RelLength>,
-    pub column_gap_rel: Option<RelLength>,
-    pub border: BorderOut,
-    pub border_radius: [f64; 4],
+    pub(crate) margin_rel: [Option<RelLength>; 4],
+    pub(crate) padding_rel: [Option<RelLength>; 4],
+    pub(crate) gap_rel: Option<RelLength>,
+    pub(crate) row_gap_rel: Option<RelLength>,
+    pub(crate) column_gap_rel: Option<RelLength>,
+    pub(crate) border: BorderOut,
+    pub(crate) border_radius: [f64; 4],
     /// Declaracion relativa uniforme de `border-radius` (si las 4 esquinas
     /// comparten la misma unidad).
-    pub border_radius_rel: Option<RelLength>,
-    pub box_shadow: Vec<BoxShadow>,
-    pub opacity: f64,
+    pub(crate) border_radius_rel: Option<RelLength>,
+    pub(crate) box_shadow: Vec<BoxShadow>,
+    pub(crate) opacity: f64,
 }
 
 impl Default for StyleV3 {
@@ -661,7 +661,7 @@ impl Default for StyleV3 {
 impl StyleV3 {
     /// `true` si la pagina usa la capa v3 y por tanto necesita schema `/2`
     /// (los campos v3 no se escriben en `/1`).
-    pub fn declares_style(&self) -> bool {
+    pub(crate) fn declares_style(&self) -> bool {
         self.width_rel.is_some()
             || self.height_rel.is_some()
             || self.min_width.is_some()

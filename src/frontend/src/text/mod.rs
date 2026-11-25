@@ -23,7 +23,7 @@ use rustybuzz::{Direction, Face, Language, UnicodeBuffer};
 
 use crate::layout::TextRun;
 
-pub const ATLAS_SIZE: u32 = 512;
+pub(crate) const ATLAS_SIZE: u32 = 512;
 
 const GENERIC: [(&str, &str); 6] = [
     ("sans-serif", "segoe ui"),
@@ -73,7 +73,7 @@ const BOLD_FILES: [(&str, &str); 14] = [
 ];
 
 /// `font-weight` CSS -> 100..900. `bold`/`normal` se aceptan como alias.
-pub fn parse_font_weight(value: &str) -> u16 {
+pub(crate) fn parse_font_weight(value: &str) -> u16 {
     let text = value.trim().to_ascii_lowercase();
     match text.as_str() {
         "bold" | "bolder" => 700,
@@ -88,7 +88,7 @@ fn windows_fonts() -> PathBuf {
 }
 
 /// Primera familia de una lista CSS: `"Segoe UI", Arial, sans-serif`.
-pub fn first_family(font_family: &str) -> String {
+pub(crate) fn first_family(font_family: &str) -> String {
     let first = font_family
         .split(',')
         .next()
@@ -103,7 +103,7 @@ pub fn first_family(font_family: &str) -> String {
 }
 
 /// `font-family` CSS -> TTF existente, con el mismo mapa y fallback que Python.
-pub fn resolve_font_file(font_family: &str) -> Result<PathBuf, String> {
+pub(crate) fn resolve_font_file(font_family: &str) -> Result<PathBuf, String> {
     Ok(resolve_font_file_weighted(font_family, 400)?.0)
 }
 
@@ -111,7 +111,7 @@ pub fn resolve_font_file(font_family: &str) -> Result<PathBuf, String> {
 ///
 /// Devuelve `(ruta, fallback)`; `fallback` es `true` cuando se pidio negrita
 /// pero la variante no existe y se usa el regular (el llamador avisa una vez).
-pub fn resolve_font_file_weighted(
+pub(crate) fn resolve_font_file_weighted(
     font_family: &str,
     weight: u16,
 ) -> Result<(PathBuf, bool), String> {
@@ -178,13 +178,13 @@ fn resolve_font_file_regular(font_family: &str) -> Result<PathBuf, String> {
 }
 
 #[derive(Clone)]
-pub struct GlyphBitmap {
-    pub w: i32,
-    pub h: i32,
-    pub left: i32,
-    pub top: i32,
+pub(crate) struct GlyphBitmap {
+    pub(crate) w: i32,
+    pub(crate) h: i32,
+    pub(crate) left: i32,
+    pub(crate) top: i32,
     /// `w * h` bytes de cobertura, fila a fila.
-    pub pixels: Vec<u8>,
+    pub(crate) pixels: Vec<u8>,
 }
 
 impl GlyphBitmap {
@@ -199,11 +199,11 @@ impl GlyphBitmap {
     }
 }
 
-pub struct ShapedGlyph {
-    pub gid: u16,
-    pub adv: f64,
-    pub dx: f64,
-    pub dy: f64,
+pub(crate) struct ShapedGlyph {
+    pub(crate) gid: u16,
+    pub(crate) adv: f64,
+    pub(crate) dx: f64,
+    pub(crate) dy: f64,
 }
 
 struct FontFace {
@@ -388,12 +388,12 @@ fn scale_26_6(units: i32, scale: i64, upem: i64) -> f64 {
     rounded as f64 / 64.0
 }
 
-pub struct TextEngine {
+pub(crate) struct TextEngine {
     faces: RefCell<HashMap<String, Rc<FontFace>>>,
 }
 
 impl TextEngine {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         TextEngine {
             faces: RefCell::new(HashMap::new()),
         }
@@ -413,7 +413,7 @@ impl TextEngine {
         self.face(&resolve_font_file(font_family)?)
     }
 
-    pub fn metrics(&self, font_family: &str, size: f64) -> Result<(f64, f64), String> {
+    pub(crate) fn metrics(&self, font_family: &str, size: f64) -> Result<(f64, f64), String> {
         Ok(self.face_for_family(font_family)?.metrics(size))
     }
 
@@ -426,9 +426,9 @@ fn size_key(size: f64) -> i32 {
     (size.round_ties_even() as i32).max(1)
 }
 
-pub struct Atlas {
+pub(crate) struct Atlas {
     size: u32,
-    pub data: Vec<u8>,
+    pub(crate) data: Vec<u8>,
     rects: HashMap<(String, u16, i32), Option<(u32, u32, u32, u32)>>,
     shelf_x: u32,
     shelf_y: u32,
@@ -436,7 +436,7 @@ pub struct Atlas {
 }
 
 impl Atlas {
-    pub fn new(size: u32) -> Self {
+    pub(crate) fn new(size: u32) -> Self {
         Atlas {
             size,
             data: vec![0; (size * size) as usize],
@@ -500,45 +500,45 @@ impl Atlas {
         }
     }
 
-    pub fn width(&self) -> u32 {
+    pub(crate) fn width(&self) -> u32 {
         self.size
     }
 
-    pub fn height(&self) -> u32 {
+    pub(crate) fn height(&self) -> u32 {
         self.size
     }
 
-    pub fn glyph_count(&self) -> usize {
+    pub(crate) fn glyph_count(&self) -> usize {
         self.rects.values().filter(|rect| rect.is_some()).count()
     }
 
-    pub fn pixels_nonzero(&self) -> usize {
+    pub(crate) fn pixels_nonzero(&self) -> usize {
         self.data.iter().filter(|byte| **byte != 0).count()
     }
 }
 
-pub struct GlyphOut {
-    pub gid: u16,
-    pub x: f64,
-    pub y: f64,
-    pub w: i32,
-    pub h: i32,
-    pub u0: f64,
-    pub v0: f64,
-    pub u1: f64,
-    pub v1: f64,
-    pub adv: f64,
+pub(crate) struct GlyphOut {
+    pub(crate) gid: u16,
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) w: i32,
+    pub(crate) h: i32,
+    pub(crate) u0: f64,
+    pub(crate) v0: f64,
+    pub(crate) u1: f64,
+    pub(crate) v1: f64,
+    pub(crate) adv: f64,
 }
 
-pub struct TextOp {
-    pub x: f64,
-    pub y: f64,
-    pub text: String,
-    pub font: String,
-    pub font_file: String,
-    pub size: f64,
-    pub color: String,
-    pub glyphs: Vec<GlyphOut>,
+pub(crate) struct TextOp {
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) text: String,
+    pub(crate) font: String,
+    pub(crate) font_file: String,
+    pub(crate) size: f64,
+    pub(crate) color: String,
+    pub(crate) glyphs: Vec<GlyphOut>,
 }
 
 fn round_to(value: f64, digits: i32) -> f64 {
@@ -546,10 +546,10 @@ fn round_to(value: f64, digits: i32) -> f64 {
     (value * factor).round_ties_even() / factor
 }
 
-pub type BuildTextResult = (Vec<TextOp>, Option<Atlas>);
+pub(crate) type BuildTextResult = (Vec<TextOp>, Option<Atlas>);
 
 /// `TextRun` (layout) -> `TextOp` (IR) + atlas, en orden de primera aparicion.
-pub fn build_text_ops(runs: &[TextRun], engine: &TextEngine) -> Result<BuildTextResult, String> {
+pub(crate) fn build_text_ops(runs: &[TextRun], engine: &TextEngine) -> Result<BuildTextResult, String> {
     if runs.is_empty() {
         return Ok((Vec::new(), None));
     }
@@ -634,37 +634,37 @@ pub fn build_text_ops(runs: &[TextRun], engine: &TextEngine) -> Result<BuildText
 // como baseline. Esta API reproduce esa semantica sin tocar `build_text_ops`.
 
 /// Tamano del atlas del contrato R2 (`emit_ui.py` usa 256).
-pub const UI_ATLAS_SIZE: u32 = 256;
+pub(crate) const UI_ATLAS_SIZE: u32 = 256;
 
 /// Glyph ya posicionado relativo a la esquina superior izquierda del texto.
-pub struct UiGlyphOut {
-    pub gid: u16,
+pub(crate) struct UiGlyphOut {
+    pub(crate) gid: u16,
     /// Avance HarfBuzz del glyph (no lo consume R2, si la verificacion).
-    pub advance: f64,
-    pub x: f64,
-    pub y: f64,
-    pub w: i32,
-    pub h: i32,
-    pub u0: f64,
-    pub v0: f64,
-    pub u1: f64,
-    pub v1: f64,
+    pub(crate) advance: f64,
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) w: i32,
+    pub(crate) h: i32,
+    pub(crate) u0: f64,
+    pub(crate) v0: f64,
+    pub(crate) u1: f64,
+    pub(crate) v1: f64,
 }
 
 /// Atlas R8 incremental para el arbol de estilos (mismo shelf packer que
 /// `GlyphPacker` del oraculo: 256x256, guarda de 1 px, orden de aparicion).
-pub struct UiTextBaker {
+pub(crate) struct UiTextBaker {
     atlas: Atlas,
 }
 
 impl UiTextBaker {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         UiTextBaker {
             atlas: Atlas::new(UI_ATLAS_SIZE),
         }
     }
 
-    pub fn atlas(&self) -> &Atlas {
+    pub(crate) fn atlas(&self) -> &Atlas {
         &self.atlas
     }
 }

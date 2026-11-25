@@ -10,25 +10,23 @@
 //! != 0 si encuentra cualquier feature fuera del subset. `--pilot` permite las
 //! extensiones v2 del piloto de biblioteca (grid, scroll, object-fit).
 
-mod cascade;
-mod color;
-mod css;
-mod dom;
+mod cli;
 mod emit;
-mod grid;
 mod layout;
-mod r1;
-mod rss;
-mod sha256;
-mod style_ext;
-mod subset;
+mod parse;
+mod style;
 mod text;
-mod ui_tree;
+mod util;
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
+
+use crate::cli::{r1, rss, subset};
+use crate::emit::ui_tree;
+use crate::parse::{css, dom};
+use crate::style::cascade;
 
 struct Args {
     html: PathBuf,

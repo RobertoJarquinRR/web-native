@@ -78,7 +78,7 @@ fn compress(state: &mut [u32; 8], block: &[u8]) {
     state[7] = state[7].wrapping_add(h);
 }
 
-pub fn digest(bytes: &[u8]) -> [u8; 32] {
+pub(crate) fn digest(bytes: &[u8]) -> [u8; 32] {
     let mut state = H0;
     let mut chunks = bytes.chunks_exact(64);
     for block in &mut chunks {
@@ -104,7 +104,7 @@ pub fn digest(bytes: &[u8]) -> [u8; 32] {
     out
 }
 
-pub fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
         out.push_str(&format!("{byte:02x}"));

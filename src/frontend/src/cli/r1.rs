@@ -9,17 +9,17 @@
 //!
 //! En `--emit-ui` no se ejecuta: ahi el arbol de estilos v2 es la salida.
 
-use crate::cascade::ComputedStyle;
-use crate::dom::Dom;
+use crate::parse::dom::Dom;
+use crate::style::cascade::ComputedStyle;
 
-pub struct Warning {
-    pub context: String,
-    pub message: String,
+pub(crate) struct Warning {
+    pub(crate) context: String,
+    pub(crate) message: String,
 }
 
 /// Features de R2 presentes en la pagina (pre-orden, sin duplicados por nodo
 /// salvo propiedades distintas).
-pub fn collect(dom: &Dom, styles: &[Option<ComputedStyle>]) -> Vec<Warning> {
+pub(crate) fn collect(dom: &Dom, styles: &[Option<ComputedStyle>]) -> Vec<Warning> {
     let mut out = Vec::new();
     for id in dom.preorder() {
         let Some(style) = styles.get(id).and_then(Option::as_ref) else {
@@ -94,7 +94,7 @@ pub fn collect(dom: &Dom, styles: &[Option<ComputedStyle>]) -> Vec<Warning> {
     out
 }
 
-pub fn print(warnings: &[Warning]) {
+pub(crate) fn print(warnings: &[Warning]) {
     for warning in warnings {
         eprintln!("warning[r1] {}: {}", warning.context, warning.message);
     }

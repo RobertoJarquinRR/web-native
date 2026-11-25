@@ -32,21 +32,21 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::cascade::ComputedStyle;
-use crate::color::parse_color;
-use crate::dom::{Dom, Node, NodeId};
-use crate::emit::{push_json_string, py_float};
-use crate::grid::{GridAutoRows, GridTemplateColumns};
-use crate::sha256;
-use crate::style_ext::{BorderOut, BoxShadow, RelLength, StyleV3, Unit};
+use crate::emit::emit::{push_json_string, py_float};
+use crate::parse::dom::{Dom, Node, NodeId};
+use crate::style::cascade::ComputedStyle;
+use crate::style::color::parse_color;
+use crate::style::grid::{GridAutoRows, GridTemplateColumns};
+use crate::style::style_ext::{BorderOut, BoxShadow, RelLength, StyleV3, Unit};
 use crate::text::{parse_font_weight, Atlas, UiGlyphOut, UiTextBaker};
+use crate::util::sha256;
 
 /// Schema sin features v2 (grid/scroll/imagenes). Identico al contrato previo.
-pub const SCHEMA_V1: &str = "webnative.ui-tree/1";
+pub(crate) const SCHEMA_V1: &str = "webnative.ui-tree/1";
 /// Schema v2 cuando la pagina usa grid, scroll o imagenes.
-pub const SCHEMA_V2: &str = "webnative.ui-tree/2";
+pub(crate) const SCHEMA_V2: &str = "webnative.ui-tree/2";
 /// Schema v3 (aditivo) cuando la pagina usa `<input type="text">`.
-pub const SCHEMA_V3: &str = "webnative.ui-tree/3";
+pub(crate) const SCHEMA_V3: &str = "webnative.ui-tree/3";
 
 const KIND_BLOCK: u32 = 0;
 const KIND_FLEX: u32 = 1;
@@ -56,7 +56,7 @@ const KIND_IMAGE: u32 = 4;
 const KIND_INPUT: u32 = 5;
 
 /// Limite duro del buffer de edicion; `maxlength` del HTML puede ser menor.
-pub const INPUT_MAX_BYTES: usize = 255;
+pub(crate) const INPUT_MAX_BYTES: usize = 255;
 
 const DEFAULT_FAMILY: &str = "Segoe UI";
 const DEFAULT_SIZE: f64 = 16.0;
@@ -255,12 +255,12 @@ struct NodeOut {
 }
 
 /// Resumen para el log del build.
-pub struct UiSummary {
-    pub nodes: usize,
-    pub glyphs: usize,
-    pub runs: usize,
-    pub atlas: Option<(u32, u32)>,
-    pub atlas_path: Option<PathBuf>,
+pub(crate) struct UiSummary {
+    pub(crate) nodes: usize,
+    pub(crate) glyphs: usize,
+    pub(crate) runs: usize,
+    pub(crate) atlas: Option<(u32, u32)>,
+    pub(crate) atlas_path: Option<PathBuf>,
 }
 
 struct Builder<'a> {
@@ -1067,7 +1067,7 @@ fn push_atlas_json(out: &mut String, reference: Option<&AtlasRef<'_>>) {
 
 /// `width="180"` / `height="240px"` -> px; `%`/`auto`/basura -> `None`.
 fn attribute_length(value: Option<&str>) -> Option<f64> {
-    let px = crate::color::length(value)?;
+    let px = crate::style::color::length(value)?;
     if px.is_finite() && px >= 0.0 {
         Some(px)
     } else {
@@ -1113,7 +1113,7 @@ fn nodes_have_input(nodes: &[NodeOut]) -> bool {
 /// `ui_path` es el fichero `ui.json`; el atlas se escribe al lado con nombres
 /// fijos `atlas.bin` / `atlas.json`, referenciados desde el JSON.
 #[allow(clippy::too_many_arguments)]
-pub fn emit_ui_tree(
+pub(crate) fn emit_ui_tree(
     dom: &Dom,
     styles: &[Option<ComputedStyle>],
     viewport: (u32, u32),
