@@ -52,7 +52,8 @@ Un stream no toca los archivos de otro; se integra por contrato.
   culling/virtualización, playback del host, E3 y E7.
 
 Documentos de esta ola: [`e8-css-extensions.md`](e8-css-extensions.md),
-[`visual-parity.md`](visual-parity.md), [`release-checklist.md`](release-checklist.md).
+[`visual-parity.md`](visual-parity.md), [`release-checklist.md`](release-checklist.md)
+y la auditoría de deudas del SDK en [`sdk-audit.md`](sdk-audit.md).
 
 ## Fase 1 — Contratos y runtime platform (hecha)
 
