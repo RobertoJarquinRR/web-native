@@ -105,7 +105,8 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | Input v4                                     | ✅  | ASCII, caret, selección, clipboard Win32                 |
 | Bordes / radius / sombras v1                 | ✅  | radio/borde uniforme; primera sombra; sin per-side/inset |
 | Virtualización / culling                     | ❌  | pendiente                                                |
-| Text shaping runtime                         | ❌  | glifos pre-shapeados en build                            |
+| Text shaping runtime                         | ✅  | DirectWrite; medición, shaping y atlas dinámico          |
+| Wrapping / line breaking                     | ❌  | una línea por nodo; pendiente                            |
 | Bidi, CJK, emoji, IME                        | ❌  | pendiente                                                |
 | Accesibilidad / UIA                          | ❌  | pendiente                                                |
 | DPI / multi-monitor                          | ❌  | Windows básico                                           |

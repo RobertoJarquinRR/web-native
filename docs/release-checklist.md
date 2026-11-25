@@ -167,7 +167,7 @@ Estado real según `docs/support.md`; no prometer lo que no hay:
 | Accesibilidad | Sin UIA/ARIA; sin lector de pantalla                                                                                      |
 | IME / i18n    | Sin IME; input ASCII 32..126; sin bidi, CJK ni emoji                                                                      |
 | DPI           | System-aware básico; sin `WM_DPICHANGED` ni multi-monitor                                                                 |
-| Texto         | Glifos pre-shapeados en build; `font-weight`, `line-height`, `text-align` y `opacity` parciales                           |
+| Texto         | Shape/raster/medición en runtime (DirectWrite); `font-weight`, `line-height`, `text-align`; sin wrapping todavía |
 | CSS           | Sin `position`, `transform`, `transition`, `animation`, `float`, `z-index`; borders/radius uniformes; una sombra no-inset |
 | Layout        | Sin virtualización/culling; grids con `repeat(auto-fill, px)` pilot                                                       |
 | Host          | Una ventana por app; sin tray, diálogos, notificaciones ni drag & drop                                                    |

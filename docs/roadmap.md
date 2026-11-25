@@ -87,9 +87,9 @@ subset rechaza features fuera de v1; R2 sin regresión.
 - Flex fiel: grow/shrink/basis/min-content, margin collapse. (E1)
 - ✅ **API de UI dinámica: crear/actualizar/eliminar nodos, templates/listas.**
 - **Virtualización de listas/grids.** (E5, pendiente)
-- **Texto dinámico** (shaping runtime o pre-shape por variantes). (E4, pendiente)
+- ✅ **Texto dinámico**: shaping, rasterizado y medición en runtime.
 - ✅ **Input de texto single-line + foco/teclado** (ASCII; IME queda en E3).
-- Texto: wrapping, line breaking, DPI/zoom. (E3/E4)
+- **Texto**: wrapping, line breaking, DPI/zoom. (E3/E4)
 - **Animaciones/transiciones:** solo la propuesta limitada de E8; el resto es
   futuro/no-go. (ver `docs/e8-css-extensions.md`)
 
