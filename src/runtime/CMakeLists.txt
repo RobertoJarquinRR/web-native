@@ -10,57 +10,15 @@ get_filename_component(WN_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE
 get_filename_component(WN_WGPU_DIR "${WN_REPO_ROOT}/third_party/wgpu-native" ABSOLUTE)
 set(WN_GENERATED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/generated" CACHE PATH "directory with ui_data.h")
 
-add_library(wn_runtime_obj OBJECT
-    wn_common.c
-    core/wn_core.c
-    core/layout.c
-    core/paint.c
-    core/input.c
-    core/hit_test.c
-    document/wn_blob.c
-    text/text_runtime.c
-    text/text_atlas.c
-    text/text_directwrite.cpp
-    wn_view.c 
-    wn_app.c
-    host_win32.c 
-    renderer_wgpu.c
-    renderer_d3d11.c
-)
+option(WN_WGPU "Build the wgpu-native renderer backend" ON)
 
-target_include_directories(wn_runtime_obj PUBLIC
-    "${CMAKE_CURRENT_SOURCE_DIR}"
-    "${WN_REPO_ROOT}/include"
-    "${WN_WGPU_DIR}/include"
-    "${WN_GENERATED_DIR}"
-)
-
-target_compile_definitions(wn_runtime_obj PUBLIC
-    WN_STATIC
-    $<$<BOOL:${MSVC}>:_CRT_SECURE_NO_WARNINGS>
-)
-
-if(MSVC)
-    target_compile_options(wn_runtime_obj PRIVATE /W3)
-
-    set_source_files_properties(renderer_d3d11.c PROPERTIES
-        COMPILE_OPTIONS "/W4;/WX"
-    )
+if(WN_WGPU)
+    set(WN_WGPU_DEFINE WN_WGPU=1)
+else()
+    set(WN_WGPU_DEFINE WN_WGPU=0)
 endif()
 
-set(WN_LINK_LIBS
-    "${WN_WGPU_DIR}/lib/wgpu_native.dll.lib"
-    d3d11
-    dxgi
-    d3dcompiler
-    windowscodecs
-    ole32
-    user32
-    gdi32
-    dwrite
-)
-
-add_library(webnative SHARED
+set(WN_RUNTIME_SOURCES
     wn_common.c
     core/wn_core.c
     core/layout.c
@@ -74,19 +32,71 @@ add_library(webnative SHARED
     wn_view.c
     wn_app.c
     host_win32.c
-    renderer_wgpu.c
     renderer_d3d11.c
 )
+
+if(WN_WGPU)
+    list(APPEND WN_RUNTIME_SOURCES renderer_wgpu.c)
+else()
+    list(APPEND WN_RUNTIME_SOURCES renderer_wgpu_stub.c)
+endif()
+
+add_library(wn_runtime_obj OBJECT ${WN_RUNTIME_SOURCES})
+
+target_include_directories(wn_runtime_obj PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${WN_REPO_ROOT}/include"
+    "${WN_GENERATED_DIR}"
+)
+
+if(WN_WGPU)
+    target_include_directories(wn_runtime_obj PUBLIC "${WN_WGPU_DIR}/include")
+endif()
+
+target_compile_definitions(wn_runtime_obj PUBLIC
+    WN_STATIC
+    ${WN_WGPU_DEFINE}
+    $<$<BOOL:${MSVC}>:_CRT_SECURE_NO_WARNINGS>
+)
+
+if(MSVC)
+    target_compile_options(wn_runtime_obj PRIVATE /W3)
+
+    set_source_files_properties(renderer_d3d11.c PROPERTIES
+        COMPILE_OPTIONS "/W4;/WX"
+    )
+endif()
+
+set(WN_LINK_LIBS
+    d3d11
+    dxgi
+    d3dcompiler
+    windowscodecs
+    ole32
+    user32
+    gdi32
+    dwrite
+)
+
+if(WN_WGPU)
+    list(APPEND WN_LINK_LIBS "${WN_WGPU_DIR}/lib/wgpu_native.dll.lib")
+endif()
+
+add_library(webnative SHARED ${WN_RUNTIME_SOURCES})
 
 target_include_directories(webnative PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${WN_REPO_ROOT}/include"
-    "${WN_WGPU_DIR}/include"
     "${WN_GENERATED_DIR}"
 )
 
+if(WN_WGPU)
+    target_include_directories(webnative PRIVATE "${WN_WGPU_DIR}/include")
+endif()
+
 target_compile_definitions(webnative PRIVATE
     WN_BUILD_DLL
+    ${WN_WGPU_DEFINE}
     $<$<BOOL:${MSVC}>:_CRT_SECURE_NO_WARNINGS>
 )
 
@@ -166,16 +176,18 @@ if(MSVC)
 endif()
 
 
-add_custom_target(copy_wgpu_dll ALL
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${WN_WGPU_DIR}/bin/wgpu_native.dll"
-        "${CMAKE_CURRENT_BINARY_DIR}/wgpu_native.dll"
-    COMMENT "copying wgpu_native.dll to build directory"
-)
+if(WN_WGPU)
+    add_custom_target(copy_wgpu_dll ALL
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${WN_WGPU_DIR}/bin/wgpu_native.dll"
+            "${CMAKE_CURRENT_BINARY_DIR}/wgpu_native.dll"
+        COMMENT "copying wgpu_native.dll to build directory"
+    )
 
-foreach(target_name IN ITEMS runtime_r2 abi_smoke standalone embedded webnative)
-    add_dependencies(${target_name} copy_wgpu_dll)
-endforeach()
+    foreach(target_name IN ITEMS runtime_r2 abi_smoke standalone embedded webnative)
+        add_dependencies(${target_name} copy_wgpu_dll)
+    endforeach()
+endif()
 
 enable_testing()
 add_test(NAME abi_header_check_c COMMAND abi_header_check_c)

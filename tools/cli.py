@@ -66,6 +66,7 @@ def cmd_root_build(args: argparse.Namespace) -> int:
             config=args.config,
             clean=args.clean,
             generated_dir=None,
+            no_wgpu=args.no_wgpu,
         )
     )
 
@@ -106,6 +107,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_build.add_argument("--clean", action="store_true", help="Clean CMake cache before building runtime")
     p_build.add_argument("--emit", action="store_true", help="Re-emit UI data header before building runtime")
     p_build.add_argument("--pilot", action="store_true", help="Emit canonical pilot fixture when --emit is set")
+    p_build.add_argument("--no-wgpu", action="store_true",
+                         help="Configure the runtime with -DWN_WGPU=OFF (D3D11 only)")
     p_build.set_defaults(func=cmd_root_build)
 
     p_run = subparsers.add_parser("run", help="Run staged runtime_r2 from build/<config>")

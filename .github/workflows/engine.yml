@@ -1,0 +1,41 @@
+name: engine
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Python dependencies
+        run: python -m pip install --upgrade pip tinycss2 pillow
+
+      - name: Verify MSVC toolchain
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (!(Test-Path $vswhere)) { throw "vswhere.exe missing from the runner image" }
+          & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+
+      # wgpu OFF: no wgpu-native download and no wgpu_native.dll in the artifacts.
+      - name: Build (emit + runtime, D3D11 only)
+        run: python tools/cli.py build --emit --no-wgpu
+
+      - name: Tests (D3D11 only)
+        run: python tools/cli.py test all --no-wgpu
+
+      - name: Pilot media library (D3D11 only)
+        run: python tools/cli.py bench pilot --no-wgpu

@@ -50,8 +50,11 @@ def cmd_pilot(args: argparse.Namespace) -> int:
     if not pilot_dir.is_dir():
         raise CliError(f"pilot directory not found: {pilot_dir}")
 
+    log_step("pilot 1/4: generating deterministic posters")
+    run_cmd([_bench_python(pilot_dir), pilot_dir / "make_assets.py"], cwd=pilot_dir)
+
     if not args.skip_emit:
-        log_step("pilot 1/3: emitting pilot UI")
+        log_step("pilot 2/4: emitting pilot UI")
         runtime.cmd_emit(
             argparse.Namespace(
                 pilot=True,
@@ -65,16 +68,17 @@ def cmd_pilot(args: argparse.Namespace) -> int:
         )
 
     if not args.skip_build:
-        log_step("pilot 2/3: building runtime")
+        log_step("pilot 3/4: building runtime")
         runtime.cmd_build(
             argparse.Namespace(
                 config=args.config,
                 clean=False,
                 generated_dir=None,
+                no_wgpu=args.no_wgpu,
             )
         )
 
-    log_step("pilot 3/3: verifying pilot acceptance")
+    log_step("pilot 4/4: verifying pilot acceptance")
     runtime.cmd_verify(
         argparse.Namespace(
             config=args.config,
@@ -101,6 +105,7 @@ def cmd_pilot(args: argparse.Namespace) -> int:
                 config=args.config,
                 clean=False,
                 generated_dir=None,
+                no_wgpu=args.no_wgpu,
             )
         )
     log_info("pilot benchmark passed")
@@ -133,6 +138,8 @@ def register_subcommands(subparsers: argparse._SubParsersAction) -> None:
     p_pilot.add_argument("--skip-emit", action="store_true", help="Skip UI emission step")
     p_pilot.add_argument("--skip-build", action="store_true", help="Skip CMake build step")
     p_pilot.add_argument("--skip-rust", action="store_true", help="Reuse existing frontend-rust binary")
+    p_pilot.add_argument("--no-wgpu", action="store_true",
+                         help="Build the runtime with -DWN_WGPU=OFF (D3D11 only)")
     p_pilot.set_defaults(func=cmd_pilot)
 
     p_stress = bench_sub.add_parser("stress", help="Run pilot stress benchmark suite")

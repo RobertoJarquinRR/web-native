@@ -265,7 +265,7 @@ static int view_init_renderer(wn_view *view, const wn_surface_desc *surface,
             return 0;
         }
         {
-            const char *detail = renderer != NULL && ops->last_error != NULL
+            const char *detail = ops->last_error != NULL
                                      ? ops->last_error(renderer)
                                      : NULL;
             size_t used = strlen(errors);
@@ -504,6 +504,15 @@ int wn_view_image_cache_count(const wn_view *view)
         return -1;
     }
     return view->ops->image_cache_count(view->renderer);
+}
+
+long long wn_view_image_cache_bytes(const wn_view *view)
+{
+    if (view == NULL || view->ops == NULL || view->renderer == NULL ||
+        view->ops->image_cache_bytes == NULL) {
+        return -1;
+    }
+    return view->ops->image_cache_bytes(view->renderer);
 }
 
 wn_status wn_view_readback(wn_view *view, const char *png_path)
@@ -754,6 +763,7 @@ wn_status wn_view_render(wn_view *view)
         memset(&renderer_stats, 0, sizeof(renderer_stats));
         view->ops->get_stats(view->renderer, &renderer_stats);
         cpu_ms += renderer_stats.last_cpu_ms;
+        view->stats.image_failures = renderer_stats.image_failures;
     }
     t1 = wn_now_ms();
     if (!view->have_frame) {

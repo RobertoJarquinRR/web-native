@@ -116,6 +116,7 @@ def cmd_build(args: argparse.Namespace) -> int:
         shutil.rmtree(build_dir)
 
     log_step(f"configuring CMake ({args.config})")
+    wgpu_flag = "OFF" if getattr(args, "no_wgpu", False) else "ON"
     run_cmd(
         [
             "cmake",
@@ -127,6 +128,7 @@ def cmd_build(args: argparse.Namespace) -> int:
             "Ninja",
             f"-DCMAKE_BUILD_TYPE={args.config}",
             f"-DWN_GENERATED_DIR={generated_dir}",
+            f"-DWN_WGPU={wgpu_flag}",
         ],
         cwd=paths.root,
         use_build_env=True,
@@ -249,6 +251,8 @@ def register_subcommands(subparsers: argparse._SubParsersAction) -> None:
     p_build.add_argument("--config", choices=["Release", "Debug"], default="Release")
     p_build.add_argument("--clean", action="store_true", help="Remove build directory before configuring")
     p_build.add_argument("--generated-dir", type=str, default=None, help="Directory containing ui_data.h")
+    p_build.add_argument("--no-wgpu", action="store_true",
+                         help="Configure with -DWN_WGPU=OFF (D3D11 only, no wgpu-native link)")
     p_build.set_defaults(func=cmd_build)
 
     p_run = rt_sub.add_parser("run", help="Execute runtime_r2 binary")

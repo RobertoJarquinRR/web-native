@@ -37,6 +37,8 @@ generated/
 **/frames/
 **/.mesa/
 *.png
+# The CSS suite's pre-CSS reference is a fixture, not a build artifact.
+!src/runtime/tests/css/expected/control_legacy.png
 
 # Editors / OS
 .vscode/

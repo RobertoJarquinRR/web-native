@@ -6,6 +6,7 @@ from wn_cli.core import log_info, log_step
 
 
 def cmd_all(args: argparse.Namespace) -> int:
+    suites.set_wgpu_enabled(not args.no_wgpu)
     log_step("suite 1/9: frontend-rust tests")
     frontend.cmd_test(argparse.Namespace())
 
@@ -45,6 +46,7 @@ def cmd_all(args: argparse.Namespace) -> int:
 
 
 def cmd_suite(args: argparse.Namespace) -> int:
+    suites.set_wgpu_enabled(not args.no_wgpu)
     return suites.run_suite(args.name)
 
 
@@ -84,6 +86,8 @@ def register_subcommands(subparsers: argparse._SubParsersAction) -> None:
     p_all = test_sub.add_parser("all", help="Run all frontend, ABI, and runtime verification suites")
     p_all.add_argument("--config", choices=["Release", "Debug"], default="Release")
     p_all.add_argument("--skip-visual", action="store_true", help="Skip visual pixel verification")
+    p_all.add_argument("--no-wgpu", action="store_true",
+                       help="Skip the wgpu-native backend (must match the build switch)")
     p_all.set_defaults(func=cmd_all)
 
     p_unit = test_sub.add_parser("unit", help="Run fast headless tests (cargo test + ctest)")
@@ -96,4 +100,6 @@ def register_subcommands(subparsers: argparse._SubParsersAction) -> None:
 
     p_suite = test_sub.add_parser("suite", help="Run one runtime fixture suite")
     p_suite.add_argument("name", choices=sorted(suites.SUITES))
+    p_suite.add_argument("--no-wgpu", action="store_true",
+                         help="Skip the wgpu-native backend (must match the build switch)")
     p_suite.set_defaults(func=cmd_suite)
