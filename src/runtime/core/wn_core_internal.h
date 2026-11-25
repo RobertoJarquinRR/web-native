@@ -151,6 +151,8 @@ struct wn_core {
     int *input_anchor;
     float *input_scroll;
     int input_focus;
+    int input_drag;
+    double caret_blink_ms;
 
     int *paint_order;
     int paint_count;
@@ -171,6 +173,9 @@ int rect_is_empty(wn_rect r);
 const WnInputRecord *input_record(const wn_core *c, int node);
 float input_line_height(const wn_core *c, int node);
 char *input_alloc_value(const char *text);
+void wn_core_input_drag_to(wn_core *core, int node, float pointer_x);
+int wn_core_caret_visible(const wn_core *core);
+void wn_core_set_caret_epoch(wn_core *core, double ms);
 int build_input_state(wn_core *c);
 void build_input_text_geometry(wn_core *c, float viewport_w, float viewport_h);
 void build_input_decorations(wn_core *c);

@@ -4,13 +4,18 @@
 #include <dwrite_2.h>
 
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
+#include <new>
 
 #include "wn_text.h"
 
-#define WN_TEXT_CACHE_CAPACITY 128
+#define WN_TEXT_CACHE_CAPACITY 1024
+#define WN_TEXT_CACHE_BUCKETS 2048
+#define WN_TEXT_CACHE_MASK (WN_TEXT_CACHE_BUCKETS - 1)
 #define WN_TEXT_FACE_CAPACITY 16
 #define WN_TEXT_MAX_UTF16 4096
 #define WN_TEXT_MAX_GLYPHS 4096
@@ -18,6 +23,10 @@
 
 typedef struct {
     int used;
+    unsigned int hash;
+    int bucket_next;
+    int lru_prev;
+    int lru_next;
     char *family;
     float size;
     int weight;
@@ -38,10 +47,15 @@ typedef struct {
     IDWriteFactory2 *factory2;
     IDWriteRenderingParams *rendering;
     WnTextEntry entries[WN_TEXT_CACHE_CAPACITY];
+    int buckets[WN_TEXT_CACHE_BUCKETS];
+    int lru_head;
+    int lru_tail;
+    int used_count;
     WnFontFaceEntry faces[WN_TEXT_FACE_CAPACITY];
-    int next_slot;
     int next_face;
+    int hits;
     int misses;
+    int evictions;
 } WnDirectWrite;
 
 static bool same_request(const WnTextEntry *entry, const char *family, float size, int weight,
@@ -51,16 +65,33 @@ static bool same_request(const WnTextEntry *entry, const char *family, float siz
            std::strcmp(entry->family, family) == 0 && std::strcmp(entry->text, text) == 0;
 }
 
-static int cache_index(WnDirectWrite *ctx, const char *family, float size, int weight,
-                       float max_width, const char *text)
+static unsigned int request_hash(const char *family, float size, int weight,
+                                 float max_width, const char *text)
 {
-    for (int slot = 0; slot < WN_TEXT_CACHE_CAPACITY; ++slot) {
-        const WnTextEntry *entry = &ctx->entries[slot];
-        if (entry->used && same_request(entry, family, size, weight, max_width, text)) {
-            return slot;
-        }
+    union {
+        float f;
+        unsigned int u;
+    } bits;
+    unsigned int value = 2166136261u;
+    for (const unsigned char *p = reinterpret_cast<const unsigned char *>(text); *p != 0; ++p) {
+        value ^= *p;
+        value *= 16777619u;
     }
-    return -1;
+    value ^= 0xFFu;
+    value *= 16777619u;
+    for (const unsigned char *p = reinterpret_cast<const unsigned char *>(family); *p != 0; ++p) {
+        value ^= *p;
+        value *= 16777619u;
+    }
+    bits.f = size;
+    value ^= bits.u;
+    value *= 16777619u;
+    value ^= static_cast<unsigned int>(weight);
+    value *= 16777619u;
+    bits.f = max_width;
+    value ^= bits.u;
+    value *= 16777619u;
+    return value;
 }
 
 static void entry_clear(WnTextEntry *entry)
@@ -68,17 +99,186 @@ static void entry_clear(WnTextEntry *entry)
     std::free(entry->family);
     std::free(entry->text);
     std::memset(entry, 0, sizeof(*entry));
+    entry->bucket_next = -1;
+    entry->lru_prev = -1;
+    entry->lru_next = -1;
 }
 
-static int utf8_to_wide(const char *text, wchar_t *wide, int capacity)
+static void cache_lru_unlink(WnDirectWrite *ctx, int slot)
 {
-    int written = MultiByteToWideChar(CP_UTF8, 0, text, -1, wide, capacity - 1);
-    if (written <= 0) {
-        wide[0] = L'\0';
+    WnTextEntry *entry = &ctx->entries[slot];
+    if (entry->lru_prev >= 0) {
+        ctx->entries[entry->lru_prev].lru_next = entry->lru_next;
+    } else {
+        ctx->lru_head = entry->lru_next;
+    }
+    if (entry->lru_next >= 0) {
+        ctx->entries[entry->lru_next].lru_prev = entry->lru_prev;
+    } else {
+        ctx->lru_tail = entry->lru_prev;
+    }
+    entry->lru_prev = -1;
+    entry->lru_next = -1;
+}
+
+static void cache_lru_push(WnDirectWrite *ctx, int slot)
+{
+    WnTextEntry *entry = &ctx->entries[slot];
+    entry->lru_prev = -1;
+    entry->lru_next = ctx->lru_head;
+    if (ctx->lru_head >= 0) {
+        ctx->entries[ctx->lru_head].lru_prev = slot;
+    }
+    ctx->lru_head = slot;
+    if (ctx->lru_tail < 0) {
+        ctx->lru_tail = slot;
+    }
+}
+
+static void cache_bucket_unlink(WnDirectWrite *ctx, int slot)
+{
+    WnTextEntry *entry = &ctx->entries[slot];
+    int bucket = static_cast<int>(entry->hash & WN_TEXT_CACHE_MASK);
+    int index = ctx->buckets[bucket];
+    int previous = -1;
+    while (index >= 0) {
+        if (index == slot) {
+            if (previous < 0) {
+                ctx->buckets[bucket] = ctx->entries[index].bucket_next;
+            } else {
+                ctx->entries[previous].bucket_next = ctx->entries[index].bucket_next;
+            }
+            break;
+        }
+        previous = index;
+        index = ctx->entries[index].bucket_next;
+    }
+    entry->bucket_next = -1;
+}
+
+static void cache_bucket_push(WnDirectWrite *ctx, int slot)
+{
+    WnTextEntry *entry = &ctx->entries[slot];
+    int bucket = static_cast<int>(entry->hash & WN_TEXT_CACHE_MASK);
+    entry->bucket_next = ctx->buckets[bucket];
+    ctx->buckets[bucket] = slot;
+}
+
+static int cache_lookup(WnDirectWrite *ctx, const char *family, float size, int weight,
+                        float max_width, const char *text, unsigned int hash)
+{
+    for (int slot = ctx->buckets[hash & WN_TEXT_CACHE_MASK]; slot >= 0;
+         slot = ctx->entries[slot].bucket_next) {
+        WnTextEntry *entry = &ctx->entries[slot];
+        if (entry->used && same_request(entry, family, size, weight, max_width, text)) {
+            cache_lru_unlink(ctx, slot);
+            cache_lru_push(ctx, slot);
+            ctx->hits += 1;
+            return slot;
+        }
+    }
+    return -1;
+}
+
+static int decode_utf8(const unsigned char *p, uint32_t *out)
+{
+    uint32_t cp;
+    int extra;
+    int i;
+    if (*p < 0x80u) {
+        *out = (uint32_t)*p;
+        return 1;
+    }
+    if ((*p & 0xE0u) == 0xC0u) {
+        cp = (uint32_t)(*p & 0x1Fu);
+        extra = 1;
+    } else if ((*p & 0xF0u) == 0xE0u) {
+        cp = (uint32_t)(*p & 0x0Fu);
+        extra = 2;
+    } else if ((*p & 0xF8u) == 0xF0u) {
+        cp = (uint32_t)(*p & 0x07u);
+        extra = 3;
+    } else {
         return 0;
     }
-    wide[written] = L'\0';
-    return written - 1;
+    for (i = 1; i <= extra; ++i) {
+        unsigned char next = p[i];
+        if (next == 0u || (next & 0xC0u) != 0x80u) {
+            return 0;
+        }
+        cp = (cp << 6) | (uint32_t)(next & 0x3Fu);
+    }
+    if ((extra == 1 && cp < 0x80u) || (extra == 2 && cp < 0x800u) ||
+        (extra == 3 && cp < 0x10000u)) {
+        return 0;
+    }
+    if (cp > 0x10FFFFu || (cp >= 0xD800u && cp <= 0xDFFFu)) {
+        return 0;
+    }
+    *out = cp;
+    return extra + 1;
+}
+
+/* Converts up to capacity-1 UTF-16 units. Longer strings keep their prefix
+ * (size truncation, not a hard error) and report it through `truncated`. */
+static int utf8_to_wide(const char *text, wchar_t *wide, int capacity, int *truncated)
+{
+    const unsigned char *p = reinterpret_cast<const unsigned char *>(text);
+    int units = 0;
+    if (truncated != nullptr) {
+        *truncated = 0;
+    }
+    if (capacity <= 1) {
+        if (capacity == 1) {
+            wide[0] = L'\0';
+        }
+        if (truncated != nullptr && text != nullptr && text[0] != '\0') {
+            *truncated = 1;
+        }
+        return 0;
+    }
+    while (*p != 0) {
+        uint32_t cp = 0;
+        int length = decode_utf8(p, &cp);
+        int needed;
+        if (length <= 0) {
+            ++p;
+            continue;
+        }
+        needed = cp >= 0x10000u ? 2 : 1;
+        if (units + needed > capacity - 1) {
+            if (truncated != nullptr) {
+                *truncated = 1;
+            }
+            break;
+        }
+        if (needed == 2) {
+            uint32_t value = cp - 0x10000u;
+            wide[units++] = static_cast<wchar_t>(0xD800u + (value >> 10));
+            wide[units++] = static_cast<wchar_t>(0xDC00u + (value & 0x3FFu));
+        } else {
+            wide[units++] = static_cast<wchar_t>(cp);
+        }
+        p += length;
+    }
+    wide[units] = L'\0';
+    return units;
+}
+
+/* Font sizes come from an untrusted .wnui; keep every downstream area
+ * computation bounded. */
+static float clamp_font_size(float size)
+{
+    if (!(size > 0.0f)) {
+        return 16.0f;
+    }
+    if (size < 1.0f) {
+        return 1.0f;
+    }
+    if (size > 1024.0f) {
+        return 1024.0f;
+    }
+    return size;
 }
 
 static int create_text_format(WnDirectWrite *ctx, const wn_text_style *style, IDWriteTextFormat **out)
@@ -87,12 +287,12 @@ static int create_text_format(WnDirectWrite *ctx, const wn_text_style *style, ID
     DWRITE_FONT_WEIGHT weight =
         style->weight >= 600 ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL;
     if (utf8_to_wide(style->family != nullptr ? style->family : "Segoe UI", family,
-                     static_cast<int>(sizeof(family) / sizeof(family[0]))) == 0) {
+                     static_cast<int>(sizeof(family) / sizeof(family[0])), nullptr) == 0) {
         return 1;
     }
     HRESULT hr = ctx->factory->CreateTextFormat(
         family, nullptr, weight, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
-        style->size > 0.0f ? style->size : 16.0f, L"", out);
+        clamp_font_size(style->size), L"", out);
     return FAILED(hr) || *out == nullptr ? 1 : 0;
 }
 
@@ -103,7 +303,7 @@ static int measure_uncached(WnDirectWrite *ctx, const char *utf8, const wn_text_
     IDWriteTextLayout *layout = nullptr;
     wchar_t text[WN_TEXT_MAX_UTF16];
     DWRITE_TEXT_METRICS metrics{};
-    DWRITE_LINE_METRICS line{};
+    std::unique_ptr<DWRITE_LINE_METRICS[]> lines;
     UINT32 line_count = 0;
     HRESULT hr = S_OK;
     int length = 0;
@@ -111,7 +311,7 @@ static int measure_uncached(WnDirectWrite *ctx, const char *utf8, const wn_text_
     if (create_text_format(ctx, style, &format) != 0) {
         return 1;
     }
-    length = utf8_to_wide(utf8, text, WN_TEXT_MAX_UTF16);
+    length = utf8_to_wide(utf8, text, WN_TEXT_MAX_UTF16, nullptr);
     if (length == 0) {
         out->width = 0.0f;
         out->height = style->size > 0.0f ? style->size : 16.0f;
@@ -129,16 +329,26 @@ static int measure_uncached(WnDirectWrite *ctx, const char *utf8, const wn_text_
     }
     hr = layout->GetMetrics(&metrics);
     if (SUCCEEDED(hr)) {
-        hr = layout->GetLineMetrics(&line, 1, &line_count);
+        /* Wrapped layouts have more than one line: query all of them (one
+         * entry would return E_NOT_SUFFICIENT_BUFFER). */
+        UINT32 requested = metrics.lineCount > 0 ? metrics.lineCount : 1;
+        lines.reset(new (std::nothrow) DWRITE_LINE_METRICS[requested]);
+        if (lines == nullptr) {
+            hr = E_OUTOFMEMORY;
+        } else {
+            hr = layout->GetLineMetrics(lines.get(), requested, &line_count);
+        }
     }
     layout->Release();
-    if (FAILED(hr) || line_count == 0) {
+    if (FAILED(hr) || line_count == 0 || lines == nullptr) {
         return 1;
     }
     out->width = metrics.widthIncludingTrailingWhitespace;
     out->height = metrics.height;
-    out->ascent = line.baseline;
-    out->descent = line.height > line.baseline ? line.height - line.baseline : 0.0f;
+    out->ascent = lines[0].baseline;
+    out->descent = lines[0].height > lines[0].baseline
+                       ? lines[0].height - lines[0].baseline
+                       : 0.0f;
     return 0;
 }
 
@@ -170,8 +380,8 @@ static IDWriteFontFace *find_face(WnDirectWrite *ctx, const wn_text_style *style
     const char *family = style->family != nullptr ? style->family : "Segoe UI";
     for (int slot = 0; slot < WN_TEXT_FACE_CAPACITY; ++slot) {
         WnFontFaceEntry *entry = &ctx->faces[slot];
-        if (entry->face != nullptr && entry->weight == style->weight &&
-            std::strcmp(entry->family, family) == 0) {
+        if (entry->face != nullptr && entry->family != nullptr &&
+            entry->weight == style->weight && std::strcmp(entry->family, family) == 0) {
             *units_per_em = entry->units_per_em;
             return entry->face;
         }
@@ -185,7 +395,8 @@ static IDWriteFontFace *find_face(WnDirectWrite *ctx, const wn_text_style *style
     wchar_t wide[128];
     UINT32 index = 0;
     BOOL exists = FALSE;
-    if (utf8_to_wide(family, wide, static_cast<int>(sizeof(wide) / sizeof(wide[0]))) == 0) {
+    if (utf8_to_wide(family, wide, static_cast<int>(sizeof(wide) / sizeof(wide[0])),
+                     nullptr) == 0) {
         return nullptr;
     }
     if (FAILED(ctx->factory->GetSystemFontCollection(&collection, FALSE)) || collection == nullptr) {
@@ -211,22 +422,29 @@ static IDWriteFontFace *find_face(WnDirectWrite *ctx, const wn_text_style *style
     font->Release();
     face->GetMetrics(&metrics);
 
-    WnFontFaceEntry *entry = &ctx->faces[ctx->next_face];
-    ctx->next_face = (ctx->next_face + 1) % WN_TEXT_FACE_CAPACITY;
-    if (entry->face != nullptr) {
-        entry->face->Release();
+    /* Commit the slot only after every allocation succeeded: a failure here
+     * must leave the existing entry intact. */
+    {
+        char *family_copy = static_cast<char *>(std::malloc(std::strlen(family) + 1));
+        WnFontFaceEntry *entry;
+        if (family_copy == nullptr) {
+            face->Release();
+            return nullptr;
+        }
+        std::strcpy(family_copy, family);
+        entry = &ctx->faces[ctx->next_face];
+        ctx->next_face = (ctx->next_face + 1) % WN_TEXT_FACE_CAPACITY;
+        if (entry->face != nullptr) {
+            entry->face->Release();
+        }
+        std::free(entry->family);
+        entry->family = family_copy;
+        entry->weight = style->weight;
+        entry->face = face;
+        entry->units_per_em = static_cast<float>(
+            metrics.designUnitsPerEm > 0 ? metrics.designUnitsPerEm : 2048);
+        *units_per_em = entry->units_per_em;
     }
-    std::free(entry->family);
-    entry->family = static_cast<char *>(std::malloc(std::strlen(family) + 1));
-    if (entry->family == nullptr) {
-        face->Release();
-        return nullptr;
-    }
-    std::strcpy(entry->family, family);
-    entry->weight = style->weight;
-    entry->face = face;
-    entry->units_per_em = static_cast<float>(metrics.designUnitsPerEm > 0 ? metrics.designUnitsPerEm : 2048);
-    *units_per_em = entry->units_per_em;
     return face;
 }
 
@@ -256,6 +474,11 @@ static int text_init(void **out)
                                             reinterpret_cast<void **>(&ctx->factory2)))) {
         ctx->factory2 = nullptr;
     }
+    for (int slot = 0; slot < WN_TEXT_CACHE_BUCKETS; ++slot) {
+        ctx->buckets[slot] = -1;
+    }
+    ctx->lru_head = -1;
+    ctx->lru_tail = -1;
     *out = ctx;
     return 0;
 }
@@ -289,10 +512,14 @@ static void text_destroy(void *context)
 }
 
 static int cache_store(WnDirectWrite *ctx, const char *family, const wn_text_style *style,
-                       float max_width, const char *text, const wn_text_metrics *metrics)
+                       float max_width, const char *text, const wn_text_metrics *metrics,
+                       unsigned int hash)
 {
     char *family_copy = static_cast<char *>(std::malloc(std::strlen(family) + 1));
     char *text_copy = static_cast<char *>(std::malloc(std::strlen(text) + 1));
+    int slot;
+    WnTextEntry *entry;
+
     if (family_copy == nullptr || text_copy == nullptr) {
         std::free(family_copy);
         std::free(text_copy);
@@ -301,17 +528,33 @@ static int cache_store(WnDirectWrite *ctx, const char *family, const wn_text_sty
     std::strcpy(family_copy, family);
     std::strcpy(text_copy, text);
 
-    int slot = ctx->next_slot;
-    ctx->next_slot = (ctx->next_slot + 1) % WN_TEXT_CACHE_CAPACITY;
-    entry_clear(&ctx->entries[slot]);
-    WnTextEntry *entry = &ctx->entries[slot];
+    if (ctx->used_count < WN_TEXT_CACHE_CAPACITY) {
+        slot = ctx->used_count;
+        ctx->used_count += 1;
+        entry_clear(&ctx->entries[slot]);
+    } else {
+        slot = ctx->lru_tail;
+        if (slot < 0) {
+            std::free(family_copy);
+            std::free(text_copy);
+            return 1;
+        }
+        cache_lru_unlink(ctx, slot);
+        cache_bucket_unlink(ctx, slot);
+        entry_clear(&ctx->entries[slot]);
+        ctx->evictions += 1;
+    }
+    entry = &ctx->entries[slot];
     entry->used = 1;
+    entry->hash = hash;
     entry->family = family_copy;
     entry->size = style->size;
     entry->weight = style->weight;
     entry->max_width = max_width;
     entry->text = text_copy;
     entry->metrics = *metrics;
+    cache_bucket_push(ctx, slot);
+    cache_lru_push(ctx, slot);
     ctx->misses += 1;
     return 0;
 }
@@ -320,14 +563,24 @@ static int text_measure(void *context, const char *utf8, const wn_text_style *st
                         float max_width, wn_text_metrics *out)
 {
     WnDirectWrite *ctx = static_cast<WnDirectWrite *>(context);
+    wn_text_style safe;
     const char *family;
+    unsigned int hash;
+    int slot;
 
     if (ctx == nullptr || utf8 == nullptr || style == nullptr || out == nullptr) {
         return 1;
     }
+    safe = *style;
+    safe.size = clamp_font_size(safe.size);
+    if (safe.weight <= 0) {
+        safe.weight = 400;
+    }
+    style = &safe;
     family = style->family != nullptr ? style->family : "Segoe UI";
     // Wrap width changes the result, so it is part of the cache key.
-    int slot = cache_index(ctx, family, style->size, style->weight, max_width, utf8);
+    hash = request_hash(family, style->size, style->weight, max_width, utf8);
+    slot = cache_lookup(ctx, family, style->size, style->weight, max_width, utf8, hash);
     if (slot >= 0) {
         *out = ctx->entries[slot].metrics;
         return 0;
@@ -335,7 +588,7 @@ static int text_measure(void *context, const char *utf8, const wn_text_style *st
     if (measure_uncached(ctx, utf8, style, max_width, out) != 0) {
         return 1;
     }
-    cache_store(ctx, family, style, max_width, utf8, out);
+    cache_store(ctx, family, style, max_width, utf8, out, hash);
     return 0;
 }
 
@@ -343,6 +596,7 @@ static int text_shape(void *context, const char *utf8, const wn_text_style *styl
                       wn_text_glyph *glyphs, int capacity, wn_text_shaped *out)
 {
     WnDirectWrite *ctx = static_cast<WnDirectWrite *>(context);
+    wn_text_style safe;
     IDWriteFontFace *face;
     wchar_t text[WN_TEXT_MAX_UTF16];
     UINT32 codepoints[WN_TEXT_MAX_GLYPHS];
@@ -354,15 +608,22 @@ static int text_shape(void *context, const char *utf8, const wn_text_style *styl
     int length;
     int count = 0;
     int written = 0;
+    int truncated = 0;
 
     if (ctx == nullptr || utf8 == nullptr || style == nullptr || out == nullptr) {
         return 1;
     }
+    safe = *style;
+    safe.size = clamp_font_size(safe.size);
+    if (safe.weight <= 0) {
+        safe.weight = 400;
+    }
+    style = &safe;
     face = find_face(ctx, style, &units_per_em);
     if (face == nullptr) {
         return 1;
     }
-    length = utf8_to_wide(utf8, text, WN_TEXT_MAX_UTF16);
+    length = utf8_to_wide(utf8, text, WN_TEXT_MAX_UTF16, &truncated);
     for (int i = 0; i < length && count < WN_TEXT_MAX_GLYPHS; ++i) {
         UINT32 cp = static_cast<UINT16>(text[i]);
         if (cp >= 0xD800 && cp <= 0xDBFF && i + 1 < length) {
@@ -388,7 +649,7 @@ static int text_shape(void *context, const char *utf8, const wn_text_style *styl
     out->height = metrics.height;
     out->ascent = metrics.ascent;
     out->descent = metrics.descent;
-    out->truncated = length >= WN_TEXT_MAX_UTF16 - 1 ? 1 : 0;
+    out->truncated = truncated;
 
     for (int i = 0; i < count; ++i) {
         float advance = static_cast<float>(glyph_metrics[i].advanceWidth) *
@@ -409,6 +670,7 @@ static int text_rasterize(void *context, const wn_text_style *style, int glyph,
                           unsigned char *pixels, int capacity, wn_text_bitmap *out)
 {
     WnDirectWrite *ctx = static_cast<WnDirectWrite *>(context);
+    wn_text_style safe;
     IDWriteFontFace *face;
     IDWriteGlyphRunAnalysis *analysis = nullptr;
     DWRITE_GLYPH_RUN run{};
@@ -417,6 +679,7 @@ static int text_rasterize(void *context, const wn_text_style *style, int glyph,
     float advance;
     int width;
     int height;
+    size_t area;
     UINT16 index = static_cast<UINT16>(glyph);
     DWRITE_GLYPH_METRICS glyph_metrics{};
     HRESULT hr = S_OK;
@@ -424,13 +687,19 @@ static int text_rasterize(void *context, const wn_text_style *style, int glyph,
     if (ctx == nullptr || style == nullptr || out == nullptr) {
         return 1;
     }
+    safe = *style;
+    safe.size = clamp_font_size(safe.size);
+    if (safe.weight <= 0) {
+        safe.weight = 400;
+    }
+    style = &safe;
     face = find_face(ctx, style, &units_per_em);
     if (face == nullptr || FAILED(face->GetDesignGlyphMetrics(&index, 1, &glyph_metrics, FALSE))) {
         return 1;
     }
     advance = static_cast<float>(glyph_metrics.advanceWidth) * style->size / units_per_em;
     run.fontFace = face;
-    run.fontEmSize = style->size > 0.0f ? style->size : 16.0f;
+    run.fontEmSize = style->size;
     run.glyphCount = 1;
     run.glyphIndices = &index;
     run.glyphAdvances = &advance;
@@ -468,12 +737,14 @@ static int text_rasterize(void *context, const wn_text_style *style, int glyph,
         analysis->Release();
         return 0;
     }
-    if (pixels == nullptr || capacity < width * height) {
+    area = static_cast<size_t>(width) * static_cast<size_t>(height);
+    if (pixels == nullptr || capacity <= 0 || area > static_cast<size_t>(capacity) ||
+        area > 0xFFFFFFFFu) {
         analysis->Release();
         return 1;
     }
     if (FAILED(analysis->CreateAlphaTexture(DWRITE_TEXTURE_ALIASED_1x1, &bounds, pixels,
-                                            static_cast<UINT32>(width * height)))) {
+                                            static_cast<UINT32>(area)))) {
         analysis->Release();
         return 1;
     }
@@ -488,6 +759,41 @@ static int text_cache_misses(void *context)
     return ctx != nullptr ? ctx->misses : -1;
 }
 
+static void text_cache_stats(void *context, wn_text_cache_stats *out)
+{
+    WnDirectWrite *ctx = static_cast<WnDirectWrite *>(context);
+    if (out == nullptr) {
+        return;
+    }
+    out->hits = ctx != nullptr ? ctx->hits : 0;
+    out->misses = ctx != nullptr ? ctx->misses : 0;
+    out->evictions = ctx != nullptr ? ctx->evictions : 0;
+}
+
+static int text_has_family(void *context, const char *family)
+{
+    WnDirectWrite *ctx = static_cast<WnDirectWrite *>(context);
+    IDWriteFontCollection *collection = nullptr;
+    wchar_t wide[128];
+    UINT32 index = 0;
+    BOOL exists = FALSE;
+    HRESULT hr;
+
+    if (ctx == nullptr || ctx->factory == nullptr || family == nullptr) {
+        return 0;
+    }
+    if (utf8_to_wide(family, wide, static_cast<int>(sizeof(wide) / sizeof(wide[0])),
+                     nullptr) == 0) {
+        return 0;
+    }
+    if (FAILED(ctx->factory->GetSystemFontCollection(&collection, FALSE)) || collection == nullptr) {
+        return 0;
+    }
+    hr = collection->FindFamilyName(wide, &index, &exists);
+    collection->Release();
+    return SUCCEEDED(hr) && exists ? 1 : 0;
+}
+
 static const wn_text_ops g_directwrite_ops = {
     "directwrite",
     text_init,
@@ -496,6 +802,8 @@ static const wn_text_ops g_directwrite_ops = {
     text_shape,
     text_rasterize,
     text_cache_misses,
+    text_has_family,
+    text_cache_stats,
 };
 
 extern "C" const wn_text_ops *wn_text_directwrite(void)

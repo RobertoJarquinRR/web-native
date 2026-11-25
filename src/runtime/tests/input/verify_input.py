@@ -249,7 +249,9 @@ def main() -> int:
           "input_core_test: PASS")
     for needle in ("click caret position", "value after cut", "value after paste",
                    "value after clamp", "escape blur", "clone input",
-                   "old selection cleared"):
+                   "old selection cleared", "insert accented", "backspace multibyte",
+                   "insert omega", "paste Cafe", "drag selection",
+                   "drag type replaces selection"):
         check("logs", f"core {needle}",
               f"[ok  ] core: {needle}" in core_text, needle)
 
@@ -278,8 +280,9 @@ def main() -> int:
         "ABI 5",
         "input: PASS",
         "set_value(abc) -> WN_OK",
-        "set_value(Omega) -> WN_ERR_UNSUPPORTED",
+        "set_value(Omega) -> WN_OK",
         "set_value(13 chars) -> WN_ERR_INVALID_ARGUMENT",
+        "value survived rejects = \"abc\"",
         'event INPUT target=body.root/div.bar/input#search.search value="abcd"',
         'after typing + backspace = "abc"',
         'clipboard copy + paste = "abca"',

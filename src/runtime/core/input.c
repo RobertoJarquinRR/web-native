@@ -1,9 +1,10 @@
 /*
- * input.c - single-line ASCII editor state, editing, caret/selection and the
+ * input.c - single-line UTF-8 editor state, editing, caret/selection and the
  * input geometry (text run, selection quad, focus ring, caret).
  *
- * Only the input spec lives in the document; the value is shaped and painted
- * by the runtime like any other string.
+ * The value buffer is UTF-8; cursor and anchor are codepoint indices. Only the
+ * input spec lives in the document; the value is shaped and painted by the
+ * runtime like any other string.
  */
 #include <math.h>
 #include <stdlib.h>
@@ -11,6 +12,8 @@
 
 #include "wn_core_internal.h"
 #include "wn_internal.h"
+
+static void input_blink_reset(wn_core *c);
 
 const WnInputRecord *input_record(const wn_core *c, int node)
 {
@@ -35,9 +38,113 @@ static const char *input_text(const wn_core *c, int node)
     return c->input_value[node];
 }
 
+/* Decodes one UTF-8 codepoint. Returns the consumed byte count, or 0 for an
+ * invalid/overlong sequence, a surrogate or an out-of-range codepoint. */
+static int utf8_decode(const char *text, int offset, uint32_t *out)
+{
+    const unsigned char *p = (const unsigned char *)text + offset;
+    uint32_t cp;
+    int extra;
+    int i;
+    if (*p < 0x80u) {
+        *out = (uint32_t)*p;
+        return 1;
+    }
+    if ((*p & 0xE0u) == 0xC0u) {
+        cp = (uint32_t)(*p & 0x1Fu);
+        extra = 1;
+    } else if ((*p & 0xF0u) == 0xE0u) {
+        cp = (uint32_t)(*p & 0x0Fu);
+        extra = 2;
+    } else if ((*p & 0xF8u) == 0xF0u) {
+        cp = (uint32_t)(*p & 0x07u);
+        extra = 3;
+    } else {
+        return 0;
+    }
+    for (i = 1; i <= extra; ++i) {
+        unsigned char next = p[i];
+        if (next == 0u || (next & 0xC0u) != 0x80u) {
+            return 0;
+        }
+        cp = (cp << 6) | (uint32_t)(next & 0x3Fu);
+    }
+    if ((extra == 1 && cp < 0x80u) || (extra == 2 && cp < 0x800u) ||
+        (extra == 3 && cp < 0x10000u)) {
+        return 0;
+    }
+    if (cp > 0x10FFFFu || (cp >= 0xD800u && cp <= 0xDFFFu)) {
+        return 0;
+    }
+    *out = cp;
+    return extra + 1;
+}
+
+static int utf8_count(const char *text)
+{
+    int count = 0;
+    int offset = 0;
+    uint32_t cp;
+    while (text[offset] != '\0') {
+        int length = utf8_decode(text, offset, &cp);
+        if (length <= 0) {
+            length = 1;
+        }
+        offset += length;
+        ++count;
+    }
+    return count;
+}
+
+static int utf8_offset(const char *text, int index)
+{
+    int offset = 0;
+    int count = 0;
+    uint32_t cp;
+    while (text[offset] != '\0' && count < index) {
+        int length = utf8_decode(text, offset, &cp);
+        if (length <= 0) {
+            length = 1;
+        }
+        offset += length;
+        ++count;
+    }
+    return offset;
+}
+
+static int utf8_encode(uint32_t cp, char out[4])
+{
+    if (cp < 0x80u) {
+        out[0] = (char)cp;
+        return 1;
+    }
+    if (cp < 0x800u) {
+        out[0] = (char)(0xC0u | (cp >> 6));
+        out[1] = (char)(0x80u | (cp & 0x3Fu));
+        return 2;
+    }
+    if (cp < 0x10000u) {
+        if (cp >= 0xD800u && cp <= 0xDFFFu) {
+            return 0;
+        }
+        out[0] = (char)(0xE0u | (cp >> 12));
+        out[1] = (char)(0x80u | ((cp >> 6) & 0x3Fu));
+        out[2] = (char)(0x80u | (cp & 0x3Fu));
+        return 3;
+    }
+    if (cp <= 0x10FFFFu) {
+        out[0] = (char)(0xF0u | (cp >> 18));
+        out[1] = (char)(0x80u | ((cp >> 12) & 0x3Fu));
+        out[2] = (char)(0x80u | ((cp >> 6) & 0x3Fu));
+        out[3] = (char)(0x80u | (cp & 0x3Fu));
+        return 4;
+    }
+    return 0;
+}
+
 static int input_length(const wn_core *c, int node)
 {
-    return (int)strlen(input_text(c, node));
+    return utf8_count(input_text(c, node));
 }
 
 static int input_limit(const WnInputRecord *record)
@@ -135,26 +242,65 @@ static void input_selection_bounds(const wn_core *c, int node, int *start, int *
     *end = anchor < cursor ? cursor : anchor;
 }
 
+/* start/end are codepoint indices; the buffer stays UTF-8. */
 static void input_delete_range(wn_core *c, int node, int start, int end)
 {
     char *value = c->input_value != NULL ? c->input_value[node] : NULL;
-    int len;
+    int length;
+    int start_byte;
+    int end_byte;
     if (value == NULL) {
         return;
     }
-    len = (int)strlen(value);
+    length = utf8_count(value);
     if (start < 0) {
         start = 0;
     }
-    if (end > len) {
-        end = len;
+    if (end > length) {
+        end = length;
     }
     if (start >= end) {
         return;
     }
-    memmove(value + start, value + end, (size_t)(len - end) + 1u);
+    start_byte = utf8_offset(value, start);
+    end_byte = utf8_offset(value, end);
+    memmove(value + start_byte, value + end_byte, strlen(value + end_byte) + 1u);
     c->input_cursor[node] = start;
     c->input_anchor[node] = -1;
+    input_blink_reset(c);
+}
+
+static int input_insert_codepoint(wn_core *c, int node, uint32_t codepoint, int *cursor)
+{
+    char encoded[4];
+    char *value = c->input_value != NULL ? c->input_value[node] : NULL;
+    int encoded_length;
+    int length;
+    int limit;
+    int byte_length;
+    int byte_offset;
+    if (value == NULL) {
+        return 0;
+    }
+    encoded_length = utf8_encode(codepoint, encoded);
+    if (encoded_length <= 0) {
+        return 0;
+    }
+    length = utf8_count(value);
+    limit = input_limit(input_record(c, node));
+    if (length >= limit) {
+        return 0;
+    }
+    byte_length = (int)strlen(value);
+    if (byte_length + encoded_length > WN_INPUT_MAX_BYTES) {
+        return 0;
+    }
+    byte_offset = utf8_offset(value, *cursor);
+    memmove(value + byte_offset + encoded_length, value + byte_offset,
+            (size_t)(byte_length - byte_offset) + 1u);
+    memcpy(value + byte_offset, encoded, (size_t)encoded_length);
+    *cursor = *cursor + 1;
+    return 1;
 }
 
 static void input_move_cursor(wn_core *c, int node, int position, int extend)
@@ -174,6 +320,7 @@ static void input_move_cursor(wn_core *c, int node, int position, int extend)
         c->input_anchor[node] = -1;
     }
     c->input_cursor[node] = position;
+    input_blink_reset(c);
 }
 
 static void input_update_scroll(wn_core *c, int node)
@@ -202,7 +349,7 @@ static void input_update_scroll(wn_core *c, int node)
     if (caret - scroll < 0.0f) {
         scroll = caret;
     }
-    text_width = input_prefix_width(c, node, value, (int)strlen(value));
+    text_width = input_prefix_width(c, node, value, input_length(c, node));
     max_scroll = text_width + WN_INPUT_CARET_WIDTH - content.w;
     if (max_scroll < 0.0f) {
         max_scroll = 0.0f;
@@ -226,15 +373,66 @@ int wn_core_input_focused(const wn_core *core)
     return core != NULL ? core->input_focus : -1;
 }
 
+static int input_caret_from_x(wn_core *c, int node, float pointer_x)
+{
+    const char *value = input_text(c, node);
+    const wn_atlas_run *run = input_run(c, node, value);
+    int count = utf8_count(value);
+    int caret = count;
+    float pen = input_content_rect(c, node).x - c->input_scroll[node];
+    int i;
+    for (i = 0; i < count; ++i) {
+        float advance = (run != NULL && i < run->count) ? run->glyphs[i].advance : 0.0f;
+        if (pointer_x < pen + advance * 0.5f) {
+            caret = i;
+            break;
+        }
+        pen += advance;
+    }
+    return caret;
+}
+
+static void input_blink_reset(wn_core *c)
+{
+    c->caret_blink_ms = wn_now_ms();
+}
+
+int wn_core_caret_visible(const wn_core *core)
+{
+    double elapsed;
+    if (core == NULL) {
+        return 1;
+    }
+    elapsed = wn_now_ms() - core->caret_blink_ms;
+    if (elapsed < 0.0) {
+        elapsed = 0.0;
+    }
+    return (((long long)(elapsed / 530.0)) & 1LL) == 0;
+}
+
+/* Test hook: pin the blink epoch so on/off phases are deterministic. */
+void wn_core_set_caret_epoch(wn_core *core, double ms)
+{
+    if (core != NULL) {
+        core->caret_blink_ms = ms;
+    }
+}
+
+void wn_core_input_drag_to(wn_core *core, int node, float pointer_x)
+{
+    if (core == NULL || input_record(core, node) == NULL) {
+        return;
+    }
+    ensure_layout_for_hit(core);
+    input_update_scroll(core, node);
+    core->input_cursor[node] = input_caret_from_x(core, node, pointer_x);
+    input_blink_reset(core);
+    core->dirty = 1;
+}
+
 int wn_core_focus_input(wn_core *core, int node, float pointer_x)
 {
     const WnInputRecord *record;
-    const char *value;
-    wn_rect content;
-    float pen;
-    int len;
-    int caret;
-    int i;
     if (core == NULL) {
         return -1;
     }
@@ -249,23 +447,8 @@ int wn_core_focus_input(wn_core *core, int node, float pointer_x)
     core->input_focus = node;
     core->input_anchor[node] = -1;
     input_update_scroll(core, node);
-    content = input_content_rect(core, node);
-    value = input_text(core, node);
-    len = (int)strlen(value);
-    pen = content.x - core->input_scroll[node];
-    caret = len;
-    {
-        const wn_atlas_run *run = input_run(core, node, value);
-        for (i = 0; i < len; ++i) {
-            float advance = (run != NULL && i < run->count) ? run->glyphs[i].advance : 0.0f;
-            if (pointer_x < pen + advance * 0.5f) {
-                caret = i;
-                break;
-            }
-            pen += advance;
-        }
-    }
-    core->input_cursor[node] = caret;
+    core->input_cursor[node] = input_caret_from_x(core, node, pointer_x);
+    input_blink_reset(core);
     core->dirty = 1;
     return node;
 }
@@ -289,28 +472,22 @@ int wn_core_blur_input(wn_core *core)
 int wn_core_input_char(wn_core *core, uint32_t codepoint,
                        int *value_changed, int *visual_changed)
 {
-    const WnInputRecord *record;
-    char *value;
     int node;
-    int len;
-    int limit;
     int cursor;
+    int length;
     if (value_changed != NULL) {
         *value_changed = 0;
     }
     if (visual_changed != NULL) {
         *visual_changed = 0;
     }
-    if (core == NULL || codepoint < 32u || codepoint > 126u) {
+    if (core == NULL || (codepoint < 0x20u && codepoint != (uint32_t)'\t') ||
+        codepoint > 0x10FFFFu || (codepoint >= 0xD800u && codepoint <= 0xDFFFu)) {
         return -1;
     }
     node = core->input_focus;
-    record = input_record(core, node);
-    if (record == NULL || core->input_value == NULL) {
-        return -1;
-    }
-    value = core->input_value[node];
-    if (value == NULL) {
+    if (input_record(core, node) == NULL || core->input_value == NULL ||
+        core->input_value[node] == NULL) {
         return -1;
     }
     if (input_has_selection(core, node)) {
@@ -319,30 +496,27 @@ int wn_core_input_char(wn_core *core, uint32_t codepoint,
         input_selection_bounds(core, node, &start, &end);
         input_delete_range(core, node, start, end);
     }
-    len = (int)strlen(value);
-    limit = input_limit(record);
+    length = input_length(core, node);
     cursor = core->input_cursor[node];
     if (cursor < 0) {
         cursor = 0;
     }
-    if (cursor > len) {
-        cursor = len;
+    if (cursor > length) {
+        cursor = length;
     }
-    if (len >= limit) {
-        /* Consumed but unchanged: the host must not beep when typing into a
-         * full field. */
-        return node;
-    }
-    memmove(value + cursor + 1, value + cursor, (size_t)(len - cursor) + 1u);
-    value[cursor] = (char)codepoint;
-    core->input_cursor[node] = cursor + 1;
-    core->input_anchor[node] = -1;
-    core->dirty = 1;
-    if (value_changed != NULL) {
-        *value_changed = 1;
-    }
-    if (visual_changed != NULL) {
-        *visual_changed = 1;
+    /* A full field consumes the key without changing the value so the host
+     * does not beep. */
+    if (input_insert_codepoint(core, node, codepoint, &cursor)) {
+        core->input_cursor[node] = cursor;
+        core->input_anchor[node] = -1;
+        input_blink_reset(core);
+        core->dirty = 1;
+        if (value_changed != NULL) {
+            *value_changed = 1;
+        }
+        if (visual_changed != NULL) {
+            *visual_changed = 1;
+        }
     }
     return node;
 }
@@ -351,7 +525,6 @@ int wn_core_input_key(wn_core *core, int key, uint32_t modifiers,
                       int *value_changed, int *visual_changed)
 {
     const WnInputRecord *record;
-    char *value;
     int node;
     int len;
     int cursor;
@@ -367,14 +540,10 @@ int wn_core_input_key(wn_core *core, int key, uint32_t modifiers,
     }
     node = core->input_focus;
     record = input_record(core, node);
-    if (record == NULL || core->input_value == NULL) {
+    if (record == NULL || core->input_value == NULL || core->input_value[node] == NULL) {
         return -1;
     }
-    value = core->input_value[node];
-    if (value == NULL) {
-        return -1;
-    }
-    len = (int)strlen(value);
+    len = input_length(core, node);
     cursor = core->input_cursor[node];
     switch (key) {
     case WN_KEY_ESCAPE:
@@ -485,6 +654,7 @@ int wn_core_input_select_all(wn_core *core, int *visual_changed)
     }
     core->input_anchor[node] = 0;
     core->input_cursor[node] = input_length(core, node);
+    input_blink_reset(core);
     core->dirty = 1;
     if (visual_changed != NULL) {
         *visual_changed = 1;
@@ -498,6 +668,8 @@ int wn_core_input_copy(wn_core *core, char *out, int capacity)
     int start;
     int end;
     int count;
+    int start_byte;
+    int end_byte;
     const char *value;
     if (core == NULL || out == NULL || capacity <= 0) {
         return -1;
@@ -512,11 +684,13 @@ int wn_core_input_copy(wn_core *core, char *out, int capacity)
         return 0;
     }
     value = input_text(core, node);
-    count = end - start;
+    start_byte = utf8_offset(value, start);
+    end_byte = utf8_offset(value, end);
+    count = end_byte - start_byte;
     if (count >= capacity) {
         count = capacity - 1;
     }
-    memcpy(out, value + start, (size_t)count);
+    memcpy(out, value + start_byte, (size_t)count);
     out[count] = '\0';
     return count;
 }
@@ -554,15 +728,13 @@ int wn_core_input_cut(wn_core *core, char *out, int capacity,
 int wn_core_input_paste(wn_core *core, const char *text,
                         int *value_changed, int *visual_changed)
 {
-    const WnInputRecord *record;
-    char *value;
     int node;
-    int len;
-    int limit;
+    int length;
     int cursor;
     int inserted = 0;
     int deleted = 0;
-    int i;
+    int offset;
+    uint32_t codepoint;
     if (value_changed != NULL) {
         *value_changed = 0;
     }
@@ -573,11 +745,10 @@ int wn_core_input_paste(wn_core *core, const char *text,
         return -1;
     }
     node = core->input_focus;
-    record = input_record(core, node);
-    if (record == NULL || core->input_value == NULL || core->input_value[node] == NULL) {
+    if (input_record(core, node) == NULL || core->input_value == NULL ||
+        core->input_value[node] == NULL) {
         return -1;
     }
-    value = core->input_value[node];
     if (input_has_selection(core, node)) {
         int start;
         int end;
@@ -585,31 +756,37 @@ int wn_core_input_paste(wn_core *core, const char *text,
         input_delete_range(core, node, start, end);
         deleted = 1;
     }
-    len = (int)strlen(value);
-    limit = input_limit(record);
+    length = input_length(core, node);
     cursor = core->input_cursor[node];
     if (cursor < 0) {
         cursor = 0;
     }
-    if (cursor > len) {
-        cursor = len;
+    if (cursor > length) {
+        cursor = length;
     }
-    for (i = 0; text[i] != '\0' && len < limit; ++i) {
-        unsigned char ch = (unsigned char)text[i];
-        if (ch < 32 || ch > 126) {
+    /* Paste is single-line: control characters are dropped, any valid UTF-8
+     * codepoint is inserted. */
+    offset = 0;
+    while (text[offset] != '\0') {
+        int consumed = utf8_decode(text, offset, &codepoint);
+        if (consumed <= 0) {
+            ++offset;
             continue;
         }
-        memmove(value + cursor + 1, value + cursor, (size_t)(len - cursor) + 1u);
-        value[cursor] = (char)ch;
-        ++cursor;
-        ++len;
-        ++inserted;
+        offset += consumed;
+        if (codepoint < 0x20u && codepoint != (uint32_t)'\t') {
+            continue;
+        }
+        if (input_insert_codepoint(core, node, codepoint, &cursor)) {
+            ++inserted;
+        }
     }
     if (inserted <= 0 && !deleted) {
         return node;
     }
     core->input_cursor[node] = cursor;
     core->input_anchor[node] = -1;
+    input_blink_reset(core);
     core->dirty = 1;
     if (value_changed != NULL) {
         *value_changed = 1;
@@ -623,10 +800,11 @@ int wn_core_input_paste(wn_core *core, const char *text,
 int wn_core_set_input_value(wn_core *core, int node, const char *text)
 {
     const WnInputRecord *record;
-    const unsigned char *p;
     char *copy;
-    int len;
+    int length = 0;
+    int offset = 0;
     int limit;
+    uint32_t codepoint;
     if (core == NULL || text == NULL) {
         return -1;
     }
@@ -634,14 +812,16 @@ int wn_core_set_input_value(wn_core *core, int node, const char *text)
     if (record == NULL || core->input_value == NULL) {
         return -1;
     }
-    for (p = (const unsigned char *)text; *p != '\0'; ++p) {
-        if (*p < 32u || *p > 126u) {
+    while (text[offset] != '\0') {
+        int consumed = utf8_decode(text, offset, &codepoint);
+        if (consumed <= 0 || (codepoint < 0x20u && codepoint != (uint32_t)'\t')) {
             return 1;
         }
+        offset += consumed;
+        ++length;
     }
-    len = (int)strlen(text);
     limit = input_limit(record);
-    if (len > limit) {
+    if (length > limit || (int)strlen(text) > WN_INPUT_MAX_BYTES) {
         return 2;
     }
     copy = input_alloc_value(text);
@@ -650,8 +830,9 @@ int wn_core_set_input_value(wn_core *core, int node, const char *text)
     }
     wn_free_(core->input_value[node]);
     core->input_value[node] = copy;
-    core->input_cursor[node] = len;
+    core->input_cursor[node] = length;
     core->input_anchor[node] = -1;
+    input_blink_reset(core);
     core->dirty = 1;
     return 0;
 }
@@ -847,7 +1028,7 @@ void build_input_decorations(wn_core *c)
             }
         }
 
-        if (c->input_focus == node) {
+        if (c->input_focus == node && wn_core_caret_visible(c)) {
             float caret = content.x +
                           input_prefix_width(c, node, input_text(c, node),
                                              c->input_cursor[node]) -
@@ -889,6 +1070,8 @@ int build_input_state(wn_core *c)
 {
     const wn_document *document = c->doc;
     int i;
+    c->input_drag = -1;
+    c->caret_blink_ms = wn_now_ms();
     if (document->input_count <= 0) {
         return 0;
     }
@@ -915,7 +1098,7 @@ int build_input_state(wn_core *c)
             if (c->input_value[node] == NULL) {
                 return -1;
             }
-            c->input_cursor[node] = (int)strlen(value);
+            c->input_cursor[node] = utf8_count(value);
             c->input_anchor[node] = -1;
         }
     }

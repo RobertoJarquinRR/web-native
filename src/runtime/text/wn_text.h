@@ -45,9 +45,19 @@ typedef struct {
 } wn_text_bitmap;
 
 typedef struct {
+    int hits;
+    int misses;
+    int evictions;
+} wn_text_cache_stats;
+
+typedef struct {
     const char *name;
     int (*init)(void **context);
     void (*destroy)(void *context);
+    /* `max_width` is only a backend hint: DirectWrite may emergency-break
+     * inside a long word and backends differ in their wrapping. The engine
+     * does not use this for layout; text_runtime's space-only greedy breaker
+     * (wn_text_line_layout_get) is what layout and paint consume. */
     int (*measure)(void *context, const char *utf8, const wn_text_style *style,
                    float max_width, wn_text_metrics *out);
     int (*shape)(void *context, const char *utf8, const wn_text_style *style,
@@ -55,6 +65,8 @@ typedef struct {
     int (*rasterize)(void *context, const wn_text_style *style, int glyph,
                      unsigned char *pixels, int capacity, wn_text_bitmap *out);
     int (*cache_misses)(void *context);
+    int (*has_family)(void *context, const char *family);
+    void (*cache_stats)(void *context, wn_text_cache_stats *out);
 } wn_text_ops;
 
 #if defined(_WIN32)

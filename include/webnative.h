@@ -282,21 +282,24 @@ WN_API wn_status wn_node_clear_children(wn_app *app, wn_node_id node);
  * document root cannot be moved and `parent` must not be inside `child`. */
 WN_API wn_status wn_node_append(wn_app *app, wn_node_id parent, wn_node_id child);
 
-/* -------------------------------------------------- text input (ABI v4) */
+/* -------------------------------------------------- text input (ABI v5) */
 /*
- * Single-line ASCII text input. `node` must be a compiled `kind:"input"`
- * node (or a clone of one). Values are engine-owned copies of ASCII printable
- * text (32..126); non-ASCII returns WN_ERR_UNSUPPORTED. The length is capped
- * by the compiled `maxlength` (or 255 when absent); longer values return
- * WN_ERR_INVALID_ARGUMENT. set_value places the caret at the end, clears the
- * selection and does NOT emit WN_EVENT_INPUT (the caller already knows).
- * get_value returns an engine-owned string valid until the next webnative
- * call on this thread; NULL (and wn_last_error) for an invalid node.
+ * Single-line UTF-8 text input. `node` must be a compiled `kind:"input"`
+ * node (or a clone of one). Values are engine-owned UTF-8 copies; cursor and
+ * selection indices are codepoints. Control characters below U+0020 (except
+ * tab) and invalid UTF-8 return WN_ERR_UNSUPPORTED. The length is capped by
+ * the compiled `maxlength` in codepoints (or 255 when absent) and by the
+ * 255-byte buffer; longer values return WN_ERR_INVALID_ARGUMENT. set_value
+ * places the caret at the end, clears the selection and does NOT emit
+ * WN_EVENT_INPUT (the caller already knows). get_value returns an engine-owned
+ * string valid until the next webnative call on this thread; NULL (and
+ * wn_last_error) for an invalid node.
  *
  * Editing happens through wn_view_event()/the window loop: click focuses and
- * places the caret, WN_EVENT_CHAR inserts printable ASCII, KEY_DOWN handles
- * Backspace/Delete/Left/Right/Home/End (+Shift selection) and Ctrl+A/C/X/V.
- * Esc releases focus. Enter is left to the host (no form/submit in v4).
+ * places the caret, WN_EVENT_CHAR inserts any valid codepoint, pointer drag
+ * extends the selection, KEY_DOWN handles Backspace/Delete/Left/Right/Home/
+ * End (+Shift selection) and Ctrl+A/C/X/V. Esc releases focus. Enter is left
+ * to the host (no form/submit). IME composition is not implemented.
  * Every user-driven value change emits WN_EVENT_INPUT.
  */
 WN_API wn_status wn_node_set_value(wn_app *app, wn_node_id node, const char *utf8);

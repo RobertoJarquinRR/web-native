@@ -111,9 +111,18 @@ static void mark_subtree_hidden(wn_core *c, int node)
     }
 }
 
-static void measure_text_node(const UiNode *n, float max_width, wn_text_metrics *out)
+static const char *node_text(const wn_core *c, int node)
 {
-    const char *text = n->text != NULL ? n->text : "";
+    if (c->text_override != NULL && c->text_override[node] != NULL) {
+        return c->text_override[node];
+    }
+    return c->nodes[node].text != NULL ? c->nodes[node].text : "";
+}
+
+static void measure_text_node(const wn_core *c, int node, float max_width, wn_text_metrics *out)
+{
+    const UiNode *n = &c->nodes[node];
+    const char *text = node_text(c, node);
     if (wn_text_measure_string(text, n->font_family, n->font_size, n->font_weight,
                                max_width > 0.0f ? max_width : 0.0f, out) == 0) {
         return;
@@ -124,21 +133,48 @@ static void measure_text_node(const UiNode *n, float max_width, wn_text_metrics 
     out->descent = 0.0f;
 }
 
-static float text_node_width(const UiNode *n, float max_width)
+static float text_node_width(const wn_core *c, int node, float max_width)
 {
+    const UiNode *n = &c->nodes[node];
+    const char *text = node_text(c, node);
     wn_text_metrics metrics;
-    measure_text_node(n, max_width, &metrics);
+    /* A constrained width picks the widest greedy line; unconstrained keeps
+     * the backend's single-line advance width. */
+    if (max_width > 0.0f) {
+        const wn_text_line_layout *layout = wn_text_line_layout_get(
+            text, n->font_family, n->font_size, n->font_weight, max_width);
+        if (layout != NULL) {
+            return ceilf(layout->width) + WN_DECL_W(n);
+        }
+    }
+    measure_text_node(c, node, 0.0f, &metrics);
     return ceilf(metrics.width) + WN_DECL_W(n);
 }
 
-static float text_node_height(const UiNode *n, float max_width)
+static float text_node_height(const wn_core *c, int node, float max_width)
 {
+    const UiNode *n = &c->nodes[node];
+    const char *text = node_text(c, node);
+    const wn_text_line_layout *layout = wn_text_line_layout_get(
+        text, n->font_family, n->font_size, n->font_weight,
+        max_width > 0.0f ? max_width : 0.0f);
     wn_text_metrics metrics;
-    if (WN_LINE_HEIGHT(n) > 0.0f) {
-        return ceilf(WN_LINE_HEIGHT(n)) + WN_DECL_H(n);
+    float line_height;
+
+    if (layout == NULL) {
+        /* The backend measure with a max_width is a hint only: constrained
+         * nodes are sized by the engine breaker above. */
+        measure_text_node(c, node, 0.0f, &metrics);
+        return ceilf(metrics.height) + WN_DECL_H(n);
     }
-    measure_text_node(n, max_width, &metrics);
-    return ceilf(metrics.height) + WN_DECL_H(n);
+    if (layout->line_count <= 1 && WN_LINE_HEIGHT(n) <= 0.0f && max_width <= 0.0f) {
+        /* Unconstrained single-line text keeps the backend's exact box. A
+         * constrained node always follows the engine breaker, even at one
+         * line. */
+        return ceilf(layout->measured_height) + WN_DECL_H(n);
+    }
+    line_height = WN_LINE_HEIGHT(n) > 0.0f ? WN_LINE_HEIGHT(n) : layout->line_height;
+    return ceilf((float)layout->line_count * line_height) + WN_DECL_H(n);
 }
 
 static float intrinsic_width(wn_core *c, int node, float available)
@@ -151,7 +187,7 @@ static float intrinsic_width(wn_core *c, int node, float available)
         return available * n->width_pct * 0.01f + WN_DECL_W(n);
     }
     if (n->kind == R2_NODE_TEXT) {
-        return text_node_width(n, available);
+        return text_node_width(c, node, available);
     }
     if (n->kind == R2_NODE_IMAGE && n->image_width > 0.0f) {
         return n->image_width + n->padding[1] + n->padding[3];
@@ -755,7 +791,7 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
     } else if (n->width_pct > 0.0f) {
         w = available_w * n->width_pct * 0.01f + WN_DECL_W(n);
     } else if (n->kind == R2_NODE_TEXT) {
-        w = text_node_width(n, available_w - n->margin[1] - n->margin[3]);
+        w = text_node_width(c, node, available_w - n->margin[1] - n->margin[3]);
     } else if (n->kind == R2_NODE_IMAGE && n->image_width > 0.0f) {
         w = n->image_width;
     } else {
@@ -793,7 +829,7 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
         } else if (content_h >= 0.0f) {
             h = content_h;
         } else {
-            h = text_node_height(n, content_w);
+            h = text_node_height(c, node, content_w);
         }
         c->rects[node].x = x;
         c->rects[node].y = y;

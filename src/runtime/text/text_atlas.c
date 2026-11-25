@@ -6,7 +6,9 @@
 #define WN_ATLAS_SIDE 1024
 #define WN_ATLAS_SLOT_COUNT 8192
 #define WN_ATLAS_SLOT_MASK (WN_ATLAS_SLOT_COUNT - 1)
-#define WN_ATLAS_RUN_CACHE 64
+#define WN_ATLAS_RUN_CACHE 1024
+#define WN_ATLAS_RUN_BUCKETS 2048
+#define WN_ATLAS_RUN_MASK (WN_ATLAS_RUN_BUCKETS - 1)
 #define WN_ATLAS_PADDING 1
 #define WN_ATLAS_MAX_BITMAP (256 * 256)
 
@@ -21,6 +23,10 @@ typedef struct {
 
 typedef struct {
     int used;
+    unsigned int hash;
+    int bucket_next;
+    int lru_prev;
+    int lru_next;
     char *text;
     char *family;
     float size;
@@ -38,7 +44,13 @@ struct wn_text_atlas {
     unsigned int serial;
     WnAtlasSlot *slots;
     WnAtlasRun runs[WN_ATLAS_RUN_CACHE];
-    int next_run;
+    int run_buckets[WN_ATLAS_RUN_BUCKETS];
+    int run_head;
+    int run_tail;
+    int run_used;
+    int run_hits;
+    int run_misses;
+    int run_evictions;
 };
 
 static unsigned int hash_mix(unsigned int value, unsigned int incoming)
@@ -64,6 +76,23 @@ static unsigned int slot_hash(const char *family, float size, int weight, int gl
     value = hash_mix(value, (unsigned int)(size * 64.0f + 0.5f));
     value = hash_mix(value, (unsigned int)weight);
     value = hash_mix(value, (unsigned int)glyph);
+    return value;
+}
+
+static unsigned int run_hash(const char *text, const char *family, float size, int weight)
+{
+    union {
+        float f;
+        unsigned int u;
+    } bits;
+    unsigned int value = 2166136261u;
+    value = hash_text(value, text);
+    value ^= 0xFFu;
+    value *= 16777619u;
+    value = hash_text(value, family);
+    bits.f = size;
+    value = hash_mix(value, bits.u);
+    value = hash_mix(value, (unsigned int)weight);
     return value;
 }
 
@@ -151,6 +180,11 @@ wn_text_atlas *wn_text_atlas_create(const unsigned char *seed, int seed_width, i
         }
         atlas->shelf_y = seed_height;
     }
+    atlas->run_head = -1;
+    atlas->run_tail = -1;
+    for (int i = 0; i < WN_ATLAS_RUN_BUCKETS; ++i) {
+        atlas->run_buckets[i] = -1;
+    }
     atlas->serial = 1;
     return atlas;
 }
@@ -211,98 +245,229 @@ const wn_atlas_glyph *wn_text_atlas_glyph(wn_text_atlas *atlas, const char *fami
 {
     WnAtlasSlot *slot;
     wn_text_bitmap bitmap;
+    wn_atlas_glyph metrics;
     unsigned char scratch[WN_ATLAS_MAX_BITMAP];
-    int x;
-    int y;
+    char *family_copy;
+    int x = 0;
+    int y = 0;
 
     if (atlas == NULL || atlas->slots == NULL) {
         return NULL;
     }
     family = family != NULL ? family : "Segoe UI";
     slot = slot_lookup(atlas, family, size, weight, glyph);
-    if (slot == NULL || (slot->used && same_key(slot, family, size, weight, glyph))) {
-        return slot != NULL ? &slot->metrics : NULL;
+    if (slot == NULL) {
+        return NULL;
+    }
+    if (slot->used && same_key(slot, family, size, weight, glyph)) {
+        return &slot->metrics;
     }
     memset(&bitmap, 0, sizeof(bitmap));
     if (wn_text_rasterize_glyph(family, size, weight, glyph, scratch, WN_ATLAS_MAX_BITMAP,
                                 &bitmap) != 0) {
         return NULL;
     }
-    slot->family = copy_string(family);
-    if (slot->family == NULL) {
+    memset(&metrics, 0, sizeof(metrics));
+    metrics.width = bitmap.width;
+    metrics.height = bitmap.height;
+    metrics.bearing_x = bitmap.bearing_x;
+    metrics.bearing_y = bitmap.bearing_y;
+    family_copy = copy_string(family);
+    if (family_copy == NULL) {
         return NULL;
     }
-    slot->size = size;
-    slot->weight = weight;
-    slot->glyph = glyph;
-    slot->used = 1;
-    slot->metrics.width = bitmap.width;
-    slot->metrics.height = bitmap.height;
-    slot->metrics.bearing_x = bitmap.bearing_x;
-    slot->metrics.bearing_y = bitmap.bearing_y;
     if (bitmap.width > 0 && bitmap.height > 0) {
         if (pack_bitmap(atlas, bitmap.width, bitmap.height, &x, &y) != 0) {
+            /* Do not cache a failed pack: the next request retries instead of
+             * returning a degenerate (0,0)-(0,0) quad forever. */
+            free(family_copy);
             return NULL;
         }
         for (int row = 0; row < bitmap.height; ++row) {
             memcpy(atlas->pixels + (size_t)(y + row) * atlas->width + x,
                    bitmap.pixels + (size_t)row * bitmap.width, (size_t)bitmap.width);
         }
-        set_uv(atlas, &slot->metrics, x, y, bitmap.width, bitmap.height);
+        set_uv(atlas, &metrics, x, y, bitmap.width, bitmap.height);
         atlas->serial += 1;
     }
+    slot->family = family_copy;
+    slot->size = size;
+    slot->weight = weight;
+    slot->glyph = glyph;
+    slot->used = 1;
+    slot->metrics = metrics;
     return &slot->metrics;
+}
+
+static void run_entry_clear(WnAtlasRun *run)
+{
+    free(run->view.glyphs);
+    free(run->text);
+    free(run->family);
+    memset(run, 0, sizeof(*run));
+    run->bucket_next = -1;
+    run->lru_prev = -1;
+    run->lru_next = -1;
+}
+
+static void run_lru_unlink(wn_text_atlas *atlas, int slot)
+{
+    WnAtlasRun *run = &atlas->runs[slot];
+    if (run->lru_prev >= 0) {
+        atlas->runs[run->lru_prev].lru_next = run->lru_next;
+    } else {
+        atlas->run_head = run->lru_next;
+    }
+    if (run->lru_next >= 0) {
+        atlas->runs[run->lru_next].lru_prev = run->lru_prev;
+    } else {
+        atlas->run_tail = run->lru_prev;
+    }
+    run->lru_prev = -1;
+    run->lru_next = -1;
+}
+
+static void run_lru_push(wn_text_atlas *atlas, int slot)
+{
+    WnAtlasRun *run = &atlas->runs[slot];
+    run->lru_prev = -1;
+    run->lru_next = atlas->run_head;
+    if (atlas->run_head >= 0) {
+        atlas->runs[atlas->run_head].lru_prev = slot;
+    }
+    atlas->run_head = slot;
+    if (atlas->run_tail < 0) {
+        atlas->run_tail = slot;
+    }
+}
+
+static void run_bucket_unlink(wn_text_atlas *atlas, int slot)
+{
+    WnAtlasRun *run = &atlas->runs[slot];
+    int bucket = (int)(run->hash & WN_ATLAS_RUN_MASK);
+    int index = atlas->run_buckets[bucket];
+    int previous = -1;
+    while (index >= 0) {
+        if (index == slot) {
+            if (previous < 0) {
+                atlas->run_buckets[bucket] = atlas->runs[index].bucket_next;
+            } else {
+                atlas->runs[previous].bucket_next = atlas->runs[index].bucket_next;
+            }
+            break;
+        }
+        previous = index;
+        index = atlas->runs[index].bucket_next;
+    }
+    run->bucket_next = -1;
+}
+
+static void run_bucket_push(wn_text_atlas *atlas, int slot)
+{
+    WnAtlasRun *run = &atlas->runs[slot];
+    int bucket = (int)(run->hash & WN_ATLAS_RUN_MASK);
+    run->bucket_next = atlas->run_buckets[bucket];
+    atlas->run_buckets[bucket] = slot;
 }
 
 const wn_atlas_run *wn_text_atlas_shape(wn_text_atlas *atlas, const char *text, const char *family,
                                         float size, int weight)
 {
-    WnAtlasRun *run = NULL;
     wn_text_shaped shaped;
+    unsigned int hash;
     int capacity;
     int slot;
+    int fresh = 0;
 
     if (atlas == NULL || text == NULL) {
         return NULL;
     }
     family = family != NULL ? family : "Segoe UI";
-    for (int i = 0; i < WN_ATLAS_RUN_CACHE; ++i) {
-        WnAtlasRun *entry = &atlas->runs[i];
+    hash = run_hash(text, family, size, weight);
+    for (slot = atlas->run_buckets[hash & WN_ATLAS_RUN_MASK]; slot >= 0;
+         slot = atlas->runs[slot].bucket_next) {
+        WnAtlasRun *entry = &atlas->runs[slot];
         if (entry->used && entry->size == size && entry->weight == weight &&
             strcmp(entry->text, text) == 0 && strcmp(entry->family, family) == 0) {
+            run_lru_unlink(atlas, slot);
+            run_lru_push(atlas, slot);
+            atlas->run_hits += 1;
             return &entry->view;
         }
     }
 
+    atlas->run_misses += 1;
+    /* Build into a scratch entry first: a failed insert must not evict a
+     * published entry or consume capacity. */
+    WnAtlasRun scratch;
+    memset(&scratch, 0, sizeof(scratch));
     capacity = (int)strlen(text) + 1;
-    slot = atlas->next_run;
-    atlas->next_run = (atlas->next_run + 1) % WN_ATLAS_RUN_CACHE;
-    run = &atlas->runs[slot];
-    free(run->view.glyphs);
-    free(run->text);
-    free(run->family);
-    memset(run, 0, sizeof(*run));
-    run->view.glyphs = (wn_text_glyph *)calloc((size_t)capacity, sizeof(wn_text_glyph));
-    run->text = copy_string(text);
-    run->family = copy_string(family);
-    if (run->view.glyphs == NULL || run->text == NULL || run->family == NULL) {
-        free(run->view.glyphs);
-        free(run->text);
-        free(run->family);
-        memset(run, 0, sizeof(*run));
+    scratch.view.glyphs = (wn_text_glyph *)calloc((size_t)capacity, sizeof(wn_text_glyph));
+    scratch.text = copy_string(text);
+    scratch.family = copy_string(family);
+    if (scratch.view.glyphs == NULL || scratch.text == NULL || scratch.family == NULL) {
+        run_entry_clear(&scratch);
         return NULL;
     }
     memset(&shaped, 0, sizeof(shaped));
-    if (wn_text_shape_string(text, family, size, weight, run->view.glyphs, capacity, &shaped) != 0) {
+    if (wn_text_shape_string(text, family, size, weight, scratch.view.glyphs, capacity,
+                            &shaped) != 0) {
+        run_entry_clear(&scratch);
         return NULL;
     }
-    run->used = 1;
-    run->size = size;
-    run->weight = weight;
-    run->view.count = shaped.glyph_count;
-    run->view.width = shaped.width;
-    run->view.height = shaped.height;
-    run->view.ascent = shaped.ascent;
-    run->view.descent = shaped.descent;
-    return &run->view;
+    scratch.hash = hash;
+    scratch.size = size;
+    scratch.weight = weight;
+    scratch.view.count = shaped.glyph_count;
+    scratch.view.width = shaped.width;
+    scratch.view.height = shaped.height;
+    scratch.view.ascent = shaped.ascent;
+    scratch.view.descent = shaped.descent;
+
+    if (atlas->run_used < WN_ATLAS_RUN_CACHE) {
+        slot = atlas->run_used;
+        fresh = 1;
+    } else {
+        slot = atlas->run_tail;
+        if (slot >= 0) {
+            run_lru_unlink(atlas, slot);
+            run_bucket_unlink(atlas, slot);
+            atlas->run_evictions += 1;
+        } else {
+            slot = -1;
+            for (int i = 0; i < WN_ATLAS_RUN_CACHE; ++i) {
+                if (!atlas->runs[i].used) {
+                    slot = i;
+                    break;
+                }
+            }
+            if (slot < 0) {
+                run_entry_clear(&scratch);
+                return NULL;
+            }
+        }
+    }
+    run_entry_clear(&atlas->runs[slot]);
+    atlas->runs[slot] = scratch;
+    atlas->runs[slot].used = 1;
+    if (fresh) {
+        atlas->run_used += 1;
+    }
+    run_bucket_push(atlas, slot);
+    run_lru_push(atlas, slot);
+    return &atlas->runs[slot].view;
+}
+
+void wn_text_atlas_cache_stats(const wn_text_atlas *atlas, wn_text_cache_stats *out)
+{
+    if (out == NULL) {
+        return;
+    }
+    memset(out, 0, sizeof(*out));
+    if (atlas == NULL) {
+        return;
+    }
+    out->hits = atlas->run_hits;
+    out->misses = atlas->run_misses;
+    out->evictions = atlas->run_evictions;
 }

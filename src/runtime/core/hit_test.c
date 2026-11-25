@@ -136,11 +136,21 @@ int wn_core_node_clip(const wn_core *core, int node, wn_rect *out)
 int wn_core_pointer_move(wn_core *core, float px, float py)
 {
     int hit;
+    int previous;
     if (core == NULL) {
         return -1;
     }
+    previous = core->hover;
     hit = wn_core_hit_test(core, px, py);
     core->hover = hit;
+    if (hit != previous) {
+        core->dirty = 1;
+    }
+    /* Button held on the focused input: extend the selection from the anchor. */
+    if (core->input_drag >= 0 && core->press == core->input_drag &&
+        core->input_focus == core->input_drag) {
+        wn_core_input_drag_to(core, core->input_drag, px);
+    }
     return hit;
 }
 
@@ -153,8 +163,13 @@ int wn_core_pointer_down(wn_core *core, float px, float py)
     hit = wn_core_hit_test(core, px, py);
     core->hover = hit;
     core->press = hit;
+    core->input_drag = -1;
+    core->dirty = 1;
     if (hit >= 0 && input_record(core, hit) != NULL) {
         wn_core_focus_input(core, hit, px);
+        /* Drag-select anchor starts where the click landed. */
+        core->input_anchor[hit] = core->input_cursor[hit];
+        core->input_drag = hit;
     } else {
         wn_core_blur_input(core);
     }
@@ -173,13 +188,28 @@ int wn_core_pointer_up(wn_core *core, float px, float py)
         core->nodes[core->press].action == ACTION_SELECT) {
         core->selected = core->press;
     }
+    if (core->press >= 0 && input_record(core, core->press) != NULL &&
+        core->input_anchor[core->press] == core->input_cursor[core->press]) {
+        /* A plain click leaves no selection. */
+        core->input_anchor[core->press] = -1;
+    }
     core->press = -1;
+    core->input_drag = -1;
+    core->dirty = 1;
     return hit;
 }
 
+/* The pointer left the window or capture was lost: no node may stay hovered
+ * or pressed. A drag in progress ends without touching the selection. */
 void wn_core_pointer_leave(wn_core *core)
 {
-    if (core != NULL) {
-        core->hover = -1;
+    if (core == NULL) {
+        return;
     }
+    if (core->hover >= 0 || core->press >= 0 || core->input_drag >= 0) {
+        core->dirty = 1;
+    }
+    core->hover = -1;
+    core->press = -1;
+    core->input_drag = -1;
 }

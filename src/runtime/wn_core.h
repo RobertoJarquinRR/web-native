@@ -241,9 +241,9 @@ enum {
 /* Snapshot of one editable input for diagnostics/tests. `value`, `caret_x`,
  * `selection_x0` and `selection_x1` are valid until the next core call. */
 typedef struct {
-    const char *value;
-    int cursor;               /* byte offset 0..len (ASCII: == chars) */
-    int anchor;               /* selection anchor, -1 none */
+    const char *value;        /* UTF-8 buffer, engine owned */
+    int cursor;               /* codepoint index 0..len */
+    int anchor;               /* selection anchor (codepoint index), -1 none */
     int focused;
     int max_length;           /* 0 unlimited (hard cap 255) */
     float scroll;             /* horizontal text offset, px */
@@ -256,13 +256,13 @@ typedef struct {
     wn_rect content;          /* content box (padding removed) */
 } wn_input_state;
 
-/* ------------------------------------------------------ text input (v4) */
+/* ------------------------------------------------------ text input (v5) */
 /*
- * Single-line ASCII editor embedded in the core. The value buffer is engine
- * owned; hosts read it through the ABI (wn_node_get_value) or the helpers
- * below. All editing entry points return the affected node (or -1 when the
- * key/char was not consumed) and report whether the value or only the visual
- * state (caret/selection/scroll/focus) changed.
+ * Single-line UTF-8 editor embedded in the core. The value buffer stays UTF-8
+ * and cursor/anchor are codepoint indices. Hosts read the value through the
+ * ABI (wn_node_get_value) or the helpers below. All editing entry points return
+ * the affected node (or -1 when the key/char was not consumed) and report
+ * whether the value or only the visual state changed.
  */
 int wn_core_node_is_input(const wn_core *core, int node);
 int wn_core_input_focused(const wn_core *core);
