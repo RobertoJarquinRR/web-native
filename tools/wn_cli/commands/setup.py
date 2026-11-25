@@ -47,9 +47,12 @@ def _download_archive(url: str) -> Path:
     return tmp_path
 
 
+def _wgpu_dir() -> Path:
+    return get_paths().root / "third_party" / "wgpu-native"
+
+
 def cmd_wgpu(args: argparse.Namespace) -> int:
-    paths = get_paths()
-    dest = paths.third_party_wgpu
+    dest = _wgpu_dir()
     version_file = dest / "VERSION.txt"
     expected_version = f"{WGPU_VERSION} {WGPU_ASSET}"
 
@@ -146,7 +149,7 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
             has_errors = True
 
     log_step("checking dependencies & build state")
-    missing_wgpu = [rel for rel in WGPU_ZIP_MAP.values() if not (paths.third_party_wgpu / rel).is_file()]
+    missing_wgpu = [rel for rel in WGPU_ZIP_MAP.values() if not (_wgpu_dir() / rel).is_file()]
     if not missing_wgpu:
         log_info("[ok]   wgpu-native artifacts present")
     else:
@@ -155,8 +158,8 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
 
     checks = [
         ("generated/ui_data.h", (paths.generated / "ui_data.h").is_file()),
-        ("build_cmake/build.ninja", (paths.build_release / "build.ninja").is_file()),
-        ("build_debug/build.ninja", (paths.build_debug / "build.ninja").is_file()),
+        ("build_release/build.ninja", (paths.runtime_build_release / "build.ninja").is_file()),
+        ("build_debug/build.ninja", (paths.runtime_build_debug / "build.ninja").is_file()),
     ]
     for label, ok in checks:
         status = "[ok]  " if ok else "[warn]"

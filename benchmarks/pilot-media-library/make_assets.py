@@ -260,10 +260,9 @@ def main() -> int:
         "posters": manifest,
     }
     manifest_path = posters_dir / "manifest.json"
-    manifest_path.write_text(
-        json.dumps(manifest_doc, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
+    manifest_bytes = (json.dumps(manifest_doc, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    if not manifest_path.is_file() or manifest_path.read_bytes() != manifest_bytes:
+        manifest_path.write_bytes(manifest_bytes)
 
     print(f"generated {len(manifest)} posters at {posters_dir}")
     print(f"wrote {manifest_path}")

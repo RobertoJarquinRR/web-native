@@ -187,6 +187,17 @@ if(WN_WGPU)
     foreach(target_name IN ITEMS runtime_r2 abi_smoke standalone embedded webnative)
         add_dependencies(${target_name} copy_wgpu_dll)
     endforeach()
+else()
+    # Switching an existing build dir from ON to OFF must drop the copied DLL.
+    add_custom_target(remove_wgpu_dll ALL
+        COMMAND ${CMAKE_COMMAND} -E rm -f
+            "${CMAKE_CURRENT_BINARY_DIR}/wgpu_native.dll"
+        COMMENT "removing wgpu_native.dll (WN_WGPU=OFF)"
+    )
+
+    foreach(target_name IN ITEMS runtime_r2 abi_smoke standalone embedded webnative)
+        add_dependencies(${target_name} remove_wgpu_dll)
+    endforeach()
 endif()
 
 enable_testing()

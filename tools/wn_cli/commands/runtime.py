@@ -136,6 +136,10 @@ def cmd_build(args: argparse.Namespace) -> int:
 
     log_step(f"building runtime targets ({args.config})")
     run_cmd(["cmake", "--build", build_dir], cwd=paths.root, use_build_env=True)
+
+    if wgpu_flag == "OFF":
+        # A previous ON build leaves this copied DLL behind; OFF must not ship it.
+        (build_dir / "wgpu_native.dll").unlink(missing_ok=True)
     return 0
 
 

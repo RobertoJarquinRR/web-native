@@ -5,7 +5,7 @@ on:
   pull_request:
 
 jobs:
-  windows:
+  offline-d3d11:
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -30,7 +30,7 @@ jobs:
           if (!(Test-Path $vswhere)) { throw "vswhere.exe missing from the runner image" }
           & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
 
-      # wgpu OFF: no wgpu-native download and no wgpu_native.dll in the artifacts.
+      # Offline gate: no wgpu-native download and no wgpu_native.dll in artifacts.
       - name: Build (emit + runtime, D3D11 only)
         run: python tools/cli.py build --emit --no-wgpu
 
@@ -39,3 +39,42 @@ jobs:
 
       - name: Pilot media library (D3D11 only)
         run: python tools/cli.py bench pilot --no-wgpu
+
+  wgpu:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Python dependencies
+        run: python -m pip install --upgrade pip tinycss2 pillow
+
+      - name: Verify MSVC toolchain
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (!(Test-Path $vswhere)) { throw "vswhere.exe missing from the runner image" }
+          & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+
+      # Fetch the pinned release; setup wgpu verifies its SHA-256 before extracting.
+      - name: Fetch pinned wgpu-native
+        run: python tools/cli.py setup wgpu
+
+      - name: Build (emit + runtime, wgpu ON)
+        run: python tools/cli.py build --emit
+
+      - name: Tests (wgpu ON)
+        run: python tools/cli.py test all
+
+      # Explicit strict d3d11-vs-wgpu pixel comparison on top of the suite run.
+      - name: Offscreen cross-backend comparison
+        run: python tools/cli.py test suite offscreen

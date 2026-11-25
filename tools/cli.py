@@ -6,7 +6,7 @@ import sys
 from wn_cli.commands import bench, frontend, runtime, setup, test
 from wn_cli.core import CliError, exe_name, get_paths, log_info, log_step, run_cmd
 
-def _stage_master_outputs(config: str) -> None:
+def _stage_master_outputs(config: str, no_wgpu: bool = False) -> None:
     paths = get_paths()
     is_debug = config == "Debug"
     out_dir = paths.out_debug if is_debug else paths.out_release
@@ -15,6 +15,9 @@ def _stage_master_outputs(config: str) -> None:
     rust_bin = paths.frontend_rust / "target" / rust_profile / exe_name("frontend-rust")
 
     out_dir.mkdir(parents=True, exist_ok=True)
+    if no_wgpu:
+        # Never keep a stale wgpu payload in the staged output after an OFF build.
+        (out_dir / "wgpu_native.dll").unlink(missing_ok=True)
 
     if rust_bin.is_file():
         shutil.copy2(rust_bin, out_dir / rust_bin.name)
@@ -28,6 +31,8 @@ def _stage_master_outputs(config: str) -> None:
         "webnative.lib",
     ]
     for name in runtime_artifacts:
+        if no_wgpu and name in ("wgpu_native.dll", "libwgpu_native.so"):
+            continue
         src_file = rt_build / name
         if src_file.is_file():
             shutil.copy2(src_file, out_dir / name)
@@ -42,6 +47,11 @@ def _stage_master_outputs(config: str) -> None:
 def cmd_root_build(args: argparse.Namespace) -> int:
     paths = get_paths()
     is_debug = args.config == "Debug"
+    out_dir = paths.out_debug if is_debug else paths.out_release
+
+    if args.clean and out_dir.exists():
+        log_step(f"cleaning staged artifacts in {out_dir}")
+        shutil.rmtree(out_dir)
 
     log_step(f"master 1/3: building frontend-rust ({args.config.lower()})")
     frontend.cmd_build(argparse.Namespace(debug=is_debug))
@@ -70,7 +80,7 @@ def cmd_root_build(args: argparse.Namespace) -> int:
         )
     )
 
-    _stage_master_outputs(args.config)
+    _stage_master_outputs(args.config, args.no_wgpu)
     out_dir = paths.out_debug if is_debug else paths.out_release
     log_info(f"staged clean binaries in {out_dir}")
     return 0

@@ -57,6 +57,7 @@ typedef struct {
     D3D_FEATURE_LEVEL feature_level;
     int driver_hardware;
     int flip_model;
+    UINT swapchain_flags;
     int offscreen;   /* 1 when rendering into a texture (no swapchain) */
     int width;
     int height;
@@ -459,6 +460,7 @@ static int create_swapchain(WnD3D11 *gpu, void *handle, int width, int height)
     desc1.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     desc1.AlphaMode = DXGI_ALPHA_MODE_IGNORE;
     desc1.Flags = 0;
+    gpu->swapchain_flags = desc1.Flags;
 
     if (factory2 != NULL) {
         hr = factory2->lpVtbl->CreateSwapChainForHwnd(factory2, (IUnknown *)gpu->device,
@@ -1212,6 +1214,9 @@ fail:
 static void renderer_resize(void *context, int width, int height)
 {
     WnD3D11 *gpu = (WnD3D11 *)context;
+    int old_width;
+    int old_height;
+    UINT old_flags;
     HRESULT hr;
 
     if (gpu == NULL) {
@@ -1222,6 +1227,10 @@ static void renderer_resize(void *context, int width, int height)
     if (gpu->width == width && gpu->height == height && gpu->rtv != NULL) {
         return;
     }
+    /* Capture before overwriting: the ResizeBuffers failure path restores these. */
+    old_width = gpu->width;
+    old_height = gpu->height;
+    old_flags = gpu->swapchain_flags;
     gpu->width = width;
     gpu->height = height;
     gpu->info.width = width;
@@ -1239,26 +1248,28 @@ static void renderer_resize(void *context, int width, int height)
     }
 
     {
-        int old_width = gpu->width;
-        int old_height = gpu->height;
-
         com_release((IUnknown *)gpu->rtv);
         gpu->rtv = NULL;
         com_release((IUnknown *)gpu->backbuffer);
         gpu->backbuffer = NULL;
 
         hr = gpu->swapchain->lpVtbl->ResizeBuffers(gpu->swapchain, 0, (UINT)width,
-                                                   (UINT)height, DXGI_FORMAT_UNKNOWN, 0);
+                                                   (UINT)height, DXGI_FORMAT_UNKNOWN,
+                                                   old_flags);
         if (FAILED(hr)) {
             set_error(gpu, "ResizeBuffers(%dx%d) failed (hr=0x%08lX)", width, height,
                       (unsigned long)hr);
-            /* The swapchain kept its old buffers: restore the reported size and
-             * reacquire them so the renderer stays usable. */
+            /* The swapchain kept its old buffers: restore the last valid state
+             * and reacquire its backbuffer/RTV so rendering can continue. */
             gpu->width = old_width;
             gpu->height = old_height;
             gpu->info.width = old_width;
             gpu->info.height = old_height;
-            (void)create_render_target(gpu);
+            gpu->swapchain_flags = old_flags;
+            if (create_render_target(gpu) != 0) {
+                gpu->info.width = 0;
+                gpu->info.height = 0;
+            }
             return;
         }
     }
