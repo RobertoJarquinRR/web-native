@@ -83,6 +83,26 @@ def cmd_pilot(args: argparse.Namespace) -> int:
             skip_visual=False,
         )
     )
+    if not args.skip_emit or not args.skip_build:
+        log_step("pilot: restoring the canonical document")
+        runtime.cmd_emit(
+            argparse.Namespace(
+                pilot=False,
+                html=None,
+                css=None,
+                width=0,
+                height=0,
+                out_dir=None,
+                skip_rust=True,
+            )
+        )
+        runtime.cmd_build(
+            argparse.Namespace(
+                config=args.config,
+                clean=False,
+                generated_dir=None,
+            )
+        )
     log_info("pilot benchmark passed")
     return 0
 

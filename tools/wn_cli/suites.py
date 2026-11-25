@@ -394,19 +394,35 @@ def run_input() -> int:
 def run_offscreen() -> int:
     suite = _suite_dir("offscreen")
     out = suite / "out"
+    fixture = suite / "fixture"
     out.mkdir(parents=True, exist_ok=True)
-    generated = get_paths().runtime / "generated"
-    header = generated / "ui_data.h"
-    if not header.is_file():
-        raise CliError(f"missing {header}; run: wn-cli build --emit")
-
+    fixture.mkdir(parents=True, exist_ok=True)
     runtime = get_paths().runtime
+
+    log_step("offscreen: canonical fixture")
+    rust_exe = get_paths().frontend_rust / "target" / "release" / "frontend-rust.exe"
+    if not rust_exe.is_file():
+        raise CliError("frontend-rust.exe is missing; run: wn-cli frontend build")
+    page = runtime / "page"
+    run_cmd(
+        [rust_exe, "--html", str(page / "index.html"), "--css", str(page / "style.css"),
+         "--width", "960", "--height", "640",
+         "--emit-ui", str(fixture / "ui.json")],
+        cwd=runtime,
+    )
+    _python(
+        get_paths().emitter,
+        ["--ui-json", str(fixture / "ui.json"), "--out", str(fixture / "ui_data.h"),
+         "--meta", str(fixture / "ui_meta.json")],
+        cwd=get_paths().root,
+    )
+
     log_step("offscreen: compile test (/W4 /WX)")
     exe = out / "offscreen_test.exe"
     _compile(
         exe,
         [runtime / item for item in RUNTIME_SOURCES if item != "runtime_r2.c"] + [suite / "offscreen_test.c"],
-        [get_paths().root / "include", runtime, _wgpu_dir() / "include", generated],
+        [get_paths().root / "include", runtime, _wgpu_dir() / "include", fixture],
         [str(_wgpu_dir() / "lib" / "wgpu_native.dll.lib"), *RUNTIME_LIBS],
     )
     run_cmd(["cmd", "/d", "/c", "copy", "/Y", str(_wgpu_dir() / "bin" / "wgpu_native.dll"), str(out / "wgpu_native.dll")])
