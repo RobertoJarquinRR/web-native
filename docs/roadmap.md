@@ -17,40 +17,39 @@ Los workstreams son dueños de archivos disjuntos (regla de `architecture.md`).
 Un stream no toca los archivos de otro; se integra por contrato.
 
 | ID | Workstream | Alcance | Depende de | Estado |
-|---|---|---|---|---|
+|---|---|---|---|---|---|
 | **E1** | Fidelidad visual/layout | `font-weight`, `line-height`, `text-align`, `margin: auto`, scrollbar y focus ring redondeado **(hecho)**; `opacity` compuesta, per-side/per-corner, inset, flex grow/shrink/basis pendiente | E6 (schema) | **Hecho (primer corte)** |
 | **E2** | Renderer D3D11 | backend nativo hardware-first, WARP fallback, paridad con wgpu, objetivo ≤ 5 MB | E6 (vtable) | **Hecho** (falta retirar el enlace wgpu para el objetivo de tamaño) |
 | **E3** | Plataforma y accesibilidad | foco/tab order, DPI per-monitor, IME, clipboard/DnD, UIA, high contrast, reduced motion | E1, E6 | Pendiente (P1 `platform-v1.md`) |
-| **E4** | Texto e i18n | shaping runtime, wrapping/line breaking, bidi, CJK/emoji, re-raster de atlas | E1, E3 | Pendiente |
+| **E4** | Texto e i18n | shaping runtime **(hecho)**, wrapping/line breaking, bidi, CJK/emoji, re-raster de atlas | E1, E3 | **En curso**: falta wrapping/bidi |
 | **E5** | Rendimiento y escala | dirty rects, culling/virtualización, 100/1k/10k nodos, presupuestos en CI | E1, E2 | Pendiente |
-| **E6** | Contratos y tooling | subset diagnostics, schemas IR/ui-tree, ABI, paridad CI, métricas, paridad visual | — | **En curso** (esta ola: docs) |
+| **E6** | Contratos y tooling | subset diagnostics, schemas IR/ui-tree, ABI v4, blob v2, SDK genérica, suites, paridad, métricas | — | **En curso**: falta CI |
 | **E7** | Release y packaging | versión, artefactos, licencias, installer, signing, smoke de release | E1–E3, E6 | Pendiente |
 | **E8** | Extensiones CSS | transition limitada (P1 post-E1); transform 2D + position rel/abs + z-index simple (P2); animation/float futuro/no-go | E1, E6 (schema `/4`), reloj del `wn_host` | **Definido**; ver `e8-css-extensions.md` |
 
-> **Orden de ejecución:** E1 (visual) → E8 transition (P1) → E3/E4/E5 según
-> target → E7 release. E2 (D3D11) va en paralelo. E8 transform/position/z-index
-> después de transition; animation/float futuro/no-go.
+> **Orden de ejecución:** CI y contratos (E6) → ABI v5 (identidad de nodos en
+> eventos) → E4 wrapping → E5 escala → E3 plataforma → E7 release. E2 va en
+> paralelo. E8 transform/position/z-index después de transition;
+> animation/float futuro/no-go.
 
 ## Estado (2026-11)
 
-- ✅ Runtime C, grid/scroll/imágenes, paridad multi-frontend.
-- ✅ ABI v3: UI dinámica (visibilidad, clone/append/remove, set_image) — 53/53.
-- ✅ ABI v4: input ASCII, caret/selección/clipboard, `WN_EVENT_INPUT` — 111/111.
-- ✅ **CSS core v1**: radius/borde uniforme + primera sombra — 41/41.
-- ✅ **E1 fidelidad visual/layout** (primer corte): `font-weight` real,
-  `text-align`, `line-height`, `margin: auto`, scrollbar y focus ring
-  redondeado — 23/23 fidelity, 69/69 R2, 48/48 pilot, 53/53 dynamic, 111/111 input.
-- ✅ **E2 renderer D3D11**: hardware Intel por defecto, wgpu como fallback;
-  paridad 99.8 % píxeles exactos, hover 0.02 vs 0.73 núcleos (WARP).
-- ✅ Frontend CSS v3 (bordes/radius/sombras/unidades) y host C# v4
-  (113/113: búsqueda real, detalle, filtro, `set_visible`/`set_image`).
-- ✅ **Frontends C++/C# congelados** en `benchmarks/frontend-parity/SPEC.md`;
-  Python es oráculo v1; Rust es canónico.
-- ✅ **CI de paridad** (`.github/workflows/frontend-parity.yml`) en `main`.
-- ✅ Contratos documentados: ABI v4, subset v1, IR, ui-tree, métricas.
-- ⏳ **E6 contratos/tooling** en curso (harness de paridad visual).
-- ⏭ Siguiente: E8 transition (P1), virtualización/culling (E5),
-  accesibilidad/IME/DPI (E3), texto runtime (E4) y release (E7).
+- ✅ Runtime C en módulos (`core/`, `document/`, `text/`), grid/scroll/imágenes.
+- ✅ **Texto en runtime**: medición, shaping y atlas dinámico; el documento no
+  lleva glifos, runs ni atlas, tampoco para inputs.
+- ✅ **Blob v2 `.wnui`**: escritor en Rust (`--emit-blob`, byte-idéntico al
+  emisor) y loader C con mmap; `wn_app_load_document` en la ABI.
+- ✅ **SDK genérica**: `webnative.dll` (157 KB) + `app.wnui`; la galería
+  (`C:\Proyects\gallery`) consume solo `sdk/` y su documento.
+- ✅ ABI v4: dinámica, input ASCII, stats públicas.
+- ✅ CSS core v1 (41/41), E1 (23/23), dynamic (53/53), input (111/111),
+  offscreen (100 % exacto), text y blob; `test all` 9/9 y piloto 48/48.
+- ✅ Frontend Rust por etapas (`parse/style/emit/cli`); R1 retirado y su
+  benchmark archivado (`archive/benchmarks-r1/`).
+- ⏳ **E6**: el borrado de R1 se llevó el único workflow; falta CI de
+  `test all` + `bench pilot`. La paridad visual no tiene runner.
+- ⏭ Siguiente: CI, **ABI v5 (identidad de nodos en eventos)**, wrapping,
+  culling/virtualización, playback del host, E3 y E7.
 
 Documentos de esta ola: [`e8-css-extensions.md`](e8-css-extensions.md),
 [`visual-parity.md`](visual-parity.md), [`release-checklist.md`](release-checklist.md).
