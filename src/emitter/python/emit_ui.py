@@ -258,6 +258,22 @@ ZERO_CSS_FIELDS = {
     "shadow_color": 0,
 }
 
+_FONT_WEIGHT_KEYWORDS = {"normal": 400, "bold": 700, "bolder": 700, "lighter": 300}
+
+
+def font_weight_value(raw) -> int:
+    """CSS font-weight -> 100..900. Unknown values fall back to 400."""
+    if raw is None:
+        return 400
+    text = str(raw).strip().lower()
+    if text in _FONT_WEIGHT_KEYWORDS:
+        return _FONT_WEIGHT_KEYWORDS[text]
+    try:
+        number = int(float(text))
+    except ValueError:
+        return 400
+    return min(900, max(100, number))
+
 
 def _png_size(data: bytes) -> tuple[int, int] | None:
     if len(data) >= 24 and data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR":
@@ -510,6 +526,8 @@ class Emitter:
             "action": ACTION.get(action_raw, 0),
             "gap": computed_gap,
             "font_size": float(style.font_size or DEFAULT_SIZE),
+            "font_family": style.font_family or DEFAULT_FAMILY,
+            "font_weight": font_weight_value(getattr(style, "font_weight", None)),
             "text_color": argb(style.color) or 0xFF000000,
             "grid_mode": grid_mode,
             "grid_column_px": grid_column_px,
@@ -601,6 +619,8 @@ class Emitter:
             "action": 0,
             "gap": 0.0,
             "font_size": size,
+            "font_family": family,
+            "font_weight": font_weight_value(getattr(style, "font_weight", None)),
             "text_color": argb(style.color) or 0xFF000000,
             "grid_mode": GRID_NONE,
             "grid_column_px": 0.0,
@@ -710,6 +730,8 @@ def write_header(nodes: list[dict], meta: list[dict], out: Path,
         lines.append("    float flex_grow;            /* >= 0 */")
         lines.append("    float flex_shrink;          /* >= 0, default 1 */")
         lines.append("    float flex_basis;           /* px, -1 = auto */")
+    lines.append("    const char *font_family;    /* text nodes, CSS family */")
+    lines.append("    int font_weight;            /* text nodes, 100..900 */")
     lines.append("} UiNode;")
     lines.append("")
     lines.append(f"#define UI_NODE_COUNT {len(nodes)}")
@@ -758,6 +780,9 @@ def write_header(nodes: list[dict], meta: list[dict], out: Path,
                 c_float(float(node.get("flex_shrink") or 1.0)),
                 c_float(float(node.get("flex_basis") if node.get("flex_basis") is not None else -1.0)),
             ]
+        format_text += ", %s, %d"
+        values += [c_string(node.get("font_family") or DEFAULT_FAMILY),
+                   int(node.get("font_weight") or 400)]
         format_text += " },"
         lines.append(format_text % tuple(values))
     lines.append("};")
@@ -1095,6 +1120,8 @@ def emit_from_ui_json(ui_path: Path, out_path: Path, meta_path: Path) -> int:
             "action": ACTION.get(action_raw, 0),
             "gap": float(gap),
             "font_size": float(style.get("font_size", DEFAULT_SIZE)),
+            "font_family": str(style.get("font_family") or DEFAULT_FAMILY),
+            "font_weight": font_weight_value(style.get("font_weight")),
             "text_color": argb(style.get("color")) or 0xFF000000,
             "text_align": text_align,
             "line_height": line_height,
@@ -1218,7 +1245,7 @@ NODE_FIELDS = ("parent", "kind", "direction", "justify", "align", "wrap",
                "width", "height", "width_pct", "height_pct",
                "margin", "padding", "background", "text",
                "hover_bg", "press_bg", "selected_bg", "action",
-               "gap", "font_size", "text_color",
+               "gap", "font_size", "font_family", "font_weight", "text_color",
                "grid_mode", "grid_column_px", "grid_auto_rows",
                "row_gap", "column_gap", "overflow",
                "image_width", "image_height", "image_src", "image_alt",
@@ -1258,6 +1285,8 @@ _NODE_RE = re.compile(
     r"(?:,\s*(-?\d+))?"
     # Flex tail: grow, shrink, basis (optional).
     r"(?:,\s*(-?[\d.]+)f,\s*(-?[\d.]+)f,\s*(-?[\d.]+)f)?"
+    # Text descriptor tail: family + weight (optional).
+    r'(?:,\s*(NULL|"(?:[^"\\]|\\.)*"),\s*(-?\d+))?'
     r"\s*\}"
 )
 
@@ -1356,6 +1385,8 @@ def parse_header(path: Path) -> dict:
             "flex_grow": float(values[44]) if values[44] is not None else 0.0,
             "flex_shrink": float(values[45]) if values[45] is not None else 1.0,
             "flex_basis": float(values[46]) if values[46] is not None else -1.0,
+            "font_family": _c_string(values[47]) if values[47] is not None else None,
+            "font_weight": int(values[48]) if values[48] is not None else 400,
         })
 
     glyphs = []

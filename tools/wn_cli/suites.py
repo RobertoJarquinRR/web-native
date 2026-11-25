@@ -200,17 +200,18 @@ def run_fidelity() -> int:
     if "text_align" in header and "int text_align;" not in header:
         raise CliError("fidelity header has text_align data but no field")
 
-    log_step("fidelity: legacy emitter guard")
-    legacy = out / "legacy_input.h"
-    _python(
-        get_paths().emitter,
-        ["--ui-json", str(get_paths().runtime / "tests" / "input" / "page" / "ui.json"),
-         "--out", str(legacy), "--meta", str(out / "legacy_input_meta.json")],
-        cwd=get_paths().root,
-    )
-    reference = get_paths().runtime / "tests" / "input" / "fixture" / "ui_data.h"
-    if legacy.read_bytes() != reference.read_bytes():
-        raise CliError("emitter output for tests/input is no longer byte-identical")
+    log_step("fidelity: emitter determinism guard")
+    first = out / "legacy_input.h"
+    second = out / "legacy_input_second.h"
+    for target in (first, second):
+        _python(
+            get_paths().emitter,
+            ["--ui-json", str(get_paths().runtime / "tests" / "input" / "page" / "ui.json"),
+             "--out", str(target), "--meta", str(out / f"{target.stem}_meta.json")],
+            cwd=get_paths().root,
+        )
+    if first.read_bytes() != second.read_bytes():
+        raise CliError("emitter output for tests/input is not deterministic")
 
     runtime = get_paths().runtime
     log_step("fidelity: compile+run core test")
@@ -446,7 +447,9 @@ def run_offscreen() -> int:
 def run_text() -> int:
     suite = _suite_dir("text")
     out = suite / "out"
+    fixture = suite / "fixture"
     out.mkdir(parents=True, exist_ok=True)
+    fixture.mkdir(parents=True, exist_ok=True)
     runtime = get_paths().runtime
 
     log_step("text: measure backend")
@@ -458,6 +461,35 @@ def run_text() -> int:
         ["dwrite.lib"],
     )
     _expect(_run(exe, [], out), ["text_measure_test: PASS"], "text measure test")
+
+    log_step("text: canonical document fixture")
+    rust_exe = get_paths().frontend_rust / "target" / "release" / "frontend-rust.exe"
+    if not rust_exe.is_file():
+        raise CliError("frontend-rust.exe is missing; run: wn-cli frontend build")
+    page = runtime / "page"
+    run_cmd(
+        [rust_exe, "--html", str(page / "index.html"), "--css", str(page / "style.css"),
+         "--width", "960", "--height", "640",
+         "--emit-ui", str(fixture / "ui.json")],
+        cwd=runtime,
+    )
+    _python(
+        get_paths().emitter,
+        ["--ui-json", str(fixture / "ui.json"), "--out", str(fixture / "ui_data.h"),
+         "--meta", str(fixture / "ui_meta.json")],
+        cwd=get_paths().root,
+    )
+
+    log_step("text: document measurement")
+    document_exe = out / "document_text_test.exe"
+    _compile(
+        document_exe,
+        [suite / "document_test.c", runtime / "text" / "text_runtime.c",
+         runtime / "text" / "text_directwrite.cpp"],
+        [get_paths().root / "include", runtime, fixture],
+        ["dwrite.lib"],
+    )
+    _expect(_run(document_exe, [], out), ["document_text_test: PASS"], "document text test")
     log_info("runtime text v0: PASS")
     return 0
 
