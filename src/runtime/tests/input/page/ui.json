@@ -2,8 +2,8 @@
   "schema": "webnative.ui-tree/3",
   "generator": "frontend-rust",
   "source": {
-    "html": "page\\index.html",
-    "css": "page\\style.css"
+    "html": "page/index.html",
+    "css": "page/style.css"
   },
   "viewport": { "width": 480, "height": 240 },
   "rule_count": 7,

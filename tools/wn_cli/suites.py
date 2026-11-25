@@ -219,9 +219,153 @@ def run_fidelity() -> int:
     return 0
 
 
+def _emit_fixture(suite: Path, page: Path, width: int, height: int, header: Path, pilot: bool = False) -> None:
+    rust_exe = get_paths().frontend_rust / "target" / "release" / "frontend-rust.exe"
+    if not rust_exe.is_file():
+        raise CliError("frontend-rust.exe is missing; run: wn-cli frontend build")
+    arguments = [
+        "--html", "page/index.html",
+        "--css", "page/style.css",
+        "--width", str(width),
+        "--height", str(height),
+        "--emit-ui", str(page / "ui.json"),
+    ]
+    if pilot:
+        arguments.append("--pilot")
+    run_cmd([rust_exe, *arguments], cwd=suite)
+    header.parent.mkdir(parents=True, exist_ok=True)
+    _python(
+        get_paths().emitter,
+        ["--ui-json", str(page / "ui.json"), "--out", str(header),
+         "--meta", str(header.parent / "ui_meta.json")],
+        cwd=get_paths().root,
+    )
+
+
+def _expect(text: str, needles: Sequence[str], label: str) -> None:
+    missing = [needle for needle in needles if needle not in text]
+    if missing:
+        raise CliError(f"{label} output is missing: {', '.join(repr(item) for item in missing)}")
+
+
+def run_dynamic() -> int:
+    suite = _suite_dir("dynamic")
+    out = suite / "out"
+    page = suite / "page"
+    fixture = suite / "fixture"
+    out.mkdir(parents=True, exist_ok=True)
+    fixture.mkdir(parents=True, exist_ok=True)
+    for image in ("a.png", "b.png"):
+        if not (page / "images" / image).is_file():
+            _python(suite / "make_images.py", [str(page)], cwd=suite)
+            break
+
+    log_step("dynamic: fixture header")
+    _emit_fixture(suite, page, 400, 300, fixture / "ui_data.h")
+
+    runtime = get_paths().runtime
+    includes = [get_paths().root / "include", runtime, fixture, _wgpu_dir() / "include"]
+    libs = [str(_wgpu_dir() / "lib" / "wgpu_native.dll.lib"), *RUNTIME_LIBS]
+
+    log_step("dynamic: core test")
+    core_exe = out / "dynamic_core_test.exe"
+    _compile(core_exe, [suite / "dynamic_core_test.c", *[runtime / item for item in CORE_SOURCES]], includes)
+    _expect(_run(core_exe, [str(out / "core_events.jsonl")], suite), ["dynamic_core_test: PASS"], "dynamic core test")
+
+    log_step("dynamic: runtime stages")
+    runtime_exe = out / "runtime_dynamic.exe"
+    _compile(runtime_exe, [runtime / item for item in RUNTIME_SOURCES], includes, libs)
+    run_cmd(["cmd", "/d", "/c", "copy", "/Y", str(_wgpu_dir() / "bin" / "wgpu_native.dll"), str(out / "wgpu_native.dll")])
+    for stale in out.glob("stage_*.png"):
+        stale.unlink()
+    _expect(_run(runtime_exe, ["--dynamic", str(out / "stage")], page),
+            ["dynamic: stage=10 action=clear cards"], "runtime_dynamic")
+
+    log_step("dynamic: abi demo")
+    abi_exe = out / "dynamic.exe"
+    _compile(abi_exe, [runtime / item for item in RUNTIME_SOURCES[1:]] + [runtime / "examples" / "dynamic.c"], includes, libs)
+    abi_text = _run(abi_exe, ["--frames", "8", "--image-b", str(page / "images" / "b.png")], page)
+    _expect(abi_text, [
+        "ABI 4",
+        "dynamic: PASS",
+        "set_text(Omega) -> WN_ERR_UNSUPPORTED",
+        "set_image(text) -> WN_ERR_UNSUPPORTED",
+        "remove(root) -> WN_ERR_INVALID_ARGUMENT",
+        "clear_children -> nodes=9",
+        "exit=0 frames=8",
+    ], "dynamic abi demo")
+
+    log_step("dynamic: verify")
+    _python(suite / "verify_dynamic.py", ["--dir", str(out)], cwd=suite)
+    log_info("dynamic UI v0: PASS")
+    return 0
+
+
+def run_input() -> int:
+    suite = _suite_dir("input")
+    out = suite / "out"
+    page = suite / "page"
+    fixture = suite / "fixture"
+    out.mkdir(parents=True, exist_ok=True)
+    fixture.mkdir(parents=True, exist_ok=True)
+
+    log_step("input: fixture header")
+    _emit_fixture(suite, page, 480, 240, fixture / "ui_data.h", pilot=True)
+
+    runtime = get_paths().runtime
+    includes = [get_paths().root / "include", runtime, fixture, _wgpu_dir() / "include"]
+    libs = [str(_wgpu_dir() / "lib" / "wgpu_native.dll.lib"), *RUNTIME_LIBS]
+
+    log_step("input: core test")
+    core_exe = out / "input_core_test.exe"
+    _compile(core_exe, [suite / "input_core_test.c", *[runtime / item for item in CORE_SOURCES]], includes)
+    _expect(_run(core_exe, [str(out / "core_events.jsonl")], suite), ["input_core_test: PASS"], "input core test")
+
+    log_step("input: runtime stages")
+    runtime_exe = out / "runtime_input.exe"
+    _compile(runtime_exe, [runtime / item for item in RUNTIME_SOURCES], includes, libs)
+    run_cmd(["cmd", "/d", "/c", "copy", "/Y", str(_wgpu_dir() / "bin" / "wgpu_native.dll"), str(out / "wgpu_native.dll")])
+    for stale in out.glob("stage_*.png"):
+        stale.unlink()
+    _expect(_run(runtime_exe, ["--input", str(out / "stage")], page),
+            ["input: stage=9 action=escape blurs"], "runtime_input")
+
+    log_step("input: window demo")
+    window_text = _run(runtime_exe, ["--frames", "16", "--input-demo", "--width", "480", "--height", "240"], page)
+    _expect(window_text, [
+        "input-demo: WM_CHAR 'a'",
+        "input-demo: WM_CHAR 'b'",
+        "input-demo: WM_KEYDOWN VK_BACK",
+        'input-demo: value="a" focused=1',
+    ], "input window demo")
+
+    log_step("input: abi demo")
+    abi_exe = out / "input.exe"
+    _compile(abi_exe, [runtime / item for item in RUNTIME_SOURCES[1:]] + [runtime / "examples" / "input.c"], includes, libs)
+    abi_text = _run(abi_exe, ["--frames", "8"], page)
+    _expect(abi_text, [
+        "ABI 4",
+        "input: PASS",
+        "set_value(abc) -> WN_OK",
+        "set_value(Omega) -> WN_ERR_UNSUPPORTED",
+        "set_value(13 chars) -> WN_ERR_INVALID_ARGUMENT",
+        "clipboard copy + paste",
+        "cut all",
+        "escape -> focused=0",
+        "exit=0 frames=8",
+    ], "input abi demo")
+
+    log_step("input: verify")
+    _python(suite / "verify_input.py", ["--dir", str(out)], cwd=suite)
+    log_info("text input v1: PASS")
+    return 0
+
+
 SUITES = {
     "css": ("CSS core v1 (rounded boxes, border, shadow, image)", run_css),
     "fidelity": ("E1 visual/layout fidelity (headless core + renders)", run_fidelity),
+    "dynamic": ("dynamic UI v0 (visibility, clone/append/remove, ABI demo)", run_dynamic),
+    "input": ("text input v1 (caret, selection, clipboard, ABI demo)", run_input),
 }
 
 
