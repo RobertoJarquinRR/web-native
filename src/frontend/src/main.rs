@@ -2,7 +2,8 @@
 //!
 //! Uso:
 //!   frontend-rust.exe --html <path> --width <W> --height <H> --emit-ui <ui.json>
-//!                     [--css <path>] [--strict-subset] [--pilot]
+//!                     [--emit-blob <app.wnui>] [--css <path>]
+//!                     [--strict-subset] [--pilot]
 //!
 //! `--strict-subset` valida el contrato `docs/subset-v1.md` y devuelve exit
 //! != 0 si encuentra cualquier feature fuera del subset. `--pilot` permite las
@@ -29,6 +30,8 @@ struct Args {
     css: Option<PathBuf>,
     /// `--emit-ui <path>`: arbol de estilos pre-layout que consume el runtime.
     emit_ui: PathBuf,
+    /// `--emit-blob <path>`: documento `.wnui` v2 (opcional).
+    emit_blob: Option<PathBuf>,
     /// `--strict-subset`: diagnosticos de subset v1 como errores (exit != 0).
     strict_subset: bool,
     /// `--pilot`: permite las extensiones del piloto v2 (grid, scroll, imagenes).
@@ -36,7 +39,7 @@ struct Args {
 }
 
 fn usage() -> &'static str {
-    "uso: frontend-rust --html <path> --width <W> --height <H> --emit-ui <ui.json> [--css <path>] [--strict-subset] [--pilot]"
+    "uso: frontend-rust --html <path> --width <W> --height <H> --emit-ui <ui.json> [--emit-blob <app.wnui>] [--css <path>] [--strict-subset] [--pilot]"
 }
 
 fn take_value(
@@ -61,6 +64,7 @@ fn parse_args() -> Result<Args, String> {
     let mut height: Option<u32> = None;
     let mut css: Option<PathBuf> = None;
     let mut emit_ui: Option<PathBuf> = None;
+    let mut emit_blob: Option<PathBuf> = None;
     let mut strict_subset = false;
     let mut pilot = false;
 
@@ -96,6 +100,14 @@ fn parse_args() -> Result<Args, String> {
                     "--emit-ui",
                 )?))
             }
+            "--emit-blob" => {
+                emit_blob = Some(PathBuf::from(take_value(
+                    &argv,
+                    &mut index,
+                    &inline_value,
+                    "--emit-blob",
+                )?))
+            }
             "--strict-subset" => strict_subset = true,
             "--pilot" => pilot = true,
             "--help" | "-h" => return Err(usage().to_string()),
@@ -110,6 +122,7 @@ fn parse_args() -> Result<Args, String> {
         height: height.ok_or_else(|| format!("falta --height\n{}", usage()))?,
         css,
         emit_ui: emit_ui.ok_or_else(|| format!("falta --emit-ui <ui.json>\n{}", usage()))?,
+        emit_blob,
         strict_subset,
         pilot,
     })
@@ -162,6 +175,7 @@ fn run() -> Result<bool, String> {
         &source_html,
         source_css.as_deref(),
         Path::new(&args.emit_ui),
+        args.emit_blob.as_deref(),
         rules.len(),
     )?;
     println!(
@@ -170,5 +184,8 @@ fn run() -> Result<bool, String> {
         summary.runs,
         args.emit_ui.display(),
     );
+    if let Some(blob) = &args.emit_blob {
+        println!("emit-blob: -> {}", blob.display());
+    }
     Ok(subset_ok)
 }

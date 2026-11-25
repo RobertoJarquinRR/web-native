@@ -549,6 +549,7 @@ def _blob_emit(page_dir: Path, fixture: Path, width: int, height: int,
         "--width", str(width),
         "--height", str(height),
         "--emit-ui", str(fixture / "ui.json"),
+        "--emit-blob", str(fixture / "app.wnui"),
     ]
     if pilot:
         arguments.append("--pilot")
@@ -556,12 +557,12 @@ def _blob_emit(page_dir: Path, fixture: Path, width: int, height: int,
     _python(
         get_paths().emitter,
         ["--ui-json", str(fixture / "ui.json"), "--out", str(fixture / "ui_data.h"),
-         "--meta", str(fixture / "ui_meta.json"), "--blob", str(fixture / "app.wnui")],
+         "--meta", str(fixture / "ui_meta.json")],
         cwd=get_paths().root,
     )
     blob = fixture / "app.wnui"
     if not blob.is_file():
-        raise CliError("emitter did not write app.wnui")
+        raise CliError("frontend-rust did not write app.wnui")
     return blob
 
 

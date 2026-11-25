@@ -42,12 +42,12 @@ pub(crate) const SCHEMA_V2: &str = "webnative.ui-tree/2";
 /// Schema v3 (aditivo) cuando la pagina usa `<input type="text">`.
 pub(crate) const SCHEMA_V3: &str = "webnative.ui-tree/3";
 
-const KIND_BLOCK: u32 = 0;
-const KIND_FLEX: u32 = 1;
-const KIND_TEXT: u32 = 2;
-const KIND_GRID: u32 = 3;
-const KIND_IMAGE: u32 = 4;
-const KIND_INPUT: u32 = 5;
+pub(crate) const KIND_BLOCK: u32 = 0;
+pub(crate) const KIND_FLEX: u32 = 1;
+pub(crate) const KIND_TEXT: u32 = 2;
+pub(crate) const KIND_GRID: u32 = 3;
+pub(crate) const KIND_IMAGE: u32 = 4;
+pub(crate) const KIND_INPUT: u32 = 5;
 
 /// Limite duro del buffer de edicion; `maxlength` del HTML puede ser menor.
 pub(crate) const INPUT_MAX_BYTES: usize = 255;
@@ -153,97 +153,97 @@ fn sanitize_input_text(text: &str, limit: u32) -> String {
         .collect()
 }
 
-struct StyleOut {
-    display: Option<String>,
-    direction: u32,
-    justify: u32,
-    align: u32,
-    wrap: u32,
-    flex_direction: String,
-    justify_content: String,
-    align_items: String,
-    flex_wrap: String,
-    gap: f64,
+pub(crate) struct StyleOut {
+    pub(crate) display: Option<String>,
+    pub(crate) direction: u32,
+    pub(crate) justify: u32,
+    pub(crate) align: u32,
+    pub(crate) wrap: u32,
+    pub(crate) flex_direction: String,
+    pub(crate) justify_content: String,
+    pub(crate) align_items: String,
+    pub(crate) flex_wrap: String,
+    pub(crate) gap: f64,
     /// v2 (solo se serializan con schema `/2`).
-    row_gap: f64,
-    column_gap: f64,
-    grid_template_columns: Option<GridTemplateColumns>,
-    grid_auto_rows: Option<GridAutoRows>,
-    overflow: Option<String>,
-    width_px: f64,
-    width_pct: f64,
-    height_px: f64,
-    height_pct: f64,
-    margin: [f64; 4],
-    padding: [f64; 4],
-    background: Option<String>,
-    color: String,
-    font_size: f64,
-    font_family: String,
-    font_weight: String,
+    pub(crate) row_gap: f64,
+    pub(crate) column_gap: f64,
+    pub(crate) grid_template_columns: Option<GridTemplateColumns>,
+    pub(crate) grid_auto_rows: Option<GridAutoRows>,
+    pub(crate) overflow: Option<String>,
+    pub(crate) width_px: f64,
+    pub(crate) width_pct: f64,
+    pub(crate) height_px: f64,
+    pub(crate) height_pct: f64,
+    pub(crate) margin: [f64; 4],
+    pub(crate) padding: [f64; 4],
+    pub(crate) background: Option<String>,
+    pub(crate) color: String,
+    pub(crate) font_size: f64,
+    pub(crate) font_family: String,
+    pub(crate) font_weight: String,
     /// E1: alineacion horizontal del texto y caja de linea (solo se
     /// serializan cuando la pagina usa la feature).
-    text_align: String,
-    line_height: f64,
-    margin_auto: [bool; 4],
+    pub(crate) text_align: String,
+    pub(crate) line_height: f64,
+    pub(crate) margin_auto: [bool; 4],
     /// `box-sizing: border-box` (A). false = content-box (CSS default).
-    box_sizing_border: bool,
+    pub(crate) box_sizing_border: bool,
     /// Flex growth (E8): grow, shrink, basis px (-1 = auto).
-    flex_grow: f64,
-    flex_shrink: f64,
-    flex_basis: f64,
+    pub(crate) flex_grow: f64,
+    pub(crate) flex_shrink: f64,
+    pub(crate) flex_basis: f64,
     /// v3: bordes, radio, sombras y unidades relativas (solo schema `/2`).
-    css3: StyleV3,
+    pub(crate) css3: StyleV3,
 }
 
-struct DataOut {
-    hover: Option<String>,
-    press: Option<String>,
-    selected: Option<String>,
-    action: Option<String>,
+pub(crate) struct DataOut {
+    pub(crate) hover: Option<String>,
+    pub(crate) press: Option<String>,
+    pub(crate) selected: Option<String>,
+    pub(crate) action: Option<String>,
 }
 
-struct ArgbOut {
-    background: u32,
-    text: u32,
-    hover: u32,
-    press: u32,
-    selected: u32,
+pub(crate) struct ArgbOut {
+    pub(crate) background: u32,
+    pub(crate) text: u32,
+    pub(crate) hover: u32,
+    pub(crate) press: u32,
+    pub(crate) selected: u32,
 }
 
-struct TextOut {
-    content: String,
+pub(crate) struct TextOut {
+    pub(crate) content: String,
 }
 
 /// Contenido de un nodo `kind:"image"` (solo schema `/2`).
-struct ImageOut {
-    src: Option<String>,
-    alt: Option<String>,
-    object_fit: String,
+pub(crate) struct ImageOut {
+    pub(crate) src: Option<String>,
+    pub(crate) alt: Option<String>,
+    pub(crate) object_fit: String,
 }
 
 /// Contenido de un nodo `kind:"input"` (schema `/3`).
-struct InputOut {
-    value: String,
-    placeholder: String,
-    max_length: u32,
-    password: bool,
+pub(crate) struct InputOut {
+    pub(crate) value: String,
+    pub(crate) placeholder: String,
+    pub(crate) max_length: u32,
+    pub(crate) password: bool,
 }
 
-struct NodeOut {
-    parent: i64,
-    children: Vec<usize>,
-    kind: u32,
-    name: String,
-    tag: String,
-    classes: Vec<String>,
-    element_id: Option<String>,
-    style: StyleOut,
-    data: DataOut,
-    argb: ArgbOut,
-    text: Option<TextOut>,
-    image: Option<ImageOut>,
-    input: Option<InputOut>,
+pub(crate) struct NodeOut {
+    pub(crate) parent: i64,
+    pub(crate) children: Vec<usize>,
+    pub(crate) kind: u32,
+    pub(crate) name: String,
+    pub(crate) tag: String,
+    pub(crate) classes: Vec<String>,
+    pub(crate) element_id: Option<String>,
+    pub(crate) style: StyleOut,
+    pub(crate) data: DataOut,
+    pub(crate) argb: ArgbOut,
+    pub(crate) text: Option<TextOut>,
+    pub(crate) image: Option<ImageOut>,
+    pub(crate) input: Option<InputOut>,
 }
 
 /// Resumen para el log del build.
@@ -1032,6 +1032,7 @@ fn nodes_have_input(nodes: &[NodeOut]) -> bool {
 /// Emite `ui.json` desde el DOM y la cascada ya calculados.
 ///
 /// `ui_path` es el fichero `ui.json`; no se escribe ningun atlas al lado.
+/// Si `blob_path` es `Some`, tambien escribe el `.wnui` v2 con el mismo arbol.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_ui_tree(
     dom: &Dom,
@@ -1040,6 +1041,7 @@ pub(crate) fn emit_ui_tree(
     source_html: &str,
     source_css: Option<&str>,
     ui_path: &Path,
+    blob_path: Option<&Path>,
     rule_count: usize,
 ) -> Result<UiSummary, String> {
     let body = dom
@@ -1106,6 +1108,16 @@ pub(crate) fn emit_ui_tree(
         }
     }
     fs::write(ui_path, out).map_err(|err| format!("{}: {err}", ui_path.display()))?;
+
+    if let Some(blob_path) = blob_path {
+        let ui_dir = ui_path
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        // El blob reproduce lo que `emit_ui.py` lee de `ui.json`: en `/1` los
+        // campos v2 no se serializan y el escritor debe ignorarlos igual.
+        crate::emit::blob::write_blob(blob_path, &nodes, viewport, ui_dir, detailed)?;
+    }
 
     // El documento ya no referencia un atlas: retirar uno viejo evita que se
     // confunda con una salida de esta ejecucion.
