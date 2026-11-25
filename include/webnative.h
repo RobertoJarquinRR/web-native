@@ -140,6 +140,26 @@ WN_API wn_status wn_app_on_event(wn_app *app, wn_event_cb callback, void *userda
 WN_API int wn_app_run(wn_app *app);
 WN_API void wn_app_destroy(wn_app *app);
 
+/* ---------------------------------------------------------- diagnostics */
+
+typedef struct wn_app_stats {
+    int frames;
+    double startup_ms;
+    double frame_total_ms;
+    double cpu_frame_total_ms;
+    double last_frame_ms;
+    double last_layout_ms;
+    char backend[32];
+    char device[256];
+} wn_app_stats;
+
+/* Stops the loop after `max_frames` presented frames (0 = until the user
+ * closes the window). */
+WN_API void wn_app_set_max_frames(wn_app *app, int max_frames);
+
+/* Frame counters and backend info for the last run. Returns 0 on success. */
+WN_API int wn_app_get_stats(const wn_app *app, wn_app_stats *stats);
+
 /* ---------------------------------------------------- dynamic UI (ABI v3) */
 /*
  * Host-driven content reactivity over the compiled tree. All mutations mark the

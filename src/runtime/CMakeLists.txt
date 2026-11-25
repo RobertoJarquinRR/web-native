@@ -55,6 +55,42 @@ set(WN_LINK_LIBS
     dwrite
 )
 
+add_library(webnative SHARED
+    wn_common.c
+    wn_core.c
+    text/text_runtime.c
+    text/text_atlas.c
+    text/text_directwrite.cpp
+    wn_view.c
+    wn_app.c
+    host_win32.c
+    renderer_wgpu.c
+    renderer_d3d11.c
+)
+
+target_include_directories(webnative PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${WN_REPO_ROOT}/include"
+    "${WN_WGPU_DIR}/include"
+    "${WN_GENERATED_DIR}"
+)
+
+target_compile_definitions(webnative PRIVATE
+    WN_BUILD_DLL
+    $<$<BOOL:${MSVC}>:_CRT_SECURE_NO_WARNINGS>
+)
+
+if(MSVC)
+    target_compile_options(webnative PRIVATE /W3)
+endif()
+
+set_target_properties(webnative PROPERTIES
+    PREFIX ""
+    OUTPUT_NAME "webnative"
+)
+
+target_link_libraries(webnative PRIVATE ${WN_LINK_LIBS})
+
 add_executable(runtime_r2
     runtime_r2.c
 )
@@ -127,7 +163,7 @@ add_custom_target(copy_wgpu_dll ALL
     COMMENT "copying wgpu_native.dll to build directory"
 )
 
-foreach(target_name IN ITEMS runtime_r2 abi_smoke standalone embedded)
+foreach(target_name IN ITEMS runtime_r2 abi_smoke standalone embedded webnative)
     add_dependencies(${target_name} copy_wgpu_dll)
 endforeach()
 
