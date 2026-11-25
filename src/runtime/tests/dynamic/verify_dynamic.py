@@ -172,7 +172,9 @@ def main() -> int:
 
     check("core", "growth clones", stress["clones"] == 1500 and
           stress["alive"] == 1500 and stress["laid_out"] == 1500,
-          "1,500 clones alive and laid out under the scroll container")
+          "1,500 clones alive and laid out under the container")
+    check("core", "growth hierarchy", stress["rebuilds"] <= 2,
+          f"{stress['rebuilds']} full hierarchy rebuild(s) for 1,500 clones")
     check("core", "growth arena", stress["arena"] >= 17 + 4 * 1500 and
           stress["live"] == 17,
           f"arena grew to {stress['arena']} slots; {stress['live']} live after removal")

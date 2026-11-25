@@ -40,6 +40,13 @@ struct wn_view {
     char *value_scratch;      /* wn_view_get_value result, freed on next call */
     wn_event_cb callback;
     void *userdata;
+    /* Re-entrancy guard: a callback may destroy this view while it is still
+     * dispatching (own event or a nested wn_view_event on another view). The
+     * free is deferred until the outermost dispatch returns so the flags below
+     * are always valid to read. */
+    int dispatch_depth;
+    int dispatch_destroyed;
+    int destroy_pending;
     wn_view_stats stats;
 };
 
@@ -48,11 +55,24 @@ static void view_mark_geometry(wn_view *view)
     view->geometry_dirty = 1;
 }
 
-/* Dispatch guard: a callback may destroy the view (directly or through
- * wn_app_destroy). The flag lives outside the struct so the second semantic
- * event is never delivered to a freed callback. */
-static _Thread_local wn_view *g_dispatch_view;
-static _Thread_local int g_dispatch_destroyed;
+/* Actual teardown. wn_view_destroy() defers it while dispatch_depth > 0. */
+static void view_free(wn_view *view)
+{
+    if (view->ops != NULL && view->renderer != NULL) {
+        view->ops->destroy(view->renderer);
+    }
+    if (view->owns_core) {
+        wn_core_destroy(view->core);
+    }
+    if (view->document != NULL) {
+        wn_document_destroy((wn_document *)view->document);
+    }
+    wn_free_(view->html);
+    wn_free_(view->base_url);
+    wn_free_(view->css);
+    wn_free_(view->value_scratch);
+    free(view);
+}
 
 static void view_resize_internal(wn_view *view, int width, int height, float dpi)
 {
@@ -646,6 +666,10 @@ wn_status wn_view_event(wn_view *view, const wn_event *event)
         wn_set_error("wn_view_event: event is NULL");
         return WN_ERR_INVALID_ARGUMENT;
     }
+    if (view->destroy_pending) {
+        wn_set_error("wn_view_event: view is being destroyed");
+        return WN_ERR_STATE;
+    }
     out = *event;
     out.target_id = NULL;
     out.node = WN_NODE_INVALID;
@@ -710,22 +734,22 @@ wn_status wn_view_event(wn_view *view, const wn_event *event)
         view_mark_geometry(view);
     }
     if (view->callback != NULL) {
-        wn_view *previous_view = g_dispatch_view;
-        int previous_destroyed = g_dispatch_destroyed;
         wn_event_cb callback = view->callback;
         void *userdata = view->userdata;
 
-        g_dispatch_view = view;
-        g_dispatch_destroyed = 0;
+        view->dispatch_depth += 1;
         callback(userdata, &out);
-        if (input_value_changed && !g_dispatch_destroyed) {
+        if (input_value_changed && !view->dispatch_destroyed) {
             wn_event semantic = out;
             semantic.type = WN_EVENT_INPUT;
             semantic.target_id = target;
             callback(userdata, &semantic);
         }
-        g_dispatch_view = previous_view;
-        g_dispatch_destroyed = previous_destroyed;
+        view->dispatch_depth -= 1;
+        if (view->dispatch_depth == 0 && view->destroy_pending) {
+            view_free(view);
+            return WN_OK;
+        }
     }
     return WN_OK;
 }
@@ -819,23 +843,18 @@ void wn_view_destroy(wn_view *view)
         return;
     }
     wn_clear_error();
-    if (g_dispatch_view == view) {
-        g_dispatch_destroyed = 1;
+    if (view->destroy_pending) {
+        return; /* already scheduled at the end of the dispatch */
     }
-    if (view->ops != NULL && view->renderer != NULL) {
-        view->ops->destroy(view->renderer);
+    if (view->dispatch_depth > 0) {
+        /* A callback may destroy the view (or its app) while the dispatch is
+         * still using the struct. Mark it and let wn_view_event() free it once
+         * the outermost dispatch returns. */
+        view->dispatch_destroyed = 1;
+        view->destroy_pending = 1;
+        return;
     }
-    if (view->owns_core) {
-        wn_core_destroy(view->core);
-    }
-    if (view->document != NULL) {
-        wn_document_destroy((wn_document *)view->document);
-    }
-    wn_free_(view->html);
-    wn_free_(view->base_url);
-    wn_free_(view->css);
-    wn_free_(view->value_scratch);
-    free(view);
+    view_free(view);
 }
 
 int wn_view_needs_render(const wn_view *view)

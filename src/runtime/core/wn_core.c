@@ -434,6 +434,7 @@ wn_core *wn_core_create(const wn_document *document)
     c->scroll_max = (float *)calloc(bytes, sizeof(float));
     c->first_child = (int *)calloc(bytes, sizeof(int));
     c->next_sibling = (int *)calloc(bytes, sizeof(int));
+    c->prev_sibling = (int *)calloc(bytes, sizeof(int));
     c->last_child = (int *)calloc(bytes, sizeof(int));
     c->paint_order = (int *)calloc(bytes, sizeof(int));
     c->text_override = (char **)calloc(bytes, sizeof(char *));
@@ -469,7 +470,8 @@ wn_core *wn_core_create(const wn_document *document)
         c->parent == NULL || c->order_key == NULL ||
         c->free_list == NULL || c->rects == NULL || c->clips == NULL ||
         c->scroll == NULL || c->scroll_max == NULL || c->first_child == NULL ||
-        c->next_sibling == NULL || c->last_child == NULL || c->paint_order == NULL ||
+        c->next_sibling == NULL || c->prev_sibling == NULL ||
+        c->last_child == NULL || c->paint_order == NULL ||
         c->text_override == NULL || c->image_override == NULL ||
         c->input_map == NULL || c->input_value == NULL || c->input_cursor == NULL ||
         c->input_anchor == NULL || c->input_scroll == NULL ||
@@ -493,6 +495,7 @@ wn_core *wn_core_create(const wn_document *document)
         c->order_key[i] = i;
         c->first_child[i] = -1;
         c->next_sibling[i] = -1;
+        c->prev_sibling[i] = -1;
         c->last_child[i] = -1;
         c->input_map[i] = -1;
         c->input_cursor[i] = 0;
@@ -609,6 +612,7 @@ static int arena_reserve(wn_core *c, int minimum)
     WN_GROW_ARRAY(c, scroll_max, capacity);
     WN_GROW_ARRAY(c, first_child, capacity);
     WN_GROW_ARRAY(c, next_sibling, capacity);
+    WN_GROW_ARRAY(c, prev_sibling, capacity);
     WN_GROW_ARRAY(c, last_child, capacity);
     WN_GROW_ARRAY(c, paint_order, capacity);
     WN_GROW_ARRAY(c, text_override, capacity);
@@ -663,6 +667,7 @@ static int arena_alloc(wn_core *c)
     c->scroll_max[id] = 0.0f;
     c->first_child[id] = -1;
     c->next_sibling[id] = -1;
+    c->prev_sibling[id] = -1;
     c->last_child[id] = -1;
     c->text_override[id] = NULL;
     c->image_override[id] = NULL;
@@ -692,6 +697,7 @@ static void arena_release(wn_core *c, int node)
     c->nodes[node].parent = -1;
     c->first_child[node] = -1;
     c->next_sibling[node] = -1;
+    c->prev_sibling[node] = -1;
     c->last_child[node] = -1;
     c->visible[node] = 0;
     c->visible_eff[node] = 0;
@@ -710,6 +716,50 @@ static void mark_core_dirty(wn_core *c)
 {
     c->dirty = 1;
     c->needs_layout = 1;
+}
+
+int wn_core_hierarchy_rebuilds(const wn_core *core)
+{
+    return core != NULL ? core->hierarchy_rebuilds : 0;
+}
+
+/* O(1) child-list maintenance. Structural mutations always append at the tail
+ * (order_key is monotonically increasing), so the sorted walk of the initial
+ * rebuild is never needed at runtime. */
+static void link_child(wn_core *c, int parent, int child)
+{
+    int tail = c->last_child[parent];
+    c->parent[child] = parent;
+    c->nodes[child].parent = parent;
+    c->prev_sibling[child] = tail;
+    c->next_sibling[child] = -1;
+    if (tail >= 0) {
+        c->next_sibling[tail] = child;
+    } else {
+        c->first_child[parent] = child;
+    }
+    c->last_child[parent] = child;
+}
+
+static void unlink_child(wn_core *c, int child)
+{
+    int parent = c->parent[child];
+    int prev = c->prev_sibling[child];
+    int next = c->next_sibling[child];
+    if (parent >= 0) {
+        if (prev >= 0) {
+            c->next_sibling[prev] = next;
+        } else {
+            c->first_child[parent] = next;
+        }
+        if (next >= 0) {
+            c->prev_sibling[next] = prev;
+        } else {
+            c->last_child[parent] = prev;
+        }
+    }
+    c->prev_sibling[child] = -1;
+    c->next_sibling[child] = -1;
 }
 
 int wn_core_dirty(const wn_core *core)
@@ -926,7 +976,12 @@ int wn_core_clone(wn_core *core, int template_node, int parent)
             return -2;
         }
     }
-    build_hierarchy(core);
+    /* Link the new nodes only after every payload copy succeeded. Pre-order
+     * allocation means a node's parent is already linked when it is reached,
+     * so appending at the tail preserves sibling order in O(1) per node. */
+    for (i = 0; i < count; ++i) {
+        link_child(core, core->parent[new_ids[i]], new_ids[i]);
+    }
     mark_core_dirty(core);
     result = new_ids[0];
     free(src_ids);
@@ -951,6 +1006,9 @@ int wn_core_remove(wn_core *core, int node)
         return -2;
     }
     collect_subtree(core, node, ids, &count);
+    /* Detach the whole subtree with one O(1) unlink; the released slots keep
+     * their internal links until arena_release() resets them. */
+    unlink_child(core, node);
     for (i = 0; i < count; ++i) {
         if (core->hover == ids[i]) core->hover = -1;
         if (core->press == ids[i]) core->press = -1;
@@ -960,7 +1018,6 @@ int wn_core_remove(wn_core *core, int node)
         arena_release(core, ids[i]);
     }
     free(ids);
-    build_hierarchy(core);
     mark_core_dirty(core);
     return 0;
 }
@@ -1008,10 +1065,9 @@ int wn_core_append(wn_core *core, int parent, int child)
     if (core->parent[child] < 0) {
         return -1; /* document root */
     }
-    core->parent[child] = parent;
-    core->nodes[child].parent = parent;
+    unlink_child(core, child);
     core->order_key[child] = core->next_order++;
-    build_hierarchy(core);
+    link_child(core, parent, child);
     mark_core_dirty(core);
     return 0;
 }
@@ -1045,6 +1101,7 @@ void wn_core_destroy(wn_core *core)
     wn_free_(core->scroll_max);
     wn_free_(core->first_child);
     wn_free_(core->next_sibling);
+    wn_free_(core->prev_sibling);
     wn_free_(core->last_child);
     wn_free_(core->paint_order);
     wn_free_(core->text_override);

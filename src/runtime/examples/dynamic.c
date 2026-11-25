@@ -291,7 +291,7 @@ int main(int argc, char **argv)
         printf("dynamic: FAIL (remove count %d)\n", (int)count_after_remove);
     }
 
-    /* A4: materialise a large list under the scroll container. The arena grows
+    /* A4: materialise a large list under the body container. The arena grows
      * from its initial capacity; no rendering happens here. */
     {
         enum { kStressClones = 1500 };
@@ -358,6 +358,28 @@ int main(int argc, char **argv)
            stats.backend[0] != '\0' ? stats.backend : "(unknown)", rc, stats.frames,
            stats.startup_ms,
            stats.frames > 0 ? stats.frame_total_ms / (double)stats.frames : 0.0);
+
+    /* D18: a second run owns its own frame stats, and a 0x0 surface is fixed up
+     * instead of spinning without presenting. */
+    {
+        wn_app_stats again;
+        int rc2;
+        int reset_ok;
+
+        (void)wn_view_resize(wn_app_view(app), 0, 0, 0.0f);
+        wn_app_set_max_frames(app, 3);
+        rc2 = wn_app_run(app);
+        memset(&again, 0, sizeof(again));
+        wn_app_get_stats(app, &again);
+        reset_ok = rc2 == 0 && again.frames == 3 && again.startup_ms > 0.0;
+        printf("dynamic: second run frames=%d rc=%d startup_ms=%.2f -> %s\n",
+               again.frames, rc2, again.startup_ms,
+               reset_ok ? "stats reset" : "FAIL");
+        if (!reset_ok) {
+            ++g_failures;
+        }
+    }
+
     printf("dynamic: %s\n", g_failures == 0 && rc == 0 ? "PASS" : "FAIL");
     wn_app_destroy(app);
     return g_failures == 0 && rc == 0 ? 0 : 1;

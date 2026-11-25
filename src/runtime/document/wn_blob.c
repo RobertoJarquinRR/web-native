@@ -216,6 +216,14 @@ wn_document *wn_document_load_blob(const char *path)
         blob_map_close(&map);
         return NULL;
     }
+    if (header->viewport_width == 0 || header->viewport_height == 0 ||
+        header->viewport_width > (uint32_t)INT32_MAX ||
+        header->viewport_height > (uint32_t)INT32_MAX) {
+        wn_set_error("wn_document_load_blob: invalid viewport %ux%u",
+                     header->viewport_width, header->viewport_height);
+        blob_map_close(&map);
+        return NULL;
+    }
     sections = (const WnBlobSection *)(map.data + WN_BLOB_HEADER_SIZE);
     nodes_section = find_section(sections, header->section_count, WN_BLOB_SECTION_NODES,
                                  header->file_size, &nodes_size);
@@ -276,6 +284,13 @@ wn_document *wn_document_load_blob(const char *path)
             count = inputs_size / (uint32_t)sizeof(WnBlobInput);
             blob_inputs = (const WnBlobInput *)(map.data + inputs_section->offset);
             for (i = 0; i < count; ++i) {
+                if (blob_inputs[i].node < 0 ||
+                    (uint32_t)blob_inputs[i].node >= header->node_count) {
+                    wn_set_error("wn_document_load_blob: input %u references node %d",
+                                 i, (int)blob_inputs[i].node);
+                    blob_map_close(&map);
+                    return NULL;
+                }
                 if (!blob_check_string(strings, strings_size,
                                        blob_inputs[i].value, "input value", i) ||
                     !blob_check_string(strings, strings_size,
@@ -327,6 +342,14 @@ wn_document *wn_document_load_blob(const char *path)
                 goto fail;
             }
             depth[i] = depth[src->parent] + 1;
+        }
+        if (!(src->font_size >= WN_BLOB_MIN_FONT_SIZE &&
+              src->font_size <= WN_BLOB_MAX_FONT_SIZE)) {
+            wn_set_error("wn_document_load_blob: node %u has font_size %.2f "
+                         "(expected %.0f..%.0f)", i, (double)src->font_size,
+                         (double)WN_BLOB_MIN_FONT_SIZE,
+                         (double)WN_BLOB_MAX_FONT_SIZE);
+            goto fail;
         }
         dst->parent = src->parent;
         dst->kind = src->kind;

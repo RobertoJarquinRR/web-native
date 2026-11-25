@@ -20,14 +20,18 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
 
 /* ------------------------------------------------------------- hierarchy */
 
-/* Rebuild first_child/next_sibling/last_child from the parent links. Cheap
- * (O(nodes)) and called after every structural mutation. */
+/* Full rebuild of first_child/next_sibling/prev_sibling/last_child from the
+ * parent links. Only wn_core_create() calls it: mutations link/unlink the lists
+ * incrementally, which keeps a clone/remove O(1) in the hierarchy instead of
+ * rebuilding O(n) per node (O(n^3) for a list). */
 void build_hierarchy(wn_core *c)
 {
     int i;
+    c->hierarchy_rebuilds += 1;
     for (i = 0; i < c->node_count; ++i) {
         c->first_child[i] = -1;
         c->next_sibling[i] = -1;
+        c->prev_sibling[i] = -1;
         c->last_child[i] = -1;
         c->nodes[i].parent = c->parent[i];
     }
@@ -58,9 +62,17 @@ void build_hierarchy(wn_core *c)
                 c->last_child[parent] = i;
             }
             c->next_sibling[i] = c->first_child[parent];
+            c->prev_sibling[i] = -1;
+            if (c->first_child[parent] >= 0) {
+                c->prev_sibling[c->first_child[parent]] = i;
+            }
             c->first_child[parent] = i;
         } else {
             c->next_sibling[i] = c->next_sibling[prev];
+            c->prev_sibling[i] = prev;
+            if (c->next_sibling[i] >= 0) {
+                c->prev_sibling[c->next_sibling[i]] = i;
+            }
             c->next_sibling[prev] = i;
             if (c->next_sibling[i] < 0) {
                 c->last_child[parent] = i;

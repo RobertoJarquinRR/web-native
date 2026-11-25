@@ -122,6 +122,11 @@ int wn_core_node_first_child(const wn_core *core, int node);
 int wn_core_node_next_sibling(const wn_core *core, int node);
 int wn_core_node_action(const wn_core *core, int node);
 
+/* Number of full hierarchy rebuilds since creation. Structural mutations link
+ * and unlink in O(1), so this only grows on wn_core_create(); a growing value
+ * during cloning/removal means an O(n) rebuild crept back in. */
+int wn_core_hierarchy_rebuilds(const wn_core *core);
+
 /* Per-slot generation, bumped every time the slot is allocated. 0 for an
  * invalid or dead node. The ABI layer packs it into wn_node_id so a handle kept
  * across a removal cannot address the slot's next tenant. */

@@ -91,11 +91,13 @@ struct wn_core {
     int *free_list;
     int free_count;
     int clone_serial;
+    int hierarchy_rebuilds;      /* build_hierarchy() calls; diagnostics */
 
     wn_rect *rects;
     wn_rect *clips;
     int *first_child;
     int *next_sibling;
+    int *prev_sibling;
     int *last_child;
 
     float *scroll;
@@ -157,7 +159,8 @@ struct wn_core {
     int needs_layout;
 };
 
-/* Cross-module helpers. */
+/* Cross-module helpers. Mutations link/unlink the child lists incrementally;
+ * build_hierarchy() is only the initial O(n) pass over the compiled document. */
 void build_hierarchy(wn_core *c);
 void layout_page(wn_core *c, float viewport_w, float viewport_h);
 void ensure_layout_for_hit(wn_core *core);

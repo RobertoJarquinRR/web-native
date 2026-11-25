@@ -120,6 +120,21 @@ static int write_file(const char *path, const void *data, size_t size)
     return ok;
 }
 
+static int buffers_match(const void *a, int count_a, const void *b, int count_b,
+                         size_t element_size)
+{
+    if (count_a != count_b) {
+        return 0;
+    }
+    if (count_a <= 0) {
+        return 1;
+    }
+    if (a == NULL || b == NULL) {
+        return 0;
+    }
+    return memcmp(a, b, (size_t)count_a * element_size) == 0;
+}
+
 /* Minimal .wnui whose nodes form a single chain (parent i-1). Used to prove the
  * loader's depth limit, which protects the recursive layout/paint walk. */
 static int write_chain_blob(const char *path, uint32_t node_count)
@@ -165,6 +180,7 @@ static int write_chain_blob(const char *path, uint32_t node_count)
     nodes = (WnBlobNode *)(data + nodes_offset);
     for (i = 0; i < node_count; ++i) {
         nodes[i].parent = i == 0 ? -1 : (int32_t)(i - 1);
+        nodes[i].font_size = 16.0f;
     }
     ok = write_file(path, data, (size_t)total);
     free(data);
@@ -182,6 +198,127 @@ static int write_oversized_header(const char *path)
     header.file_size = (uint32_t)sizeof(header);
     header.node_count = WN_BLOB_MAX_NODES + 1u;
     return write_file(path, &header, sizeof(header));
+}
+
+static unsigned char *read_whole_file(const char *path, long *length)
+{
+    FILE *file = fopen(path, "rb");
+    long size;
+    unsigned char *data;
+
+    if (file == NULL) {
+        return NULL;
+    }
+    if (fseek(file, 0, SEEK_END) != 0 || (size = ftell(file)) <= 0 ||
+        fseek(file, 0, SEEK_SET) != 0) {
+        fclose(file);
+        return NULL;
+    }
+    data = (unsigned char *)malloc((size_t)size);
+    if (data == NULL || fread(data, 1, (size_t)size, file) != (size_t)size) {
+        free(data);
+        fclose(file);
+        return NULL;
+    }
+    fclose(file);
+    *length = size;
+    return data;
+}
+
+static WnBlobSection *find_blob_section(unsigned char *data, uint32_t id)
+{
+    WnBlobHeader *header = (WnBlobHeader *)data;
+    WnBlobSection *sections = (WnBlobSection *)(data + WN_BLOB_HEADER_SIZE);
+    uint32_t i;
+    for (i = 0; i < header->section_count; ++i) {
+        if (sections[i].id == id) {
+            return &sections[i];
+        }
+    }
+    return NULL;
+}
+
+static int write_zero_viewport_copy(const char *source, const char *target)
+{
+    long length = 0;
+    unsigned char *data = read_whole_file(source, &length);
+    int ok = 0;
+
+    if (data == NULL) {
+        return 0;
+    }
+    ((WnBlobHeader *)data)->viewport_width = 0;
+    ok = write_file(target, data, (size_t)length);
+    free(data);
+    return ok;
+}
+
+/* Re-points the first input record past the node table. has_inputs is 0 when
+ * the fixture has no INPUTS section. */
+static int write_bad_input_copy(const char *source, const char *target,
+                                int *has_inputs)
+{
+    long length = 0;
+    unsigned char *data = read_whole_file(source, &length);
+    WnBlobSection *inputs;
+    int ok = 0;
+
+    *has_inputs = 0;
+    if (data == NULL) {
+        return 0;
+    }
+    inputs = find_blob_section(data, WN_BLOB_SECTION_INPUTS);
+    if (inputs == NULL || inputs->size < (uint32_t)sizeof(WnBlobInput) ||
+        (uint32_t)length < inputs->offset + inputs->size) {
+        free(data);
+        return 0;
+    }
+    *has_inputs = 1;
+    {
+        WnBlobInput *records = (WnBlobInput *)(data + inputs->offset);
+        WnBlobHeader *header = (WnBlobHeader *)data;
+        records[0].node = (int32_t)header->node_count;
+    }
+    ok = write_file(target, data, (size_t)length);
+    free(data);
+    return ok;
+}
+
+/* Blows up the font size of the first node that has one. has_font is 0 when
+ * the fixture has no sized node. */
+static int write_bad_font_size_copy(const char *source, const char *target,
+                                    int *has_font)
+{
+    long length = 0;
+    unsigned char *data = read_whole_file(source, &length);
+    WnBlobSection *nodes_section;
+    int ok = 0;
+
+    *has_font = 0;
+    if (data == NULL) {
+        return 0;
+    }
+    nodes_section = find_blob_section(data, WN_BLOB_SECTION_NODES);
+    if (nodes_section == NULL || nodes_section->size < (uint32_t)sizeof(WnBlobNode) ||
+        (uint32_t)length < nodes_section->offset + nodes_section->size) {
+        free(data);
+        return 0;
+    }
+    {
+        WnBlobNode *nodes = (WnBlobNode *)(data + nodes_section->offset);
+        uint32_t count = nodes_section->size / (uint32_t)sizeof(WnBlobNode);
+        uint32_t i;
+        for (i = 0; i < count; ++i) {
+            if (nodes[i].font_size > 0.0f) {
+                nodes[i].font_size = 100000.0f;
+                *has_font = 1;
+                ok = write_file(target, data, (size_t)length);
+                break;
+            }
+        }
+    }
+    free(data);
+    return ok;
 }
 
 int main(int argc, char **argv)
@@ -245,6 +382,22 @@ int main(int argc, char **argv)
           list_builtin->vertex_count == list_blob->vertex_count &&
           list_builtin->glyph_vertex_count == list_blob->glyph_vertex_count &&
           list_builtin->image_vertex_count == list_blob->image_vertex_count);
+    check("solid vertex bytes match",
+          buffers_match(list_builtin->vertices, list_builtin->vertex_count,
+                        list_blob->vertices, list_blob->vertex_count,
+                        sizeof(wn_vertex)));
+    check("glyph vertex bytes match",
+          buffers_match(list_builtin->glyph_vertices,
+                        list_builtin->glyph_vertex_count,
+                        list_blob->glyph_vertices,
+                        list_blob->glyph_vertex_count,
+                        sizeof(wn_glyph_vertex)));
+    check("image vertex bytes match",
+          buffers_match(list_builtin->image_vertices,
+                        list_builtin->image_vertex_count,
+                        list_blob->image_vertices,
+                        list_blob->image_vertex_count,
+                        sizeof(wn_image_vertex)));
     printf("  nodes=%d rects=%d/%d solids=%d glyphs=%d images=%d\n",
            UI_NODE_COUNT, matching_rects, count_builtin, list_blob->vertex_count,
            list_blob->glyph_vertex_count, list_blob->image_vertex_count);
@@ -307,6 +460,67 @@ int main(int argc, char **argv)
             wn_document_destroy(rejected);
         }
         remove(oversized);
+    }
+
+    {
+        const char *view = "zero_viewport.wnui";
+        const char *bad_input = "bad_input_node.wnui";
+        wn_document *rejected;
+        const char *error;
+        int has_inputs = 0;
+
+        check("zero viewport copy written", write_zero_viewport_copy(path, view));
+        rejected = wn_document_load_blob(view);
+        error = wn_last_error();
+        check("zero viewport is rejected",
+              rejected == NULL && error != NULL &&
+                  strstr(error, "viewport") != NULL);
+        printf("  error: %s\n", error != NULL ? error : "(none)");
+        if (rejected != NULL) {
+            wn_document_destroy(rejected);
+        }
+        remove(view);
+
+        if (write_bad_input_copy(path, bad_input, &has_inputs)) {
+            rejected = wn_document_load_blob(bad_input);
+            error = wn_last_error();
+            check("input node range is enforced",
+                  rejected == NULL && error != NULL &&
+                      strstr(error, "input 0 references node") != NULL);
+            printf("  error: %s\n", error != NULL ? error : "(none)");
+            if (rejected != NULL) {
+                wn_document_destroy(rejected);
+            }
+            remove(bad_input);
+        } else if (has_inputs) {
+            check("bad input node copy written", 0);
+        } else {
+            printf("  (no inputs section in this fixture)\n");
+        }
+    }
+
+    {
+        const char *bad_font = "bad_font_size.wnui";
+        wn_document *rejected;
+        const char *error;
+        int has_font = 0;
+
+        if (write_bad_font_size_copy(path, bad_font, &has_font)) {
+            rejected = wn_document_load_blob(bad_font);
+            error = wn_last_error();
+            check("font size range is enforced",
+                  rejected == NULL && error != NULL &&
+                      strstr(error, "font_size") != NULL);
+            printf("  error: %s\n", error != NULL ? error : "(none)");
+            if (rejected != NULL) {
+                wn_document_destroy(rejected);
+            }
+            remove(bad_font);
+        } else if (has_font) {
+            check("bad font size copy written", 0);
+        } else {
+            printf("  (no sized node in this fixture)\n");
+        }
     }
 
     wn_core_destroy(core_builtin);
