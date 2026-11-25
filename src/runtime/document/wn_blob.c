@@ -121,7 +121,6 @@ static void document_release(wn_document *document)
     free(document->owned_nodes);
     free(document->owned_names);
     free(document->owned_inputs);
-    free(document->owned_glyphs);
     if (document->mapping != NULL || document->mapping_handle != NULL) {
         WnBlobMap map;
         map.mapping = document->mapping;
@@ -133,6 +132,14 @@ static void document_release(wn_document *document)
     free(document);
 }
 
+static const char *blob_string(const char *pool, uint32_t pool_size, uint32_t offset)
+{
+    if (offset == 0 || offset >= pool_size) {
+        return NULL;
+    }
+    return pool + offset;
+}
+
 wn_document *wn_document_load_blob(const char *path)
 {
     WnBlobMap map;
@@ -142,15 +149,11 @@ wn_document *wn_document_load_blob(const char *path)
     const WnBlobSection *nodes_section;
     const WnBlobSection *names_section;
     const WnBlobSection *strings_section;
-    const WnBlobSection *atlas_section;
     const WnBlobSection *inputs_section = NULL;
-    const WnBlobSection *glyphs_section = NULL;
     uint32_t nodes_size = 0;
     uint32_t names_size = 0;
     uint32_t strings_size = 0;
-    uint32_t atlas_size = 0;
     uint32_t inputs_size = 0;
-    uint32_t glyphs_size = 0;
     const char *strings;
     wn_document *document;
     UiNode *nodes;
@@ -185,10 +188,7 @@ wn_document *wn_document_load_blob(const char *path)
                                  header->file_size, &names_size);
     strings_section = find_section(sections, header->section_count, WN_BLOB_SECTION_STRINGS,
                                    header->file_size, &strings_size);
-    atlas_section = find_section(sections, header->section_count, WN_BLOB_SECTION_ATLAS,
-                                 header->file_size, &atlas_size);
-    if (nodes_section == NULL || names_section == NULL || strings_section == NULL ||
-        atlas_section == NULL) {
+    if (nodes_section == NULL || names_section == NULL || strings_section == NULL) {
         wn_set_error("wn_document_load_blob: missing required section");
         blob_map_close(&map);
         return NULL;
@@ -198,15 +198,9 @@ wn_document *wn_document_load_blob(const char *path)
     if (inputs_section == NULL) {
         inputs_size = 0;
     }
-    glyphs_section = find_section(sections, header->section_count,
-                                  WN_BLOB_SECTION_INPUT_GLYPHS, header->file_size,
-                                  &glyphs_size);
-    if (glyphs_section == NULL) {
-        glyphs_size = 0;
-    }
     if (nodes_size != header->node_count * (uint32_t)sizeof(WnBlobNode) ||
         names_size != header->node_count * (uint32_t)sizeof(uint32_t) ||
-        strings_size == 0 || atlas_size == 0) {
+        strings_size == 0) {
         wn_set_error("wn_document_load_blob: wrong section size");
         blob_map_close(&map);
         return NULL;
@@ -241,7 +235,7 @@ wn_document *wn_document_load_blob(const char *path)
         memcpy(dst->margin, src->margin, sizeof(dst->margin));
         memcpy(dst->padding, src->padding, sizeof(dst->padding));
         dst->background = src->background;
-        dst->text = src->text != 0 ? strings + src->text : NULL;
+        dst->text = blob_string(strings, strings_size, src->text);
         dst->hover_bg = src->hover_bg;
         dst->press_bg = src->press_bg;
         dst->selected_bg = src->selected_bg;
@@ -257,8 +251,8 @@ wn_document *wn_document_load_blob(const char *path)
         dst->overflow = src->overflow;
         dst->image_width = src->image_width;
         dst->image_height = src->image_height;
-        dst->image_src = src->image_src != 0 ? strings + src->image_src : NULL;
-        dst->image_alt = src->image_alt != 0 ? strings + src->image_alt : NULL;
+        dst->image_src = blob_string(strings, strings_size, src->image_src);
+        dst->image_alt = blob_string(strings, strings_size, src->image_alt);
         dst->object_fit = src->object_fit;
         dst->border_width = src->border_width;
         dst->border_color = src->border_color;
@@ -282,14 +276,15 @@ wn_document *wn_document_load_blob(const char *path)
         (void)src->text_align;
         (void)src->line_height;
 #endif
-        dst->font_family = src->font_family != 0 ? strings + src->font_family : NULL;
+        dst->font_family = blob_string(strings, strings_size, src->font_family);
         dst->font_weight = src->font_weight;
     }
     {
         const uint32_t *name_offsets =
             (const uint32_t *)(map.data + names_section->offset);
         for (i = 0; i < header->node_count; ++i) {
-            names[i] = name_offsets[i] != 0 ? strings + name_offsets[i] : "";
+            const char *name = blob_string(strings, strings_size, name_offsets[i]);
+            names[i] = name != NULL ? name : "";
         }
     }
 
@@ -302,26 +297,6 @@ wn_document *wn_document_load_blob(const char *path)
     document->mapping_handle = map.mapping_handle;
     document->viewport_width = (int)header->viewport_width;
     document->viewport_height = (int)header->viewport_height;
-
-    /* Atlas section: uint32 width, uint32 height, then width*height R8 bytes. */
-    if (atlas_size < 8) {
-        wn_set_error("wn_document_load_blob: atlas too small");
-        wn_document_destroy(document);
-        return NULL;
-    }
-    {
-        const uint32_t *dims = (const uint32_t *)(map.data + atlas_section->offset);
-        document->atlas_width = (int)dims[0];
-        document->atlas_height = (int)dims[1];
-        document->atlas = map.data + atlas_section->offset + 8;
-        if (document->atlas_width <= 0 || document->atlas_height <= 0 ||
-            atlas_size != 8u + (uint32_t)document->atlas_width *
-                                (uint32_t)document->atlas_height) {
-            wn_set_error("wn_document_load_blob: atlas size mismatch");
-            wn_document_destroy(document);
-            return NULL;
-        }
-    }
 
     if (inputs_section != NULL && inputs_size > 0) {
         uint32_t count = inputs_size / (uint32_t)sizeof(WnBlobInput);
@@ -336,48 +311,16 @@ wn_document *wn_document_load_blob(const char *path)
         }
         for (i = 0; i < count; ++i) {
             inputs[i].node = blob_inputs[i].node;
-            inputs[i].value = blob_inputs[i].value != 0 ? strings + blob_inputs[i].value : "";
-            inputs[i].placeholder = blob_inputs[i].placeholder != 0
-                                        ? strings + blob_inputs[i].placeholder
-                                        : NULL;
+            const char *value = blob_string(strings, strings_size, blob_inputs[i].value);
+            inputs[i].value = value != NULL ? value : "";
+            inputs[i].placeholder = blob_string(strings, strings_size,
+                                                blob_inputs[i].placeholder);
             inputs[i].max_length = blob_inputs[i].max_length;
             inputs[i].password = blob_inputs[i].password;
-            inputs[i].baseline = blob_inputs[i].baseline;
-            inputs[i].line_height = blob_inputs[i].line_height;
-            inputs[i].glyph_first = blob_inputs[i].glyph_first;
-            inputs[i].glyph_count = blob_inputs[i].glyph_count;
         }
         document->inputs = inputs;
         document->input_count = (int)count;
         document->owned_inputs = inputs;
-    }
-    if (glyphs_section != NULL && glyphs_size > 0) {
-        uint32_t count = glyphs_size / (uint32_t)sizeof(WnBlobInputGlyph);
-        const WnBlobInputGlyph *blob_glyphs =
-            (const WnBlobInputGlyph *)(map.data + glyphs_section->offset);
-        UiInputGlyph *glyphs = (UiInputGlyph *)calloc(count, sizeof(UiInputGlyph));
-        if (glyphs == NULL || glyphs_size % sizeof(WnBlobInputGlyph) != 0) {
-            free(glyphs);
-            wn_set_error("wn_document_load_blob: bad glyph section");
-            wn_document_destroy(document);
-            return NULL;
-        }
-        for (i = 0; i < count; ++i) {
-            glyphs[i].cp = blob_glyphs[i].cp;
-            glyphs[i].gid = blob_glyphs[i].gid;
-            glyphs[i].advance = blob_glyphs[i].advance;
-            glyphs[i].x = blob_glyphs[i].x;
-            glyphs[i].y = blob_glyphs[i].y;
-            glyphs[i].w = blob_glyphs[i].w;
-            glyphs[i].h = blob_glyphs[i].h;
-            glyphs[i].u0 = blob_glyphs[i].u0;
-            glyphs[i].v0 = blob_glyphs[i].v0;
-            glyphs[i].u1 = blob_glyphs[i].u1;
-            glyphs[i].v1 = blob_glyphs[i].v1;
-        }
-        document->input_glyphs = glyphs;
-        document->input_glyph_count = (int)count;
-        document->owned_glyphs = glyphs;
     }
     return document;
 }

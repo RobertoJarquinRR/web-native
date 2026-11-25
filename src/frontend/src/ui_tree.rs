@@ -18,8 +18,9 @@
 //! Emite `webnative.ui-tree/1` si la pagina no usa features v2 y
 //! `webnative.ui-tree/2` si emite grid, scroll (`overflow: auto|scroll`) o
 //! imagenes (`docs/ui-tree-v2.md`). `webnative.ui-tree/3` es aditivo: la pagina
-//! usa un `<input type="text">` y anade `kind:"input"` + `input{}` con la
-//! piscina ASCII imprimible horneada en el atlas.
+//! usa un `<input type="text">` y anade `kind:"input"` + `input{}` con
+//! `value`, `placeholder`, `max_length` y `password`. El texto del input lo
+//! shapea el runtime.
 //!
 //! E1 (fidelidad visual) es tambien aditivo y por pagina: si algun nodo usa
 //! `text-align`, `line-height` o `margin: auto`, cada nodo emite ademas
@@ -38,10 +39,7 @@ use crate::emit::{push_json_string, py_float};
 use crate::grid::{GridAutoRows, GridTemplateColumns};
 use crate::sha256;
 use crate::style_ext::{BorderOut, BoxShadow, RelLength, StyleV3, Unit};
-use crate::text::{
-    parse_font_weight, Atlas, BakedInputPool, TextEngine, UiGlyphOut, UiInputGlyphOut,
-    UiTextBaker, UI_INPUT_ATLAS_SIZE,
-};
+use crate::text::{parse_font_weight, Atlas, UiGlyphOut, UiTextBaker};
 
 /// Schema sin features v2 (grid/scroll/imagenes). Identico al contrato previo.
 pub const SCHEMA_V1: &str = "webnative.ui-tree/1";
@@ -238,9 +236,6 @@ struct InputOut {
     placeholder: String,
     max_length: u32,
     password: bool,
-    baseline: f64,
-    line_height: f64,
-    glyphs: Vec<UiInputGlyphOut>,
 }
 
 struct NodeOut {
@@ -264,7 +259,6 @@ pub struct UiSummary {
     pub nodes: usize,
     pub glyphs: usize,
     pub runs: usize,
-    pub input_glyphs: usize,
     pub atlas: Option<(u32, u32)>,
     pub atlas_path: Option<PathBuf>,
 }
@@ -272,34 +266,22 @@ pub struct UiSummary {
 struct Builder<'a> {
     dom: &'a Dom,
     styles: &'a [Option<ComputedStyle>],
-    engine: &'a TextEngine,
     baker: UiTextBaker,
     nodes: Vec<NodeOut>,
     name_counts: HashMap<String, usize>,
-    /// Piscina ASCII cacheada por (familia, tamano redondeado, peso).
-    input_pools: HashMap<(String, i32, u16), BakedInputPool>,
     glyph_count: usize,
-    input_glyph_count: usize,
     run_count: usize,
 }
 
 impl<'a> Builder<'a> {
-    fn new(
-        dom: &'a Dom,
-        styles: &'a [Option<ComputedStyle>],
-        engine: &'a TextEngine,
-        atlas_size: u32,
-    ) -> Self {
+    fn new(dom: &'a Dom, styles: &'a [Option<ComputedStyle>]) -> Self {
         Builder {
             dom,
             styles,
-            engine,
-            baker: UiTextBaker::with_size(atlas_size),
+            baker: UiTextBaker::new(),
             nodes: Vec::new(),
             name_counts: HashMap::new(),
-            input_pools: HashMap::new(),
             glyph_count: 0,
-            input_glyph_count: 0,
             run_count: 0,
         }
     }
@@ -413,28 +395,6 @@ impl<'a> Builder<'a> {
             None
         };
         let input = if is_input {
-            let family = if style.font_family.is_empty() {
-                DEFAULT_FAMILY.to_string()
-            } else {
-                style.font_family.clone()
-            };
-            let size = if style.font_size > 0.0 {
-                style.font_size
-            } else {
-                DEFAULT_SIZE
-            };
-            let weight = parse_font_weight(&style.font_weight);
-            let key_size = (size.round_ties_even() as i32).max(1);
-            let key = (family.clone(), key_size, weight);
-            let pool = if let Some(pool) = self.input_pools.get(&key) {
-                pool.clone()
-            } else {
-                let baked = self
-                    .baker
-                    .bake_input_pool(self.engine, &family, size, weight)?;
-                self.input_pools.insert(key, baked.clone());
-                baked
-            };
             let max_length = input_max_length(self.dom.nodes[id].attr("maxlength"));
             let value = sanitize_input_text(
                 self.dom.nodes[id].attr("value").unwrap_or(""),
@@ -449,9 +409,6 @@ impl<'a> Builder<'a> {
                 placeholder,
                 max_length,
                 password: false,
-                baseline: pool.ascender,
-                line_height: pool.ascender + pool.descender,
-                glyphs: pool.glyphs,
             })
         } else {
             None
@@ -525,11 +482,6 @@ impl<'a> Builder<'a> {
 
         // `<img>` y `<input>` son void: no tienen texto propio ni hijos.
         if is_image || is_input {
-            self.input_glyph_count += self.nodes[index]
-                .input
-                .as_ref()
-                .map(|input| input.glyphs.len())
-                .unwrap_or(0);
             return Ok(index);
         }
 
@@ -1062,33 +1014,10 @@ fn push_nodes_json(out: &mut String, nodes: &[NodeOut], detailed: bool, extras: 
             push_json_string(out, &input.placeholder);
             let _ = write!(
                 out,
-                ",\n        \"max_length\": {},\n        \"password\": {},\n        \"baseline\": {},\n        \"line_height\": {},\n        \"glyphs\": [",
+                ",\n        \"max_length\": {},\n        \"password\": {}\n      }}",
                 input.max_length,
-                if input.password { "true" } else { "false" },
-                py_float(input.baseline),
-                py_float(input.line_height)
+                if input.password { "true" } else { "false" }
             );
-            for (glyph_index, glyph) in input.glyphs.iter().enumerate() {
-                if glyph_index > 0 {
-                    out.push(',');
-                }
-                let _ = write!(
-                    out,
-                    "\n          {{ \"cp\": {}, \"gid\": {}, \"advance\": {}, \"x\": {}, \"y\": {}, \"w\": {}, \"h\": {}, \"u0\": {}, \"v0\": {}, \"u1\": {}, \"v1\": {} }}",
-                    glyph.cp,
-                    glyph.gid,
-                    py_float(glyph.advance),
-                    py_float(glyph.x),
-                    py_float(glyph.y),
-                    glyph.w,
-                    glyph.h,
-                    py_float(glyph.u0),
-                    py_float(glyph.v0),
-                    py_float(glyph.u1),
-                    py_float(glyph.v1)
-                );
-            }
-            out.push_str("\n        ]\n      }");
         }
         // Solo los nodos imagen llevan `image`; asi `/1` no cambia.
         if let Some(image) = &node.image {
@@ -1187,7 +1116,6 @@ fn nodes_have_input(nodes: &[NodeOut]) -> bool {
 pub fn emit_ui_tree(
     dom: &Dom,
     styles: &[Option<ComputedStyle>],
-    engine: &TextEngine,
     viewport: (u32, u32),
     source_html: &str,
     source_css: Option<&str>,
@@ -1207,37 +1135,12 @@ pub fn emit_ui_tree(
         return Err("body is not renderable".to_string());
     }
 
-    // La piscina ASCII de un input necesita mas atlas; las paginas sin input
-    // conservan 256x256 (atlas y UVs byte-identicos a la version anterior).
-    // Un input dentro de display:none no llega a emitirse ni cuenta.
-    let has_input = dom.preorder().into_iter().any(|id| {
-        if dom.nodes[id].tag != "input" || !input_type_is_text(&dom.nodes[id]) {
-            return false;
-        }
-        let mut cursor = Some(id);
-        while let Some(node) = cursor {
-            if let Some(style) = styles.get(node).and_then(Option::as_ref) {
-                if style.display == "none" {
-                    return false;
-                }
-            }
-            cursor = dom.nodes[node].parent;
-        }
-        true
-    });
-    let atlas_size = if has_input {
-        UI_INPUT_ATLAS_SIZE
-    } else {
-        crate::text::UI_ATLAS_SIZE
-    };
-
-    let mut builder = Builder::new(dom, styles, engine, atlas_size);
+    let mut builder = Builder::new(dom, styles);
     builder.emit_element(body, -1, "body.root", true)?;
     let Builder {
         nodes,
         baker,
         glyph_count,
-        input_glyph_count,
         run_count,
         ..
     } = builder;
@@ -1264,7 +1167,7 @@ pub fn emit_ui_tree(
     } else {
         SCHEMA_V1
     };
-    let atlas: Option<AtlasRef<'_>> = if run_count > 0 || input_glyph_count > 0 {
+    let atlas: Option<AtlasRef<'_>> = if run_count > 0 {
         Some(AtlasRef {
             atlas: baker.atlas(),
             file: "atlas.bin",
@@ -1274,9 +1177,7 @@ pub fn emit_ui_tree(
         None
     };
 
-    let mut out = String::with_capacity(
-        4096 + nodes.len() * 768 + (glyph_count + input_glyph_count) * 160,
-    );
+    let mut out = String::with_capacity(4096 + nodes.len() * 768 + glyph_count * 160);
     out.push_str("{\n  \"schema\": ");
     push_json_string(&mut out, schema);
     out.push_str(",\n  \"generator\": \"frontend-rust\",\n  \"source\": {\n    \"html\": ");
@@ -1323,7 +1224,6 @@ pub fn emit_ui_tree(
         nodes: nodes.len(),
         glyphs: glyph_count,
         runs: run_count,
-        input_glyphs: input_glyph_count,
         atlas: atlas
             .as_ref()
             .map(|item| (item.atlas.width(), item.atlas.height())),

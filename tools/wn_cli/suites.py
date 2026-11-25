@@ -624,7 +624,7 @@ def run_blob() -> int:
         )
     )
 
-    log_step("blob: input page (records + ASCII pool)")
+    log_step("blob: input page (spec + runtime text)")
     input_fixture = out / "fixture" / "input"
     input_blob = _blob_emit(runtime / "tests" / "input" / "page", input_fixture, 480, 240, True)
     input_exe = out / "blob_input_test.exe"
@@ -635,7 +635,7 @@ def run_blob() -> int:
         CORE_LIBS,
     )
     _expect(_run(input_exe, [str(input_blob)], out), ["blob_test: PASS"], "input blob test")
-    log_info("blob v1: PASS")
+    log_info("blob v2: PASS")
     return 0
 
 
@@ -646,7 +646,7 @@ SUITES = {
     "input": ("text input v1 (caret, selection, clipboard, ABI demo)", run_input),
     "offscreen": ("offscreen vtable (d3d11 vs wgpu readback)", run_offscreen),
     "text": ("runtime text v0 (DirectWrite measurement + cache)", run_text),
-    "blob": ("blob v1 (.wnui load, layout and pixels)", run_blob),
+    "blob": ("blob v2 (.wnui load, layout and pixels)", run_blob),
 }
 
 

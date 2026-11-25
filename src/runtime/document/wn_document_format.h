@@ -9,24 +9,11 @@
 #include <stdint.h>
 
 typedef struct {
-    int32_t cp;                 /* ASCII printable 32..126 */
-    int32_t gid;                /* diagnostic */
-    float advance;              /* isolated advance, px */
-    float x, y;                 /* box relative to the input content box */
-    float w, h;
-    float u0, v0, u1, v1;       /* R8 atlas UVs */
-} UiInputGlyph;
-
-typedef struct {
     int32_t node;               /* UiNode id (NODE_INPUT) */
-    const char *value;          /* initial ASCII value */
-    const char *placeholder;    /* ASCII, empty = none */
+    const char *value;          /* initial value */
+    const char *placeholder;    /* empty = none */
     int32_t max_length;         /* 0 = no limit (cap 255) */
     int32_t password;           /* reserved */
-    float baseline;             /* ascender from the content box */
-    float line_height;          /* ascender + descender */
-    int32_t glyph_first;        /* first glyph in the pool */
-    int32_t glyph_count;
 } UiInput;
 
 #endif

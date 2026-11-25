@@ -608,7 +608,7 @@ class Emitter:
 # --------------------------------------------------------------- blob (.wnui)
 
 BLOB_MAGIC = 0x49554E57
-BLOB_VERSION = 1
+BLOB_VERSION = 2
 BLOB_HEADER = struct.Struct("<8I")
 BLOB_SECTION = struct.Struct("<4I")
 BLOB_NODE = struct.Struct(
@@ -617,15 +617,13 @@ BLOB_NODE = struct.Struct(
                    "I", "i"))
 )
 assert BLOB_NODE.size == 220, BLOB_NODE.size
-BLOB_INPUT = struct.Struct("<iIIiiffii")
+BLOB_INPUT = struct.Struct("<iIIii")
 BLOB_INPUT_GLYPH = struct.Struct("<ii9f")
 
 BLOB_NODES = 1
 BLOB_NAMES = 2
 BLOB_STRINGS = 3
 BLOB_INPUTS = 4
-BLOB_INPUT_GLYPHS = 5
-BLOB_ATLAS = 6
 
 
 class StringPool:
@@ -646,8 +644,7 @@ class StringPool:
 
 
 def write_blob(path: Path, nodes: list[dict], meta: list[dict],
-               inputs: list[dict], input_glyphs: list[dict],
-               metrics, width: int, height: int) -> None:
+               inputs: list[dict], width: int, height: int) -> None:
     """Sectioned document without text glyphs; the runtime shapes the strings."""
     strings = StringPool()
     node_records = bytearray()
@@ -686,31 +683,13 @@ def write_blob(path: Path, nodes: list[dict], meta: list[dict],
     for item in inputs:
         input_records += BLOB_INPUT.pack(
             item["node"], strings.offset(item["value"]), strings.offset(item["placeholder"]),
-            item["max_length"], item["password"], item["baseline"], item["line_height"],
-            item["glyph_first"], item["glyph_count"],
+            item["max_length"], item["password"],
         )
-
-    glyph_records = bytearray()
-    for glyph in input_glyphs:
-        glyph_records += BLOB_INPUT_GLYPH.pack(
-            glyph["cp"], glyph["gid"], glyph["advance"], glyph["x"], glyph["y"],
-            glyph["w"], glyph["h"], glyph["u0"], glyph["v0"], glyph["u1"], glyph["v1"],
-        )
-
-    if input_glyphs and metrics is not None:
-        atlas_size = metrics.packer.size
-        atlas_pixels = bytes(metrics.packer.data)
-    else:
-        atlas_size = 1
-        atlas_pixels = b"\x00"
-    atlas_section = struct.pack("<II", atlas_size, atlas_size) + atlas_pixels
 
     sections = [(BLOB_NODES, bytes(node_records)), (BLOB_NAMES, bytes(name_records)),
-                (BLOB_STRINGS, bytes(strings.data)), (BLOB_ATLAS, atlas_section)]
+                (BLOB_STRINGS, bytes(strings.data))]
     if input_records:
         sections.append((BLOB_INPUTS, bytes(input_records)))
-    if glyph_records:
-        sections.append((BLOB_INPUT_GLYPHS, bytes(glyph_records)))
 
     table_size = BLOB_HEADER.size + len(sections) * BLOB_SECTION.size
     offset = (table_size + 7) & ~7
@@ -735,10 +714,8 @@ def write_blob(path: Path, nodes: list[dict], meta: list[dict],
 def write_header(nodes: list[dict], meta: list[dict], out: Path,
                  default_w: int, default_h: int, metrics: TextMetrics | None,
                  inputs: list[dict] | None = None,
-                 input_glyphs: list[dict] | None = None,
                  blob_path: Path | None = None) -> None:
     inputs = inputs or []
-    input_glyphs = input_glyphs or []
     # E1: los campos de text-align/line-height/margin:auto solo se escriben si
     # alguna pagina los usa. Los headers existentes quedan byte a byte iguales.
     extras = any(int(node.get("text_align") or 0) != 0
@@ -874,61 +851,25 @@ def write_header(nodes: list[dict], meta: list[dict], out: Path,
     lines.append("")
 
     if inputs:
-        # ui-tree/3: piscina ASCII imprimible. UiInput/UiInputGlyph viven en
-        # document/wn_document_format.h para que el blob reutilice el layout.
+        # ui-tree/3: only the spec travels; the runtime shapes the value.
         lines.append('#include "document/wn_document_format.h"')
         lines.append("")
         lines.append(f"#define UI_INPUT_COUNT {len(inputs)}")
-        lines.append(f"#define UI_INPUT_GLYPH_COUNT {len(input_glyphs)}")
-        lines.append("")
-        lines.append("static const UiInputGlyph kUiInputGlyphs[UI_INPUT_GLYPH_COUNT > 0 ? UI_INPUT_GLYPH_COUNT : 1] = {")
-        if input_glyphs:
-            for glyph in input_glyphs:
-                lines.append(
-                    "    { %d, %d, %s, %s, %s, %s, %s, %s, %s, %s, %s },"
-                    % (glyph["cp"], glyph["gid"],
-                       c_float(glyph["advance"]),
-                       c_float(glyph["x"]), c_float(glyph["y"]),
-                       c_float(glyph["w"]), c_float(glyph["h"]),
-                       c_float(glyph["u0"]), c_float(glyph["v0"]),
-                       c_float(glyph["u1"]), c_float(glyph["v1"])))
-        else:
-            lines.append("    { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },")
-        lines.append("};")
         lines.append("")
         lines.append("static const UiInput kUiInputs[UI_INPUT_COUNT > 0 ? UI_INPUT_COUNT : 1] = {")
         for item in inputs:
-            lines.append("    { %d, %s, %s, %d, %d, %s, %s, %d, %d }," % (
+            lines.append("    { %d, %s, %s, %d, %d }," % (
                 item["node"], c_string(item["value"]), c_string(item["placeholder"]),
-                item["max_length"], item["password"],
-                c_float(item["baseline"]), c_float(item["line_height"]),
-                item["glyph_first"], item["glyph_count"]))
+                item["max_length"], item["password"]))
         lines.append("};")
         lines.append("")
 
-    # With no input glyphs, emit a 1x1 atlas so the runtime upload stays valid.
-    has_atlas = metrics is not None and bool(input_glyphs)
-    atlas_size = metrics.packer.size if has_atlas else 1
-
-    lines.append("/* Input pool atlas (text is shaped by the runtime). */")
-    lines.append(f"#define UI_ATLAS_SIZE {atlas_size}")
-    lines.append("")
-    if has_atlas:
-        lines.append(f"static const unsigned char kUiAtlas[UI_ATLAS_SIZE * UI_ATLAS_SIZE] = {{")
-        data = metrics.packer.data
-        for offset in range(0, len(data), 24):
-            chunk = data[offset:offset + 24]
-            lines.append("    " + ", ".join(f"{value:3d}" for value in chunk) + ",")
-        lines.append("};")
-    else:
-        lines.append("static const unsigned char kUiAtlas[1] = {0};")
-    lines.append("")
+    # No atlas: every glyph is rasterized by the runtime.
     lines.append("#endif /* UI_DATA_H */")
     lines.append("")
     out.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     if blob_path is not None:
-        write_blob(blob_path, nodes, meta, inputs, input_glyphs, metrics,
-                   default_w, default_h)
+        write_blob(blob_path, nodes, meta, inputs, default_w, default_h)
 
 
 # ----------------------------------------------------------- Rust ui.json
@@ -1010,8 +951,6 @@ def emit_from_ui_json(ui_path: Path, out_path: Path, meta_path: Path,
     nodes: list[dict] = []
     meta: list[dict] = []
     inputs: list[dict] = []
-    input_glyphs: list[dict] = []
-    input_blocks: dict[tuple, tuple[int, int]] = {}
     for item in data.get("nodes", []):
         style = item.get("style") or {}
         kind_name = item.get("kind", "block")
@@ -1045,54 +984,19 @@ def emit_from_ui_json(ui_path: Path, out_path: Path, meta_path: Path,
             if not isinstance(input_spec, dict):
                 raise SystemExit(
                     f"{ui_path}: node {item.get('id')} kind=input has no input object")
-            glyph_list = input_spec.get("glyphs") or []
-            cps = [int(glyph.get("cp", -1)) for glyph in glyph_list]
-            if cps != list(range(32, 127)):
-                raise SystemExit(
-                    f"{ui_path}: node {item.get('id')} input glyph pool must be "
-                    f"ASCII 32..126 in order")
-            key = tuple(
-                (int(glyph["cp"]), int(glyph["gid"]),
-                 round(float(glyph["advance"]), 6),
-                 round(float(glyph["x"]), 6), round(float(glyph["y"]), 6),
-                 round(float(glyph["w"]), 6), round(float(glyph["h"]), 6),
-                 round(float(glyph["u0"]), 9), round(float(glyph["v0"]), 9),
-                 round(float(glyph["u1"]), 9), round(float(glyph["v1"]), 9))
-                for glyph in glyph_list)
-            block = input_blocks.get(key)
-            if block is None:
-                first = len(input_glyphs)
-                for glyph in glyph_list:
-                    input_glyphs.append({
-                        "cp": int(glyph["cp"]), "gid": int(glyph["gid"]),
-                        "advance": float(glyph["advance"]),
-                        "x": float(glyph["x"]), "y": float(glyph["y"]),
-                        "w": float(glyph["w"]), "h": float(glyph["h"]),
-                        "u0": float(glyph["u0"]), "v0": float(glyph["v0"]),
-                        "u1": float(glyph["u1"]), "v1": float(glyph["v1"]),
-                    })
-                block = (first, len(glyph_list))
-                input_blocks[key] = block
-            max_length = max(0, min(255, int(input_spec.get("max_length", 0) or 0)))
+            value = str(input_spec.get("value") or "")
+            placeholder = str(input_spec.get("placeholder") or "")
+            max_length = int(input_spec.get("max_length", 0) or 0)
+            password = 1 if input_spec.get("password") else 0
             inputs.append({
                 "node": int(item.get("id", len(nodes))),
-                "value": str(input_spec.get("value") or ""),
-                "placeholder": str(input_spec.get("placeholder") or ""),
+                "value": value,
+                "placeholder": placeholder,
                 "max_length": max_length,
-                "password": 1 if input_spec.get("password") else 0,
-                "baseline": float(input_spec.get("baseline", 0.0) or 0.0),
-                "line_height": float(input_spec.get("line_height", 0.0) or 0.0),
-                "glyph_first": block[0],
-                "glyph_count": block[1],
+                "password": password,
             })
-            input_meta = {
-                "value": str(input_spec.get("value") or ""),
-                "placeholder": str(input_spec.get("placeholder") or ""),
-                "max_length": max_length,
-                "password": bool(input_spec.get("password")),
-                "baseline": float(input_spec.get("baseline", 0.0) or 0.0),
-                "line_height": float(input_spec.get("line_height", 0.0) or 0.0),
-            }
+            input_meta = {"value": value, "placeholder": placeholder,
+                          "max_length": max_length, "password": password}
         elif input_spec:
             raise SystemExit(
                 f"{ui_path}: node {item.get('id')} has input data but kind is not input")
@@ -1204,13 +1108,11 @@ def emit_from_ui_json(ui_path: Path, out_path: Path, meta_path: Path,
     metrics = None
     if payload is not None:
         metrics = UiJsonMetrics(atlas_size, payload)
-    elif input_glyphs:
-        raise SystemExit("ui.json has input glyphs but no atlas")
 
     viewport = data.get("viewport") or {}
     width = int(viewport.get("width", 960))
     height = int(viewport.get("height", 640))
-    write_header(nodes, meta, out_path, width, height, metrics, inputs, input_glyphs,
+    write_header(nodes, meta, out_path, width, height, metrics, inputs,
                  blob_path)
 
     source = data.get("source") or {}
@@ -1223,7 +1125,6 @@ def emit_from_ui_json(ui_path: Path, out_path: Path, meta_path: Path,
     }
     if inputs:
         meta_text["input_count"] = len(inputs)
-        meta_text["input_glyph_count"] = len(input_glyphs)
     meta_out = {
         "source": {
             "html": display_path(html_path) if str(html_path) else "",
@@ -1237,8 +1138,7 @@ def emit_from_ui_json(ui_path: Path, out_path: Path, meta_path: Path,
     }
     meta_path.write_text(json.dumps(meta_out, indent=2, ensure_ascii=False) + "\n",
                          encoding="utf-8")
-    print(f"emit_ui(ui-json): {len(nodes)} nodes, "
-          f"{len(inputs)} inputs ({len(input_glyphs)} input glyphs) "
+    print(f"emit_ui(ui-json): {len(nodes)} nodes, {len(inputs)} inputs "
           f"-> {out_path}, {meta_path}")
     for item, node in zip(meta, nodes):
         print("  [%2d] %-42s kind=%-5s size=%sx%s%s"
@@ -1266,8 +1166,6 @@ NODE_FIELDS = ("parent", "kind", "direction", "justify", "align", "wrap",
 
 INPUT_FIELDS = ("node", "max_length", "password", "baseline", "line_height",
                 "glyph_first", "glyph_count")
-INPUT_GLYPH_FIELDS = ("cp", "gid", "advance", "x", "y", "w", "h",
-                      "u0", "v0", "u1", "v1")
 
 _NODE_RE = re.compile(
     r"^\s*\{\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*(-?\d+),\s*"
@@ -1402,28 +1300,18 @@ def parse_header(path: Path) -> dict:
             names.append(_c_string(match.group(1)))
 
     atlas = []
-    atlas_block = _block(text, "static const unsigned char kUiAtlas")
-    initializer = atlas_block.split("=", 1)[1] if "=" in atlas_block else ""
-    atlas = [int(v) for v in re.findall(r"\d+", initializer)]
+    if "static const unsigned char kUiAtlas" in text:
+        atlas_block = _block(text, "static const unsigned char kUiAtlas")
+        initializer = atlas_block.split("=", 1)[1] if "=" in atlas_block else ""
+        atlas = [int(v) for v in re.findall(r"\d+", initializer)]
 
     inputs: list[dict] = []
-    input_glyphs: list[dict] = []
     input_count = 0
-    input_glyph_count = 0
-    if "static const UiInputGlyph kUiInputGlyphs" in text:
+    if "static const UiInput kUiInputs" in text:
         input_count = define("UI_INPUT_COUNT")
-        input_glyph_count = define("UI_INPUT_GLYPH_COUNT")
-        for line in _block(text, "static const UiInputGlyph kUiInputGlyphs").splitlines():
-            numbers = [float(v) for v in _NUM_RE.findall(line)]
-            if len(numbers) == len(INPUT_GLYPH_FIELDS):
-                glyph = dict(zip(INPUT_GLYPH_FIELDS, numbers))
-                glyph["cp"] = int(glyph["cp"])
-                glyph["gid"] = int(glyph["gid"])
-                input_glyphs.append(glyph)
         input_re = re.compile(
             r'^\s*\{\s*(\d+),\s*(NULL|"(?:[^"\\]|\\.)*"),\s*'
-            r'(NULL|"(?:[^"\\]|\\.)*")\s*,\s*(-?\d+),\s*(-?\d+),\s*'
-            r'(-?[\d.]+)f,\s*(-?[\d.]+)f,\s*(\d+),\s*(\d+)\s*\}'
+            r'(NULL|"(?:[^"\\]|\\.)*")\s*,\s*(-?\d+),\s*(-?\d+)\s*\}'
         )
         for line in _block(text, "static const UiInput kUiInputs").splitlines():
             match = input_re.match(line)
@@ -1435,22 +1323,16 @@ def parse_header(path: Path) -> dict:
                     "placeholder": _c_string(values[2]),
                     "max_length": int(values[3]),
                     "password": int(values[4]),
-                    "baseline": float(values[5]),
-                    "line_height": float(values[6]),
-                    "glyph_first": int(values[7]),
-                    "glyph_count": int(values[8]),
                 })
     return {
         "node_count": define("UI_NODE_COUNT"),
-        "atlas_size": define("UI_ATLAS_SIZE"),
+        "atlas_size": 0,
         "viewport": (define("UI_VIEWPORT_WIDTH"), define("UI_VIEWPORT_HEIGHT")),
         "nodes": nodes,
         "names": names,
         "atlas": atlas,
         "input_count": input_count,
-        "input_glyph_count": input_glyph_count,
         "inputs": inputs,
-        "input_glyphs": input_glyphs,
     }
 
 
@@ -1503,19 +1385,13 @@ def compare_headers(left_path: Path, right_path: Path, strict: bool) -> int:
     # ui-tree/3: solo cuando alguna cabecera tiene inputs (el oraculo Python no
     # los emite; la paridad de paginas con input no se compara contra el).
     if left["input_count"] or right["input_count"]:
-        for key in ("input_count", "input_glyph_count"):
+        for key in ("input_count",):
             if left[key] != right[key]:
                 failures.append(f"{key}: {left[key]!r} != {right[key]!r}")
         for index in range(min(len(left["inputs"]), len(right["inputs"]))):
-            for field in ("node", "value", "placeholder", "max_length", "password",
-                          "glyph_first", "glyph_count", "baseline", "line_height"):
+            for field in ("node", "value", "placeholder", "max_length", "password"):
                 check(f"input[{index}].{field}", left["inputs"][index][field],
                       right["inputs"][index][field])
-        for index in range(min(len(left["input_glyphs"]), len(right["input_glyphs"]))):
-            for field in INPUT_GLYPH_FIELDS:
-                check(f"input_glyph[{index}].{field}",
-                      left["input_glyphs"][index][field],
-                      right["input_glyphs"][index][field])
 
     atlas_diffs = 0
     if len(left["atlas"]) == len(right["atlas"]):

@@ -54,8 +54,8 @@
 ## Flujo
 
 ```
-HTML/CSS → frontend Rust --emit-ui → ui.json (+ atlas de la piscina de input)
-         → emit_ui.py → ui_data.h → cl.exe → app.exe | webnative.dll
+HTML/CSS → frontend Rust --emit-ui → ui.json
+         → emit_ui.py → ui_data.h / app.wnui → cl.exe → app.exe | webnative.dll
                       → app.wnui (blob v1) → wn_app_load_document()
 runtime: eventos → estado → layout C (mide el texto) → display list
          → renderer → ventana
@@ -80,16 +80,17 @@ recompila la DLL.
 
 ### Documento compilado (`.wnui`)
 
-El mismo árbol que sale a `ui_data.h` se serializa a un blob v1: cabecera de
-32 bytes (`WNUI`, versión 1) y secciones de nodos, nombres, strings, inputs,
-input glyphs y atlas. Los nodos son enteros y floats con offsets al pool de
-strings (0 = NULL); no hay glifos, runs ni atlas de texto.
+El mismo árbol que sale a `ui_data.h` se serializa a un blob v2: cabecera de
+32 bytes (`WNUI`, versión 2) y secciones de nodos, nombres, strings e inputs. No
+hay glifos, runs, atlas ni piscina ASCII: el texto de los inputs también lo
+shapea el runtime. Los nodos son enteros y floats con offsets al pool de
+strings (0 = NULL).
 
 `wn_document_load_blob` mapea el archivo en solo lectura (Windows:
 `CreateFileMapping`/`MapViewOfFile`; resto: `malloc`) y devuelve el documento
 hasta `wn_document_destroy`. `wn_app_load_document` lo carga en una app viva,
 conserva el renderer y devuelve `WN_ERR_IO` con blob inválido. La página
-canónica pesa 17.557 bytes como header y 7.512 como blob.
+canónica pesa 17.557 bytes como header y 7.512 bytes como blob.
 
 `renderer` es la vtable `wn_renderer`. En Windows el backend por defecto es
 **D3D11 hardware** (`renderer_d3d11.c`) con fallback a **wgpu-native**; en otras

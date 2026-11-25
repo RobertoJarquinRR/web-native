@@ -9,15 +9,10 @@ struct wn_document {
     const UiNode *nodes;
     int node_count;
     const char *const *names;
-    const unsigned char *atlas;
-    int atlas_width;
-    int atlas_height;
     int viewport_width;
     int viewport_height;
     const UiInput *inputs;
     int input_count;
-    const UiInputGlyph *input_glyphs;
-    int input_glyph_count;
 
     /* Owned by the loader when the document came from a .wnui blob. */
     void *mapping;
@@ -25,7 +20,6 @@ struct wn_document {
     UiNode *owned_nodes;
     const char **owned_names;
     UiInput *owned_inputs;
-    UiInputGlyph *owned_glyphs;
 };
 
 #endif

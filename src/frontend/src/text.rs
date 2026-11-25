@@ -390,15 +390,12 @@ fn scale_26_6(units: i32, scale: i64, upem: i64) -> f64 {
 
 pub struct TextEngine {
     faces: RefCell<HashMap<String, Rc<FontFace>>>,
-    /// Diagnosticos ya emitidos (una linea por familia/peso sin variante).
-    warned: RefCell<std::collections::HashSet<String>>,
 }
 
 impl TextEngine {
     pub fn new() -> Self {
         TextEngine {
             faces: RefCell::new(HashMap::new()),
-            warned: RefCell::new(std::collections::HashSet::new()),
         }
     }
 
@@ -414,27 +411,6 @@ impl TextEngine {
 
     fn face_for_family(&self, font_family: &str) -> Result<Rc<FontFace>, String> {
         self.face(&resolve_font_file(font_family)?)
-    }
-
-    /// Igual que `face_for_family`, eligiendo la variante real de `font-weight`.
-    /// Si la negrita no existe se usa el regular y se emite un diagnostico una
-    /// sola vez por familia/peso (no altera la salida ni el contrato del IR).
-    fn face_for_family_weighted(
-        &self,
-        font_family: &str,
-        weight: u16,
-    ) -> Result<Rc<FontFace>, String> {
-        let (path, fallback) = resolve_font_file_weighted(font_family, weight)?;
-        if fallback {
-            let message = format!(
-                "font-weight {weight} sin variante real para {font_family:?}; se usa {}",
-                path.display()
-            );
-            if self.warned.borrow_mut().insert(message.clone()) {
-                eprintln!("frontend-rust: {message}");
-            }
-        }
-        self.face(&path)
     }
 
     pub fn metrics(&self, font_family: &str, size: f64) -> Result<(f64, f64), String> {
@@ -660,11 +636,6 @@ pub fn build_text_ops(runs: &[TextRun], engine: &TextEngine) -> Result<BuildText
 /// Tamano del atlas del contrato R2 (`emit_ui.py` usa 256).
 pub const UI_ATLAS_SIZE: u32 = 256;
 
-/// Las paginas con `kind:"input"` hornean la piscina ASCII imprimible
-/// (32..126) por tamano de fuente; 512 evita que la piscina desplace el atlas
-/// de texto existente. Las paginas sin input siguen en 256 (byte-identicas).
-pub const UI_INPUT_ATLAS_SIZE: u32 = 512;
-
 /// Glyph ya posicionado relativo a la esquina superior izquierda del texto.
 pub struct UiGlyphOut {
     pub gid: u16,
@@ -687,101 +658,14 @@ pub struct UiTextBaker {
 }
 
 impl UiTextBaker {
-    #[allow(dead_code)]
     pub fn new() -> Self {
         UiTextBaker {
             atlas: Atlas::new(UI_ATLAS_SIZE),
         }
     }
 
-    /// Atlas de 512x512 para paginas con `kind:"input"`: la piscina ASCII
-    /// imprimible (95 glyphs por tamano de fuente) no debe empujar el texto
-    /// fuera del atlas de 256x256.
-    pub fn with_size(size: u32) -> Self {
-        UiTextBaker {
-            atlas: Atlas::new(size),
-        }
-    }
-
     pub fn atlas(&self) -> &Atlas {
         &self.atlas
     }
-
-    /// Piscina ASCII imprimible (32..126) para un `kind:"input"`: un glyph por
-    /// codepoint, con avance HarfBuzz aislado, caja relativa al top-left del
-    /// content box y UVs del atlas. El runtime compone el texto sumando
-    /// avances; no hay shaping en runtime (sin kerning). La piscina se comparte
-    /// por `(familia, tamano)` y el atlas deduplica por `(path, gid, size)`.
-    pub fn bake_input_pool(
-        &mut self,
-        engine: &TextEngine,
-        font_family: &str,
-        size: f64,
-        weight: u16,
-    ) -> Result<BakedInputPool, String> {
-        let face = engine.face_for_family_weighted(font_family, weight)?;
-        let (ascender, descender) = face.metrics(size);
-        let path = face.path_string();
-        let key_size = size_key(size);
-        let mut glyphs = Vec::with_capacity(95);
-        for cp in 32u32..=126 {
-            let character = char::from_u32(cp).expect("ASCII imprimible es un scalar valido");
-            let mut buffer = [0u8; 4];
-            let shaped = face.shape(character.encode_utf8(&mut buffer), size);
-            let (gid, advance, dx, dy) = match shaped.first() {
-                Some(item) => (item.gid, item.adv, item.dx, item.dy),
-                None => (0, 0.0, 0.0, 0.0),
-            };
-            let bitmap = face.raster(gid, size);
-            let (u0, v0, u1, v1) = if bitmap.w > 0 && bitmap.h > 0 {
-                let key = (path.clone(), gid, key_size);
-                self.atlas.add(key.clone(), &bitmap)?;
-                self.atlas.uv(&key)
-            } else {
-                (0.0, 0.0, 0.0, 0.0)
-            };
-            glyphs.push(UiInputGlyphOut {
-                cp,
-                gid,
-                advance,
-                x: dx + f64::from(bitmap.left),
-                y: ascender - dy - f64::from(bitmap.top),
-                w: bitmap.w,
-                h: bitmap.h,
-                u0,
-                v0,
-                u1,
-                v1,
-            });
-        }
-        Ok(BakedInputPool {
-            glyphs,
-            ascender,
-            descender,
-        })
-    }
 }
 
-/// Glyph de la piscina ASCII de un input. `gid` es diagnostico; el runtime
-/// solo usa avance, caja y UVs.
-#[derive(Clone)]
-pub struct UiInputGlyphOut {
-    pub cp: u32,
-    pub gid: u16,
-    pub advance: f64,
-    pub x: f64,
-    pub y: f64,
-    pub w: i32,
-    pub h: i32,
-    pub u0: f64,
-    pub v0: f64,
-    pub u1: f64,
-    pub v1: f64,
-}
-
-#[derive(Clone)]
-pub struct BakedInputPool {
-    pub glyphs: Vec<UiInputGlyphOut>,
-    pub ascender: f64,
-    pub descender: f64,
-}

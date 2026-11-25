@@ -189,8 +189,8 @@ private static partial nint wn_node_get_value(nint app, ulong node);
 - `set_text` acepta cualquier UTF-8: el runtime shapea y rasteriza el texto. El
   documento solo lleva cadena, familia, tamaño, peso y `line-height`.
 - `set_image` conserva el tamaño intrínseco compilado; no hay probe WIC nuevo.
-- Input v4: ASCII 32..126, sin IME/bidi/CJK/emoji, sin shaping/kerning, sin
-  multilínea, sin password, sin undo/redo, sin drag-select, caret sin blink.
+- Input v4: ASCII 32..126 (el texto se shapea en runtime), sin IME/bidi/CJK/emoji,
+  sin multilínea, sin password, sin undo/redo, sin drag-select, caret sin blink.
 - Sin virtualización, culling de sólidos, accesibilidad/UIA, DPI/multi-monitor
   ni cross-platform todavía.
 - Sin path offscreen en la ABI (sigue en `runtime_r2.exe --render/--states`).

@@ -37,7 +37,7 @@ def cmd_all(args: argparse.Namespace) -> int:
     log_step("suite 8/9: runtime text")
     suites.run_suite("text")
 
-    log_step("suite 9/9: blob v1")
+    log_step("suite 9/9: blob v2")
     suites.run_suite("blob")
 
     log_info("all test suites passed")

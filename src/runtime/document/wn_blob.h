@@ -8,16 +8,14 @@ extern "C" {
 #endif
 
 #define WN_BLOB_MAGIC 0x49554E57u /* "WNUI" */
-#define WN_BLOB_VERSION 1u
+#define WN_BLOB_VERSION 2u
 #define WN_BLOB_HEADER_SIZE 32u
 
 typedef enum {
     WN_BLOB_SECTION_NODES = 1,
     WN_BLOB_SECTION_NAMES = 2,
     WN_BLOB_SECTION_STRINGS = 3,
-    WN_BLOB_SECTION_INPUTS = 4,
-    WN_BLOB_SECTION_INPUT_GLYPHS = 5,
-    WN_BLOB_SECTION_ATLAS = 6
+    WN_BLOB_SECTION_INPUTS = 4
 } wn_blob_section_id;
 
 typedef struct {
@@ -97,25 +95,7 @@ typedef struct {
     uint32_t placeholder; /* strings offset */
     int32_t max_length;
     int32_t password;
-    float baseline;
-    float line_height;
-    int32_t glyph_first;
-    int32_t glyph_count;
 } WnBlobInput;
-
-typedef struct {
-    int32_t cp;
-    int32_t gid;
-    float advance;
-    float x;
-    float y;
-    float w;
-    float h;
-    float u0;
-    float v0;
-    float u1;
-    float v1;
-} WnBlobInputGlyph;
 
 #if defined(__cplusplus)
 }

@@ -102,7 +102,7 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | Resize                                       | ✅  | re-layout                                                |
 | Wheel                                        | ✅  | `WN_EVENT_WHEEL`                                         |
 | UI dinámica v3                               | ✅  | visibilidad, `set_image`, clone/append/remove            |
-| Input v4                                     | ✅  | ASCII, caret, selección, clipboard Win32                 |
+| Input v4                                     | ✅  | ASCII, caret, selección, clipboard; texto shapeado en runtime |
 | Bordes / radius / sombras v1                 | ✅  | radio/borde uniforme; primera sombra; sin per-side/inset |
 | Virtualización / culling                     | ❌  | pendiente                                                |
 | Text shaping runtime                         | ✅  | DirectWrite; medición, shaping y atlas dinámico          |

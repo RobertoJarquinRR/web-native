@@ -28,30 +28,19 @@
 #if defined(UI_INPUT_COUNT) && UI_INPUT_COUNT > 0
 #define WN_BUILTIN_INPUTS kUiInputs
 #define WN_BUILTIN_INPUT_COUNT UI_INPUT_COUNT
-#define WN_BUILTIN_INPUT_GLYPHS kUiInputGlyphs
-#define WN_BUILTIN_INPUT_GLYPH_COUNT UI_INPUT_GLYPH_COUNT
 #else
 #define WN_BUILTIN_INPUTS NULL
 #define WN_BUILTIN_INPUT_COUNT 0
-#define WN_BUILTIN_INPUT_GLYPHS NULL
-#define WN_BUILTIN_INPUT_GLYPH_COUNT 0
 #endif
 
 static const wn_document g_builtin_document = {
     kUiNodes,
     UI_NODE_COUNT,
     kUiNodeNames,
-    kUiAtlas,
-    UI_ATLAS_SIZE,
-    UI_ATLAS_SIZE,
     UI_VIEWPORT_WIDTH,
     UI_VIEWPORT_HEIGHT,
     WN_BUILTIN_INPUTS,
     WN_BUILTIN_INPUT_COUNT,
-    WN_BUILTIN_INPUT_GLYPHS,
-    WN_BUILTIN_INPUT_GLYPH_COUNT,
-    NULL,
-    NULL,
     NULL,
     NULL,
     NULL,
@@ -68,25 +57,12 @@ int wn_document_node_count(const wn_document *document)
     return document != NULL ? document->node_count : 0;
 }
 
-/* ui-tree/3 text input. The generated header (input pages only) carries a
- * fixed ASCII pool per unique font size; the core copies it into this compact
- * form so the rest of the engine compiles identically for pages without
- * inputs. */
-typedef struct {
-    float advance;
-    float x, y, w, h;
-    float u0, v0, u1, v1;
-} WnInputGlyph;
-
+/* ui-tree/3 text input. Only the spec lives in the document; the text is
+ * shaped and rasterized by the runtime like any other string. */
 typedef struct {
     int node;
     const char *placeholder;
     int max_length;
-    float baseline;
-    float line_height;
-    const WnInputGlyph *glyphs;
-    int glyph_count;
-    short cp_index[128]; /* codepoint -> pool index, -1 none */
 } WnInputRecord;
 
 #define WN_INPUT_MAX_BYTES 255
@@ -200,8 +176,6 @@ struct wn_core {
      * (shared by clones); -1 means "not an input". */
     WnInputRecord *input_records;
     int input_record_count;
-    WnInputGlyph *input_pool;
-    int input_pool_count;
     int *input_map;
     char **input_value;
     int *input_cursor;
@@ -1716,40 +1690,58 @@ static int input_limit(const WnInputRecord *record)
     return WN_INPUT_MAX_BYTES;
 }
 
-static const WnInputGlyph *input_glyph(const WnInputRecord *record, unsigned char ch)
+static const wn_atlas_run *input_run(const wn_core *c, int node, const char *text)
 {
-    int index;
-    if (record == NULL || ch >= 128) {
+    const UiNode *n = &c->nodes[node];
+    if (c->text_atlas == NULL || text == NULL) {
         return NULL;
     }
-    index = record->cp_index[ch];
-    if (index < 0 || index >= record->glyph_count) {
-        return NULL;
-    }
-    return &record->glyphs[index];
+    return wn_text_atlas_shape(c->text_atlas, text, n->font_family, n->font_size,
+                               n->font_weight);
 }
 
-static float input_prefix_width(const WnInputRecord *record, const char *text, int upto)
+static float input_prefix_width(const wn_core *c, int node, const char *text, int upto)
 {
+    const wn_atlas_run *run = input_run(c, node, text);
     float pen = 0.0f;
     int i;
-    if (record == NULL || text == NULL) {
+    if (run == NULL) {
         return 0.0f;
     }
-    for (i = 0; i < upto && text[i] != '\0'; ++i) {
-        const WnInputGlyph *glyph = input_glyph(record, (unsigned char)text[i]);
-        if (glyph != NULL) {
-            pen += glyph->advance;
-        }
+    if (upto > run->count) {
+        upto = run->count;
+    }
+    for (i = 0; i < upto; ++i) {
+        pen += run->glyphs[i].advance;
     }
     return pen;
 }
 
+static int input_line_metrics(const wn_core *c, int node, float *ascent, float *line_height)
+{
+    const UiNode *n = &c->nodes[node];
+    wn_text_metrics metrics;
+    if (wn_text_measure_string("Mg", n->font_family, n->font_size, n->font_weight, 0.0f,
+                               &metrics) != 0) {
+        return 1;
+    }
+    if (ascent != NULL) {
+        *ascent = metrics.ascent;
+    }
+    if (line_height != NULL) {
+        *line_height = metrics.ascent + metrics.descent;
+        if (*line_height <= 0.0f) {
+            *line_height = metrics.height;
+        }
+    }
+    return 0;
+}
+
 static float input_line_height(const wn_core *c, int node)
 {
-    const WnInputRecord *record = input_record(c, node);
-    if (record != NULL && record->line_height > 0.0f) {
-        return record->line_height;
+    float height = 0.0f;
+    if (input_line_metrics(c, node, NULL, &height) == 0 && height > 0.0f) {
+        return height;
     }
     return c->nodes[node].font_size * 1.35f;
 }
@@ -1844,7 +1836,7 @@ static void input_update_scroll(wn_core *c, int node)
         return;
     }
     value = input_text(c, node);
-    caret = input_prefix_width(record, value, c->input_cursor[node]);
+    caret = input_prefix_width(c, node, value, c->input_cursor[node]);
     scroll = c->input_scroll[node];
     if (caret - scroll > content.w - WN_INPUT_CARET_WIDTH) {
         scroll = caret - content.w + WN_INPUT_CARET_WIDTH;
@@ -1852,7 +1844,7 @@ static void input_update_scroll(wn_core *c, int node)
     if (caret - scroll < 0.0f) {
         scroll = caret;
     }
-    text_width = input_prefix_width(record, value, (int)strlen(value));
+    text_width = input_prefix_width(c, node, value, (int)strlen(value));
     max_scroll = text_width + WN_INPUT_CARET_WIDTH - content.w;
     if (max_scroll < 0.0f) {
         max_scroll = 0.0f;
@@ -1904,14 +1896,16 @@ int wn_core_focus_input(wn_core *core, int node, float pointer_x)
     len = (int)strlen(value);
     pen = content.x - core->input_scroll[node];
     caret = len;
-    for (i = 0; i < len; ++i) {
-        const WnInputGlyph *glyph = input_glyph(record, (unsigned char)value[i]);
-        float advance = glyph != NULL ? glyph->advance : 0.0f;
-        if (pointer_x < pen + advance * 0.5f) {
-            caret = i;
-            break;
+    {
+        const wn_atlas_run *run = input_run(core, node, value);
+        for (i = 0; i < len; ++i) {
+            float advance = (run != NULL && i < run->count) ? run->glyphs[i].advance : 0.0f;
+            if (pointer_x < pen + advance * 0.5f) {
+                caret = i;
+                break;
+            }
+            pen += advance;
         }
-        pen += advance;
     }
     core->input_cursor[node] = caret;
     core->dirty = 1;
@@ -2333,7 +2327,8 @@ int wn_core_input_state(const wn_core *core, int node, wn_input_state *out)
     value = input_text(core, node);
     content = input_content_rect(core, node);
     scroll = core->input_scroll[node];
-    caret = content.x + input_prefix_width(record, value, core->input_cursor[node]) - scroll;
+    caret = content.x +
+            input_prefix_width(core, node, value, core->input_cursor[node]) - scroll;
     memset(out, 0, sizeof(*out));
     out->value = value;
     out->cursor = core->input_cursor[node];
@@ -2341,15 +2336,20 @@ int wn_core_input_state(const wn_core *core, int node, wn_input_state *out)
     out->focused = core->input_focus == node;
     out->max_length = record->max_length;
     out->scroll = scroll;
-    out->baseline = record->baseline;
-    out->line_height = record->line_height;
+    {
+        float ascent = 0.0f;
+        float line_height = 0.0f;
+        input_line_metrics(core, node, &ascent, &line_height);
+        out->baseline = ascent;
+        out->line_height = line_height;
+    }
     out->caret_x = caret;
     out->rect = core->rects[node];
     out->content = content;
     input_selection_bounds(core, node, &start, &end);
     if (start < end) {
-        float x0 = content.x + input_prefix_width(record, value, start) - scroll;
-        float x1 = content.x + input_prefix_width(record, value, end) - scroll;
+        float x0 = content.x + input_prefix_width(core, node, value, start) - scroll;
+        float x1 = content.x + input_prefix_width(core, node, value, end) - scroll;
         out->selection_x0 = x0;
         out->selection_x1 = x1;
     } else {
@@ -3138,21 +3138,29 @@ static void build_input_text_geometry(wn_core *c, float viewport_w, float viewpo
         /* Single-line inputs center the line box vertically, like a browser
          * text field; a content box shorter than the line still overflows
          * symmetrically and is clipped. */
-        line_offset = (content.h - record->line_height) * 0.5f;
-        pen = 0.0f;
-        for (const unsigned char *p = (const unsigned char *)text; *p != '\0'; ++p) {
-            const WnInputGlyph *glyph = input_glyph(record, *p);
-            if (glyph == NULL) {
+        {
+            const wn_atlas_run *run = input_run(c, node, text);
+            float baseline;
+            if (run == NULL) {
                 continue;
             }
-            if (glyph->w > 0.0f && glyph->h > 0.0f) {
-                float x = floorf(content.x + pen + glyph->x - scroll + 0.5f);
-                float y = floorf(content.y + line_offset + glyph->y + 0.5f);
-                push_glyph_quad(c, x, y, glyph->w, glyph->h,
-                                glyph->u0, glyph->v0, glyph->u1, glyph->v1,
+            line_offset = (content.h - (run->ascent + run->descent)) * 0.5f;
+            baseline = content.y + line_offset + run->ascent;
+            pen = 0.0f;
+            for (int i = 0; i < run->count; ++i) {
+                const wn_atlas_glyph *packed = wn_text_atlas_glyph(
+                    c->text_atlas, n->font_family, n->font_size, n->font_weight,
+                    run->glyphs[i].glyph);
+                if (packed == NULL || packed->width <= 0 || packed->height <= 0) {
+                    continue;
+                }
+                float x = floorf(content.x + run->glyphs[i].x - scroll +
+                                 (float)packed->bearing_x + 0.5f);
+                float y = floorf(baseline + (float)packed->bearing_y + 0.5f);
+                push_glyph_quad(c, x, y, (float)packed->width, (float)packed->height,
+                                packed->u0, packed->v0, packed->u1, packed->v1,
                                 viewport_w, viewport_h, cr, cg, cb, a);
             }
-            pen += glyph->advance;
         }
     }
 }
@@ -3199,8 +3207,9 @@ static void build_input_decorations(wn_core *c)
             float x0;
             float x1;
             input_selection_bounds(c, node, &start, &end);
-            x0 = content.x + input_prefix_width(record, input_text(c, node), start) - scroll;
-            x1 = content.x + input_prefix_width(record, input_text(c, node), end) - scroll;
+            x0 = content.x +
+                 input_prefix_width(c, node, input_text(c, node), start) - scroll;
+            x1 = content.x + input_prefix_width(c, node, input_text(c, node), end) - scroll;
             if (x0 < content.x) {
                 x0 = content.x;
             }
@@ -3216,7 +3225,7 @@ static void build_input_decorations(wn_core *c)
 
         if (c->input_focus == node) {
             float caret = content.x +
-                          input_prefix_width(record, input_text(c, node),
+                          input_prefix_width(c, node, input_text(c, node),
                                              c->input_cursor[node]) -
                           scroll;
             float max_caret = content.x + content.w - WN_INPUT_CARET_WIDTH;
@@ -3452,66 +3461,24 @@ static int build_input_state(wn_core *c)
 {
     const wn_document *document = c->doc;
     int i;
-    int j;
     if (document->input_count <= 0) {
         return 0;
     }
     c->input_record_count = document->input_count;
     c->input_records = (WnInputRecord *)calloc(
         (size_t)document->input_count, sizeof(WnInputRecord));
-    c->input_pool_count = document->input_glyph_count;
-    c->input_pool = (WnInputGlyph *)calloc(
-        (size_t)(document->input_glyph_count > 0 ? document->input_glyph_count : 1),
-        sizeof(WnInputGlyph));
-    if (c->input_records == NULL || c->input_pool == NULL) {
+    if (c->input_records == NULL) {
         return -1;
-    }
-    for (i = 0; i < document->input_glyph_count; ++i) {
-        WnInputGlyph *dst = &c->input_pool[i];
-        int atlas_side = wn_text_atlas_width(c->text_atlas);
-        float scale = atlas_side > 0 ? (float)document->atlas_width / (float)atlas_side : 1.0f;
-        dst->advance = document->input_glyphs[i].advance;
-        dst->x = document->input_glyphs[i].x;
-        dst->y = document->input_glyphs[i].y;
-        dst->w = document->input_glyphs[i].w;
-        dst->h = document->input_glyphs[i].h;
-        /* The seed atlas keeps its UVs; they are relative to the document atlas. */
-        dst->u0 = document->input_glyphs[i].u0 * scale;
-        dst->v0 = document->input_glyphs[i].v0 * scale;
-        dst->u1 = document->input_glyphs[i].u1 * scale;
-        dst->v1 = document->input_glyphs[i].v1 * scale;
     }
     for (i = 0; i < document->input_count; ++i) {
         const UiInput *spec = &document->inputs[i];
         WnInputRecord *record = &c->input_records[i];
-        int first = spec->glyph_first;
-        int count = spec->glyph_count;
         int node = spec->node;
         record->node = node;
         record->placeholder = spec->placeholder != NULL ? spec->placeholder : "";
         record->max_length = spec->max_length;
         if (record->max_length < 0 || record->max_length > WN_INPUT_MAX_BYTES) {
             record->max_length = WN_INPUT_MAX_BYTES;
-        }
-        record->baseline = spec->baseline;
-        record->line_height = spec->line_height;
-        if (first < 0 || first > c->input_pool_count) {
-            first = 0;
-            count = 0;
-        }
-        if (count < 0 || first + count > c->input_pool_count) {
-            count = c->input_pool_count - first;
-        }
-        record->glyphs = c->input_pool + first;
-        record->glyph_count = count;
-        for (j = 0; j < 128; ++j) {
-            record->cp_index[j] = -1;
-        }
-        for (j = 0; j < count; ++j) {
-            int cp = document->input_glyphs[first + j].cp;
-            if (cp >= 0 && cp < 128) {
-                record->cp_index[cp] = (short)j;
-            }
         }
         if (node >= 0 && node < c->node_count) {
             const char *value = spec->value != NULL ? spec->value : "";
@@ -3633,8 +3600,7 @@ wn_core *wn_core_create(const wn_document *document)
     c->next_order = count;
 
     build_hierarchy(c);
-    c->text_atlas = wn_text_atlas_create(document->atlas, document->atlas_width,
-                                         document->atlas_height);
+    c->text_atlas = wn_text_atlas_create(NULL, 0, 0);
     if (c->text_atlas == NULL) {
         wn_core_destroy(c);
         return NULL;
@@ -4098,7 +4064,6 @@ void wn_core_destroy(wn_core *core)
     wn_free_(core->input_anchor);
     wn_free_(core->input_scroll);
     wn_free_(core->input_records);
-    wn_free_(core->input_pool);
     wn_text_atlas_destroy(core->text_atlas);
     wn_free_(core->classes);
     wn_free_(core->class_count);

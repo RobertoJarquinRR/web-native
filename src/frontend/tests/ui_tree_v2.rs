@@ -865,15 +865,8 @@ body { margin: 0; }
 </html>
 "##;
 
-fn inputs(doc: &Json) -> Vec<&Json> {
-    nodes(doc)
-        .iter()
-        .filter(|node| node.get("kind").and_then(Json::as_str) == Some("input"))
-        .collect()
-}
-
 #[test]
-fn input_emits_schema_3_with_ascii_pool() {
+fn input_emits_schema_3_with_spec_only() {
     let dir = temp_dir("input-v3");
     write(&dir.join("page.html"), INPUT_PAGE);
 
@@ -902,39 +895,18 @@ fn input_emits_schema_3_with_ascii_pool() {
     );
     assert_eq!(input.get("max_length").and_then(Json::as_f64), Some(5.0));
     assert_eq!(input.get("password"), Some(&Json::Bool(false)));
-    let baseline = input.get("baseline").and_then(Json::as_f64).unwrap();
-    let line_height = input.get("line_height").and_then(Json::as_f64).unwrap();
-    assert!(baseline > 0.0 && line_height > baseline, "{input:#?}");
-
-    let glyphs = input
-        .get("glyphs")
-        .and_then(Json::as_array)
-        .expect("glyph pool");
-    assert_eq!(glyphs.len(), 95, "ASCII imprimible 32..126");
-    for (index, glyph) in glyphs.iter().enumerate() {
-        assert_eq!(
-            glyph.get("cp").and_then(Json::as_f64),
-            Some((index + 32) as f64)
-        );
+    // El runtime shapea el texto: no se hornean glifos ni metricas de linea.
+    for field in ["glyphs", "baseline", "line_height"] {
+        assert!(input.get(field).is_none(), "input must not carry {field}");
     }
-    let space = &glyphs[0];
-    assert!(space.get("advance").and_then(Json::as_f64).unwrap() > 0.0);
-    assert_eq!(space.get("w").and_then(Json::as_f64), Some(0.0));
-    let letter = glyphs.iter().find(|glyph| {
-        glyph.get("cp").and_then(Json::as_f64) == Some(f64::from(b'a'))
-    }).unwrap();
-    assert!(letter.get("w").and_then(Json::as_f64).unwrap() > 0.0);
-    assert!(letter.get("advance").and_then(Json::as_f64).unwrap() > 0.0);
-    assert!(letter.get("u1").and_then(Json::as_f64).unwrap() > 0.0);
-    assert!(letter.get("v1").and_then(Json::as_f64).unwrap() > 0.0);
-
-    // El atlas incluye la piscina (512) aunque la pagina no tenga texto.
-    let atlas = doc.get("atlas").expect("atlas");
-    assert_eq!(atlas.get("width").and_then(Json::as_f64), Some(512.0));
-    assert!(atlas.get("glyph_count").and_then(Json::as_f64).unwrap() >= 180.0);
+    // Una pagina solo de inputs no genera atlas (ni atlas.bin al lado).
+    match doc.get("atlas") {
+        None | Some(Json::Null) => {}
+        other => panic!("input page must not emit an atlas: {other:#?}"),
+    }
     assert!(
-        dir.join("atlas.bin").is_file(),
-        "atlas.bin must be written for input pages"
+        !dir.join("atlas.bin").is_file(),
+        "no atlas.bin for input-only pages"
     );
 
     // /3 hereda los campos v2 del estilo (aditivo, no regresivo).
