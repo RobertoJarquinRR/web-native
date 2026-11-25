@@ -394,7 +394,7 @@ def run_input() -> int:
 def run_offscreen() -> int:
     suite = _suite_dir("offscreen")
     out = suite / "out"
-    fixture = suite / "fixture"
+    fixture = out / "fixture"
     out.mkdir(parents=True, exist_ok=True)
     fixture.mkdir(parents=True, exist_ok=True)
     runtime = get_paths().runtime
@@ -470,7 +470,7 @@ def run_offscreen() -> int:
 def run_text() -> int:
     suite = _suite_dir("text")
     out = suite / "out"
-    fixture = suite / "fixture"
+    fixture = out / "fixture"
     out.mkdir(parents=True, exist_ok=True)
     fixture.mkdir(parents=True, exist_ok=True)
     runtime = get_paths().runtime
