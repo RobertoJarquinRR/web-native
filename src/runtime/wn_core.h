@@ -418,6 +418,13 @@ int wn_core_input_ime(wn_core *core, int event_type, const char *text_utf8,
 /* 1 while a composition is active; `*text` is the engine-owned UTF-8 buffer and
  * `*caret` the codepoint index inside it. Test/diagnostic hook. */
 int wn_core_input_composition(const wn_core *core, const char **text, int *caret);
+/* Recompute the platform caret/candidate rects from the current layout. The
+ * view calls it on every frame while an input is focused, so resize, scroll and
+ * reflow keep the composition window on the caret. */
+void wn_core_ime_sync(wn_core *core);
+/* Cancel the composition and release the platform IME without destroying the
+ * core (document replacement, disabled subtree, removal). */
+void wn_core_ime_abort(wn_core *core);
 
 /* Test/debug hooks: force a state without going through the pointer machine.
  * `state` is one WN_STATE_* bit. `wn_core_force_state_mask` ORs a whole mask

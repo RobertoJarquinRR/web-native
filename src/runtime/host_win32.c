@@ -218,6 +218,26 @@ static int host_ime_focus(void *context, const wn_rect *caret_rect)
     return 0;
 }
 
+/* Escape/editor cancel: discard the platform composition so IMM32 does not
+ * keep a preedit alive after the core already cleared its buffer. */
+static void host_ime_cancel(void *context)
+{
+    WnHostWin32 *host = (WnHostWin32 *)context;
+    HIMC himc;
+    if (host == NULL || host->hwnd == NULL) {
+        return;
+    }
+    himc = ImmGetContext(host->hwnd);
+    if (himc != NULL) {
+        ImmNotifyIME(himc, NI_COMPOSITIONSTR, CPS_CANCEL, 0);
+        ImmReleaseContext(host->hwnd, himc);
+    }
+    /* A cancel may not produce ENDCOMPOSITION on every IME; do not leave the
+     * host suppressing WM_CHAR forever. */
+    host->ime_composing = 0;
+    host->ime_had_result = 0;
+}
+
 static void host_ime_blur(void *context)
 {
     WnHostWin32 *host = (WnHostWin32 *)context;
@@ -262,6 +282,7 @@ static const wn_ime_ops g_ime_win32_ops = {
     "win32-imm32",
     host_ime_focus,
     host_ime_blur,
+    host_ime_cancel,
     host_ime_set_caret,
     host_ime_set_candidate
 };
@@ -514,6 +535,16 @@ static LRESULT CALLBACK host_wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
          * also suppresses chars there). The commit is delivered through
          * WM_IME_COMPOSITION; a duplicate WM_CHAR after it is swallowed by the
          * core, so forwarding both can never insert twice. */
+        if (host->ime_composing) {
+            return 0;
+        }
+        emit_event(host, WN_EVENT_CHAR, NULL, 0.0f, 0.0f, 0,
+                   (uint32_t)wparam, 0, 0);
+        return 0;
+    case WM_IME_CHAR:
+        /* Same rule for the IME's character message: never insert while the
+         * composition is active; after a commit the core swallow buffer drops
+         * the duplicate. */
         if (host->ime_composing) {
             return 0;
         }

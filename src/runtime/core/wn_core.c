@@ -1312,6 +1312,12 @@ void wn_core_destroy(wn_core *core)
     if (core == NULL) {
         return;
     }
+    /* Destroying a core that still owns the platform IME must release it, or
+     * the host keeps an attached context for a field that no longer exists.
+     * Clearing the focus after the abort keeps free_node_payload() from
+     * blurring a second time for the focused slot. */
+    wn_core_ime_abort(core);
+    core->input_focus = -1;
     document = core->doc;
     if (core->nodes != NULL) {
         for (i = 0; i < core->node_count; ++i) {

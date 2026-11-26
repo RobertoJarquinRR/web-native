@@ -28,6 +28,7 @@ const wn_text_ops *wn_text_fake(void);
 typedef struct {
     int focus_calls;
     int blur_calls;
+    int cancel_calls;
     int caret_calls;
     int candidate_calls;
     wn_rect focus_rect;
@@ -68,6 +69,12 @@ static void fake_blur(void *context)
     ime->blur_calls += 1;
 }
 
+static void fake_cancel(void *context)
+{
+    FakeIme *ime = (FakeIme *)context;
+    ime->cancel_calls += 1;
+}
+
 static void fake_set_caret(void *context, const wn_rect *caret_rect)
 {
     FakeIme *ime = (FakeIme *)context;
@@ -90,6 +97,7 @@ static const wn_ime_ops g_fake_ime_ops = {
     "fake-ime",
     fake_focus,
     fake_blur,
+    fake_cancel,
     fake_set_caret,
     fake_set_candidate
 };
@@ -224,6 +232,24 @@ int main(void)
     check("caret callback", g_fake.caret_calls >= 1 && g_fake.candidate_calls >= 1,
           "caret and candidate rects reported");
 
+    /* The platform caret must follow caret moves and typing, not only focus. */
+    {
+        float end_x = g_fake.caret_rect.x;
+        float home_x;
+        check("caret rect follows Home",
+              wn_core_input_key(g_core, WN_KEY_HOME, 0u, NULL, NULL) == search &&
+                  g_fake.caret_rect.x < end_x,
+              "set_caret_rect moved left with the caret");
+        home_x = g_fake.caret_rect.x;
+        type_codepoint((uint32_t)'x');
+        check("caret rect follows typing", g_fake.caret_rect.x > home_x,
+              "set_caret_rect moved right after an insertion");
+        check("reset value after caret probe",
+              wn_core_set_input_value(g_core, search, "ab") == 0 &&
+                  wn_core_focus_input_at_end(g_core, search) == search,
+              "value/focus restored for the composition cases");
+    }
+
     wn_core_build_display_list(g_core);
     list = wn_core_display_list(g_core);
     glyphs_before = list->glyph_vertex_count;
@@ -244,6 +270,9 @@ int main(void)
           "COMPOSITION does not touch the value");
     composition_is("composition text", NIHON, 2);
     expect_value("value while composing", search, "ab");
+    type_codepoint((uint32_t)'q');
+    expect_value("char suppressed while composing", search, "ab");
+    composition_is("composition survives char", NIHON, 2);
 
     check("composition caret clamped",
           ime_event(WN_EVENT_IME_COMPOSITION, NIHON, 99, NULL, NULL) == search,
@@ -274,6 +303,8 @@ int main(void)
     composition_inactive("escape cleared composition");
     check("escape keeps focus", wn_core_input_focused(g_core) == search,
           "focus is not released");
+    check("escape notifies platform cancel", g_fake.cancel_calls == 1,
+          "wn_ime_ops.cancel called once");
     expect_value("value after escape", search, "ab");
 
     /* -------------------------------------------------- explicit CANCEL */
@@ -307,6 +338,22 @@ int main(void)
     type_codepoint((uint32_t)'Z');
     expect_value("typing resumes after commit", search, "ab" NIHON "Z");
 
+    /* --------------------------- stale and empty commits never insert text */
+    check("stale commit ignored",
+          ime_event(WN_EVENT_IME_COMMIT, "ZZ", 0, &value_changed,
+                    &visual_changed) == search &&
+              !value_changed,
+          "COMMIT without an active composition is a no-op");
+    expect_value("stale commit leaves value", search, "ab" NIHON "Z");
+    ime_event(WN_EVENT_IME_START, NULL, 0, NULL, NULL);
+    check("empty commit ignored",
+          ime_event(WN_EVENT_IME_COMMIT, "", 0, &value_changed,
+                    &visual_changed) == search &&
+              !value_changed,
+          "empty COMMIT clears the preedit without inserting");
+    composition_inactive("empty commit cleared composition");
+    expect_value("empty commit leaves value", search, "ab" NIHON "Z");
+
     /* ------------------------------------------- commit replaces selection */
     check("reset for selection", wn_core_set_input_value(g_core, search, "abcd") == 0,
           "value reset to abcd");
@@ -330,6 +377,40 @@ int main(void)
     expect_value("disabled value unchanged", search, "\xe3\x81\x82");
     /* force_state_mask ORs, so clear the bit explicitly. */
     wn_core_set_state(g_core, search, WN_STATE_DISABLED, 0);
+
+    /* --------------------------- the post-commit swallow dies with the focus */
+    check("reset search before swallow probe",
+          wn_core_set_input_value(g_core, search, "ab") == 0 &&
+              wn_core_focus_input_at_end(g_core, search) == search,
+          "search focused with value ab");
+    ime_event(WN_EVENT_IME_START, NULL, 0, NULL, NULL);
+    ime_event(WN_EVENT_IME_COMPOSITION, NIHON, 3, NULL, NULL);
+    ime_event(WN_EVENT_IME_COMMIT, NIHON, 0, NULL, NULL);
+    expect_value("commit before focus switch", search, "ab" NIHON);
+    check("focus other input clears swallow",
+          wn_core_focus_input_at_end(g_core, empty) == empty,
+          "focus moved to input#empty");
+    check("focus search again",
+          wn_core_focus_input_at_end(g_core, search) == search,
+          "focus moved back to input#search");
+    type_codepoint(CP_NI);
+    expect_value("swallow cleared on focus change", search,
+                 "ab" NIHON "\xe3\x81\xab");
+
+    /* ------------------------------------- commit truncates at max_length */
+    check("focus empty for truncation",
+          wn_core_set_input_value(g_core, empty, "abc") == 0 &&
+              wn_core_focus_input_at_end(g_core, empty) == empty,
+          "input#empty (maxlength=5) owns the focus");
+    ime_event(WN_EVENT_IME_START, NULL, 0, NULL, NULL);
+    ime_event(WN_EVENT_IME_COMPOSITION, "1234567", 7, NULL, NULL);
+    check("commit truncates at max_length",
+          ime_event(WN_EVENT_IME_COMMIT, "1234567", 0, &value_changed,
+                    &visual_changed) == empty &&
+              value_changed,
+          "COMMIT inserts only the bytes that fit");
+    expect_value("value truncated to max_length", empty, "abc12");
+    composition_inactive("truncated commit cleared composition");
 
     /* ------------------------------------------------- focus switch + blur */
     check("focus second input",

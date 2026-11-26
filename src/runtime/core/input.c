@@ -572,15 +572,34 @@ void wn_core_set_ime(wn_core *core, const wn_ime_ops *ops, void *context)
     }
 }
 
+/* Escape while composing: the editor owns the cancel, so the platform gets a
+ * chance to discard its preedit too (IMM32: ImmNotifyIME(CPS_CANCEL)). */
+static void input_ime_cancel(wn_core *c)
+{
+    input_ime_clear(c);
+    if (c->ime_ops != NULL && c->ime_ops->cancel != NULL) {
+        c->ime_ops->cancel(c->ime_context);
+    }
+}
+
 void wn_core_ime_abort(wn_core *c)
 {
     if (c == NULL) {
         return;
     }
     input_ime_clear(c);
+    input_ime_swallow_clear(c);
     if (c->ime_ops != NULL && c->ime_ops->blur != NULL) {
         c->ime_ops->blur(c->ime_context);
     }
+}
+
+/* Recompute the platform caret/candidate boxes after resize, scroll or a
+ * reflow. Called by the view once per frame while an input owns the focus; the
+ * blink-reset choke point only covers edits and focus changes. */
+void wn_core_ime_sync(wn_core *core)
+{
+    input_ime_caret_sync(core);
 }
 
 int wn_core_input_composition(const wn_core *core, const char **text, int *caret)
@@ -711,8 +730,23 @@ int wn_core_input_ime(wn_core *core, int event_type, const char *text_utf8,
     case WN_EVENT_IME_COMMIT: {
         int consumed = 0;
         int inserted;
-        if (text_utf8 != NULL && text_utf8[0] != '\0' &&
-            input_has_selection(core, node)) {
+        /* Only a commit for the composition this input owns may edit. A stale
+         * result arriving after ENDCOMPOSITION must not insert into a field
+         * that no longer has an active preedit. */
+        if (core->ime_node != node) {
+            return node;
+        }
+        if (text_utf8 == NULL || text_utf8[0] == '\0') {
+            /* Empty result: drop the preedit and never touch the value. */
+            input_ime_clear(core);
+            core->dirty = 1;
+            if (visual_changed != NULL) {
+                *visual_changed = 1;
+            }
+            input_ime_caret_sync(core);
+            return node;
+        }
+        if (input_has_selection(core, node)) {
             int start;
             int end;
             input_selection_bounds(core, node, &start, &end);
@@ -832,6 +866,9 @@ int wn_core_focus_input(wn_core *core, int node, float pointer_x)
     if (record == NULL || wn_core_node_disabled(core, node)) {
         return -1;
     }
+    /* A focus change means a pending post-commit WM_CHAR can no longer belong
+     * to the old field; never let it be eaten in the new one. */
+    input_ime_swallow_clear(core);
     ensure_layout_for_hit(core);
     if (core->input_focus >= 0) {
         if (core->input_focus != node) {
@@ -990,7 +1027,7 @@ int wn_core_input_key(wn_core *core, int key, uint32_t modifiers,
      * composition (and keeps the focus) instead of blurring the input. */
     if (core->ime_node >= 0) {
         if (key == WN_KEY_ESCAPE) {
-            input_ime_clear(core);
+            input_ime_cancel(core);
             core->dirty = 1;
             if (visual_changed != NULL) {
                 *visual_changed = 1;

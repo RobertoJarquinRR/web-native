@@ -61,7 +61,7 @@ CXX_SUFFIXES = (".cpp", ".cc", ".cxx")
 # tautological (both sides use the same emission).
 PINNED_BLOBS = {
     "canonical": "f9b86be6d1fffdf129102156e508f83e931a7f01bce6e6bb6dfb4ffaca50a3f1",
-    "input": "e26d72c3ce8110af24a708e88a7f8d4ed16bcc59deaa984e5dc035018a39fa3c",
+    "input": "d7a08a4e8a4051fd92a7cbcead0e54b44361ed597154b457e3bcffe320b40de1",
     "fidelity": "c8137243834022da0228cef1e78fefe781b5367124b896e5706b7e2395628f4e",
     "pilot": "7fe91d46956f89022d743f8654e92038cb9b5278277f3eb3cc0265cce689adaa",
     "dynamic": "22cb06405270930f39eb5939dc1945a2fd18f3476341e5cafef2dd06c36dbba7",
@@ -994,7 +994,23 @@ def run_input() -> int:
     # (glyph + underline), key suppression, Escape/explicit cancel, commit once,
     # no double insertion after a following char, commit over a selection,
     # disabled rejection and the focus switch. Deleting a probe drops this.
-    _expect_checks(ime_text, "ime_test", 47)
+    _expect_checks(ime_text, "ime_test", 67)
+
+    log_step("input: IME backend survives wn_view_replace_document")
+    view_exe = out / "ime_view_test.exe"
+    _compile(
+        view_exe,
+        [suite / "ime_view_test.c", _suite_dir("text") / "fake_text.c",
+         *runtime_sources(skip_main=True)],
+        includes,
+        libs,
+    )
+    copy_wgpu_dll(out)
+    view_text = _run(view_exe, [], suite)
+    _expect(view_text, ["ime_view_test: PASS"], "IME view test")
+    # View-level B1: focus before replace, old core blur, new core focus/caret,
+    # explicit focus after replace, and a composition/commit on the new core.
+    _expect_checks(view_text, "ime_view_test", 14)
 
     log_step("input: runtime stages")
     runtime_exe = out / "runtime_input.exe"

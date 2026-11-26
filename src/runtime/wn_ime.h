@@ -29,6 +29,10 @@ typedef struct wn_ime_ops {
     /* The focused input (or the whole view) lost the IME: disable it. Called
      * once per focus loss, including a focus switch to another input. */
     void (*blur)(void *context);
+    /* User-initiated cancel (Escape) while composing: ask the platform IME to
+     * discard its composition. IMM32 implements it with ImmNotifyIME(CPS_CANCEL);
+     * a host without platform state can leave it NULL. */
+    void (*cancel)(void *context);
     /* The caret moved while an input owns the IME. `caret_rect` is the painted
      * caret box (width is the caret width). */
     void (*set_caret_rect)(void *context, const wn_rect *caret_rect);

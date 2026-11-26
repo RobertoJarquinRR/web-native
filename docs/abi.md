@@ -123,14 +123,25 @@ pinta. No hay `commit` separado.
   selección y el scroll son los del editor de una línea.
 - `COMMIT` sustituye la selección y inserta el texto una sola vez al soltar el
   IME. Si el host reenvía además el `WM_CHAR`/`WN_EVENT_CHAR` final con el mismo
-  texto, el core lo descarta (no hay doble inserción).
+  texto, el core lo descarta (no hay doble inserción). Un `COMMIT` vacío o uno
+  que llega sin composición activa no inserta nada.
+- Escape cancela la composición y avisa al backend con `wn_ime_ops.cancel`
+  (`ImmNotifyIME(CPS_CANCEL)` en Win32); el foco se conserva.
 - Un input `WN_STATE_DISABLED` (o dentro de un subárbol deshabilitado) rechaza
   `START`/`COMPOSITION`/`COMMIT` con `-1` aunque un foco se haya colado.
-- El host standalone instala IMM32 y emite estos eventos desde
-  `WM_IME_STARTCOMPOSITION/COMPOSITION/ENDCOMPOSITION`; un host embedded puede
-  reenviarlos por `wn_view_event` y, si compila el runtime, instalar su propio
-  backend con la superficie interna `wn_view_set_ime`/`wn_ime_ops`. TSF y la
-  composición multilínea/por segmentos quedan fuera de v7.
+- El host de `wn_app` instala IMM32 y emite estos eventos desde
+  `WM_IME_STARTCOMPOSITION/COMPOSITION/ENDCOMPOSITION` (más `WM_IME_CHAR`); un
+  host embedded puede reenviarlos por `wn_view_event` y, si compila el runtime,
+  instalar su propio backend con la superficie interna
+  `wn_view_set_ime`/`wn_ime_ops`. El backend vive en el `wn_view`, así que
+  `wn_view_replace_document`/`wn_app_load_document` lo reinstala en el core
+  nuevo y conserva el foco por nombre. `runtime_r2.exe` no es esa ruta: tiene su
+  propio `WndProc` sin IME; el smoke manual son `standalone`/`embedded` o
+  `examples/input.c`. TSF y la composición multilínea/por segmentos quedan fuera
+  de v7.
+- CJK: el motor no tiene fallback de fuentes. Sin una familia CJK instalada
+  (Segoe UI no la tiene) los glifos salen como glifo 0; declara
+  `Yu Gothic UI`/`Microsoft YaHei`/`Malgun Gothic` en `font-family`.
 
 ### Identidad y navegación (v5)
 
@@ -326,9 +337,10 @@ private static partial nint wn_node_get_value(nint app, ulong node);
 - `set_image` conserva el tamaño intrínseco compilado hasta que el host llame
   `wn_node_set_image_size`; no hay probe WIC automático.
 - Input: una línea UTF-8 (shapeada en runtime), con IME IMM32 (composición,
-  commit y cancel sobre el caret; sin TSF), sin bidi/CJK/emoji fuera del IME,
-  sin multilínea, sin password, sin undo/redo; drag-select y caret blink
-  incluidos.
+  commit y cancel sobre el caret; sin TSF), sin bidi/emoji, sin multilínea, sin
+  password, sin undo/redo; drag-select y caret blink incluidos. CJK funciona por
+  el IME/dato UTF-8, pero el texto necesita una familia CJK instalada: no hay
+  fallback de fuentes todavía.
 - `selected` y `focused` ya son por nodo, pero las clases siguen siendo por
   nombre compilado (no hay `set_class` por handle).
 - Los estilos de estado (blob v6) sólo cubren `background`, `color` y el color

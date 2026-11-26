@@ -41,6 +41,10 @@ struct wn_view {
     char *css;
     char *value_scratch;      /* wn_view_get_value result, freed on next call */
     char *text_scratch;       /* wn_view_get_text result, freed on next call */
+    /* ABI v7: the platform IME belongs to the view, not to one core. Kept here
+     * so wn_view_replace_document can install it on the replacement core. */
+    const wn_ime_ops *ime_ops;
+    void *ime_context;
     wn_event_cb callback;
     void *userdata;
     /* Re-entrancy guard: a callback may destroy this view while it is still
@@ -479,10 +483,24 @@ wn_view *wn_view_create_offscreen(int32_t width, int32_t height)
 int wn_view_replace_document(wn_view *view, wn_document *document)
 {
     wn_core *core;
+    char *focus_name = NULL;
+    int restore_focus = 0;
 
     if (view == NULL || document == NULL) {
         wn_set_error("wn_view_replace_document: view and document are required");
         return 1;
+    }
+    /* Remember the focused field by name: the replacement core has fresh node
+     * indices, so an index would point at the wrong node (or a dead slot). */
+    if (view->core != NULL) {
+        int focused = wn_core_input_focused(view->core);
+        if (focused >= 0) {
+            const char *name = wn_core_node_name(view->core, focused);
+            if (name != NULL) {
+                focus_name = wn_strdup_(name);
+                restore_focus = focus_name != NULL;
+            }
+        }
     }
     core = wn_core_create(document);
     if (core == NULL) {
@@ -490,10 +508,16 @@ int wn_view_replace_document(wn_view *view, wn_document *document)
         snprintf(detail, sizeof(detail), "%s",
                  wn_last_error() != NULL ? wn_last_error() : "cannot build a core");
         wn_set_error("wn_view_replace_document: %s", detail);
+        wn_free_(focus_name);
         return 1;
     }
     if (view->owns_core && view->core != NULL) {
+        /* The old core blurs its platform IME in wn_core_destroy(). */
         wn_core_destroy(view->core);
+    } else if (view->core != NULL) {
+        /* Borrowed core: release the platform IME even though the caller keeps
+         * ownership of the core itself. */
+        wn_core_ime_abort(view->core);
     }
     if (view->document != NULL) {
         wn_document_release((wn_document *)view->document);
@@ -503,6 +527,19 @@ int wn_view_replace_document(wn_view *view, wn_document *document)
     view->document = document;
     view->owns_core = 1;
     view->loaded = 1;
+    /* The view size is authoritative; a blob compiled at another viewport must
+     * not leave the new core laid out for the wrong surface. */
+    wn_core_resize(core, view->width, view->height);
+    /* ABI v7 regression: the backend belongs to the view, so the new core must
+     * receive it before any focus is restored or reported to the platform. */
+    wn_core_set_ime(core, view->ime_ops, view->ime_context);
+    if (restore_focus) {
+        int node = wn_core_find_node(core, focus_name);
+        if (node >= 0 && wn_core_focus_input_at_end(core, node) >= 0) {
+            view->geometry_dirty = 1;
+        }
+    }
+    wn_free_(focus_name);
     view->geometry_dirty = 1;
     view->upload_dirty = 1;
     return 0;
@@ -910,7 +947,10 @@ wn_status wn_view_render(wn_view *view)
     }
     if (wn_core_input_focused(view->core) >= 0) {
         /* The caret blink phase is time based and lives outside the cached
-         * display list, so a focused input rebuilds it on every frame. */
+         * display list, so a focused input rebuilds it on every frame. Resize,
+         * scroll and reflow also move the caret without a blink reset, so sync
+         * the platform IME boxes here before the list is rebuilt. */
+        wn_core_ime_sync(view->core);
         view->geometry_dirty = 1;
     }
     if (view->geometry_dirty) {
@@ -1692,8 +1732,14 @@ wn_status wn_view_tick(wn_view *view)
 
 void wn_view_set_ime(wn_view *view, const wn_ime_ops *ops, void *context)
 {
-    if (view == NULL || view->core == NULL) {
+    if (view == NULL) {
         return;
     }
-    wn_core_set_ime(view->core, ops, context);
+    /* Persist first: a later document replacement must install the same backend
+     * on the new core (wn_view_replace_document). */
+    view->ime_ops = ops;
+    view->ime_context = context;
+    if (view->core != NULL) {
+        wn_core_set_ime(view->core, ops, context);
+    }
 }
