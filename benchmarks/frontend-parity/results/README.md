@@ -1,6 +1,6 @@
 # Frontend parity — snapshot congelado
 
-**Subset:** `benchmarks/frontend-parity/SPEC.md` v1 (rect-only: `contract` y
+**Subset:** `archive/benchmarks-r1/SPEC.md` v1 (rect-only: `contract` y
 `flex-page`). **Fecha:** 2026-11-24. **Código medido:** `55b8f7f`.
 
 > **Snapshot histórico, sin runner.** El harness (incluido el comparador de
@@ -28,7 +28,8 @@ parseo, cascada, layout y escritura del IR. El detalle por ejecución está en
   etc.
 - **Python** es el oráculo del subset v1; no se actualiza con las features
   nuevas de Rust.
-- **C++ y C#** son **referencias de paridad congeladas** en `SPEC.md`. No se
+- **C++ y C#** son **referencias de paridad congeladas** en
+  `archive/benchmarks-r1/SPEC.md`. No se
   actualizan para seguir a Rust; su obligación es producir el mismo IR en los
   fixtures del SPEC.
 

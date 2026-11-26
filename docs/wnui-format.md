@@ -71,7 +71,7 @@ Una línea por nodo, con nombres simbólicos estables para `kind` (`block`,
 `flex`, `text`, `grid`, `image`, `input`), `direction`, `justify`, `align`,
 `wrap`, `overflow`, `object_fit`, `text_align`, `action` y `grid`. Los colores
 salen como `#AARRGGBB` (`#ff0b0e14`) y los floats con cuatro decimales (`%.4f`,
-sin `-0.0000`), igual que el emisor. Ejemplo recortado:
+sin `-0.0000`), con el mismo formato estable del dump. Ejemplo recortado:
 
 ```
 node 0 parent=-1 kind=flex name="body.root" direction=row justify=start align=stretch wrap=nowrap width=-1.0000 height=-1.0000 ... background=#ff0b0e14 ... text=""

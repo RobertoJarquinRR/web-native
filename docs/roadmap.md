@@ -29,8 +29,8 @@ Un stream no toca los archivos de otro; se integra por contrato.
 | **E8** | Extensiones CSS | transition limitada (P1 post-E1); transform 2D + position rel/abs + z-index simple (P2); animation/float futuro/no-go | E1, E6 (schema `/4`), reloj del `wn_host` | **Definido**; ver `e8-css-extensions.md` |
 
 > **Orden de ejecución:** CI y contratos (E6) → ABI v6 (estado/lecturas) →
-> C11 color + retirar el emisor → E4 input v2 → E5 escala → E3 plataforma →
-> E7 release. E2 va en
+> documento blob-only y retirada del emisor (C5/C12) → E4 input v2 →
+> E5 escala → E3 plataforma → E7 release. E2 va en
 > paralelo. E8 transform/position/z-index después de transition;
 > animation/float futuro/no-go.
 

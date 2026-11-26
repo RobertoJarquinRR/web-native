@@ -39,7 +39,7 @@ Plataforma soportada: **Windows 10/11 x64**. No hay release ARM64 ni x86.
 | MSVC       | Visual Studio 2022/2026 Build Tools, workload **Desktop development with C++**, MSVC x64 + Windows 10/11 SDK; `vcvars64.bat` localizable |
 | Rust       | stable (`rustc`/`cargo`); el frontend canónico se compila en release                                                                     |
 | .NET SDK   | **10.0.x** solo para el host C#/benchmarks; no es requisito del engine                                                                   |
-| Python     | **3.12** + venv solo para emisores, oráculo y tooling (`requirements.txt`)                                                               |
+| Python     | **3.12** + venv para tooling y tests (`requirements.txt`)                                                                                 |
 | PowerShell | 5.1 opcional; los orquestadores viven en `archive/ps1-legacy` y el flujo actual es `python tools/cli.py`                                 |
 | GPU        | D3D11 o D3D12; WARP como fallback software (más lento, RSS alto)                                                                         |
 | Red        | solo en build (`python tools\cli.py setup wgpu`); **ninguna** en runtime                                                                 |
