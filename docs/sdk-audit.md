@@ -63,7 +63,7 @@ Pendiente de la lista: A2, A9, B1–B5, B7, B10, C2–C10.
 | C2 | Paridad visual | `benchmarks/visual-parity/tools/render_native.py` apunta a `c-r2` y no hay runner | R1 retirado | retirar a `archive/` o reescribir sobre `wn-cli` |
 | C3 | Métricas | `engine-metrics` sin ejecutar desde que se quitó R1 | rama R1 eliminada sin re-baseline | correr `wn-cli bench metrics` y actualizar `BASELINE.md` |
 | C4 | Tests | `test all` regenera `tests/*/page/ui.json` trackeados y deja el árbol sucio | fixtures dentro del repo | generarlos en `out/` o commitearlos como golden y no regenerarlos |
-| C5 | Compilador | Rust ya escribe `.wnui` y `ui_data.h` (`--emit-header`, byte-idéntico en 3 páginas); el emisor Python sigue en el pipeline | transición a medias | cambiar `wn-cli`/suites a `--emit-header` y retirar el emisor, **después** de C11 |
+| C5 | Compilador | Rust ya escribe `.wnui` y `ui_data.h` (`--emit-header`, byte-idéntico en 4 páginas, con goldens); el emisor Python sigue en el pipeline | transición a medias | cambiar `wn-cli`/suites a `--emit-header` y retirar el emisor, **después** de C11 |
 | C6 | Blob | Solo hay versión exacta; sin política de compatibilidad | loader exige `version == 2` | aceptar versiones ≤ actual con secciones opcionales |
 | C7 | Hilos | `text_runtime` es singleton global con buffer estático | asume un hilo de UI | documentar o pasar contexto por core |
 | C8 | Errores | Mezcla de `-1/-2` y `wn_status`; no hay código estructurado | crecimiento histórico | normalizar a `wn_status` + `wn_last_error` |
