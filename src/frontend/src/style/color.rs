@@ -1,33 +1,42 @@
 //! CSS value helpers with the same semantics as `cascade.length` /
 //! `cascade.parse_color` in the Python frontend.
 //!
-//! The color parser is a faithful port of
-//! `tinycss2.color3.parse_color` **1.5.1** (legacy CSS Color Level 3 syntax
-//! only), because that function is the oracle behind `emit_ui.argb()`:
+//! There are **two color grammars**, deliberately kept separate:
 //!
-//! * `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa` (4 digits = rgba),
-//! * every CSS3 named color (147 entries, including `grey` aliases) plus
-//!   `transparent`; `rebeccapurple` is *not* a CSS3 color and parses to `None`,
-//! * `rgb()`/`rgba()` with **mandatory commas** and 3/4 arguments; channels are
-//!   integer numbers or percentages, `+` signs are allowed, exponents and
-//!   decimals are rejected (`is_integer` in tinycss2's tokenizer),
-//! * `hsl()`/`hsla()` with a unitless number hue (negative allowed, exponents
-//!   allowed because the hue only needs a `number` token) and percentage
-//!   saturation/lightness. `deg`/`turn`/`rad`/`grad` are **not** accepted by
-//!   1.5.1 (`hsl(0deg, …)` is a dimension token, not a number),
-//! * anything else (`rgb(255 0 0 / 50%)`, `#ggg`, `2.55e2`, `none`) -> `None`.
+//! 1. [`argb`] is a faithful port of `tinycss2.color3.parse_color` **1.5.1**
+//!    (legacy CSS Color Level 3 syntax only), because that function is the
+//!    oracle behind `emit_ui.argb()` and it is what re-parses the raw
+//!    `data-hover` / `data-press` / `data-selected` attributes:
 //!
-//! Two tinycss2 quirks are replicated on purpose:
+//!    * `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa` (4 digits = rgba),
+//!    * every CSS3 named color (147 entries, including `grey` aliases) plus
+//!      `transparent`; `rebeccapurple` is *not* a CSS3 color and parses to
+//!      `None`,
+//!    * `rgb()`/`rgba()` with **mandatory commas** and 3/4 arguments; channels
+//!      are integer numbers or percentages, `+` signs are allowed, exponents
+//!      and decimals are rejected (`is_integer` in tinycss2's tokenizer),
+//!    * `hsl()`/`hsla()` with a unitless number hue (negative allowed,
+//!      exponents allowed because the hue only needs a `number` token) and
+//!      percentage saturation/lightness. `deg`/`turn`/`rad`/`grad` are **not**
+//!      accepted by 1.5.1 (`hsl(0deg, …)` is a dimension token),
+//!    * anything else (`rgb(255 0 0 / 50%)`, `#ggg`, `2.55e2`, `none`) -> 0.
 //!
-//! * `rgb()`/`rgba()` channels are *not* clamped: `rgb(300,0,0)` yields
-//!   `RGBA(1.176…)` and `rgb(-10,0,0)` a negative channel. Only the alpha
-//!   channel is clipped to `0..1`. [`argb`] therefore masks the 32-bit result
-//!   instead of clamping; [`parse_color`]/[`color_with_alpha`], which write a
-//!   normalized `#rrggbb[aa]` string, clamp to `0..255` because Python's
-//!   `"%02x" % value` would otherwise produce invalid CSS.
-//! * `currentcolor` is returned by tinycss2 as the sentinel string
-//!   `'currentColor'`; the Python `argb()` then raises `AttributeError`
-//!   (a bug in the oracle). Rust returns 0 and never crashes.
+//!    Two tinycss2 quirks are replicated on purpose:
+//!
+//!    * `rgb()`/`rgba()` channels are *not* clamped: `rgb(300,0,0)` yields
+//!      `RGBA(1.176…)` and `rgb(-10,0,0)` a negative channel. Only the alpha
+//!      channel is clipped to `0..1`. [`argb`] therefore masks the 32-bit
+//!      result instead of clamping.
+//!    * `currentcolor` is returned by tinycss2 as the sentinel string
+//!      `'currentColor'`; the Python `argb()` then raises `AttributeError`
+//!      (a bug in the oracle). Rust returns 0 and never crashes.
+//!
+//! 2. The **declared** colors ([`parse_color`], [`color_with_alpha`] and the
+//!    subset checker's [`is_declared_color`]) are a browser-valid superset:
+//!    everything the pre-lane Rust accepted *and* everything tinycss2 accepts,
+//!    plus `rebeccapurple`, space/slash `rgb()`/`hsl()` and `%` alpha. The
+//!    value is normalized to `#rrggbb` (v1) or `#rrggbb[aa]` (v3) before it
+//!    reaches `ui.json`, so the Python emitter still sees plain hex.
 //!
 //! Channel -> byte conversion uses Python's `round()` (round-half-even), the
 //! same path as `emit_ui.argb()`.
@@ -150,13 +159,15 @@ pub(crate) fn argb(value: Option<&str>) -> u32 {
 ///
 /// This is `cascade.parse_color` (the v1 `background`/`color` contract): alpha
 /// is dropped and a fully transparent color becomes `None` (no background).
+/// It uses the declared grammar (CSS3 + `rebeccapurple` + space/slash syntax),
+/// not the tinycss2 `data-*` grammar.
 pub(crate) fn parse_color(value: Option<&str>) -> Option<String> {
     let raw = value?;
     // Python: `css_color(value) if value else None` -- only "" is falsy.
     if raw.is_empty() {
         return None;
     }
-    let Some(ParsedColor::Rgba(color)) = parse_tinycss(raw) else {
+    let Declared::Rgba(color) = parse_declared(raw)? else {
         return None;
     };
     if color.alpha <= 0.0 {
@@ -178,15 +189,292 @@ pub(crate) fn parse_color(value: Option<&str>) -> Option<String> {
 /// maps those strings back to 0.
 pub(crate) fn color_with_alpha(value: Option<&str>) -> Option<String> {
     let raw = value?;
-    let Some(ParsedColor::Rgba(color)) = parse_tinycss(raw) else {
+    let Declared::Rgba(color) = parse_declared(raw)? else {
         return None;
     };
     Some(format_rgba(
         to_byte(color.red),
         to_byte(color.green),
         to_byte(color.blue),
-        to_byte(color.alpha),
+        to_byte(color.alpha * 255.0),
     ))
+}
+
+/// Whether the declared grammar accepts `value`.
+///
+/// The subset checker uses this exact function, so a value the cascade would
+/// silently drop (`lab()`, `color-mix()`, …) is always reported by
+/// `--strict-subset`, and a value it accepts is never reported.
+pub(crate) fn is_declared_color(value: &str) -> bool {
+    parse_declared(value).is_some()
+}
+
+// ---------------------------------------------------------- declared colors
+
+/// A color from the declared grammar: channels are already clamped to
+/// `0..255`, alpha to `0..1`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct DeclaredColor {
+    red: f64,
+    green: f64,
+    blue: f64,
+    alpha: f64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Declared {
+    Rgba(DeclaredColor),
+    CurrentColor,
+}
+
+/// Browser-valid superset used by `background`, `color`, `border*` and
+/// `box-shadow`/`text-shadow`:
+///
+/// * CSS3 names (147) plus `rebeccapurple` and `transparent`;
+/// * hex 3/4/6/8;
+/// * `rgb()`/`rgba()` with commas **or** space/slash syntax, 3 or 4 arguments,
+///   channels as numbers or percentages, alpha as a number or percentage;
+/// * `hsl()`/`hsla()` with a unitless/`deg`/`rad`/`grad`/`turn` hue, `%`
+///   saturation/lightness, commas or space/slash syntax and numeric or `%`
+///   alpha.
+///
+/// Channels are clamped after parsing (unlike the tinycss2 `argb` path), which
+/// is what the pre-lane `parse_color` did.
+fn parse_declared(input: &str) -> Option<Declared> {
+    // Comments are token separators in CSS, and tinycss2 skips them before
+    // `parse_color` sees the value (`rgb(255,0,0)/*x*/` is valid).
+    let text = strip_css_comments(input).trim().to_ascii_lowercase();
+    if text.is_empty() {
+        return None;
+    }
+    if text == "currentcolor" {
+        return Some(Declared::CurrentColor);
+    }
+    if text == "transparent" {
+        return Some(Declared::Rgba(DeclaredColor {
+            red: 0.0,
+            green: 0.0,
+            blue: 0.0,
+            alpha: 0.0,
+        }));
+    }
+    if let Some(hex) = text.strip_prefix('#') {
+        return declared_hex(hex);
+    }
+    for (name, parser) in [
+        (
+            "rgb",
+            declared_rgb_arguments as fn(&str) -> Option<Declared>,
+        ),
+        ("rgba", declared_rgb_arguments),
+        ("hsl", declared_hsl_arguments),
+        ("hsla", declared_hsl_arguments),
+    ] {
+        if let Some(inner) = function_body(&text, name) {
+            return parser(inner);
+        }
+    }
+    declared_keyword(&text)
+}
+
+/// Replaces `/* ... */` with a single space (comments separate tokens).
+fn strip_css_comments(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '/' && chars.peek() == Some(&'*') {
+            chars.next();
+            let mut previous = '\0';
+            for next in chars.by_ref() {
+                if previous == '*' && next == '/' {
+                    break;
+                }
+                previous = next;
+            }
+            out.push(' ');
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+/// `name( ... )` exactly: no trailing tokens, no nested function names.
+///
+/// Like the CSS tokenizer (and tinycss2), an unclosed function at end of input
+/// is auto-closed, so `rgb(255,0,0` is valid.
+fn function_body<'a>(text: &'a str, name: &str) -> Option<&'a str> {
+    let rest = text.strip_prefix(name)?.strip_prefix('(')?;
+    Some(rest.strip_suffix(')').unwrap_or(rest))
+}
+
+fn declared_hex(hex: &str) -> Option<Declared> {
+    let digits: Vec<u8> = hex
+        .chars()
+        .map(|ch| ch.to_digit(16).map(|digit| digit as u8))
+        .collect::<Option<Vec<u8>>>()?;
+    let (red, green, blue, alpha) = match digits.len() {
+        3 => (digits[0] * 17, digits[1] * 17, digits[2] * 17, 255),
+        4 => (
+            digits[0] * 17,
+            digits[1] * 17,
+            digits[2] * 17,
+            digits[3] * 17,
+        ),
+        6 => (
+            digits[0] * 16 + digits[1],
+            digits[2] * 16 + digits[3],
+            digits[4] * 16 + digits[5],
+            255,
+        ),
+        8 => (
+            digits[0] * 16 + digits[1],
+            digits[2] * 16 + digits[3],
+            digits[4] * 16 + digits[5],
+            digits[6] * 16 + digits[7],
+        ),
+        _ => return None,
+    };
+    Some(Declared::Rgba(DeclaredColor {
+        red: f64::from(red),
+        green: f64::from(green),
+        blue: f64::from(blue),
+        alpha: f64::from(alpha) / 255.0,
+    }))
+}
+
+fn declared_keyword(name: &str) -> Option<Declared> {
+    // CSS Color 4 name, deliberately absent from the CSS3/tinycss2 table.
+    if name == "rebeccapurple" {
+        return Some(rgb_255(0x66, 0x33, 0x99));
+    }
+    let index = NAMED_COLORS
+        .binary_search_by(|(keyword, _)| (*keyword).cmp(name))
+        .ok()?;
+    let rgb = NAMED_COLORS[index].1;
+    Some(rgb_255(
+        ((rgb >> 16) & 0xFF) as u8,
+        ((rgb >> 8) & 0xFF) as u8,
+        (rgb & 0xFF) as u8,
+    ))
+}
+
+fn rgb_255(red: u8, green: u8, blue: u8) -> Declared {
+    Declared::Rgba(DeclaredColor {
+        red: f64::from(red),
+        green: f64::from(green),
+        blue: f64::from(blue),
+        alpha: 1.0,
+    })
+}
+
+fn declared_rgb_arguments(inner: &str) -> Option<Declared> {
+    let tokens = color_tokens(inner);
+    if !(3..=4).contains(&tokens.len()) {
+        return None;
+    }
+    let red = declared_channel(tokens[0])?;
+    let green = declared_channel(tokens[1])?;
+    let blue = declared_channel(tokens[2])?;
+    let alpha = match tokens.get(3) {
+        Some(token) => declared_alpha(token)?,
+        None => 1.0,
+    };
+    Some(Declared::Rgba(DeclaredColor {
+        red: red.clamp(0.0, 255.0),
+        green: green.clamp(0.0, 255.0),
+        blue: blue.clamp(0.0, 255.0),
+        alpha,
+    }))
+}
+
+fn declared_hsl_arguments(inner: &str) -> Option<Declared> {
+    let tokens = color_tokens(inner);
+    if !(3..=4).contains(&tokens.len()) {
+        return None;
+    }
+    let hue = declared_hue(tokens[0])?;
+    let saturation = declared_percentage(tokens[1])?;
+    let lightness = declared_percentage(tokens[2])?;
+    let alpha = match tokens.get(3) {
+        Some(token) => declared_alpha(token)?,
+        None => 1.0,
+    };
+    let (red, green, blue) = hls_to_rgb(hue / 360.0, lightness, saturation);
+    Some(Declared::Rgba(DeclaredColor {
+        red: (red * 255.0).clamp(0.0, 255.0),
+        green: (green * 255.0).clamp(0.0, 255.0),
+        blue: (blue * 255.0).clamp(0.0, 255.0),
+        alpha,
+    }))
+}
+
+/// Commas *or* whitespace/slash separate the arguments, like the pre-lane
+/// parser. Nested functions were already rejected by [`function_body`].
+fn color_tokens(inner: &str) -> Vec<&str> {
+    inner
+        .split(|ch: char| ch == ',' || ch == '/' || ch.is_whitespace())
+        .filter(|token| !token.is_empty())
+        .collect()
+}
+
+fn declared_channel(token: &str) -> Option<f64> {
+    if let Some(percent) = token.strip_suffix('%') {
+        Some(css_number(percent)? * 255.0 / 100.0)
+    } else {
+        css_number(token)
+    }
+}
+
+fn declared_alpha(token: &str) -> Option<f64> {
+    let value = if let Some(percent) = token.strip_suffix('%') {
+        css_number(percent)? / 100.0
+    } else {
+        css_number(token)?
+    };
+    Some(value.clamp(0.0, 1.0))
+}
+
+fn declared_percentage(token: &str) -> Option<f64> {
+    Some(css_number(token.strip_suffix('%')?)? / 100.0)
+}
+
+/// Hue with a unitless/`deg`/`rad`/`grad`/`turn` unit. `grad` must be checked
+/// before `rad` (`grad`.ends_with(`rad`)).
+fn declared_hue(token: &str) -> Option<f64> {
+    if let Some(number) = token.strip_suffix("turn") {
+        return Some(css_number(number)? * 360.0);
+    }
+    if let Some(number) = token.strip_suffix("grad") {
+        return Some(css_number(number)? * 0.9);
+    }
+    if let Some(number) = token.strip_suffix("deg") {
+        return Some(css_number(number)?);
+    }
+    if let Some(number) = token.strip_suffix("rad") {
+        return Some(css_number(number)? * 180.0 / std::f64::consts::PI);
+    }
+    css_number(token)
+}
+
+/// CSS `<number>`: optional sign, decimal point and exponent, finite only.
+fn css_number(text: &str) -> Option<f64> {
+    if text.is_empty() {
+        return None;
+    }
+    let mut has_digit = false;
+    for ch in text.chars() {
+        if ch.is_ascii_digit() {
+            has_digit = true;
+        } else if !matches!(ch, '.' | '+' | '-' | 'e' | 'E') {
+            return None;
+        }
+    }
+    if !has_digit {
+        return None;
+    }
+    let value: f64 = text.parse().ok()?;
+    value.is_finite().then_some(value)
 }
 
 fn format_rgba(red: u8, green: u8, blue: u8, alpha: u8) -> String {
@@ -197,9 +485,10 @@ fn format_rgba(red: u8, green: u8, blue: u8, alpha: u8) -> String {
     }
 }
 
-/// Python `round(channel * 255)`, clamped for the normalized string form.
+/// Python `round(channel)` for a channel already in `0..255`, clamped for the
+/// normalized string form.
 fn to_byte(channel: f64) -> u8 {
-    round_py(channel * 255.0).clamp(0, 255) as u8
+    round_py(channel).clamp(0, 255) as u8
 }
 
 fn parse_tinycss(input: &str) -> Option<ParsedColor> {
@@ -868,7 +1157,7 @@ const NAMED_COLORS: &[(&str, u32)] = &[
 
 #[cfg(test)]
 mod tests {
-    use super::{argb, color_with_alpha, parse_color};
+    use super::{argb, color_with_alpha, is_declared_color, parse_color};
 
     // Checked-in oracle corpus: `(input, ARGB)` generated with tinycss2 1.5.1
     // by `src/frontend/tests/generate_color_corpus.py`.
@@ -876,7 +1165,8 @@ mod tests {
 
     #[test]
     fn argb_matches_the_python_oracle_for_every_corpus_entry() {
-        assert!(CASES.len() >= 200, "corpus too small: {}", CASES.len());
+        // Exact count: the corpus must not silently shrink.
+        assert_eq!(CASES.len(), 566, "corpus changed size");
         for (input, expected) in CASES {
             assert_eq!(
                 argb(Some(input)),
@@ -888,7 +1178,8 @@ mod tests {
 
     #[test]
     fn v1_normalization_matches_the_python_oracle() {
-        assert!(NORMALIZED_CASES.len() >= 150, "{}", NORMALIZED_CASES.len());
+        // Exact count: the corpus must not silently shrink.
+        assert_eq!(NORMALIZED_CASES.len(), 246, "corpus changed size");
         for (input, expected) in NORMALIZED_CASES {
             assert_eq!(
                 parse_color(Some(input)).as_deref(),
@@ -934,5 +1225,125 @@ mod tests {
         assert_eq!(argb(Some("#ff000080")), 0x80FF_0000);
         assert_eq!(argb(Some("rgba(255,0,0,.5)")), 0x80FF_0000);
         assert_eq!(argb(Some("hsl(0,100%,50%)")), 0xFFFF_0000);
+    }
+
+    /// Every form the pre-lane frontend rendered and the declared grammar must
+    /// keep rendering. These are the seven reviewer rows.
+    #[test]
+    fn declared_superset_keeps_the_pre_lane_forms() {
+        assert_eq!(
+            parse_color(Some("rebeccapurple")).as_deref(),
+            Some("#663399")
+        );
+        assert_eq!(
+            color_with_alpha(Some("rebeccapurple")).as_deref(),
+            Some("#663399")
+        );
+        assert_eq!(
+            parse_color(Some("rgb(255 0 0)")).as_deref(),
+            Some("#ff0000")
+        );
+        assert_eq!(
+            parse_color(Some("rgb(0,128,0,0.5)")).as_deref(),
+            Some("#008000")
+        );
+        assert_eq!(
+            color_with_alpha(Some("rgb(0,128,0,0.5)")).as_deref(),
+            Some("#00800080")
+        );
+        assert_eq!(
+            parse_color(Some("rgba(0,0,0,50%)")).as_deref(),
+            Some("#000000")
+        );
+        assert_eq!(
+            color_with_alpha(Some("rgba(0,0,0,50%)")).as_deref(),
+            Some("#00000080")
+        );
+        assert_eq!(
+            color_with_alpha(Some("rgb(255 0 0 / 50%)")).as_deref(),
+            Some("#ff000080")
+        );
+    }
+
+    #[test]
+    fn declared_superset_accepts_percent_alpha_and_channel_percentages() {
+        assert_eq!(
+            color_with_alpha(Some("rgb(100% 0% 0% / 50%)")).as_deref(),
+            Some("#ff000080")
+        );
+        assert_eq!(
+            color_with_alpha(Some("rgba(50%, 25%, 10%, 0.5)")).as_deref(),
+            Some("#80401a80")
+        );
+        // Declared colors clamp out-of-range channels instead of wrapping them.
+        assert_eq!(
+            parse_color(Some("rgb(300,0,0)")).as_deref(),
+            Some("#ff0000")
+        );
+        assert_eq!(
+            parse_color(Some("rgb(-10,0,0)")).as_deref(),
+            Some("#000000")
+        );
+    }
+
+    #[test]
+    fn declared_superset_accepts_hsl_units_and_space_syntax() {
+        let cases = [
+            ("hsl(120,100%,50%)", "#00ff00"),
+            ("hsl(120 100% 50%)", "#00ff00"),
+            ("hsl(120deg 100% 50%)", "#00ff00"),
+            ("hsl(0.5turn 100% 50%)", "#00ffff"),
+            ("hsl(200grad 100% 50%)", "#00ffff"),
+            ("hsl(0rad 100% 50%)", "#ff0000"),
+            ("hsl(-120,100%,50%)", "#0000ff"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(
+                color_with_alpha(Some(input)).as_deref(),
+                Some(expected),
+                "{input}"
+            );
+        }
+        assert_eq!(
+            color_with_alpha(Some("hsl(120 100% 50% / 50%)")).as_deref(),
+            Some("#00ff0080")
+        );
+        assert_eq!(
+            color_with_alpha(Some("hsla(120,100%,50%,50%)")).as_deref(),
+            Some("#00ff0080")
+        );
+    }
+
+    #[test]
+    fn declared_superset_rejects_modern_color_syntax() {
+        for value in [
+            "lab(50% 40 59)",
+            "lch(50% 40 30)",
+            "oklab(0.5 0.1 0.1)",
+            "oklch(0.5 0.2 20)",
+            "color(display-p3 1 0 0)",
+            "color-mix(in srgb, red, blue)",
+            "rgb(255 0)",
+            "hsl(0 100 50)",
+            "rgb(none 0 0)",
+            "#ggg",
+        ] {
+            assert!(!is_declared_color(value), "{value} must be rejected");
+            assert_eq!(color_with_alpha(Some(value)), None, "{value}");
+            assert_eq!(parse_color(Some(value)), None, "{value}");
+        }
+    }
+
+    /// `argb()` must keep tinycss2 1.5.1 semantics because it re-parses the
+    /// raw `data-hover`/`data-press`/`data-selected` strings for `emit_ui.py`.
+    /// The declared superset must not leak into it.
+    #[test]
+    fn argb_keeps_tinycss2_semantics_for_raw_attributes() {
+        assert_eq!(argb(Some("rebeccapurple")), 0);
+        assert_eq!(argb(Some("rgb(255 0 0)")), 0);
+        assert_eq!(argb(Some("rgba(0,0,0,50%)")), 0);
+        assert_eq!(argb(Some("hsl(0deg,100%,50%)")), 0);
+        // Normalized hex from `ui.json` still goes through `argb()`.
+        assert_eq!(argb(Some("#663399")), 0xFF66_3399);
     }
 }

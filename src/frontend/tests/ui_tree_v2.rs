@@ -790,6 +790,109 @@ fn css_v3_features_are_pilot_extensions() {
     assert!(!stderr(&allowed).contains("[subset]"));
 }
 
+// --------------------------------------------- declared colors (superset)
+
+/// The declared-color grammar must keep every form the pre-lane frontend
+/// rendered. In particular `border: 2px solid rebeccapurple` must not drop the
+/// whole shorthand (width/style/color) when the color is not a CSS3 name.
+#[test]
+fn declared_color_superset_keeps_borders_and_shadows() {
+    let dir = temp_dir("declared-colors");
+    let page = r##"<!doctype html>
+<html>
+<head>
+<style>
+body { margin: 0; }
+#fb1 { background: rebeccapurple; }
+#fb2 { background: rgb(255 0 0); }
+#fb3 { background: rgb(0,128,0,0.5); }
+#fb4 { background: rgba(0,0,0,50%); }
+#fc1 { color: rebeccapurple; }
+#fc2 { color: rgb(255 0 0); }
+#border5 { border: 2px solid rebeccapurple; }
+#bc6 { border-style: solid; border-width: 2px; border-color: rebeccapurple; }
+#bc4 { border: 1px solid rgba(0,0,0,50%); }
+#shadow7 { box-shadow: 0 0 4px rebeccapurple; }
+</style>
+</head>
+<body>
+  <div id="fb1">a</div><div id="fb2">b</div><div id="fb3">c</div>
+  <div id="fb4">d</div><div id="fc1">e</div><div id="fc2">f</div>
+  <div id="border5">g</div><div id="bc6">h</div><div id="bc4">i</div>
+  <div id="shadow7">j</div>
+</body>
+</html>
+"##;
+    write(&dir.join("page.html"), page);
+
+    // `--pilot --strict-subset`: box-shadow is an allowed v3 extension and the
+    // declared colors must not produce diagnostics.
+    let output = emit_ui(
+        &dir,
+        "page.html",
+        "ui.json",
+        &["--pilot", "--strict-subset"],
+    );
+    assert!(
+        output.status.success(),
+        "strict subset rejected a declared color\n{}",
+        stderr(&output)
+    );
+    assert!(!stderr(&output).contains("[subset]"), "{}", stderr(&output));
+
+    let doc = read_json(&dir.join("ui.json"));
+    for (id, background) in [
+        ("fb1", "#663399"),
+        ("fb2", "#ff0000"),
+        ("fb3", "#008000"),
+        ("fb4", "#000000"),
+    ] {
+        let node = node_with_id(&doc, id);
+        assert_eq!(
+            style_str(node, "background"),
+            Some(background),
+            "{id} background"
+        );
+    }
+    for (id, color) in [("fc1", "#663399"), ("fc2", "#ff0000")] {
+        let node = node_with_id(&doc, id);
+        assert_eq!(style_str(node, "color"), Some(color), "{id} color");
+    }
+
+    // The shorthand must stay expanded: width + style + color.
+    for id in ["border5", "bc6"] {
+        let node = node_with_id(&doc, id);
+        assert_eq!(style_f64(node, "border_width_px"), 2.0, "{id} width");
+        assert_eq!(style_str(node, "border_style"), Some("solid"), "{id} style");
+        assert_eq!(
+            style_str(node, "border_color"),
+            Some("#663399"),
+            "{id} color"
+        );
+        let top = style_value(node, "border_sides")
+            .and_then(|sides| sides.get("top"))
+            .expect("border_sides.top");
+        assert_eq!(top.get("width_px").and_then(Json::as_f64), Some(2.0));
+        assert_eq!(top.get("color").and_then(Json::as_str), Some("#663399"));
+        assert_eq!(top.get("style").and_then(Json::as_str), Some("solid"));
+    }
+
+    // A 50% alpha keeps the alpha channel in the v3 color string.
+    let alpha_border = node_with_id(&doc, "bc4");
+    assert_eq!(style_f64(alpha_border, "border_width_px"), 1.0);
+    assert_eq!(style_str(alpha_border, "border_color"), Some("#00000080"));
+
+    let shadow = node_with_id(&doc, "shadow7");
+    let shadows = style_value(shadow, "box_shadow")
+        .and_then(Json::as_array)
+        .expect("box_shadow[]");
+    assert_eq!(shadows.len(), 1, "{shadow:#?}");
+    assert_eq!(
+        shadows[0].get("color").and_then(Json::as_str),
+        Some("#663399")
+    );
+}
+
 // ------------------------------------------------------- ui-tree/3 (input)
 
 const INPUT_PAGE: &str = r##"<!doctype html>
