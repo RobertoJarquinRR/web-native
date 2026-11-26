@@ -22,7 +22,9 @@
 3. Todo contrato entre capas vive en un archivo versionado
    (`src/ir/schema.json`, `benchmarks/frontend-parity/SPEC.md`).
 4. La entrada canónica de build/run/test/bench es `python tools/cli.py`
-   (`wn-cli`); no se añaden orquestadores `.ps1` nuevos.
+   (`wn-cli`); no se añaden orquestadores `.ps1` nuevos. Las compilaciones
+   sueltas de `cl.exe` (probes, harnesses) deben escribir objetos y binarios en
+   `%TEMP%` con `/Fo` y `/Fe`; la raíz del repo no es un directorio de build.
 5. Los resultados de benchmarks se guardan en `results/` con fecha y versión.
 6. Los frontends C++ y C# son **referencias de paridad congeladas** en
    `benchmarks/frontend-parity/SPEC.md` y viven en `archive/frontends-legacy/`.
