@@ -25,6 +25,7 @@ Leyenda:
 | Documento `.wnui`       | blob v6                    | ✅                       |
 | Grid, scroll e imágenes | campos v2 del blob         | ✅ pilot                 |
 | Text input              | sección `inputs` del blob  | ✅ pilot                 |
+| IME (IMM32, una línea)  | eventos v7 + `wn_ime_ops`  | Parcial: composición/commit/cancel con backend falso; smoke manual Win32 pendiente |
 | ABI C                   | `WN_ABI_VERSION 7`         | ✅ standalone + embedded |
 | Estados CSS             | sección `states` del blob  | ✅ hover/press/focus/disabled (color; `disabled` en HTML siembra el bit) |
 
@@ -37,7 +38,7 @@ Leyenda:
 | `img` local                                                  | Sí       | Parcial | Sí  | WIC; sin red        |
 | `ul`, `ol`, `li`                                             | Sí       | Sí      | Sí  | listas estáticas    |
 | `link` stylesheet, `style`                                   | Sí       | Sí      | Sí  | CSS local           |
-| `input type="text"`                                          | Pilot v3 | warning | Sí  | UTF-8 en edición    |
+| `input type="text"`                                          | Pilot v3 | warning | Sí  | UTF-8 en edición; IME en runtime (no cambia el blob) |
 | `script`, `iframe`                                           | No       | No      | No  | no-goal             |
 | `form`, `select`, `table`, `canvas`, `video`, `audio`, `svg` | No       | No      | No  | fuera del subset    |
 | `template`, `slot`, `object`, `embed`                        | No       | No      | No  | fuera del subset    |
@@ -112,6 +113,8 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | Botones y doble clic                         | ✅  | `button`/`click_count`; derecho/central reportan sin pulsar |
 | UI dinámica v3                               | ✅  | visibilidad, `set_image`, clone/append/remove            |
 | Input v4                                     | ✅  | UTF-8, caret, selección, drag, blink; texto shapeado en runtime |
+| IME IMM32 (v7)                               | Parcial | composición en el caret con subrayado, commit una vez, cancel/Escape notifica a IMM32; `wn_ime_ops` + eventos `WN_EVENT_IME_*`; gate automático con backend falso, smoke manual Win32 pendiente |
+| IME TSF / segmentos / multilínea             | ❌  | pendiente; misma vtable                         |
 | Bordes / radius / sombras v1                 | ✅  | radio/borde uniforme; primera sombra; sin per-side/inset |
 | Virtualización / culling                     | ❌  | pendiente                                                |
 | Text shaping runtime                         | ✅  | DirectWrite; medición, shaping y atlas dinámico          |
@@ -119,13 +122,27 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | Wrapping / line breaking                     | ✅  | greedy por palabras; `line-height` y `text-align` por línea |
 | Ellipsis / truncado por ancho                | ❌  | pendiente (el host compacta)                             |
 | Timers / reloj público                       | ✅  | `wn_app_set_tick_ms` + `wn_view_tick`; blink interno aparte |
-| Bidi, CJK, emoji, IME                        | ❌  | pendiente                                                |
+| Bidi, CJK, emoji                             | ❌  | pendiente (el IME compone texto CJK, pero el motor no implementa bidi/emoji) |
 | Accesibilidad / UIA                          | ❌  | pendiente                                                |
 | DPI / multi-monitor                          | ❌  | Windows básico                                           |
 | Multiventana, diálogos, tray, notificaciones | ❌  | pendiente                                                |
 | Red / HTTP                                   | ❌  | no-goal                                                  |
 | Parser HTML/CSS runtime                      | ❌  | no-goal                                                  |
 | JS / iframes                                 | ❌  | no-goal                                                  |
+
+Notas de IME y CJK:
+
+- El gate automático del IME es el backend falso (`tests/input/ime_test.c` y
+  `ime_view_test.c`). La ruta Win32 IMM32 compila y enlaza con `/W4 /WX`, pero
+  una composición real con un IME japonés **no** se verificó a mano todavía.
+  `runtime_r2.exe` tiene su propio `WndProc` y **no** instala IME: para el smoke
+  manual usa `standalone.exe`/`embedded.exe` o el demo `examples/input.c`, que
+  pasan por `wn_app` y `host_win32.c`.
+- El texto CJK necesita una familia CJK instalada. Con Segoe UI los glifos
+  faltantes se pintan como glifo 0 (cajas); el dato UTF-8 y el IME son
+  correctos. Hasta que llegue el fallback DirectWrite, declara
+  `font-family: "Yu Gothic UI", "Microsoft YaHei", "Malgun Gothic", ...` (el
+  fixture `tests/input` ya lo hace para el smoke manual).
 
 ## Paridad con el navegador
 

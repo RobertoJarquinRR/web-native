@@ -16,6 +16,7 @@
 #include <stdint.h>
 
 #include "webnative.h"
+#include "wn_ime.h"
 
 #if defined(__cplusplus)
 extern "C" {
@@ -400,6 +401,30 @@ int wn_core_input_paste(wn_core *core, const char *text,
 int wn_core_set_input_value(wn_core *core, int node, const char *text);
 const char *wn_core_input_value(const wn_core *core, int node);
 int wn_core_input_state(const wn_core *core, int node, wn_input_state *out);
+
+/* ------------------------------------------------------ IME (ABI v7) */
+/*
+ * Platform IME boundary. The core stores the backend and forwards focus/blur
+ * and caret movement; the composition itself (UTF-8 text + codepoint caret) is
+ * kept here and painted at the caret. `wn_core_input_ime` receives the generic
+ * WN_EVENT_IME_* types (pass the event type directly) and returns the focused
+ * node, or -1 when nothing editable owns the focus / the input is disabled.
+ * Only a commit changes the value, exactly once; the core swallows a matching
+ * final WN_EVENT_CHAR that repeats the commit text.
+ */
+void wn_core_set_ime(wn_core *core, const wn_ime_ops *ops, void *context);
+int wn_core_input_ime(wn_core *core, int event_type, const char *text_utf8,
+                      int caret, int *value_changed, int *visual_changed);
+/* 1 while a composition is active; `*text` is the engine-owned UTF-8 buffer and
+ * `*caret` the codepoint index inside it. Test/diagnostic hook. */
+int wn_core_input_composition(const wn_core *core, const char **text, int *caret);
+/* Recompute the platform caret/candidate rects from the current layout. The
+ * view calls it on every frame while an input is focused, so resize, scroll and
+ * reflow keep the composition window on the caret. */
+void wn_core_ime_sync(wn_core *core);
+/* Cancel the composition and release the platform IME without destroying the
+ * core (document replacement, disabled subtree, removal). */
+void wn_core_ime_abort(wn_core *core);
 
 /* Test/debug hooks: force a state without going through the pointer machine.
  * `state` is one WN_STATE_* bit. `wn_core_force_state_mask` ORs a whole mask

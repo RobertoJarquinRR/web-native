@@ -206,6 +206,18 @@ struct wn_core {
     int input_focus;
     int input_drag;
     double caret_blink_ms;
+    /* ABI v7: platform IME backend (NULL when the host has none) and the
+     * single active composition. The text is UTF-8 and only enters the value
+     * buffer on commit; `ime_swallow` keeps the just-committed text so a final
+     * WM_CHAR that repeats it is dropped instead of inserting twice. */
+    const wn_ime_ops *ime_ops;
+    void *ime_context;
+    char ime_text[WN_INPUT_MAX_BYTES + 1];
+    char ime_swallow[WN_INPUT_MAX_BYTES + 1];
+    int ime_node;                 /* input owning the composition, -1 none */
+    int ime_caret;                /* codepoint index inside ime_text */
+    int ime_swallow_len;          /* bytes pending in ime_swallow */
+    int ime_swallow_pos;          /* bytes already matched/swallowed */
 
     /* Ordered paint list: visible nodes with a non-empty clip, DFS order, then
      * a stable sort by layer. Capacity tracks node_capacity. */
@@ -250,6 +262,9 @@ void wn_core_set_caret_epoch(wn_core *core, double ms);
 int build_input_state(wn_core *c);
 void build_input_text_geometry(wn_core *c, float viewport_w, float viewport_h);
 void build_input_decorations(wn_core *c);
+/* Cancel an active composition and tell the platform IME to blur. Used when
+ * focus is cleared outside wn_core_blur_input (disabled subtree, removal). */
+void wn_core_ime_abort(wn_core *c);
 
 /* Per-item geometry ranges for the layer command model (NULL when the page
  * has no group layers). Defined in paint.c; input.c records its synthetic

@@ -9,6 +9,7 @@
 #define WN_HOST_H
 
 #include "webnative.h"
+#include "wn_ime.h"
 
 #if defined(__cplusplus)
 extern "C" {
@@ -41,6 +42,9 @@ typedef struct wn_host_ops {
     void (*set_caret_blink)(void *context, int enabled);
     /* ABI v6: periodic frame timer (ms <= 0 stops it). */
     void (*set_tick)(void *context, int ms);
+    /* ABI v7: platform IME backend for this host (NULL when it has none).
+     * Fills `*ime_context` with the opaque context the core passes back. */
+    const wn_ime_ops *(*ime_backend)(void *context, void **ime_context);
     void (*destroy)(void *context);
 } wn_host_ops;
 

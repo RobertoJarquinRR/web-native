@@ -40,7 +40,11 @@
  *        wn_node_get_state() returns them. Input focus sets/clears the focused
  *        bit; a disabled node (or a descendant of one) is inert to the pointer
  *        state machine (no hover, press or selection) while wn_node_get_rect()
- *        and the diagnostic hit test still see it. No struct layout changed.
+ *        and the diagnostic hit test still see it. Also additive in v7:
+ *        WN_EVENT_IME_START/COMPOSITION/COMMIT/CANCEL for platform IME
+ *        composition on the focused single-line input (IMM32 today). No struct
+ *        layout changed: the composition UTF-8 rides in `target_id`, the
+ *        codepoint cursor in `key`, and the caret rect in x/y/width/height.
  */
 #ifndef WEBNATIVE_H
 #define WEBNATIVE_H
@@ -147,7 +151,19 @@ typedef enum wn_event_type {
      * Backspace/Delete and paste/cut. It is NOT emitted for
      * wn_node_set_value() (the caller already knows) nor for
      * caret/selection-only moves. */
-    WN_EVENT_INPUT        = 11
+    WN_EVENT_INPUT        = 11,
+    /* ABI v7: generic IME composition on the focused single-line input. The
+     * payload is UTF-8 in `target_id` (engine/event owned, valid only during
+     * the callback): START and CANCEL carry NULL, COMPOSITION the current
+     * composition string, COMMIT the final text inserted exactly once.
+     * COMPOSITION puts its codepoint cursor in `key`; x/y/width/height carry
+     * the caret rect in view pixels and `node` the focused input handle. A
+     * final WM_CHAR that repeats a commit is swallowed by the core, so hosts
+     * may forward both without inserting twice. */
+    WN_EVENT_IME_START       = 12,
+    WN_EVENT_IME_COMPOSITION = 13,
+    WN_EVENT_IME_COMMIT      = 14,
+    WN_EVENT_IME_CANCEL      = 15
 } wn_event_type;
 
 typedef struct wn_event {

@@ -15,8 +15,8 @@ en `include/webnative.h`; este documento explica uso y límites.
 8. **Versionado**: `WN_ABI_VERSION` + `wn_version()`; breaking bump de major.
    v2 (wheel), v3 (UI dinámica), v4 (text input), v5 (identidad de nodos),
    v6 (estado, lecturas, eventos, timer, ownership) y **v7** (bits de foco y
-   deshabilitado) son aditivas. v7 no cambia el tamaño ni el layout de ningún
-   struct público.
+   deshabilitado, eventos de composición IME) son aditivas. v7 no cambia el
+   tamaño ni el layout de ningún struct público.
 
 ## Superficie v7
 
@@ -104,6 +104,44 @@ pinta. No hay `commit` separado.
 - El evento se emite en typing, Backspace/Delete y paste/cut; no en mover el
   caret, foco/blur ni `set_value`.
 - `get_value` es propiedad del engine; cópialo dentro del callback.
+
+### Composición IME (v7)
+
+| Evento | Payload |
+|---|---|
+| `WN_EVENT_IME_START` | sin texto; `node` = input enfocado |
+| `WN_EVENT_IME_COMPOSITION` | `target_id` = composición UTF-8; `key` = cursor (codepoints) dentro de ella |
+| `WN_EVENT_IME_COMMIT` | `target_id` = texto final; se inserta **una vez** |
+| `WN_EVENT_IME_CANCEL` | sin texto; descarta la composición |
+
+- `wn_event` **no cambia de layout**: para estos cuatro tipos `target_id` lleva
+  el payload UTF-8 (válido solo durante el callback; el engine lo copia antes de
+  devolver), `key` el cursor de la composición, `x/y/width/height` el rect del
+  caret en píxeles de vista y `node` el handle del input enfocado.
+- Mientras hay composición, el valor **no** cambia y las teclas normales se
+  suprimen; Escape cancela la composición y conserva el foco. El caret, la
+  selección y el scroll son los del editor de una línea.
+- `COMMIT` sustituye la selección y inserta el texto una sola vez al soltar el
+  IME. Si el host reenvía además el `WM_CHAR`/`WN_EVENT_CHAR` final con el mismo
+  texto, el core lo descarta (no hay doble inserción). Un `COMMIT` vacío o uno
+  que llega sin composición activa no inserta nada.
+- Escape cancela la composición y avisa al backend con `wn_ime_ops.cancel`
+  (`ImmNotifyIME(CPS_CANCEL)` en Win32); el foco se conserva.
+- Un input `WN_STATE_DISABLED` (o dentro de un subárbol deshabilitado) rechaza
+  `START`/`COMPOSITION`/`COMMIT` con `-1` aunque un foco se haya colado.
+- El host de `wn_app` instala IMM32 y emite estos eventos desde
+  `WM_IME_STARTCOMPOSITION/COMPOSITION/ENDCOMPOSITION` (más `WM_IME_CHAR`); un
+  host embedded puede reenviarlos por `wn_view_event` y, si compila el runtime,
+  instalar su propio backend con la superficie interna
+  `wn_view_set_ime`/`wn_ime_ops`. El backend vive en el `wn_view`, así que
+  `wn_view_replace_document`/`wn_app_load_document` lo reinstala en el core
+  nuevo y conserva el foco por nombre. `runtime_r2.exe` no es esa ruta: tiene su
+  propio `WndProc` sin IME; el smoke manual son `standalone`/`embedded` o
+  `examples/input.c`. TSF y la composición multilínea/por segmentos quedan fuera
+  de v7.
+- CJK: el motor no tiene fallback de fuentes. Sin una familia CJK instalada
+  (Segoe UI no la tiene) los glifos salen como glifo 0; declara
+  `Yu Gothic UI`/`Microsoft YaHei`/`Malgun Gothic` en `font-family`.
 
 ### Identidad y navegación (v5)
 
@@ -218,6 +256,10 @@ typedef struct wn_event {
 - v6 añade `button` y `click_count`. El botón derecho/central reporta el nodo
   pero no pulsa ni selecciona; un `POINTER_UP` debe comprobar `button` (0 queda
   reservado para eventos que no son de puntero).
+- v7 añade `WN_EVENT_IME_START/COMPOSITION/COMMIT/CANCEL = 12..15`. Reutilizan
+  el struct: `target_id` lleva el texto de la composición/commit, `key` el cursor
+  dentro de ella, `x/y/width/height` el rect del caret y `node` el input. `START`
+  y `CANCEL` dejan `target_id` en `NULL`.
 - No hay `WN_EVENT_CLICK`: un click es `POINTER_DOWN` + `POINTER_UP` sobre el
   mismo nodo.
 
@@ -294,8 +336,11 @@ private static partial nint wn_node_get_value(nint app, ulong node);
   documento solo lleva cadena, familia, tamaño, peso y `line-height`.
 - `set_image` conserva el tamaño intrínseco compilado hasta que el host llame
   `wn_node_set_image_size`; no hay probe WIC automático.
-- Input: una línea UTF-8 (shapeada en runtime), sin IME/bidi/CJK/emoji, sin
-  multilínea, sin password, sin undo/redo; drag-select y caret blink incluidos.
+- Input: una línea UTF-8 (shapeada en runtime), con IME IMM32 (composición,
+  commit y cancel sobre el caret; sin TSF), sin bidi/emoji, sin multilínea, sin
+  password, sin undo/redo; drag-select y caret blink incluidos. CJK funciona por
+  el IME/dato UTF-8, pero el texto necesita una familia CJK instalada: no hay
+  fallback de fuentes todavía.
 - `selected` y `focused` ya son por nodo, pero las clases siguen siendo por
   nombre compilado (no hay `set_class` por handle).
 - Los estilos de estado (blob v6) sólo cubren `background`, `color` y el color
@@ -313,7 +358,8 @@ private static partial nint wn_node_get_value(nint app, ulong node);
 ## Fuera de v7
 
 - Motor de texto en Linux (HarfBuzz/FreeType detrás de la misma vtable).
-- IME, bidi, CJK, emoji.
+- TSF, candidatos por segmentos y composición multilínea (IMM32 de una línea ya
+  soportado). Bidi, CJK y emoji siguen fuera del motor de texto.
 - Virtualización de listas/grids y decode asíncrono de imágenes.
 - Accesibilidad/UIA, DPI formal, multi-window, drag & drop, diálogos.
 - Modelo de componentes/templates más allá de clone/append.

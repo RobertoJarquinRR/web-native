@@ -170,7 +170,7 @@ Estado real según `docs/support.md`; no prometer lo que no hay:
 | ------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | Plataforma    | Solo Windows x64; macOS/Linux en fase 5                                                                                   |
 | Accesibilidad | Sin UIA/ARIA; sin lector de pantalla                                                                                      |
-| IME / i18n    | Sin IME; input UTF-8 de una línea; sin bidi, CJK ni emoji                                                                      |
+| IME / i18n    | IME IMM32 de una línea (composición/commit/cancel); sin TSF, bidi, CJK fuera del IME ni emoji                        |
 | DPI           | System-aware básico; sin `WM_DPICHANGED` ni multi-monitor                                                                 |
 | Texto         | Shape/raster/medición en runtime (DirectWrite); `font-weight`, `line-height`, `text-align`; sin wrapping todavía |
 | CSS           | `position: relative/absolute` (blob v4) con insets px/%/auto y `z-index` + stacking contexts (blob v5) + estados CSS (blob v6, ABI v7); sin `fixed`/`sticky`/`inset`, `transform`, `transition`, `animation`, `float`; borders/radius uniformes; una sombra no-inset |

@@ -207,6 +207,13 @@ wn_app *wn_app_create(const wn_config *config)
         return NULL;
     }
     (void)wn_view_on_event(app->view, app_view_event, app);
+    /* ABI v7: hand the platform IME to the core; the core drives focus/blur and
+     * window placement, the host only translates WM_IME_* into events. */
+    if (app->host_ops->ime_backend != NULL) {
+        void *ime_context = NULL;
+        const wn_ime_ops *ime = app->host_ops->ime_backend(app->host, &ime_context);
+        wn_view_set_ime(app->view, ime, ime_context);
+    }
     return app;
 }
 

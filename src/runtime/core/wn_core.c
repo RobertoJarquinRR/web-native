@@ -321,6 +321,9 @@ static void clear_interaction_subtree(wn_core *c, int node)
             c->input_anchor[node] = -1;
         }
         c->input_focus = -1;
+        /* Closing the input behind a composition must not leave the platform
+         * IME (or its text) alive. */
+        wn_core_ime_abort(c);
     }
     for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
         clear_interaction_subtree(c, child);
@@ -687,6 +690,7 @@ wn_core *wn_core_create(const wn_document *document)
         c->input_scroll[i] = 0.0f;
     }
     c->input_focus = -1;
+    c->ime_node = -1;
     c->next_order = count;
 
     build_hierarchy(c);
@@ -732,6 +736,7 @@ static void free_node_payload(wn_core *c, int node)
     }
     if (c->input_focus == node) {
         c->input_focus = -1;
+        wn_core_ime_abort(c);
     }
     if (c->classes != NULL && c->class_count != NULL) {
         for (i = 0; i < c->class_count[node] && i < WN_MAX_CLASSES; ++i) {
@@ -1014,6 +1019,7 @@ int wn_core_set_visible(wn_core *core, int node, int visible)
                 if (walk == node) {
                     core->input_anchor[core->input_focus] = -1;
                     core->input_focus = -1;
+                    wn_core_ime_abort(core);
                     break;
                 }
                 walk = core->parent[walk];
@@ -1306,6 +1312,12 @@ void wn_core_destroy(wn_core *core)
     if (core == NULL) {
         return;
     }
+    /* Destroying a core that still owns the platform IME must release it, or
+     * the host keeps an attached context for a field that no longer exists.
+     * Clearing the focus after the abort keeps free_node_payload() from
+     * blurring a second time for the focused slot. */
+    wn_core_ime_abort(core);
+    core->input_focus = -1;
     document = core->doc;
     if (core->nodes != NULL) {
         for (i = 0; i < core->node_count; ++i) {

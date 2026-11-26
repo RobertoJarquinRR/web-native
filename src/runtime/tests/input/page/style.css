@@ -18,6 +18,10 @@ body {
   gap: 12px;
   padding: 16px;
   background: #101418;
+  /* Manual IME smoke needs a family with CJK glyphs: Segoe UI alone shapes
+     kana/kanji as glyph 0 (tofu). The runtime resolves the first installed
+     family in this stack. */
+  font-family: "Yu Gothic UI", "Microsoft YaHei", "Malgun Gothic", "Segoe UI", sans-serif;
 }
 
 .bar {

@@ -78,6 +78,7 @@ set(WN_LINK_LIBS
     user32
     gdi32
     dwrite
+    imm32
 )
 
 if(WN_WGPU)
