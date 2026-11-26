@@ -18,6 +18,7 @@ use std::path::Path;
 
 use cssparser::{Delimiter, ParseError, Parser, ParserInput, Token};
 
+use crate::style::color::is_declared_color;
 use crate::style::grid::{parse_grid_auto_rows, parse_grid_template_columns};
 use crate::style::style_ext::{box_shadow_is_valid, is_relative_length};
 
@@ -1302,7 +1303,7 @@ fn check_property(
             let components = split_components(trimmed);
             if components.len() != 1 || !is_supported_color(components[0]) {
                 report(format!(
-                    "valor '{trimmed}' no soportado en '{name}' (v1: #rgb/#rrggbb/#rrggbbaa, rgb(), rgba() o nombre basico)"
+                    "valor '{trimmed}' no soportado en '{name}' (v1: hex 3/4/6/8, rgb[a](), hsl[a]() o nombre CSS3)"
                 ));
             }
         }
@@ -1494,76 +1495,13 @@ fn parse_css_number(text: &str) -> Option<f64> {
     trimmed.parse::<f64>().ok()
 }
 
+/// Exactly the declared-color grammar used by `background`, `color`,
+/// `border*`, `box-shadow` and `text-shadow`. Keeping this as a delegation (and
+/// not a second list) is what guarantees a value the cascade drops (`lab()`,
+/// `color-mix()`, …) is always diagnosed by `--strict-subset`, while every
+/// accepted form stays silent.
 fn is_supported_color(token: &str) -> bool {
-    let value = token.trim().to_ascii_lowercase();
-    if value.is_empty() {
-        return false;
-    }
-    if let Some(hex) = value.strip_prefix('#') {
-        return matches!(hex.len(), 3 | 4 | 6 | 8)
-            && hex.bytes().all(|byte| byte.is_ascii_hexdigit());
-    }
-    for prefix in ["rgb(", "rgba("] {
-        if let Some(inner) = value
-            .strip_prefix(prefix)
-            .and_then(|text| text.strip_suffix(')'))
-        {
-            let tokens: Vec<&str> = inner
-                .split(|character: char| {
-                    character == ',' || character == '/' || character.is_whitespace()
-                })
-                .filter(|token| !token.is_empty())
-                .collect();
-            if tokens.len() < 3 || tokens.len() > 4 {
-                return false;
-            }
-            let channels_ok = tokens[..3].iter().all(|channel| {
-                channel.strip_suffix('%').map_or_else(
-                    || parse_css_number(channel).is_some(),
-                    |number| parse_css_number(number).is_some(),
-                )
-            });
-            let alpha_ok = tokens.get(3).map_or(true, |alpha| {
-                if let Some(number) = alpha.strip_suffix('%') {
-                    parse_css_number(number).map_or(false, |value| (0.0..=100.0).contains(&value))
-                } else {
-                    parse_css_number(alpha).map_or(false, |value| (0.0..=1.0).contains(&value))
-                }
-            });
-            return channels_ok && alpha_ok;
-        }
-    }
-    matches!(
-        value.as_str(),
-        "black"
-            | "silver"
-            | "gray"
-            | "grey"
-            | "white"
-            | "maroon"
-            | "red"
-            | "purple"
-            | "fuchsia"
-            | "magenta"
-            | "green"
-            | "lime"
-            | "olive"
-            | "yellow"
-            | "navy"
-            | "blue"
-            | "teal"
-            | "aqua"
-            | "cyan"
-            | "orange"
-            | "rebeccapurple"
-            | "darkgray"
-            | "darkgrey"
-            | "lightgray"
-            | "lightgrey"
-            | "whitesmoke"
-            | "transparent"
-            | "currentcolor"
-    )
+    is_declared_color(token)
 }
 
 // ------------------------------------------------------------------ utils
@@ -1766,7 +1704,7 @@ mod tests {
     #[test]
     fn flags_values_properties_and_at_rules() {
         let diagnostics = css(
-            ".x {\n  display: grid;\n  box-shadow: 0 0 1px #000;\n  color: hsl(0, 0%, 0%);\n}\n@media (min-width: 10px) { .y { color: red; } }\n",
+            ".x {\n  display: grid;\n  box-shadow: 0 0 1px #000;\n  color: lab(0% 0 0);\n}\n@media (min-width: 10px) { .y { color: red; } }\n",
         );
         assert_eq!(diagnostics.len(), 4, "{diagnostics:#?}");
         let lines: Vec<Option<u32>> = diagnostics.iter().map(|item| item.line).collect();
@@ -1827,5 +1765,41 @@ mod tests {
         assert_eq!(strict.len(), 2, "{strict:#?}");
         let allowed = check_document_pilot(html, Path::new("page.html"), Path::new("."), true);
         assert!(allowed.is_empty(), "{allowed:#?}");
+    }
+
+    /// The declared-color superset is accepted without diagnostics (the seven
+    /// reviewer rows plus the border shorthand that used to drop the whole
+    /// declaration).
+    #[test]
+    fn declared_color_superset_is_clean() {
+        let text = ".a {\n  color: rebeccapurple;\n  background: rgb(255 0 0);\n  border: 2px solid rebeccapurple;\n  border-color: rgba(0,0,0,50%);\n  box-shadow: 0 0 4px rebeccapurple;\n  background-color: rgb(0,128,0,0.5);\n}\n";
+        let mut diagnostics = Vec::new();
+        check_stylesheet_pilot(text, Path::new("test.css"), 1, true, &mut diagnostics);
+        assert!(diagnostics.is_empty(), "{diagnostics:#?}");
+
+        // Without `--pilot` only the v3 box-shadow extension is reported; the
+        // colors themselves stay clean.
+        let mut default = Vec::new();
+        check_stylesheet_pilot(text, Path::new("test.css"), 1, false, &mut default);
+        assert_eq!(default.len(), 1, "{default:#?}");
+        assert!(default[0].message.contains("piloto v3"), "{default:#?}");
+    }
+
+    /// Modern color syntax must be diagnosed instead of silently dropped.
+    #[test]
+    fn modern_color_syntax_is_diagnosed() {
+        let text = ".a {\n  color: lab(50% 40 59);\n  background: color-mix(in srgb, red, blue);\n  border: 2px solid lab(50% 40 59);\n}\n";
+        let mut diagnostics = Vec::new();
+        check_stylesheet_pilot(text, Path::new("test.css"), 1, true, &mut diagnostics);
+        assert_eq!(diagnostics.len(), 3, "{diagnostics:#?}");
+        let lines: Vec<Option<u32>> = diagnostics.iter().map(|item| item.line).collect();
+        assert_eq!(lines, vec![Some(2), Some(3), Some(4)]);
+        for item in &diagnostics {
+            assert!(
+                item.message.contains("no soportado"),
+                "unexpected message: {}",
+                item.message
+            );
+        }
     }
 }

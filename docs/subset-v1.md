@@ -55,8 +55,11 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 - `font-family` (system fonts; sin web fonts en v1).
 - `font-size` (px), `font-weight` (400/700).
 - `line-height` (px/normal), `text-align` (left/center/right).
-- `color`, `background`, `background-color` (`#rgb`, `#rrggbb`, `#rrggbbaa`,
-  `rgb()`, `rgba()`, nombres básicos).
+- `color`, `background`, `background-color`: hex 3/4/6/8, `rgb()`/`rgba()` y
+  `hsl()`/`hsla()` (comas o sintaxis espacio/barra, 3–4 argumentos, alfa
+  numérica o en `%`), nombres CSS3 y `rebeccapurple`/`transparent`. La misma
+  gramática vale para `border*`, `box-shadow` y `text-shadow`; una forma fuera
+  de ella (`lab()`, `color-mix()`, …) se diagnostica en `--strict-subset`.
 - `opacity` (0–1).
 
 > **Runtime actual:** `font-weight ≥ 600` usa la cara bold real del sistema,

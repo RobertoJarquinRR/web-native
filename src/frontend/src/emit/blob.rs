@@ -12,6 +12,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::emit::ui_tree::{NodeOut, KIND_TEXT};
+use crate::style::color::argb;
 use crate::style::grid::{GridAutoRows, GridTemplateColumns};
 
 const BLOB_MAGIC: u32 = 0x4955_4E57; // "WNUI"
@@ -67,42 +68,6 @@ fn push_i32(out: &mut Vec<u8>, value: i32) {
 
 fn push_f32(out: &mut Vec<u8>, value: f64) {
     out.extend_from_slice(&(value as f32).to_le_bytes());
-}
-
-/// Python's `argb()` for a color already normalized to `#rrggbb[aa]`.
-pub(crate) fn argb_hex(value: Option<&str>) -> u32 {
-    let Some(text) = value else {
-        return 0;
-    };
-    let Some(hex) = text.strip_prefix('#') else {
-        return 0;
-    };
-    let channels = match hex.len() {
-        3 => {
-            let mut expanded = String::with_capacity(6);
-            for ch in hex.chars() {
-                expanded.push(ch);
-                expanded.push(ch);
-            }
-            expanded
-        }
-        6 | 8 => hex.to_string(),
-        _ => return 0,
-    };
-    let mut bytes = [0u8; 4];
-    bytes[3] = 0xFF;
-    for index in 0..channels.len() / 2 {
-        let pair = &channels[index * 2..index * 2 + 2];
-        match u8::from_str_radix(pair, 16) {
-            Ok(byte) => bytes[index] = byte,
-            Err(_) => return 0,
-        }
-    }
-    let (r, g, b, a) = (bytes[0], bytes[1], bytes[2], bytes[3]);
-    if a == 0 {
-        return 0;
-    }
-    (u32::from(a) << 24) | (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b)
 }
 
 pub(crate) fn action_code(value: Option<&str>) -> i32 {
@@ -359,7 +324,7 @@ fn push_node_record(
     push_u32(out, pool.offset(image_alt));
     push_i32(out, object_fit);
     push_f32(out, border_width(&style.css3));
-    push_u32(out, argb_hex(style.css3.border.visible_color()));
+    push_u32(out, argb(style.css3.border.visible_color()));
     push_f32(out, border_radius(&style.css3));
     let (shadow_x, shadow_y, shadow_blur, shadow_spread, shadow_color) = match shadow {
         Some(shadow) => (
@@ -367,7 +332,7 @@ fn push_node_record(
             shadow.offset_y_px,
             shadow.blur_px.max(0.0),
             shadow.spread_px,
-            argb_hex(Some(shadow.color.as_str())),
+            argb(Some(shadow.color.as_str())),
         ),
         None => (0.0, 0.0, 0.0, 0.0, 0),
     };

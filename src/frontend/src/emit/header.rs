@@ -17,11 +17,11 @@ use std::fs;
 use std::path::Path;
 
 use crate::emit::blob::{
-    action_code, argb_hex, border_radius, border_width, first_shadow, font_weight_code,
-    grid_columns, grid_rows, image_size, margin_auto_code, object_fit_code, overflow_code,
-    text_align_code,
+    action_code, border_radius, border_width, first_shadow, font_weight_code, grid_columns,
+    grid_rows, image_size, margin_auto_code, object_fit_code, overflow_code, text_align_code,
 };
 use crate::emit::ui_tree::{InputOut, NodeOut, KIND_TEXT};
+use crate::style::color::argb;
 
 const DEFAULT_FAMILY: &str = "Segoe UI";
 
@@ -173,13 +173,13 @@ impl HeaderNode {
                     shadow.offset_y_px,
                     nonneg(shadow.blur_px),
                     shadow.spread_px,
-                    argb_hex(Some(shadow.color.as_str())),
+                    argb(Some(shadow.color.as_str())),
                 ),
                 None => (0.0, 0.0, 0.0, 0.0, 0),
             };
             (
                 border_width(&style.css3),
-                argb_hex(style.css3.border.visible_color()),
+                argb(style.css3.border.visible_color()),
                 border_radius(&style.css3),
                 shadow_x,
                 shadow_y,

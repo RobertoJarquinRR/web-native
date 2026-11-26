@@ -32,7 +32,7 @@ use std::path::Path;
 use crate::emit::emit::{push_json_string, py_float};
 use crate::parse::dom::{Dom, Node, NodeId};
 use crate::style::cascade::ComputedStyle;
-use crate::style::color::parse_color;
+use crate::style::color::argb;
 use crate::style::grid::{GridAutoRows, GridTemplateColumns};
 use crate::style::style_ext::{BorderOut, BoxShadow, RelLength, StyleV3, Unit};
 
@@ -94,26 +94,6 @@ fn kind_name(kind: u32) -> &'static str {
         KIND_INPUT => "input",
         _ => "block",
     }
-}
-
-/// The oracle's `argb()` for a color already normalized to `#rrggbb`.
-fn argb_from_hex(value: Option<&str>) -> u32 {
-    let Some(text) = value else { return 0 };
-    let Some(hex) = text.strip_prefix('#') else {
-        return 0;
-    };
-    if hex.len() != 6 {
-        return 0;
-    }
-    match u32::from_str_radix(hex, 16) {
-        Ok(rgb) => 0xFF00_0000 | rgb,
-        Err(_) => 0,
-    }
-}
-
-/// `argb()` over a raw CSS attribute (`data-hover="#2a3140"`).
-fn argb_from_attr(value: Option<&str>) -> u32 {
-    argb_from_hex(parse_color(value).as_deref())
 }
 
 fn normalize_text(text: &str) -> String {
@@ -456,11 +436,13 @@ impl<'a> Builder<'a> {
                 action,
             },
             argb: ArgbOut {
-                background: argb_from_hex(style.background.as_deref()),
+                // `background`/`color` are already normalized to `#rrggbb`;
+                // `data-*` travel raw so alpha and every tinycss2 form survive.
+                background: argb(style.background.as_deref()),
                 text: text_color(style),
-                hover: argb_from_attr(style.data_hover.as_deref()),
-                press: argb_from_attr(style.data_press.as_deref()),
-                selected: argb_from_attr(style.data_selected.as_deref()),
+                hover: argb(style.data_hover.as_deref()),
+                press: argb(style.data_press.as_deref()),
+                selected: argb(style.data_selected.as_deref()),
             },
             text: None,
             image,
@@ -609,7 +591,8 @@ impl<'a> Builder<'a> {
 }
 
 fn text_color(style: &ComputedStyle) -> u32 {
-    let value = argb_from_hex(Some(style.color.as_str()));
+    // `argb(style.color) or 0xFF000000` in `emit_ui.py`.
+    let value = argb(Some(style.color.as_str()));
     if value == 0 {
         0xFF00_0000
     } else {
