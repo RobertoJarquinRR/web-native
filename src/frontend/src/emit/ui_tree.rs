@@ -1034,7 +1034,8 @@ fn nodes_have_input(nodes: &[NodeOut]) -> bool {
 /// Emits `ui.json` from the DOM and the already-computed cascade.
 ///
 /// `ui_path` is the `ui.json` file; no atlas is written next to it. If
-/// `blob_path` is `Some`, it also writes the v2 `.wnui` with the same tree.
+/// `header_path` is `Some`, it also writes the `ui_data.h` header; if
+/// `blob_path` is `Some`, the v2 `.wnui` with the same tree.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_ui_tree(
     dom: &Dom,
@@ -1043,6 +1044,7 @@ pub(crate) fn emit_ui_tree(
     source_html: &str,
     source_css: Option<&str>,
     ui_path: &Path,
+    header_path: Option<&Path>,
     blob_path: Option<&Path>,
     rule_count: usize,
 ) -> Result<UiSummary, String> {
@@ -1111,11 +1113,18 @@ pub(crate) fn emit_ui_tree(
     }
     fs::write(ui_path, out).map_err(|err| format!("{}: {err}", ui_path.display()))?;
 
+    let ui_dir = ui_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+
+    if let Some(header_path) = header_path {
+        // Same tree and the same schema decision as `ui.json`: the header stays
+        // byte-identical to `emit_ui.py --ui-json`.
+        crate::emit::header::write_header(header_path, &nodes, viewport, ui_dir, detailed)?;
+    }
+
     if let Some(blob_path) = blob_path {
-        let ui_dir = ui_path
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-            .unwrap_or_else(|| Path::new("."));
         // The blob reproduces what `emit_ui.py` reads from `ui.json`: under
         // `/1` the v2 fields are not serialized and the writer must ignore
         // them the same way.

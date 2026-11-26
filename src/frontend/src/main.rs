@@ -2,8 +2,8 @@
 //!
 //! Usage:
 //!   frontend-rust.exe --html <path> --width <W> --height <H> --emit-ui <ui.json>
-//!                     [--emit-blob <app.wnui>] [--css <path>]
-//!                     [--strict-subset] [--pilot]
+//!                     [--emit-header <ui_data.h>] [--emit-blob <app.wnui>]
+//!                     [--css <path>] [--strict-subset] [--pilot]
 //!
 //! `--strict-subset` validates the `docs/subset-v1.md` contract and exits
 //! non-zero on any feature outside the subset. `--pilot` allows the v2/v3
@@ -30,6 +30,8 @@ struct Args {
     css: Option<PathBuf>,
     /// Pre-layout style tree consumed by the runtime.
     emit_ui: PathBuf,
+    /// Optional `ui_data.h`, byte-identical to the Python emitter.
+    emit_header: Option<PathBuf>,
     /// Optional `.wnui` v2 document output.
     emit_blob: Option<PathBuf>,
     /// Report subset-v1 diagnostics as errors (exit != 0).
@@ -39,7 +41,7 @@ struct Args {
 }
 
 fn usage() -> &'static str {
-    "uso: frontend-rust --html <path> --width <W> --height <H> --emit-ui <ui.json> [--emit-blob <app.wnui>] [--css <path>] [--strict-subset] [--pilot]"
+    "uso: frontend-rust --html <path> --width <W> --height <H> --emit-ui <ui.json> [--emit-header <ui_data.h>] [--emit-blob <app.wnui>] [--css <path>] [--strict-subset] [--pilot]"
 }
 
 fn take_value(
@@ -64,6 +66,7 @@ fn parse_args() -> Result<Args, String> {
     let mut height: Option<u32> = None;
     let mut css: Option<PathBuf> = None;
     let mut emit_ui: Option<PathBuf> = None;
+    let mut emit_header: Option<PathBuf> = None;
     let mut emit_blob: Option<PathBuf> = None;
     let mut strict_subset = false;
     let mut pilot = false;
@@ -100,6 +103,14 @@ fn parse_args() -> Result<Args, String> {
                     "--emit-ui",
                 )?))
             }
+            "--emit-header" => {
+                emit_header = Some(PathBuf::from(take_value(
+                    &argv,
+                    &mut index,
+                    &inline_value,
+                    "--emit-header",
+                )?))
+            }
             "--emit-blob" => {
                 emit_blob = Some(PathBuf::from(take_value(
                     &argv,
@@ -122,6 +133,7 @@ fn parse_args() -> Result<Args, String> {
         height: height.ok_or_else(|| format!("falta --height\n{}", usage()))?,
         css,
         emit_ui: emit_ui.ok_or_else(|| format!("falta --emit-ui <ui.json>\n{}", usage()))?,
+        emit_header,
         emit_blob,
         strict_subset,
         pilot,
@@ -174,6 +186,7 @@ fn run() -> Result<bool, String> {
         &source_html,
         source_css.as_deref(),
         Path::new(&args.emit_ui),
+        args.emit_header.as_deref(),
         args.emit_blob.as_deref(),
         rules.len(),
     )?;
@@ -183,6 +196,9 @@ fn run() -> Result<bool, String> {
         summary.runs,
         args.emit_ui.display(),
     );
+    if let Some(header) = &args.emit_header {
+        println!("emit-header: -> {}", header.display());
+    }
     if let Some(blob) = &args.emit_blob {
         println!("emit-blob: -> {}", blob.display());
     }

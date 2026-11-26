@@ -8,8 +8,9 @@ hornea texto; el motor mide, shapea y pinta en runtime.
 
 ```
 frontend-rust.exe --html app/index.html --width 1280 --height 800 \
-                  --emit-ui app/ui.json [--emit-blob app.wnui] \
-                  [--css app/styles.css] [--strict-subset] [--pilot]
+                  --emit-ui app/ui.json [--emit-header app/ui_data.h] \
+                  [--emit-blob app.wnui] [--css app/styles.css] \
+                  [--strict-subset] [--pilot]
 ```
 
 | Flag | Efecto |
@@ -17,6 +18,7 @@ frontend-rust.exe --html app/index.html --width 1280 --height 800 \
 | `--html`, `--css` | página a compilar; `--css` es opcional si el HTML enlaza la hoja |
 | `--width`, `--height` | viewport de referencia (resuelve `%`, `vw/vh`, media queries) |
 | `--emit-ui` | salida `ui.json`; obligatorio |
+| `--emit-header` | `ui_data.h` opcional, byte a byte igual al del emisor Python |
 | `--emit-blob` | documento `.wnui` v2 opcional, byte a byte igual al del emisor |
 | `--strict-subset` | cualquier feature fuera de `docs/subset-v1.md` es error (exit != 0) |
 | `--pilot` | habilita grid, scroll, imágenes y `<input>` (extensiones v2/v3) |
@@ -32,6 +34,9 @@ HTML/CSS → parse (dom, css) → cascade → style_ext (grid/scroll/imágenes)
 
 Con `--emit-blob` el binario escribe el `.wnui` v2; el emisor solo hace falta
 para `ui_data.h`.
+
+Con `--emit-header` también escribe `ui_data.h` idéntico al de
+`src/emitter/python/emit_ui.py --ui-json`, sin atlas ni tablas de glifos.
 
 ## Contrato `ui.json`
 
