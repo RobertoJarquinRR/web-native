@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Sequence
 
@@ -437,10 +438,14 @@ def _expect(text: str, needles: Sequence[str], label: str) -> None:
         raise CliError(f"{label} output is missing: {', '.join(repr(item) for item in missing)}")
 
 
-def _expect_pass_or_skip(text: str, label: str) -> None:
-    """Real-backend smoke: PASS on a host with the backend, SKIP elsewhere."""
-    if "PASS" not in text and "SKIP" not in text:
-        raise CliError(f"{label} did not report PASS or SKIP")
+def _expect_measure_result(text: str, label: str) -> None:
+    """Real-backend smoke: PASS is required on Windows; SKIP is legal elsewhere."""
+    if "PASS" in text:
+        return
+    if sys.platform != "win32" and "SKIP" in text:
+        return
+    expected = "PASS" if sys.platform == "win32" else "PASS or SKIP"
+    raise CliError(f"{label} did not report {expected}")
 
 
 def _expect_checks(text: str, label: str, minimum: int) -> None:
@@ -720,7 +725,7 @@ def run_text() -> int:
         [get_paths().root / "include", runtime],
         ["dwrite.lib"],
     )
-    _expect_pass_or_skip(_run(exe, [], out), "text measure test")
+    _expect_measure_result(_run(exe, [], out), "text measure test")
 
     log_step("text: atlas")
     atlas_exe = out / "atlas_test.exe"

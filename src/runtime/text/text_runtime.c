@@ -371,7 +371,16 @@ void wn_text_test_use_backend(const wn_text_ops *ops)
         return;
     }
     g_ops = ops;
-    if (ops->init == NULL || ops->init(&g_context) != 0) {
+    if (ops->init == NULL) {
+        g_ops = NULL;
+        g_context = NULL;
+        return;
+    }
+    if (ops->init(&g_context) != 0) {
+        /* A backend may assign a context before failing; do not leak it. */
+        if (g_context != NULL && ops->destroy != NULL) {
+            ops->destroy(g_context);
+        }
         g_ops = NULL;
         g_context = NULL;
         return;

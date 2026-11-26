@@ -4,8 +4,9 @@
  * This file talks to the installed backend on purpose: it proves the actual
  * font stack measures, shapes and rasterizes. The backend-independent text
  * contracts (hint-only max_width, greedy breaking, set_text, cache isolation)
- * live in contract_test.c against fake_text.c. When no backend is available it
- * reports SKIP instead of failing.
+ * live in contract_test.c against fake_text.c. Off Windows it reports SKIP when
+ * no backend exists; on Windows the real backend is required and any missing
+ * piece or failed init is a failure, never a skip.
  */
 #include <math.h>
 #include <stdio.h>
@@ -68,12 +69,12 @@ int main(void)
 
     if (ops == NULL || ops->init == NULL || ops->measure == NULL || ops->shape == NULL ||
         ops->rasterize == NULL) {
-        printf("text_measure_test: SKIP (incomplete backend)\n");
-        return 0;
+        printf("text_measure_test: FAIL (incomplete DirectWrite backend on _WIN32)\n");
+        return 1;
     }
     if (ops->init(&context) != 0) {
-        printf("text_measure_test: SKIP (backend init failed)\n");
-        return 0;
+        printf("text_measure_test: FAIL (DirectWrite backend init failed)\n");
+        return 1;
     }
 
     check("measure returns success", ops->measure(context, "Hola", &regular, 0.0f, &first) == 0);

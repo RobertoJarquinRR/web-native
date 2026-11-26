@@ -2,8 +2,9 @@
  * contract_test.c - backend-independent text contracts.
  *
  * Every check runs against fake_text.c through wn_text_test_use_backend(), so
- * the contract logic needs no DirectWrite and no fixture blob. What is locked
- * here:
+ * the contract logic exercises no DirectWrite and no fixture blob at run time.
+ * The binary itself still compiles text_directwrite.cpp and wn_core.c, so it
+ * links dwrite.lib and includes out/fixture/builtin_blob.h. What is locked here:
  *
  *   1. `max_width` in wn_text_ops.measure is a hint: the engine's greedy
  *      breaker owns line count, line width and node geometry.
@@ -24,6 +25,8 @@
 
 /* Provided by fake_text.c; declared here so the test needs no extra header. */
 const wn_text_ops *wn_text_fake(void);
+const wn_text_ops *wn_text_fake_failing_init(void);
+int wn_text_fake_failed_destroys(void);
 
 #define FAKE "fake"
 #define FAKE_SIZE 16.0f
@@ -302,7 +305,10 @@ int main(void)
         }
         check("600 injected line failures all fail", failed);
 
-        for (int i = 0; i < 512; ++i) {
+        /* Reverse order: if a failed insert had flushed the cache, these
+         * lookups would rebuild the entries in reverse and land in different
+         * slots, so pointer identity could not match by accident. */
+        for (int i = 511; i >= 0; --i) {
             if (wn_text_line_layout_get(warm_names[i], FAKE, FAKE_SIZE, 400, 0.0f) ==
                 saved[i]) {
                 survivors += 1;
@@ -331,6 +337,13 @@ int main(void)
     if (core != NULL) {
         wn_core_destroy(core);
     }
+
+    /* ------------------- a failing init must destroy the context it assigned */
+    wn_text_test_use_backend(wn_text_fake_failing_init());
+    check("a failed init destroys the context it assigned",
+          wn_text_fake_failed_destroys() == 1);
+    check("a failed init leaves layout unavailable",
+          wn_text_line_layout_get("aa", FAKE, FAKE_SIZE, 400, 0.0f) == NULL);
 
     /* -------------------------------------------- NULL restores unavailability */
     wn_text_test_use_backend(NULL);

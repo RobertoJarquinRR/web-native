@@ -25,13 +25,18 @@ cabeceras de nodos generadas.
 
 ## `text`
 
-`contract_test.c` corre contra `fake_text.c`, un backend determinista instalado
-con `wn_text_test_use_backend()` (hook de test, fuera del ABI): sin DirectWrite y
-sin blob de fixture. Bloquea que `max_width` siga siendo solo una pista del
+`contract_test.c` corre sobre `fake_text.c`, un backend determinista instalado con
+`wn_text_test_use_backend()` (hook de test, fuera del ABI): la lógica de contrato
+no toca DirectWrite en tiempo de ejecución. El binario, en cambio, se compila como
+el resto de la suite: incluye `text_directwrite.cpp`, enlaza `dwrite.lib` y necesita
+`out/fixture/builtin_blob.h` porque `wn_core.c` lo incluye para
+`wn_document_builtin()`. Bloquea que `max_width` siga siendo solo una pista del
 backend, el corte greedy con slices exactos, `set_text` (medida + geometría
-pintada), el aislamiento de la caché de líneas por texto/familia/tamaño/peso/ancho
-y la supervivencia de entradas publicadas a una tormenta de fallos. `measure_test.c`
-es el smoke del backend real: si no hay backend, reporta `SKIP` en vez de fallar.
+pintada), el aislamiento de la caché de líneas por texto/tamaño/peso/ancho —todas
+las comprobaciones usan la familia `"fake"`, así que la separación por familia no
+se ejerce— y la supervivencia de entradas publicadas a una tormenta de fallos.
+`measure_test.c` es el smoke del backend real: en Windows debe pasar; fuera de
+Windows, donde no hay backend, reporta `SKIP`.
 
 ## `dump`
 

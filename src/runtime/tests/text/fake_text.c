@@ -223,7 +223,51 @@ static const wn_text_ops g_fake_ops = {
     fake_cache_stats,
 };
 
+/* Failing-init backend: assigns a context and then reports failure, so the
+ * runtime hook has to destroy it instead of clearing the pointer. */
+static int g_fake_failed_destroys;
+
+static int fake_failing_init(void **context)
+{
+    if (context == NULL) {
+        return 1;
+    }
+    memset(&g_fake, 0, sizeof(g_fake));
+    g_fake_failed_destroys = 0;
+    *context = &g_fake;
+    return 1;
+}
+
+static void fake_failing_destroy(void *context)
+{
+    if (context != NULL) {
+        g_fake_failed_destroys += 1;
+    }
+}
+
+static const wn_text_ops g_fake_failing_ops = {
+    "fake-failing",
+    fake_failing_init,
+    fake_failing_destroy,
+    fake_measure,
+    fake_shape,
+    fake_rasterize,
+    fake_cache_misses,
+    fake_has_family,
+    fake_cache_stats,
+};
+
 const wn_text_ops *wn_text_fake(void)
 {
     return &g_fake_ops;
+}
+
+const wn_text_ops *wn_text_fake_failing_init(void)
+{
+    return &g_fake_failing_ops;
+}
+
+int wn_text_fake_failed_destroys(void)
+{
+    return g_fake_failed_destroys;
 }
