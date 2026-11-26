@@ -59,16 +59,16 @@ CXX_SUFFIXES = (".cpp", ".cc", ".cxx")
 # compares the builtin and file renders, but that comparison alone is
 # tautological (both sides use the same emission).
 PINNED_BLOBS = {
-    "canonical": "eae247a4c3146d035078935b1f60b746ad0b1bd0871ced64c20e2b4726157e9f",
-    "input": "a13e2b0a97aac6cad434c9e3340dd0d9db141e255500acb5ed9a297a0f31f916",
-    "fidelity": "c71dad3835d3c130a5085ce37c637ab5b312a6b69566c946b1a66bf6214fd8df",
-    "pilot": "55279171e5a77e795a7cd1822383578a588774030a475158fbee2079ccaecf4d",
-    "dynamic": "412a93f0fff9b25a54a5fd7954b4e15f90a55d28c5ca86e8cb4294fb92dfe8a2",
-    "cache": "67d39833e128d832686f02f4ec1784fcdd02a95378e965d8e5da1031b607b0dd",
+    "canonical": "ffa40e0cb09c9e8759731c1b02863dd2e7c2d98c44750901aa9f4e609045df17",
+    "input": "368223ab6138751d94a30fce95d65727aafa296ba9b18b0553d3f088f61bb2c6",
+    "fidelity": "a4fb6308384c6203ecf9867d9320788efd56d8852b7a7b2d7a79faa854c2b0ec",
+    "pilot": "13c51fb10167acf5c9c450eb095fce3df99b1e2023af9dc6bf46fb61efd7b99d",
+    "dynamic": "4ff328afb0ef4996ff7c914c4a962128a7d4c8ab25613375648380eac1a85f15",
+    "cache": "e1810f16f0856eab9dfa34e3f21aca30b8318346ba49f6c63f75cbf7b4efa5dc",
     # CSS suite fixtures (HTML/CSS -> blob, same pinning rule as the corpus).
-    "css_card": "ffa1f754942ad82812d9b86259c376243e587c32b6abc093e088fc2fd7425335",
-    "css_control": "6d7f24e90cf1a0fe645006879a46309cb8d22082e487e41bab4e9db52182e798",
-    "css_none": "e55d9fba99b45742c723ea3414dc1446996a51cc46d193a2cec7d553f7ba11f0",
+    "css_card": "31ab1c766520935e243160e2d672e9dbb9bb367df270703d4f1b7c04af637f9c",
+    "css_control": "5379156f84b8a9a6f0292f3201a3f81ab021583d0a686fb8682f88bebe43cd44",
+    "css_none": "a148ca02ad727f4e49719ed4daf546e77ec8931095211e612609d8e0e43eec11",
 }
 
 
@@ -331,6 +331,37 @@ def run_css() -> int:
     _python(suite / "verify_css.py", ["--dir", str(out), "--page", str(page),
                                       "--dump", str(dump_exe),
                                       "--backend", backend], cwd=suite)
+
+    log_step("opacity: group-layer pixel fixture (d3d11" +
+             (" + wgpu)" if wgpu_available() else ")"))
+    opacity_suite = _suite_dir("opacity")
+    opacity_page = opacity_suite / "page"
+    _python(opacity_suite / "make_images.py", [], cwd=opacity_suite)
+    opacity_fixture = out / "emit" / "opacity"
+    opacity_fixture.mkdir(parents=True, exist_ok=True)
+    opacity_blob = opacity_fixture / "app.wnui"
+    rust_exe = get_paths().frontend_rust / "target" / "release" / "frontend-rust.exe"
+    run_cmd(
+        [rust_exe, "--html", str(opacity_page / "index.html"),
+         "--css", str(opacity_page / "style.css"),
+         "--width", "400", "--height", "300", "--emit-blob", str(opacity_blob)],
+        cwd=opacity_page,
+    )
+    opacity_backends = ["d3d11"] + (["wgpu"] if wgpu_available() else [])
+    for opacity_backend in opacity_backends:
+        png = out / f"render_opacity_{opacity_backend}.png"
+        report = out / f"layout_opacity_{opacity_backend}.json"
+        environment = {"WN_RENDERER": opacity_backend}
+        _run(card_exe, ["--document", str(opacity_blob),
+                        "--report", str(report), "--sizes", "400x300"],
+             opacity_page, environment)
+        _run(card_exe, ["--document", str(opacity_blob),
+                        "--render", "400", "300", str(png)],
+             opacity_page, environment)
+        _python(opacity_suite / "verify_opacity.py",
+                ["--png", str(png), "--report", str(report),
+                 "--backend", opacity_backend], cwd=opacity_suite)
+
     log_info("css core v1: PASS")
     return 0
 
@@ -453,10 +484,11 @@ def run_fidelity() -> int:
     # 40 checks: item count/DFS order/defaults, known identity counts and a
     # byte-identical second build, solid/glyph/image translate, opacity
     # boundaries (0, 1, >1, negative, 0.5 rounding) on solid and glyph plus the
-    # pending image case, stable layer sort with its no-copy fast path, four
-    # culling decisions, the .wnui offscreen-shadow-caster build fixture, and
-    # the visibility rebuild.
-    _expect_checks(paint_text, "paint list test", 40)
+    # image vertex alpha, group layers (parented nested layers, command replay,
+    # opacity 0), stable layer sort with its no-copy fast path, four culling
+    # decisions, the .wnui offscreen-shadow-caster build fixture, and the
+    # visibility rebuild.
+    _expect_checks(paint_text, "paint list test", 50)
 
     log_step("fidelity: compile runtime + renders")
     runtime_exe = out / "runtime_fidelity.exe"
@@ -984,7 +1016,7 @@ def run_blob() -> int:
         CORE_LIBS,
     )
     _expect(_run(input_exe, [str(input_blob)], out), ["blob_test: PASS"], "input blob test")
-    log_info("blob v2: PASS")
+    log_info("blob v3: PASS")
     return 0
 
 
@@ -1027,7 +1059,7 @@ def run_dump() -> int:
 
     log_step("dump: canonical JSON projection")
     document = json.loads(_run(exe, ["--json", str(canonical)], out))
-    if document.get("format") != "wnui/2":
+    if document.get("format") != "wnui/3":
         raise CliError(f"unexpected dump format: {document.get('format')!r}")
     if document.get("viewport") != {"width": 960, "height": 640}:
         raise CliError(f"unexpected dump viewport: {document.get('viewport')!r}")
@@ -1077,7 +1109,7 @@ SUITES = {
     "input": ("text input v1 (caret, selection, clipboard, ABI demo)", run_input),
     "offscreen": ("offscreen vtable (d3d11 vs wgpu readback)", run_offscreen),
     "text": ("runtime text v0 (contracts on the fake backend + DirectWrite smoke)", run_text),
-    "blob": ("blob v2 (.wnui load, layout and pixels)", run_blob),
+    "blob": ("blob v3 (.wnui load, layout and pixels)", run_blob),
     "dump": ("wnui-dump debug projection (text/JSON/errors)", run_dump),
 }
 

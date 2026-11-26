@@ -22,7 +22,7 @@ Leyenda:
 | Contrato                | Versión                    | Estado                   |
 | ----------------------- | -------------------------- | ------------------------ |
 | Display list R1         | `webnative.display-list/1` | archivado, ya no se emite |
-| Documento `.wnui`       | blob v2                    | ✅                       |
+| Documento `.wnui`       | blob v3                    | ✅                       |
 | Grid, scroll e imágenes | campos v2 del blob         | ✅ pilot                 |
 | Text input              | sección `inputs` del blob  | ✅ pilot                 |
 | ABI C                   | `WN_ABI_VERSION 6`         | ✅ standalone + embedded |
@@ -77,7 +77,7 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | `line-height`                             | Sí       | No      | Sí      | px o número; afecta altura y baseline (half-leading)                                          |
 | `text-align`                              | Sí       | No      | Sí      | `left`/`center`/`right` por línea; el texto envuelve                                          |
 | `color`, `background`, `background-color` | Sí       | Sí      | Sí      | `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()`                                             |
-| `opacity`                                 | Pilot v3 | Parcial | Parcial | el frontend emite; el core aún no lo compone                                                  |
+| `opacity`                                 | Sí       | Parcial | Sí      | grupo offscreen si tiene hijos (compone una vez); hoja = alfa directo; 0..1 |
 | `font-face`, web fonts                    | No       | No      | No      | no-goal                                                                                       |
 | gradientes                                | No       | No      | No      | fuera del subset                                                                              |
 

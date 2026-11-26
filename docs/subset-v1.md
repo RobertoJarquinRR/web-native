@@ -5,8 +5,9 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 
 > **Estado real:** este documento es el contrato objetivo. La matriz de lo que
 > el frontend emite y lo que R1/R2 renderizan hoy está en
-> [`support.md`](support.md). `font-weight`, `line-height` y `text-align` ya se
-> aplican en R2 (E1); `opacity` compuesta y per-side borders siguen pendientes.
+> [`support.md`](support.md). `font-weight`, `line-height`, `text-align` y
+> `opacity` compuesta ya se aplican en R2 (E1); per-side borders siguen
+> pendientes.
 
 ## HTML
 
@@ -60,12 +61,15 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
   numérica o en `%`), nombres CSS3 y `rebeccapurple`/`transparent`. La misma
   gramática vale para `border*` y `box-shadow`; una forma fuera
   de ella (`lab()`, `color-mix()`, …) se diagnostica en `--strict-subset`.
-- `opacity` (0–1).
+- `opacity` (0–1; valores fuera de rango se recortan, porcentajes no se
+  aceptan en v1).
 
 > **Runtime actual:** `font-weight ≥ 600` usa la cara bold real del sistema,
 > `line-height` y `text-align` se aplican en R2 (E1), `margin: auto` funciona en
-> block y flex. `opacity` se emite pero el core aún no lo compone. Ver
-> `support.md`.
+> block y flex. `opacity < 1` en un contenedor crea un **grupo**: el subárbol se
+> pinta en una capa offscreen y se compone una sola vez (los hijos que se
+> solapan no se oscurecen dos veces); en una hoja se aplica alfa directo a su
+> geometría. Ver `support.md`.
 
 ### Bordes y caja
 

@@ -6,7 +6,7 @@ parser HTML/CSS: el documento compilado es la única entrada.
 
 ## Documento
 
-El contrato es el blob `.wnui` v2. El frontend Rust lo produce con
+El contrato es el blob `.wnui` v3. El frontend Rust lo produce con
 `frontend-rust --emit-blob`; el formato y la vista de debug están en
 [`docs/wnui-format.md`](../../docs/wnui-format.md) y
 [`src/frontend/README.md`](../frontend/README.md).

@@ -1,0 +1,35 @@
+/* Group-opacity pixel fixture, 400x300. */
+html { height: 100%; }
+body {
+  margin: 0;
+  padding: 20px;
+  width: 400px;
+  height: 300px;
+  box-sizing: border-box;
+  background: #f0f0f0;
+  color: #000000;
+}
+.row { display: flex; }
+.first { gap: 20px; height: 100px; }
+.second { gap: 10px; height: 60px; margin-top: 20px; }
+.third { height: 60px; margin-top: 20px; }
+
+/* Group overlap: B starts 40 px into A, so 30 px overlap. */
+.group { width: 100px; height: 100px; opacity: 0.5; display: flex; }
+.over-a { width: 70px; height: 100px; background: #ff0000; }
+.over-b { width: 70px; height: 100px; background: #0000ff; margin-left: -40px; }
+
+/* Nested groups: 0.5 inside 0.5 -> 0.25 over the page. */
+.nested { opacity: 0.5; }
+.inner { width: 100px; height: 100px; opacity: 0.5; }
+.fill { width: 100px; height: 100px; background: #0000ff; }
+
+/* Leaves. */
+.leaf-solid { width: 60px; height: 60px; background: #ff0000; opacity: 0.5; }
+.leaf-text { width: 60px; height: 60px; font-size: 48px; color: #000000; opacity: 0.5; }
+.leaf-image { display: block; width: 60px; height: 60px; opacity: 0.5; }
+
+/* Opacity 0: the whole group paints nothing. */
+.zero { width: 100px; height: 60px; opacity: 0; }
+.zero-a { width: 70px; height: 60px; background: #00ff00; }
+.zero-b { width: 70px; height: 60px; background: #ff00ff; margin-left: -40px; }
