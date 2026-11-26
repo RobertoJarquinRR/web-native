@@ -24,7 +24,14 @@ D3D11 offline + job wgpu fijado) y D1–D19 salvo lo anotado en cada fila.
 horizontal), B5 (tick público), C5 (compilador único `.wnui`), C11 (paridad de
 color), C12 (documento blob-only, fixtures CSS incluidos) y D11.
 
-Pendiente de la lista: B1, B7, B10, C2, C3, C6–C10.
+**Ola 3 (enablers, sin cambio visible):** tabla de capacidades por kind
+(`kind_ops`), bloque de línea único para layout/paint/input, servicio de scroll
+x/y (X reservado), paint items ordenados con capa/transform/opacidad y culling
+calculado. Deja `position`, `z-index`, `transform`, opacidad y virtualización
+como features aditivas.
+
+Pendiente de la lista: B1, B7, B10, C2, C3, C6–C10. **Siguiente:** C6 (política
+de versión del blob) antes de añadir campos de estilo.
 
 ## P0 — corrección y seguridad
 

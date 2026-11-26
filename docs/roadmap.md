@@ -22,17 +22,17 @@ Un stream no toca los archivos de otro; se integra por contrato.
 | **E1** | Fidelidad visual/layout | `font-weight`, `line-height`, `text-align`, `margin: auto`, scrollbar y focus ring redondeado **(hecho)**; `opacity` compuesta, per-side/per-corner, inset, flex grow/shrink/basis pendiente | E6 (schema) | **Hecho (primer corte)** |
 | **E2** | Renderer D3D11 | backend nativo hardware-first, WARP fallback, paridad con wgpu, objetivo ≤ 5 MB | E6 (vtable) | **Hecho** (falta retirar el enlace wgpu para el objetivo de tamaño) |
 | **E3** | Plataforma y accesibilidad | foco/tab order, DPI per-monitor, IME, clipboard/DnD, UIA, high contrast, reduced motion | E1, E6 | Pendiente (P1 `platform-v1.md`) |
-| **E4** | Texto e i18n | shaping runtime **(hecho)**, wrapping/line breaking, bidi, CJK/emoji, re-raster de atlas | E1, E3 | **En curso**: falta wrapping/bidi |
+| **E4** | Texto e i18n | shaping runtime **(hecho)**, wrapping/line breaking **(hecho)**, bloque de línea único **(hecho)**; faltan bidi, CJK/emoji y re-raster de atlas | E1, E3 | **En curso**: falta bidi/CJK |
 | **E5** | Rendimiento y escala | dirty rects, culling/virtualización, 100/1k/10k nodos, presupuestos en CI | E1, E2 | Pendiente |
 | **E6** | Contratos y tooling | subset diagnostics, schemas IR/ui-tree, ABI v4, blob v2, SDK genérica, suites, paridad, métricas | — | **En curso**: falta CI |
 | **E7** | Release y packaging | versión, artefactos, licencias, installer, signing, smoke de release | E1–E3, E6 | Pendiente |
 | **E8** | Extensiones CSS | transition limitada (P1 post-E1); transform 2D + position rel/abs + z-index simple (P2); animation/float futuro/no-go | E1, E6 (schema `/4`), reloj del `wn_host` | **Definido**; ver `e8-css-extensions.md` |
 
 > **Orden de ejecución:** CI y contratos (E6) → ABI v6 (estado/lecturas) →
-> documento blob-only y retirada del emisor (C5/C12) → E4 input v2 →
-> E5 escala → E3 plataforma → E7 release. E2 va en
-> paralelo. E8 transform/position/z-index después de transition;
-> animation/float futuro/no-go.
+> documento blob-only y retirada del emisor (C5/C12) → enablers (capabilities,
+> textblock, scroll, paintlist) → **blob v3/C6** → opacity →
+> position/z-index → transform → E4 input v2 → E5 escala → E3 plataforma →
+> E7 release. E2 va en paralelo. E8 animation/float futuro/no-go.
 
 ## Estado (2026-11)
 

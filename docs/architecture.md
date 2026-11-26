@@ -69,9 +69,12 @@ El texto no se hornea: el documento lleva cadena, familia, tamaño, peso y
 
 | Módulo | Responsabilidad |
 |---|---|
+| `core/kind_ops.c` | tabla por tipo de nodo: auto-size, intrínseco y layout de hijos |
+| `core/scroll.c` | servicio x/y: clamp, aplicar y relayout; X reservado |
+| `core/paint.c` | paint items ordenados (clip, capa, transform, opacidad) y batches |
 | `text/wn_text.h` | contrato: `measure`, `shape`, `rasterize` |
 | `text/text_directwrite.cpp` | backend Windows (caras, avances, cobertura gris) |
-| `text/text_runtime.c` | instancia única, familias genéricas |
+| `text/text_runtime.c` | instancia única, familias genéricas, bloque de línea compartido |
 | `text/text_atlas.c` | atlas 1024², caché de glifos y de runs |
 
 `wn-cli build` produce también `webnative.dll` (objetivo CMake `webnative`,
