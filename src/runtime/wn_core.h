@@ -84,12 +84,19 @@ typedef struct {
     int width, height;
 } wn_display_list;
 
-/* Opaque compiled document. v0 ships exactly one: the built-in R2 fixture
- * compiled into ui_data.h. The document tables stay immutable; wn_core owns a
- * mutable copy of the node table plus a dynamic arena for cloned nodes. */
+/* Opaque compiled document. v0 ships exactly one: the built-in R2 fixture as
+ * an embedded .wnui blob parsed at first use. The document tables stay
+ * immutable; wn_core owns a mutable copy of the node table plus a dynamic
+ * arena for cloned nodes. */
 typedef struct wn_document wn_document;
 
 const wn_document *wn_document_builtin(void);
+/* Identity check against the cached builtin pointer. Allocation-free: unlike
+ * wn_document_builtin() it never triggers the lazy parse. */
+int wn_document_is_builtin(const wn_document *document);
+/* Test/diagnostic hook: 1 once the embedded builtin has been parsed. Never
+ * triggers a parse. */
+int wn_document_builtin_parsed(void);
 int wn_document_node_count(const wn_document *document);
 
 typedef struct wn_core wn_core;

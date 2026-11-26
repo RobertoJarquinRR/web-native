@@ -1,9 +1,10 @@
 /*
  * dynamic_core_test.c - headless acceptance for Dynamic UI API v0.
  *
- * Compiles against tests/dynamic/fixture/ui_data.h and the core only (no GPU,
- * no window). Exercises visibility, clone/append/remove/clear_children,
- * set_image, set_text and the layout/paint invalidation they trigger.
+ * Compiles against the embedded fixture blob in tests/dynamic and the core
+ * only (no GPU, no window). Exercises visibility, clone/append/remove,
+ * clear_children, set_image, set_text and the layout/paint invalidation they
+ * trigger.
  *
  *   dynamic_core_test.exe out/core_report.json
  */
@@ -11,11 +12,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "ui_data.h"
 #include "wn_core.h"
 #include "wn_internal.h"
 
 static wn_core *g_core;
+static int g_compiled_nodes;
 static int g_failures;
 
 static int check(const char *name, int ok, const char *detail)
@@ -198,11 +199,14 @@ int main(int argc, char **argv)
     int alpha_quads, beta_quads;
     int remove_rc, append_rc, clear_rc, cycle_rc;
 
-    g_core = wn_core_create(wn_document_builtin());
+    const wn_document *document = wn_document_builtin();
+
+    g_core = wn_core_create(document);
     if (g_core == NULL) {
         printf("FAIL: wn_core_create\n");
         return 1;
     }
+    g_compiled_nodes = wn_document_node_count(document);
     report = fopen(out_path, "wb");
     if (report == NULL) {
         printf("FAIL: cannot write %s\n", out_path);
@@ -228,7 +232,7 @@ int main(int argc, char **argv)
           "image and label defaults");
     check("lookup missing", wn_core_find_node(g_core, "div.nope") < 0,
           "unknown name returns -1");
-    check("live count", wn_core_live_node_count(g_core) == UI_NODE_COUNT,
+    check("live count", wn_core_live_node_count(g_core) == g_compiled_nodes,
           "compiled nodes are live");
 
     initial0 = rect_of(card0);
@@ -372,7 +376,7 @@ int main(int argc, char **argv)
     wn_core_build_display_list(g_core);
     check("clone created", clone >= 0 && wn_core_node_is_dynamic(g_core, clone),
           "dynamic node returned");
-    check("clone count", wn_core_live_node_count(g_core) == UI_NODE_COUNT + 4,
+    check("clone count", wn_core_live_node_count(g_core) == g_compiled_nodes + 4,
           "card + image + label + text subtree copied");
     check("clone parent", wn_core_node_parent(g_core, clone) == cards,
           "clone appended to div.cards");
@@ -461,7 +465,7 @@ int main(int argc, char **argv)
         wn_core_remove(g_core, nav_clone);
         wn_core_relayout(g_core);
         wn_core_build_display_list(g_core);
-        check("nav remove restores", wn_core_live_node_count(g_core) == UI_NODE_COUNT + 4 &&
+        check("nav remove restores", wn_core_live_node_count(g_core) == g_compiled_nodes + 4 &&
               wn_core_display_list(g_core)->glyph_vertex_count == nav_base_glyphs,
               "navigated clone removed; clone stage counts restored");
     }
@@ -525,7 +529,7 @@ int main(int argc, char **argv)
     remove_rc = wn_core_remove(g_core, clone);
     wn_core_relayout(g_core);
     wn_core_build_display_list(g_core);
-    check("remove", remove_rc == 0 && wn_core_live_node_count(g_core) == UI_NODE_COUNT,
+    check("remove", remove_rc == 0 && wn_core_live_node_count(g_core) == g_compiled_nodes,
           "subtree released");
     check("remove geometry", rect_of(card0).x == initial0.x &&
           rect_of(card1).x == initial1.x, "layout restored");
@@ -579,16 +583,16 @@ int main(int argc, char **argv)
                          : -1;
         check("stress container", body >= 0, "body.root is the list container");
         check("stress clones created",
-              created == kStressClones && live == UI_NODE_COUNT + 4 * kStressClones,
+              created == kStressClones && live == g_compiled_nodes + 4 * kStressClones,
               "1,500 clones of the 4-node card subtree");
         check("stress clones alive", alive == created,
               "every clone is live under the container");
         check("stress layout", laid_out == created &&
-              wn_core_node_count(g_core) >= UI_NODE_COUNT + 4 * kStressClones,
+              wn_core_node_count(g_core) >= g_compiled_nodes + 4 * kStressClones,
               "arena and every clone box grew");
         check("stress hierarchy", wn_core_hierarchy_rebuilds(g_core) == rebuilds_before,
               "no full hierarchy rebuild per clone/remove");
-        check("stress removal", wn_core_live_node_count(g_core) == UI_NODE_COUNT,
+        check("stress removal", wn_core_live_node_count(g_core) == g_compiled_nodes,
               "only the compiled tree stays live");
         printf("stress: clones=%d clone_ms=%.2f remove_ms=%.2f rebuilds=%d arena=%d\n",
                created, clone_ms, remove_ms, wn_core_hierarchy_rebuilds(g_core),
@@ -605,7 +609,7 @@ int main(int argc, char **argv)
                                         &remove_ms, &created, &alive, &laid_out)
                          : -1;
         check("stress 3000 clones",
-              created == kStressScale && live == UI_NODE_COUNT + 4 * kStressScale &&
+              created == kStressScale && live == g_compiled_nodes + 4 * kStressScale &&
                   alive == created && laid_out == created,
               "3,000 clones alive, laid out and removed");
         check("stress 3000 hierarchy",
@@ -621,7 +625,7 @@ int main(int argc, char **argv)
     wn_core_relayout(g_core);
     wn_core_build_display_list(g_core);
     check("clear_children", clear_rc == 0 && wn_core_node_first_child(g_core, cards) < 0 &&
-          wn_core_live_node_count(g_core) == UI_NODE_COUNT - 8,
+          wn_core_live_node_count(g_core) == g_compiled_nodes - 8,
           "two 4-node cards removed");
     check("clear paint", wn_core_display_list(g_core)->image_vertex_count == 0 &&
           wn_core_node_is_alive(g_core, cards), "no image quads; container stays");

@@ -28,6 +28,7 @@ generated/
 # Generated artifacts
 **/scene_data.h
 **/ui_data.h
+**/builtin_blob.h
 **/ui_meta.json
 **/display_list.json
 **/atlas.bin

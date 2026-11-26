@@ -10,36 +10,72 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "builtin_blob.h"
+#include "document/wn_blob.h"
 #include "wn_core_internal.h"
 #include "wn_internal.h"
 
-#if defined(UI_INPUT_COUNT) && UI_INPUT_COUNT > 0
-#define WN_BUILTIN_INPUTS kUiInputs
-#define WN_BUILTIN_INPUT_COUNT UI_INPUT_COUNT
-#else
-#define WN_BUILTIN_INPUTS NULL
-#define WN_BUILTIN_INPUT_COUNT 0
-#endif
+/* The builtin page is an embedded .wnui blob parsed once by the same loader
+ * the file path uses. Its strings point into kBuiltinBlob, which lives for the
+ * whole process; the document itself is cached for the same lifetime. A failed
+ * parse is cached too, including its diagnostic: the thread-local error is
+ * cleared at the start of every public call, so the message is re-published on
+ * each report instead of relying on the previous call leaving it behind. */
+static wn_document *g_builtin_document;
+static int g_builtin_failed;
+static char g_builtin_error[WN_ERROR_CAP];
 
-static const wn_document g_builtin_document = {
-    kUiNodes,
-    UI_NODE_COUNT,
-    kUiNodeNames,
-    UI_VIEWPORT_WIDTH,
-    UI_VIEWPORT_HEIGHT,
-    WN_BUILTIN_INPUTS,
-    WN_BUILTIN_INPUT_COUNT,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    WN_DOCUMENT_STATIC_REFS
-};
+/* Re-publish the cached loader diagnostic for the failed builtin parse. */
+static void builtin_report_failure(void)
+{
+    if (g_builtin_error[0] != '\0') {
+        wn_set_error_raw(g_builtin_error);
+    } else {
+        wn_set_error("wn_document_builtin: the embedded blob could not be parsed");
+    }
+}
 
 const wn_document *wn_document_builtin(void)
 {
-    return &g_builtin_document;
+    if (g_builtin_failed) {
+        builtin_report_failure();
+        return NULL;
+    }
+    if (g_builtin_document == NULL) {
+        wn_document *document = wn_document_load_blob_memory(
+            kBuiltinBlob, (size_t)kBuiltinBlobSize);
+        if (document == NULL) {
+            /* wn_last_error() names the failing header/section; keep a copy so
+             * later reports survive wn_clear_error(). */
+            const char *message = wn_last_error();
+            g_builtin_failed = 1;
+            if (message != NULL) {
+                size_t length = strlen(message);
+                if (length >= sizeof(g_builtin_error)) {
+                    length = sizeof(g_builtin_error) - 1;
+                }
+                memcpy(g_builtin_error, message, length);
+                g_builtin_error[length] = '\0';
+            }
+            builtin_report_failure();
+            return NULL;
+        }
+        document->refs = WN_DOCUMENT_STATIC_REFS;
+        g_builtin_document = document;
+    }
+    return g_builtin_document;
+}
+
+int wn_document_is_builtin(const wn_document *document)
+{
+    /* Compares the cached pointer only: never parses, so callers like
+     * retain/release cannot allocate the builtin as a side effect. */
+    return document != NULL && document == g_builtin_document;
+}
+
+int wn_document_builtin_parsed(void)
+{
+    return g_builtin_document != NULL;
 }
 
 int wn_document_node_count(const wn_document *document)
@@ -426,8 +462,18 @@ wn_core *wn_core_create(const wn_document *document)
     int capacity;
     int i;
     size_t bytes;
-    if (document == NULL || document->node_count <= 0) {
-        wn_set_error("wn_core_create: document is NULL or empty");
+    if (document == NULL) {
+        if (g_builtin_failed) {
+            /* Report why the embedded builtin is missing rather than whatever
+             * unrelated error happened to be pending. */
+            builtin_report_failure();
+            return NULL;
+        }
+        wn_set_error("wn_core_create: document is NULL");
+        return NULL;
+    }
+    if (document->node_count <= 0) {
+        wn_set_error("wn_core_create: document is empty");
         return NULL;
     }
     c = (wn_core *)calloc(1, sizeof(*c));

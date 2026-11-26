@@ -197,7 +197,7 @@ WN_API const char *wn_last_error(void);
  *
  * ABI v6: documents are reference counted. wn_document_load_blob() returns one
  * reference owned by the caller; wn_document_retain() adds one and
- * wn_document_release()/wn_document_destroy() drop one. The builtin compiled
+ * wn_document_release()/wn_document_destroy() drop one. The builtin embedded
  * document has a static reference count, so retaining/releasing it is a no-op.
  * Every core retains the document it was created from, which means the caller
  * may release its reference immediately after wn_core_create() while the core

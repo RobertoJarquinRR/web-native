@@ -2,8 +2,8 @@
  * input_core_test.c - headless acceptance for the single-line text input
  * (ui-tree/3 + ABI v4 core surface).
  *
- * Compiles against tests/input/fixture/ui_data.h and the core only (no GPU,
- * no window). Exercises focus/caret, typing (UTF-8 codepoints), Backspace/
+ * Compiles against the embedded fixture blob in tests/input and the core only
+ * (no GPU, no window). Exercises focus/caret, typing (UTF-8 codepoints), Backspace/
  * Delete over multibyte characters, arrows, Home/End, Shift selection,
  * drag selection, copy/cut/paste, max_length, set_value/get_value, Escape
  * blur and input cloning.
@@ -14,7 +14,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "ui_data.h"
 #include "wn_core.h"
 #include "wn_internal.h"
 

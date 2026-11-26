@@ -3,7 +3,7 @@
  *
  *   input.exe [--frames N]
  *
- * The document is the compiled fixture in tests/input/fixture/ui_data.h.
+ * The document is the embedded fixture blob in tests/input.
  * The demo exercises the host-facing surface only:
  *   - wn_node_set_value / wn_node_get_value (UTF-8; WN_ERR_UNSUPPORTED for
  *     control characters, WN_ERR_INVALID_ARGUMENT above maxlength),

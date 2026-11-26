@@ -193,17 +193,35 @@ def _python(script: Path, arguments: Sequence[str], cwd: Path) -> str:
     return completed.stdout
 
 
-def _emit_ui_json(ui_json: Path, out_dir: Path) -> None:
-    out_dir.mkdir(parents=True, exist_ok=True)
+def _embed_blob(blob: Path, header: Path) -> None:
+    """Generate the embedded C header the runtime's builtin document uses."""
+    if not blob.is_file():
+        raise CliError(f"blob not found: {blob}")
+    header.parent.mkdir(parents=True, exist_ok=True)
     _python(
-        get_paths().emitter,
-        [
-            "--ui-json", str(ui_json),
-            "--out", str(out_dir / "ui_data.h"),
-            "--meta", str(out_dir / "ui_meta.json"),
-        ],
+        Path(__file__).resolve().parent / "embed_blob.py",
+        ["--blob", str(blob), "--header", str(header)],
         cwd=get_paths().root,
     )
+
+
+def _emit_ui_json(ui_json: Path, out_dir: Path, with_blob: bool = False) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    arguments = [
+        "--ui-json", str(ui_json),
+        "--out", str(out_dir / "ui_data.h"),
+        "--meta", str(out_dir / "ui_meta.json"),
+    ]
+    blob = out_dir / "app.wnui"
+    if with_blob:
+        arguments.extend(["--blob", str(blob)])
+    _python(
+        get_paths().emitter,
+        arguments,
+        cwd=get_paths().root,
+    )
+    if with_blob:
+        _embed_blob(blob, out_dir / "builtin_blob.h")
 
 
 def run_css() -> int:
@@ -216,8 +234,8 @@ def run_css() -> int:
     _python(suite / "make_images.py", [], cwd=suite)
 
     for name in ("card", "control", "none"):
-        log_step(f"css: emit {name} ui_data.h")
-        _emit_ui_json(page / f"{name}.json", out / "emit" / name)
+        log_step(f"css: emit {name} ui_data.h + builtin blob")
+        _emit_ui_json(page / f"{name}.json", out / "emit" / name, with_blob=True)
 
     log_step("css: legacy header self-compare")
     legacy = suite / "fixture" / "legacy_ui_data.h"
@@ -268,15 +286,17 @@ def run_fidelity() -> int:
     log_step("fidelity: deterministic ratio image")
     _python(suite / "make_images.py", [], cwd=suite)
 
-    log_step("fidelity: frontend-rust --emit-ui")
+    log_step("fidelity: frontend-rust --emit-ui --emit-blob")
     run_cmd(
         [rust_exe, "--html", "page/index.html", "--width", "480", "--height", "560",
-         "--emit-ui", str(out / "ui.json"), "--pilot"],
+         "--emit-ui", str(out / "ui.json"),
+         "--emit-blob", str(out / "fidelity.wnui"), "--pilot"],
         cwd=suite,
     )
 
-    log_step("fidelity: emit ui_data.h")
+    log_step("fidelity: emit ui_data.h + embedded builtin blob")
     _emit_ui_json(out / "ui.json", out / "emit")
+    _embed_blob(out / "fidelity.wnui", out / "emit" / "builtin_blob.h")
     header = (out / "emit" / "ui_data.h").read_text(encoding="utf-8")
     if "#define UI_STYLE_EXTRAS 1" not in header:
         raise CliError("fidelity header is missing UI_STYLE_EXTRAS")
@@ -339,23 +359,26 @@ def _emit_fixture(suite: Path, page: Path, width: int, height: int, header: Path
     rust_exe = get_paths().frontend_rust / "target" / "release" / "frontend-rust.exe"
     if not rust_exe.is_file():
         raise CliError("frontend-rust.exe is missing; run: wn-cli frontend build")
+    header.parent.mkdir(parents=True, exist_ok=True)
+    blob = header.parent / "app.wnui"
     arguments = [
         "--html", "page/index.html",
         "--css", "page/style.css",
         "--width", str(width),
         "--height", str(height),
         "--emit-ui", str(page / "ui.json"),
+        "--emit-blob", str(blob),
     ]
     if pilot:
         arguments.append("--pilot")
     run_cmd([rust_exe, *arguments], cwd=suite)
-    header.parent.mkdir(parents=True, exist_ok=True)
     _python(
         get_paths().emitter,
         ["--ui-json", str(page / "ui.json"), "--out", str(header),
          "--meta", str(header.parent / "ui_meta.json")],
         cwd=get_paths().root,
     )
+    _embed_blob(blob, header.parent / "builtin_blob.h")
 
 
 def _expect(text: str, needles: Sequence[str], label: str) -> None:
@@ -523,7 +546,8 @@ def run_offscreen() -> int:
     run_cmd(
         [rust_exe, "--html", str(page / "index.html"), "--css", str(page / "style.css"),
          "--width", "960", "--height", "640",
-         "--emit-ui", str(fixture / "ui.json")],
+         "--emit-ui", str(fixture / "ui.json"),
+         "--emit-blob", str(fixture / "app.wnui")],
         cwd=runtime,
     )
     _python(
@@ -532,6 +556,7 @@ def run_offscreen() -> int:
          "--meta", str(fixture / "ui_meta.json")],
         cwd=get_paths().root,
     )
+    _embed_blob(fixture / "app.wnui", fixture / "builtin_blob.h")
 
     log_step("offscreen: compile test (/W4 /WX)")
     exe = out / "offscreen_test.exe"
@@ -590,13 +615,7 @@ def run_offscreen() -> int:
 
     log_step("offscreen: image cache fixture")
     _python(suite / "make_posters.py", [], cwd=suite)
-    _python(
-        get_paths().emitter,
-        ["--ui-json", str(suite / "cache_page" / "cache.json"),
-         "--out", str(cache_fixture / "ui_data.h"),
-         "--meta", str(cache_fixture / "ui_meta.json")],
-        cwd=get_paths().root,
-    )
+    _emit_ui_json(suite / "cache_page" / "cache.json", cache_fixture, with_blob=True)
     cache_exe = out / "image_cache_test.exe"
     _compile(
         cache_exe,
@@ -653,7 +672,8 @@ def run_text() -> int:
     run_cmd(
         [rust_exe, "--html", str(page / "index.html"), "--css", str(page / "style.css"),
          "--width", "960", "--height", "640",
-         "--emit-ui", str(fixture / "ui.json")],
+         "--emit-ui", str(fixture / "ui.json"),
+         "--emit-blob", str(fixture / "app.wnui")],
         cwd=runtime,
     )
     _python(
@@ -662,6 +682,7 @@ def run_text() -> int:
          "--meta", str(fixture / "ui_meta.json")],
         cwd=get_paths().root,
     )
+    _embed_blob(fixture / "app.wnui", fixture / "builtin_blob.h")
 
     log_step("text: document measurement")
     document_exe = out / "document_text_test.exe"
@@ -711,6 +732,7 @@ def _blob_emit(page_dir: Path, fixture: Path, width: int, height: int,
     blob = fixture / "app.wnui"
     if not blob.is_file():
         raise CliError("frontend-rust did not write app.wnui")
+    _embed_blob(blob, fixture / "builtin_blob.h")
     return blob
 
 

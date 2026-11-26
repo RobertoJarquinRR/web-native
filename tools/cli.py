@@ -57,8 +57,8 @@ def cmd_root_build(args: argparse.Namespace) -> int:
     log_step(f"master 1/3: building frontend-rust ({args.config.lower()})")
     frontend.cmd_build(argparse.Namespace(debug=is_debug))
 
-    if args.emit or not (paths.generated / "ui_data.h").is_file():
-        log_step("master 2/3: emitting UI data header")
+    if args.emit or not (paths.generated / "builtin_blob.h").is_file():
+        log_step("master 2/3: emitting UI data header and builtin blob")
         runtime.cmd_emit(
             argparse.Namespace(
                 pilot=args.pilot,

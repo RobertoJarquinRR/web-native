@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 get_filename_component(WN_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
 get_filename_component(WN_WGPU_DIR "${WN_REPO_ROOT}/third_party/wgpu-native" ABSOLUTE)
-set(WN_GENERATED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/generated" CACHE PATH "directory with ui_data.h")
+set(WN_GENERATED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/generated" CACHE PATH "directory with builtin_blob.h")
 
 option(WN_WGPU "Build the wgpu-native renderer backend" ON)
 

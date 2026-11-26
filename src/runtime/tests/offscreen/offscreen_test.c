@@ -1,7 +1,7 @@
 /*
  * offscreen_test.c - vtable offscreen smoke test (WN_SURFACE_OFFSCREEN).
  *
- * Creates a window-less view, loads the compiled ui_data.h fixture, renders one
+ * Creates a window-less view, uses the embedded fixture blob, renders one
  * frame and writes it to a PNG through the backend readback. Run with
  * WN_RENDERER=d3d11 and WN_RENDERER=wgpu to compare both backends.
  */

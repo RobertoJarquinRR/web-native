@@ -1,8 +1,8 @@
 /*
  * abi_v6_core_test.c - headless acceptance for the ABI v6 read/state/image API.
  *
- * Compiles against tests/fidelity/out/emit/ui_data.h and the core only. It
- * covers the three core-visible additions of ABI v6:
+ * Compiles against the embedded fixture blob in tests/fidelity and the core
+ * only. It covers the three core-visible additions of ABI v6:
  *   B2  per-node state bits (several selected nodes, exclusive hover)
  *   B3  get_rect forcing layout and scroll_into_view
  *   A9  intrinsic image size override and the layout reflow it triggers
@@ -14,7 +14,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "ui_data.h"
 #include "wn_core.h"
 
 static wn_core *g_core;
@@ -70,7 +69,7 @@ int main(void)
     wn_document_retain((wn_document *)builtin);
     wn_document_release((wn_document *)builtin);
     wn_document_release((wn_document *)builtin);
-    check("builtin refcount", wn_core_node_count(g_core) == UI_NODE_COUNT,
+    check("builtin refcount", wn_core_node_count(g_core) == wn_document_node_count(builtin),
           "retain/release on the builtin document is a no-op");
 
     scroll = find("body.root/div#scroll.scrollbox");
