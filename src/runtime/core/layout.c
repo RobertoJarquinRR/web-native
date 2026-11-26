@@ -1040,7 +1040,7 @@ static int paint_layer_ancestor(const wn_core *c, int ancestor, int layer)
 {
     int walk = layer;
     int guard = 0;
-    while (walk >= 0 && guard++ <= WN_MAX_PAINT_LAYERS) {
+    while (walk >= 0 && guard++ <= WN_MAX_PAINT_LAYER_DEPTH) {
         if (walk == ancestor) {
             return 1;
         }
@@ -1088,7 +1088,7 @@ static int paint_commands_emit(wn_core *c, int kind, int item, int layer)
  * the previous item and the next one. */
 static void build_paint_commands(wn_core *c)
 {
-    int stack[WN_MAX_PAINT_LAYERS];
+    int stack[WN_MAX_PAINT_LAYER_DEPTH];
     int top = 0;
     int i;
     c->paint_command_count = 0;
@@ -1108,17 +1108,17 @@ static void build_paint_commands(wn_core *c)
             --top;
         }
         if (stack[top] != target) {
-            int chain[WN_MAX_PAINT_LAYERS];
+            int chain[WN_MAX_PAINT_LAYER_DEPTH];
             int count = 0;
             int walk = target;
             while (walk >= 0 && walk != stack[top] &&
-                   count < WN_MAX_PAINT_LAYERS) {
+                   count < WN_MAX_PAINT_LAYER_DEPTH) {
                 chain[count++] = walk;
                 walk = c->paint_layers[walk].parent;
             }
             while (count > 0) {
                 --count;
-                if (top + 1 >= WN_MAX_PAINT_LAYERS) {
+                if (top + 1 >= WN_MAX_PAINT_LAYER_DEPTH) {
                     break;
                 }
                 stack[++top] = chain[count];

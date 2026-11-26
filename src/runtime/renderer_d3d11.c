@@ -1507,8 +1507,8 @@ static int ensure_layer_target(WnD3D11 *gpu, int depth)
     D3D11_TEXTURE2D_DESC desc;
     HRESULT hr;
 
-    if (depth < 0 || depth >= WN_MAX_PAINT_LAYERS) {
-        set_error(gpu, "layer depth %d exceeds %d", depth, WN_MAX_PAINT_LAYERS);
+    if (depth < 0 || depth >= WN_MAX_PAINT_LAYER_DEPTH) {
+        set_error(gpu, "layer depth %d exceeds %d", depth, WN_MAX_PAINT_LAYER_DEPTH);
         return 1;
     }
     if (depth >= gpu->layer_target_count) {
@@ -1696,7 +1696,7 @@ static void composite_layer(WnD3D11 *gpu, ID3D11RenderTargetView *parent,
 
 static int render_layered(WnD3D11 *gpu, const wn_display_list *list)
 {
-    ID3D11RenderTargetView *targets[WN_MAX_PAINT_LAYERS];
+    ID3D11RenderTargetView *targets[WN_MAX_PAINT_LAYER_DEPTH];
     float transparent[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
     int depth = 0;
     int i;
@@ -1717,8 +1717,8 @@ static int render_layered(WnD3D11 *gpu, const wn_display_list *list)
         }
         if (command->kind == WN_PAINT_CMD_BEGIN_LAYER) {
             WnD3D11LayerTarget *target;
-            if (depth + 1 >= WN_MAX_PAINT_LAYERS) {
-                set_error(gpu, "layer nesting exceeds %d", WN_MAX_PAINT_LAYERS);
+            if (depth + 1 >= WN_MAX_PAINT_LAYER_DEPTH) {
+                set_error(gpu, "layer nesting exceeds %d", WN_MAX_PAINT_LAYER_DEPTH);
                 return 1;
             }
             if (ensure_layer_target(gpu, depth) != 0) {

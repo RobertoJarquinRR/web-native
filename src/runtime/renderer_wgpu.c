@@ -1049,8 +1049,8 @@ static int ensure_layer_target(WnWgpu *gpu, int depth)
     WGPUBindGroupEntry entries[3];
     WGPUBindGroupDescriptor bind_desc;
 
-    if (depth < 0 || depth >= WN_MAX_PAINT_LAYERS) {
-        set_error(gpu, "layer depth %d exceeds %d", depth, WN_MAX_PAINT_LAYERS);
+    if (depth < 0 || depth >= WN_MAX_PAINT_LAYER_DEPTH) {
+        set_error(gpu, "layer depth %d exceeds %d", depth, WN_MAX_PAINT_LAYER_DEPTH);
         return 1;
     }
     if (gpu->composite_params == NULL) {
@@ -2055,7 +2055,7 @@ static int run_layer_commands(WnWgpu *gpu, WGPUCommandEncoder encoder,
             uint32_t offset;
             float transparent[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
             if (command->layer < 0 || command->layer >= list->layer_count ||
-                depth + 1 >= WN_MAX_PAINT_LAYERS) {
+                depth + 1 >= WN_MAX_PAINT_LAYER_DEPTH) {
                 wgpuRenderPassEncoderEnd(pass);
                 wgpuRenderPassEncoderRelease(pass);
                 set_error(gpu, "invalid layer boundary");

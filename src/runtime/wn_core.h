@@ -66,7 +66,10 @@ typedef struct {
  * `layers[0]` is the root layer (opacity 1). Layer ids are allocated in DFS
  * order; `parent` is the enclosing layer. `commands` replay the nesting in
  * paint order: DRAW(item), BEGIN_LAYER(layer), END_LAYER(layer). */
-#define WN_MAX_PAINT_LAYERS 32
+#define WN_MAX_PAINT_LAYERS 65536
+/* Nesting depth bound: matches the document tree depth limit, so a layer per
+ * ancestor is always representable. Renderer target pools are per depth. */
+#define WN_MAX_PAINT_LAYER_DEPTH 512
 
 enum {
     WN_PAINT_CMD_DRAW = 1,
