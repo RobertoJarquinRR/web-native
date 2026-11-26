@@ -438,6 +438,24 @@ def run_fidelity() -> int:
     # path, and the synthetic-core wheel.
     _expect_checks(scroll_text, "scroll service test", 20)
 
+    log_step("fidelity: paint item list (identity, transform, opacity, layers)")
+    paint_exe = out / "paint_list_test.exe"
+    _compile(
+        paint_exe,
+        [_suite_dir("core") / "paint_list_test.c",
+         _suite_dir("text") / "fake_text.c",
+         *[runtime / source for source in CORE_SOURCES]],
+        [get_paths().root / "include", runtime, out / "emit"],
+        CORE_LIBS,
+    )
+    paint_text = _run(paint_exe, [], out)
+    _expect(paint_text, ["paint_list_test: PASS"], "paint list test")
+    # 24 checks: item count/DFS order/defaults, known identity counts and a
+    # byte-identical second build, solid/glyph/image translate, solid/glyph
+    # opacity plus the pending image case, stable layer reorder and idempotent
+    # sort, four culling decisions, and the visibility rebuild.
+    _expect_checks(paint_text, "paint list test", 24)
+
     log_step("fidelity: compile runtime + renders")
     runtime_exe = out / "runtime_fidelity.exe"
     _compile(

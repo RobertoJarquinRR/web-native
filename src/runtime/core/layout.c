@@ -881,18 +881,124 @@ static void compute_clips(wn_core *c, int node, wn_rect clip)
     }
 }
 
-static void build_paint_order(wn_core *c, int node)
+/* -------------------------------------------------------------- paint list */
+
+/* Culling switch. Off: every item has a non-empty clip, so the viewport half of
+ * wn_paint_item_visible() is already implied by the build rule; the only extra
+ * nodes it would drop are boxes entirely outside the viewport that keep a
+ * non-empty clip through an overflow:visible ancestor. Those can still paint a
+ * box-shadow into the viewport, so dropping them is not provably pixel-safe
+ * with the current shadow model. The helper and its tests land now; the
+ * feature lane can enable this once shadows are part of the visibility test. */
+#define WN_PAINT_CULL_ITEMS 0
+
+static void append_paint_item(wn_core *c, int node)
+{
+    WnPaintItem *item;
+    if (c->paint_item_count >= c->paint_item_capacity) {
+        return;
+    }
+    item = &c->paint_items[c->paint_item_count++];
+    *item = (WnPaintItem){
+        node, c->clips[node], 0, 1.0f, WN_TRANSFORM_IDENTITY_INIT
+    };
+}
+
+/* Items are visible nodes with a non-empty clip, in DFS order. Descendants of
+ * an empty-clip node also have an empty clip (clips only shrink), so the walk
+ * can stop there without changing the paint set; invisible subtrees are
+ * skipped whole, exactly like the old paint_order build. */
+static void build_paint_items(wn_core *c, int node)
 {
     int child;
     if (!c->alive[node] || !c->visible_eff[node]) {
         return;
     }
-    if (c->paint_count < c->node_capacity) {
-        c->paint_order[c->paint_count++] = node;
+    if (rect_is_empty(c->clips[node])) {
+        return;
     }
+    /* Culling stays off (WN_PAINT_CULL_ITEMS documents why); the helper is
+     * asserted by paint_list_test instead of dropping items here. */
+    append_paint_item(c, node);
     for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
-        build_paint_order(c, child);
+        build_paint_items(c, child);
     }
+}
+
+/* Stable insertion sort by layer. With every layer equal (today) the inner
+ * loop never runs, so this is a single O(n) scan and the order is untouched.
+ * Equal layers keep their DFS order (tie = original order). */
+void wn_core_sort_paint_items(wn_core *c)
+{
+    int i;
+    if (c == NULL) {
+        return;
+    }
+    for (i = 1; i < c->paint_item_count; ++i) {
+        WnPaintItem item;
+        int j = i - 1;
+        if (c->paint_items[j].layer <= c->paint_items[i].layer) {
+            continue; /* already in order: no copy on the all-equal path */
+        }
+        item = c->paint_items[i];
+        while (j >= 0 && c->paint_items[j].layer > item.layer) {
+            c->paint_items[j + 1] = c->paint_items[j];
+            --j;
+        }
+        c->paint_items[j + 1] = item;
+    }
+}
+
+static int transform_is_identity(const wn_transform *t)
+{
+    return t->m0 == 1.0f && t->m1 == 0.0f && t->m2 == 0.0f &&
+           t->m3 == 1.0f && t->m4 == 0.0f && t->m5 == 0.0f;
+}
+
+/* AABB of a rect after the 2x3 matrix. The clip stays the parent's
+ * axis-aligned screen rect; only the item geometry is transformed. */
+static wn_rect transform_rect_aabb(const wn_transform *t, wn_rect r)
+{
+    wn_rect out;
+    float x0, x1, x2, x3;
+    float y0, y1, y2, y3;
+    if (transform_is_identity(t)) {
+        return r;
+    }
+    x0 = t->m0 * r.x + t->m2 * r.y + t->m4;
+    y0 = t->m1 * r.x + t->m3 * r.y + t->m5;
+    x1 = t->m0 * (r.x + r.w) + t->m2 * r.y + t->m4;
+    y1 = t->m1 * (r.x + r.w) + t->m3 * r.y + t->m5;
+    x2 = t->m0 * (r.x + r.w) + t->m2 * (r.y + r.h) + t->m4;
+    y2 = t->m1 * (r.x + r.w) + t->m3 * (r.y + r.h) + t->m5;
+    x3 = t->m0 * r.x + t->m2 * (r.y + r.h) + t->m4;
+    y3 = t->m1 * r.x + t->m3 * (r.y + r.h) + t->m5;
+    out.x = fminf(fminf(x0, x1), fminf(x2, x3));
+    out.y = fminf(fminf(y0, y1), fminf(y2, y3));
+    out.w = fmaxf(fmaxf(x0, x1), fmaxf(x2, x3)) - out.x;
+    out.h = fmaxf(fmaxf(y0, y1), fmaxf(y2, y3)) - out.y;
+    return out;
+}
+
+int wn_paint_item_visible(const wn_core *c, const WnPaintItem *item)
+{
+    wn_rect viewport;
+    wn_rect box;
+    if (c == NULL || item == NULL || rect_is_empty(item->clip)) {
+        return 0;
+    }
+    if (item->node < 0 || item->node >= c->node_count || !c->alive[item->node]) {
+        return 0;
+    }
+    viewport.x = 0.0f;
+    viewport.y = 0.0f;
+    viewport.w = (float)c->width;
+    viewport.h = (float)c->height;
+    if (rect_is_empty(viewport)) {
+        return 0;
+    }
+    box = transform_rect_aabb(&item->transform, c->rects[item->node]);
+    return !rect_is_empty(rect_intersection(box, viewport));
 }
 
 void layout_page(wn_core *c, float viewport_w, float viewport_h)
@@ -916,7 +1022,7 @@ void layout_page(wn_core *c, float viewport_w, float viewport_h)
             break;
         }
     }
-    c->paint_count = 0;
+    c->paint_item_count = 0;
     if (root >= 0) {
         layout_node(c, root, 0.0f, 0.0f, viewport_w, viewport_h, 1, -1.0f);
         viewport.x = 0.0f;
@@ -926,7 +1032,8 @@ void layout_page(wn_core *c, float viewport_w, float viewport_h)
         if (c->visible_eff[root]) {
             compute_clips(c, root, viewport);
         }
-        build_paint_order(c, root);
+        build_paint_items(c, root);
+        wn_core_sort_paint_items(c);
     }
 }
 

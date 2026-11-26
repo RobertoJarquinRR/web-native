@@ -512,7 +512,8 @@ wn_core *wn_core_create(const wn_document *document)
     c->next_sibling = (int *)calloc(bytes, sizeof(int));
     c->prev_sibling = (int *)calloc(bytes, sizeof(int));
     c->last_child = (int *)calloc(bytes, sizeof(int));
-    c->paint_order = (int *)calloc(bytes, sizeof(int));
+    c->paint_items = (WnPaintItem *)calloc(bytes, sizeof(WnPaintItem));
+    c->paint_item_capacity = capacity;
     c->text_override = (char **)calloc(bytes, sizeof(char *));
     c->image_override = (char **)calloc(bytes, sizeof(char *));
     c->input_map = (int *)calloc(bytes, sizeof(int));
@@ -554,7 +555,7 @@ wn_core *wn_core_create(const wn_document *document)
         c->scroll_max_x == NULL || c->scroll_max_y == NULL ||
         c->first_child == NULL ||
         c->next_sibling == NULL || c->prev_sibling == NULL ||
-        c->last_child == NULL || c->paint_order == NULL ||
+        c->last_child == NULL || c->paint_items == NULL ||
         c->text_override == NULL || c->image_override == NULL ||
         c->input_map == NULL || c->input_value == NULL || c->input_cursor == NULL ||
         c->input_anchor == NULL || c->input_scroll == NULL ||
@@ -698,7 +699,8 @@ static int arena_reserve(wn_core *c, int minimum)
     WN_GROW_ARRAY(c, next_sibling, capacity);
     WN_GROW_ARRAY(c, prev_sibling, capacity);
     WN_GROW_ARRAY(c, last_child, capacity);
-    WN_GROW_ARRAY(c, paint_order, capacity);
+    WN_GROW_ARRAY(c, paint_items, capacity);
+    c->paint_item_capacity = capacity;
     WN_GROW_ARRAY(c, text_override, capacity);
     WN_GROW_ARRAY(c, image_override, capacity);
     WN_GROW_ARRAY(c, input_map, capacity);
@@ -1233,7 +1235,7 @@ void wn_core_destroy(wn_core *core)
     wn_free_(core->next_sibling);
     wn_free_(core->prev_sibling);
     wn_free_(core->last_child);
-    wn_free_(core->paint_order);
+    wn_free_(core->paint_items);
     wn_free_(core->text_override);
     wn_free_(core->image_override);
     wn_free_(core->input_map);

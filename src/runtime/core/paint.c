@@ -132,10 +132,67 @@ static unsigned int node_color(const wn_core *c, int node)
 
 /* ---------------------------------------------------------------- geometry */
 
+/* Item fast paths. The identity/opaque case returns before any float math so
+ * coordinates and colors stay bit-identical to the pre-paint-list builders. */
+static int paint_transform_identity(const wn_core *c)
+{
+    const wn_transform *t;
+    if (c->paint_item == NULL) {
+        return 1;
+    }
+    t = &c->paint_item->transform;
+    return t->m0 == 1.0f && t->m1 == 0.0f && t->m2 == 0.0f &&
+           t->m3 == 1.0f && t->m4 == 0.0f && t->m5 == 0.0f;
+}
+
+/* Pixel-space transform, before the clip-space projection. The node clip stays
+ * screen-space: transformed-node clipping stays axis-aligned for now. */
+static void paint_map_point(const wn_core *c, float *x, float *y)
+{
+    const wn_transform *t;
+    float px, py;
+    if (paint_transform_identity(c)) {
+        return;
+    }
+    t = &c->paint_item->transform;
+    px = *x;
+    py = *y;
+    *x = t->m0 * px + t->m2 * py + t->m4;
+    *y = t->m1 * px + t->m3 * py + t->m5;
+}
+
+/* Solid/glyph alpha multiplier. Identity returns the byte untouched. */
+static uint8_t paint_alpha(wn_core *c, uint8_t a)
+{
+    float opacity;
+    if (c->paint_item == NULL) {
+        return a;
+    }
+    opacity = c->paint_item->opacity;
+    if (opacity == 1.0f || a == 0u) {
+        return a;
+    }
+    if (opacity <= 0.0f) {
+        return 0;
+    }
+    if (opacity > 1.0f) {
+        opacity = 1.0f;
+    }
+    return (uint8_t)((float)a * opacity + 0.5f);
+}
+
+void wn_paint_use_item(wn_core *c, const WnPaintItem *item)
+{
+    if (c != NULL) {
+        c->paint_item = item;
+    }
+}
+
 static void push_vertex(wn_core *c, float x, float y, float vw, float vh,
                         uint8_t r, uint8_t g, uint8_t b, uint8_t a)
 {
     wn_vertex *v;
+    paint_map_point(c, &x, &y);
     ensure_vertex_capacity(c, c->vertex_count + 1);
     if (c->vertex_count >= c->vertex_capacity) {
         return;
@@ -158,7 +215,7 @@ void push_quad(wn_core *c, float x, float y, float w, float h,
     if (w <= 0.0f || h <= 0.0f) {
         return;
     }
-    a = (uint8_t)((argb >> 24) & 0xFFu);
+    a = paint_alpha(c, (uint8_t)((argb >> 24) & 0xFFu));
     if (a == 0) {
         return;
     }
@@ -233,7 +290,7 @@ static void push_rounded_quad(wn_core *c, float x, float y, float w, float h,
     if (w <= 0.0f || h <= 0.0f) {
         return;
     }
-    a = (uint8_t)((argb >> 24) & 0xFFu);
+    a = paint_alpha(c, (uint8_t)((argb >> 24) & 0xFFu));
     if (a == 0) {
         return;
     }
@@ -283,7 +340,7 @@ void push_rounded_ring(wn_core *c, float x, float y, float w, float h,
     if (w <= 0.0f || h <= 0.0f || ring <= 0.0f) {
         return;
     }
-    a = (uint8_t)((argb >> 24) & 0xFFu);
+    a = paint_alpha(c, (uint8_t)((argb >> 24) & 0xFFu));
     if (a == 0u) {
         return;
     }
@@ -378,6 +435,7 @@ static void push_glyph_vertex(wn_core *c, float x, float y, float u, float v,
                               uint8_t r, uint8_t g, uint8_t b, uint8_t a)
 {
     wn_glyph_vertex *out;
+    paint_map_point(c, &x, &y);
     ensure_glyph_capacity(c, c->glyph_vertex_count + 1);
     if (c->glyph_vertex_count >= c->glyph_vertex_capacity) {
         return;
@@ -399,6 +457,10 @@ void push_glyph_quad(wn_core *c, float x, float y, float w, float h,
                             uint8_t r, uint8_t g, uint8_t b, uint8_t a)
 {
     float x1 = x + w, y1 = y + h;
+    a = paint_alpha(c, a);
+    if (a == 0u) {
+        return;
+    }
     /* Reserve the whole glyph up front: a half-written quad would paint a
      * degenerate triangle if the growth failed mid-way. */
     ensure_glyph_capacity(c, c->glyph_vertex_count + 6);
@@ -490,6 +552,9 @@ static void push_image_vertex(wn_core *c, float x, float y, float u, float v,
                               float vw, float vh)
 {
     wn_image_vertex *out;
+    /* Image opacity is pending: wn_image_vertex has no per-vertex alpha yet,
+     * so only the transform applies here. */
+    paint_map_point(c, &x, &y);
     ensure_image_capacity(c, c->image_vertex_count + 1);
     if (c->image_vertex_count >= c->image_vertex_capacity) {
         return;
@@ -642,14 +707,15 @@ push_vertices:
 static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
 {
     int order_index;
-    for (order_index = 0; order_index < c->paint_count; ++order_index) {
-        int node = c->paint_order[order_index];
+    for (order_index = 0; order_index < c->paint_item_count; ++order_index) {
+        const WnPaintItem *item = &c->paint_items[order_index];
+        int node = item->node;
         const UiNode *n = &c->nodes[node];
         const wn_rect *r;
         unsigned int color;
         uint8_t a, cr, cg, cb;
         int j;
-        if (!c->visible_eff[node] || n->kind != R2_NODE_TEXT) {
+        if (n->kind != R2_NODE_TEXT) {
             continue;
         }
         r = &c->rects[node];
@@ -658,10 +724,8 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
         if (a == 0) {
             continue;
         }
-        if (rect_is_empty(c->clips[node])) {
-            continue;
-        }
-        set_glyph_clip(c, &c->clips[node]);
+        wn_paint_use_item(c, item);
+        set_glyph_clip(c, &item->clip);
         cr = (uint8_t)((color >> 16) & 0xFFu);
         cg = (uint8_t)((color >> 8) & 0xFFu);
         cb = (uint8_t)(color & 0xFFu);
@@ -740,16 +804,17 @@ static void build_scrollbars(wn_core *c)
     const float track_w = 8.0f;
     const float edge = 2.0f;
     int order;
-    for (order = 0; order < c->paint_count; ++order) {
-        int node = c->paint_order[order];
+    /* Synthetic post-pass: scrollbars are not nodes/items, but each one borrows
+     * the owning item's clip and (currently identity) paint attrs. */
+    for (order = 0; order < c->paint_item_count; ++order) {
+        const WnPaintItem *item = &c->paint_items[order];
+        int node = item->node;
         const UiNode *n = &c->nodes[node];
         const wn_rect *r;
-        if (!c->visible_eff[node] || n->overflow != R2_OVERFLOW_SCROLL) {
+        if (n->overflow != R2_OVERFLOW_SCROLL) {
             continue;
         }
-        if (rect_is_empty(c->clips[node])) {
-            continue;
-        }
+        wn_paint_use_item(c, item);
         r = &c->rects[node];
 
         if (c->scroll_max_y[node] > 0.5f) {
@@ -774,7 +839,7 @@ static void build_scrollbars(wn_core *c)
                         thumb_y += travel *
                                    (c->scroll_y[node] / c->scroll_max_y[node]);
                     }
-                    set_solid_clip(c, &c->clips[node]);
+                    set_solid_clip(c, &item->clip);
                     push_rounded_quad(c, track_x, track_y, track_w, track_h,
                                       track_w * 0.5f, (float)c->width,
                                       (float)c->height, 0x33000000u);
@@ -807,7 +872,7 @@ static void build_scrollbars(wn_core *c)
                         thumb_x += travel *
                                    (c->scroll_x[node] / c->scroll_max_x[node]);
                     }
-                    set_solid_clip(c, &c->clips[node]);
+                    set_solid_clip(c, &item->clip);
                     push_rounded_quad(c, track_x, track_y, track_len, track_w,
                                       track_w * 0.5f, (float)c->width,
                                       (float)c->height, 0x33000000u);
@@ -839,27 +904,23 @@ void wn_core_build_display_list(wn_core *core)
     core->image_vertex_count = 0;
     core->image_batch_count = 0;
 
-    for (i = 0; i < core->paint_count; ++i) {
-        int node = core->paint_order[i];
+    for (i = 0; i < core->paint_item_count; ++i) {
+        const WnPaintItem *item = &core->paint_items[i];
+        int node = item->node;
         const UiNode *n = &core->nodes[node];
         unsigned int color;
         const wn_rect *r;
-        if (!core->visible_eff[node]) {
-            continue;
-        }
-        if (rect_is_empty(core->clips[node])) {
-            continue;
-        }
+        wn_paint_use_item(core, item);
         r = &core->rects[node];
         if (((n->shadow_color >> 24) & 0xFFu) != 0u) {
-            set_solid_clip(core, &core->clips[node]);
+            set_solid_clip(core, &item->clip);
             push_box_shadow(core, n, r);
         }
         color = node_color(core, node);
         if (color == 0) {
             continue;
         }
-        set_solid_clip(core, &core->clips[node]);
+        set_solid_clip(core, &item->clip);
         if (n->border_width > 0.0f && ((n->border_color >> 24) & 0xFFu) != 0u &&
             ((color >> 24) & 0xFFu) == 0xFFu) {
             /* Opaque fill: border ring first, then the background inset by the
@@ -880,15 +941,16 @@ void wn_core_build_display_list(wn_core *core)
     }
     build_input_decorations(core);
     build_scrollbars(core);
-    for (i = 0; i < core->paint_count; ++i) {
-        int node = core->paint_order[i];
-        if (core->nodes[node].kind == R2_NODE_IMAGE &&
-            !rect_is_empty(core->clips[node])) {
-            push_image_quad(core, node, &core->clips[node]);
+    for (i = 0; i < core->paint_item_count; ++i) {
+        const WnPaintItem *item = &core->paint_items[i];
+        if (core->nodes[item->node].kind == R2_NODE_IMAGE) {
+            wn_paint_use_item(core, item);
+            push_image_quad(core, item->node, &item->clip);
         }
     }
     build_text_geometry(core, (float)core->width, (float)core->height);
     build_input_text_geometry(core, (float)core->width, (float)core->height);
+    wn_paint_use_item(core, NULL);
 
     finalize_draw_batches(core->solid_batches, &core->solid_batch_count,
                           core->vertex_count);

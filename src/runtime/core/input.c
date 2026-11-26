@@ -922,8 +922,9 @@ int wn_core_input_state(const wn_core *core, int node, wn_input_state *out)
 void build_input_text_geometry(wn_core *c, float viewport_w, float viewport_h)
 {
     int order_index;
-    for (order_index = 0; order_index < c->paint_count; ++order_index) {
-        int node = c->paint_order[order_index];
+    for (order_index = 0; order_index < c->paint_item_count; ++order_index) {
+        const WnPaintItem *item = &c->paint_items[order_index];
+        int node = item->node;
         const UiNode *n = &c->nodes[node];
         const WnInputRecord *record = input_record(c, node);
         const char *value;
@@ -936,7 +937,7 @@ void build_input_text_geometry(wn_core *c, float viewport_w, float viewport_h)
         float scroll;
         float line_offset;
         int use_placeholder;
-        if (!c->visible_eff[node] || n->kind != R2_NODE_INPUT || record == NULL) {
+        if (n->kind != R2_NODE_INPUT || record == NULL) {
             continue;
         }
         value = input_text(c, node);
@@ -951,12 +952,13 @@ void build_input_text_geometry(wn_core *c, float viewport_w, float viewport_h)
             continue;
         }
         content = input_content_rect(c, node);
-        clip = rect_intersection(c->clips[node], content);
+        clip = rect_intersection(item->clip, content);
         if (rect_is_empty(clip)) {
             continue;
         }
         input_update_scroll(c, node);
         scroll = c->input_scroll[node];
+        wn_paint_use_item(c, item);
         set_glyph_clip(c, &clip);
         cr = (uint8_t)((color >> 16) & 0xFFu);
         cg = (uint8_t)((color >> 8) & 0xFFu);
@@ -996,8 +998,11 @@ void build_input_text_geometry(wn_core *c, float viewport_w, float viewport_h)
 void build_input_decorations(wn_core *c)
 {
     int order_index;
-    for (order_index = 0; order_index < c->paint_count; ++order_index) {
-        int node = c->paint_order[order_index];
+    /* Synthetic post-pass: decorations are not nodes/items; they reuse the
+     * owning input item's clip and paint attrs. */
+    for (order_index = 0; order_index < c->paint_item_count; ++order_index) {
+        const WnPaintItem *item = &c->paint_items[order_index];
+        int node = item->node;
         const UiNode *n = &c->nodes[node];
         const WnInputRecord *record = input_record(c, node);
         wn_rect content;
@@ -1005,25 +1010,23 @@ void build_input_decorations(wn_core *c)
         float scroll;
         int start;
         int end;
-        if (!c->visible_eff[node] || n->kind != R2_NODE_INPUT || record == NULL) {
-            continue;
-        }
-        if (rect_is_empty(c->clips[node])) {
+        if (n->kind != R2_NODE_INPUT || record == NULL) {
             continue;
         }
         content = input_content_rect(c, node);
         input_update_scroll(c, node);
         scroll = c->input_scroll[node];
+        wn_paint_use_item(c, item);
 
         if (c->input_focus == node) {
             const wn_rect *r = &c->rects[node];
             const float ring = 2.0f;
-            set_solid_clip(c, &c->clips[node]);
+            set_solid_clip(c, &item->clip);
             push_rounded_ring(c, r->x, r->y, r->w, r->h, n->border_radius, ring,
                               WN_INPUT_FOCUS_COLOR);
         }
 
-        clip = rect_intersection(c->clips[node], content);
+        clip = rect_intersection(item->clip, content);
         if (rect_is_empty(clip)) {
             continue;
         }
