@@ -100,6 +100,8 @@ int main(void)
     const wn_text_line_layout *big;
     const wn_text_line_layout *again;
     const wn_text_line_layout *bold;
+    const wn_text_line_layout *light;
+    const wn_text_line_layout *medium;
     wn_text_metrics hint;
     wn_text_metrics plain;
     wn_text_metrics measured;
@@ -250,6 +252,8 @@ int main(void)
         wide = wn_text_line_layout_get("aa bb cc", FAKE, FAKE_SIZE, 400, 400.0f);
         big = wn_text_line_layout_get("aa bb cc", FAKE, 32.0f, 400, 90.0f);
         bold = wn_text_line_layout_get("aa bb cc", FAKE, FAKE_SIZE, 700, 45.0f);
+        light = wn_text_line_layout_get("aa bb cc", FAKE, FAKE_SIZE, 300, 45.0f);
+        medium = wn_text_line_layout_get("aa bb cc", FAKE, FAKE_SIZE, 500, 45.0f);
         again = wn_text_line_layout_get("aa bb cc", FAKE, FAKE_SIZE, 400, 45.0f);
 
         check("narrow layout wraps", wrapped != NULL && wrapped->line_count == 2);
@@ -260,6 +264,12 @@ int main(void)
                   near(big->lines[0].width, 80.0f) && near(big->line_height, 40.0f));
         check("weight is part of the layout key",
               bold != NULL && bold != wrapped && bold->line_count == 2);
+        check("every requested weight gets its own layout entry",
+              light != NULL && medium != NULL && light != wrapped && medium != wrapped &&
+                  light != bold && medium != bold && light != medium);
+        check("weight-keyed entries keep the same fake metrics",
+              light != NULL && medium != NULL && near(light->width, medium->width) &&
+                  near(light->line_height, medium->line_height));
         check("repeating a key returns the same entry", again == wrapped);
         check("the hit does not disturb the wide layout",
               wide != NULL && wide->line_count == 1 && near(wide->width, 64.0f));

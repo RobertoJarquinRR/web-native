@@ -281,11 +281,55 @@ static float clamp_font_size(float size)
     return size;
 }
 
+/* CSS `font-weight` (100..=900) -> DWRITE_FONT_WEIGHT. The canonical CSS
+ * numbers are the DWRITE constants; an in-between value (e.g. 450 or 550) picks
+ * the nearest canonical weight (450 -> 400, 550 -> 500). That is deliberately
+ * *not* CSS Fonts 4's 400-500 preference, which would pick 500 for 450: the
+ * runtime follows the DirectWrite canonical scale so measure and shape agree.
+ * 400 and 700 map to NORMAL/BOLD exactly as before, so pages that only used
+ * those weights keep byte-identical output.
+ *
+ * DirectWrite then selects the nearest *installed* face of the family
+ * (`GetFirstMatchingFont` / text-format fallback). Synthesis is not forced:
+ * when the family lacks the requested weight DirectWrite may simulate bold,
+ * otherwise it renders with the closest real face (or with the family fallback
+ * if the family itself is missing). */
+static DWRITE_FONT_WEIGHT dwrite_weight(int weight)
+{
+    if (weight < 150) {
+        return DWRITE_FONT_WEIGHT_THIN; /* 100 */
+    }
+    if (weight < 250) {
+        return DWRITE_FONT_WEIGHT_EXTRA_LIGHT; /* 200 */
+    }
+    if (weight < 325) {
+        return DWRITE_FONT_WEIGHT_LIGHT; /* 300 */
+    }
+    if (weight < 375) {
+        return DWRITE_FONT_WEIGHT_SEMI_LIGHT; /* 350 */
+    }
+    if (weight <= 450) {
+        return DWRITE_FONT_WEIGHT_NORMAL; /* 400 */
+    }
+    if (weight <= 550) {
+        return DWRITE_FONT_WEIGHT_MEDIUM; /* 500 */
+    }
+    if (weight <= 650) {
+        return DWRITE_FONT_WEIGHT_SEMI_BOLD; /* 600 */
+    }
+    if (weight <= 750) {
+        return DWRITE_FONT_WEIGHT_BOLD; /* 700 */
+    }
+    if (weight <= 850) {
+        return DWRITE_FONT_WEIGHT_EXTRA_BOLD; /* 800 */
+    }
+    return DWRITE_FONT_WEIGHT_BLACK; /* 900 */
+}
+
 static int create_text_format(WnDirectWrite *ctx, const wn_text_style *style, IDWriteTextFormat **out)
 {
     wchar_t family[128];
-    DWRITE_FONT_WEIGHT weight =
-        style->weight >= 600 ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL;
+    DWRITE_FONT_WEIGHT weight = dwrite_weight(style->weight);
     if (utf8_to_wide(style->family != nullptr ? style->family : "Segoe UI", family,
                      static_cast<int>(sizeof(family) / sizeof(family[0])), nullptr) == 0) {
         return 1;
@@ -352,36 +396,15 @@ static int measure_uncached(WnDirectWrite *ctx, const char *utf8, const wn_text_
     return 0;
 }
 
-static DWRITE_FONT_WEIGHT dwrite_weight(int weight)
-{
-    if (weight >= 900) {
-        return DWRITE_FONT_WEIGHT_BLACK;
-    }
-    if (weight >= 800) {
-        return DWRITE_FONT_WEIGHT_EXTRA_BOLD;
-    }
-    if (weight >= 700) {
-        return DWRITE_FONT_WEIGHT_BOLD;
-    }
-    if (weight >= 600) {
-        return DWRITE_FONT_WEIGHT_SEMI_BOLD;
-    }
-    if (weight >= 500) {
-        return DWRITE_FONT_WEIGHT_MEDIUM;
-    }
-    if (weight >= 350) {
-        return DWRITE_FONT_WEIGHT_NORMAL;
-    }
-    return DWRITE_FONT_WEIGHT_LIGHT;
-}
-
 static IDWriteFontFace *find_face(WnDirectWrite *ctx, const wn_text_style *style, float *units_per_em)
 {
     const char *family = style->family != nullptr ? style->family : "Segoe UI";
+    const DWRITE_FONT_WEIGHT requested = dwrite_weight(style->weight);
     for (int slot = 0; slot < WN_TEXT_FACE_CAPACITY; ++slot) {
         WnFontFaceEntry *entry = &ctx->faces[slot];
         if (entry->face != nullptr && entry->family != nullptr &&
-            entry->weight == style->weight && std::strcmp(entry->family, family) == 0) {
+            entry->weight == static_cast<int>(requested) &&
+            std::strcmp(entry->family, family) == 0) {
             *units_per_em = entry->units_per_em;
             return entry->face;
         }
@@ -408,7 +431,10 @@ static IDWriteFontFace *find_face(WnDirectWrite *ctx, const wn_text_style *style
         return nullptr;
     }
     collection->Release();
-    if (FAILED(font_family->GetFirstMatchingFont(dwrite_weight(style->weight), DWRITE_FONT_STRETCH_NORMAL,
+    /* Nearest installed face: DirectWrite compares the requested weight with
+     * the faces of the family and returns the closest one. No synthetic bold
+     * is applied. */
+    if (FAILED(font_family->GetFirstMatchingFont(requested, DWRITE_FONT_STRETCH_NORMAL,
                                                  DWRITE_FONT_STYLE_NORMAL, &font)) ||
         font == nullptr) {
         font_family->Release();
@@ -439,7 +465,7 @@ static IDWriteFontFace *find_face(WnDirectWrite *ctx, const wn_text_style *style
         }
         std::free(entry->family);
         entry->family = family_copy;
-        entry->weight = style->weight;
+        entry->weight = static_cast<int>(requested);
         entry->face = face;
         entry->units_per_em = static_cast<float>(
             metrics.designUnitsPerEm > 0 ? metrics.designUnitsPerEm : 2048);
@@ -809,4 +835,12 @@ static const wn_text_ops g_directwrite_ops = {
 extern "C" const wn_text_ops *wn_text_directwrite(void)
 {
     return &g_directwrite_ops;
+}
+
+/* Test hook: the DWRITE_FONT_WEIGHT a CSS `font-weight` maps to. Not part of
+ * the public ABI; the weight suite asserts the 100..900 table without
+ * duplicating it. */
+extern "C" int wn_text_directwrite_weight(int weight)
+{
+    return static_cast<int>(dwrite_weight(weight));
 }

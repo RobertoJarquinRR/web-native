@@ -77,7 +77,7 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | ----------------------------------------- | -------- | ------- | ------- | --------------------------------------------------------------------------------------------- |
 | `font-family`                             | Sí       | Sí      | Sí      | fuentes del sistema                                                                           |
 | `font-size`                               | Sí       | Sí      | Sí      | px                                                                                            |
-| `font-weight`                             | Sí       | Sí      | Sí      | ≥600 usa la cara bold real del sistema (Segoe UI/Arial bold); si falta, regular + diagnóstico |
+| `font-weight`                             | Sí       | Sí      | Sí      | `normal`=400, `bold`=700 y enteros 100–900; DirectWrite mapea a `DWRITE_FONT_WEIGHT` y usa la cara instalada más cercana; un valor intermedio toma el canónico más cercano (`450`→400, `550`→500), no la preferencia 400–500 de CSS Fonts 4; no se fuerza síntesis (DirectWrite puede simular bold si falta el peso) |
 | `line-height`                             | Sí       | No      | Sí      | px o número; afecta altura y baseline (half-leading)                                          |
 | `text-align`                              | Sí       | No      | Sí      | `left`/`center`/`right` por línea; el texto envuelve                                          |
 | `color`, `background`, `background-color` | Sí       | Sí      | Sí      | `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()`                                             |

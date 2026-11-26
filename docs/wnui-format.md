@@ -40,8 +40,9 @@ El registro de nodo guarda `parent`, `kind`, dirección/justify/align/wrap,
 geometría declarada, márgenes/padding, colores ARGB resueltos, offsets de
 texto/imagen/familia, la acción resuelta (`action`), grid, overflow,
 borde/radius/sombra, alineación de texto, `line-height`, `margin-auto`,
-`box-sizing`, flex, peso de fuente y `opacity` (v3, `float`, 0..1; el loader
-rechaza valores fuera de rango). v4 añade al final `position` (entero: 0
+`box-sizing`, flex, peso de fuente (`font_weight`, int32 100..900; `normal`=400,
+`bold`=700) y `opacity` (v3, `float`, 0..1; el loader rechaza valores fuera de
+rango). v4 añade al final `position` (entero: 0
 `static`, 1 `relative`, 2 `absolute`), `inset[4]` (`float`, orden
 top/right/bottom/left) e `inset_mask`. v5 añade `int32 z_index` con el sentinel
 documentado `INT32_MIN` (=-2147483648) para `auto`; cualquier otro int32 es un

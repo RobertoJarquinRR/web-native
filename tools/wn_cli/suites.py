@@ -1152,6 +1152,19 @@ def run_text() -> int:
     )
     _expect_measure_result(_run(exe, [], out), "text measure test")
 
+    log_step("text: font-weight 100-900 (nearest face, measure/shape)")
+    weight_exe = out / "weight_test.exe"
+    _compile(
+        weight_exe,
+        [suite / "weight_test.cpp", runtime / "text" / "text_runtime.c",
+         runtime / "text" / "text_directwrite.cpp"],
+        [get_paths().root / "include", runtime],
+        ["dwrite.lib"],
+    )
+    weight_text = _run(weight_exe, [], out)
+    _expect_measure_result(weight_text, "text weight test")
+    _expect_checks(weight_text, "text weight test", 43)
+
     log_step("text: atlas")
     atlas_exe = out / "atlas_test.exe"
     _compile(
