@@ -84,9 +84,10 @@ typedef struct {
     int width, height;
 } wn_display_list;
 
-/* Opaque compiled document. v0 ships exactly one: the built-in R2 fixture
- * compiled into ui_data.h. The document tables stay immutable; wn_core owns a
- * mutable copy of the node table plus a dynamic arena for cloned nodes. */
+/* Opaque compiled document. v0 ships exactly one: the built-in R2 fixture as
+ * an embedded .wnui blob parsed at first use. The document tables stay
+ * immutable; wn_core owns a mutable copy of the node table plus a dynamic
+ * arena for cloned nodes. */
 typedef struct wn_document wn_document;
 
 const wn_document *wn_document_builtin(void);

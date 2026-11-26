@@ -3,7 +3,7 @@
  *
  *   dynamic.exe [--frames N] [--image-b PATH]
  *
- * The document is the compiled fixture in tests/dynamic/fixture/ui_data.h,
+ * The document is the embedded fixture blob in tests/dynamic,
  * emitted by the `dynamic` test suite. The demo hides/shows a card, clones
  * the card template, swaps its image and text, re-parents and removes it, then
  * checks the error surface: set_image on a text node is WN_ERR_UNSUPPORTED and

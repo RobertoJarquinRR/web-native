@@ -3,7 +3,7 @@
 #include <string.h>
 
 #include "document/wn_blob.h"
-#include "ui_data.h"
+#include "document/wn_document_internal.h"
 #include "webnative.h"
 #include "wn_core.h"
 
@@ -321,11 +321,105 @@ static int write_bad_font_size_copy(const char *source, const char *target,
     return ok;
 }
 
+static int strings_equal(const char *a, const char *b)
+{
+    if (a == NULL || b == NULL) {
+        return a == b;
+    }
+    return strcmp(a, b) == 0;
+}
+
+/* Field-by-field comparison: pointers differ when the same document is parsed
+ * from two buffers, so string contents are compared instead of addresses. */
+static int node_equal(const UiNode *a, const UiNode *b)
+{
+    return a->parent == b->parent && a->kind == b->kind &&
+           a->direction == b->direction && a->justify == b->justify &&
+           a->align == b->align && a->wrap == b->wrap &&
+           a->width == b->width && a->height == b->height &&
+           a->width_pct == b->width_pct && a->height_pct == b->height_pct &&
+           memcmp(a->margin, b->margin, sizeof(a->margin)) == 0 &&
+           memcmp(a->padding, b->padding, sizeof(a->padding)) == 0 &&
+           a->background == b->background &&
+           strings_equal(a->text, b->text) &&
+           a->hover_bg == b->hover_bg && a->press_bg == b->press_bg &&
+           a->selected_bg == b->selected_bg && a->action == b->action &&
+           a->gap == b->gap && a->font_size == b->font_size &&
+           a->text_color == b->text_color && a->grid_mode == b->grid_mode &&
+           a->grid_column_px == b->grid_column_px &&
+           a->grid_auto_rows == b->grid_auto_rows &&
+           a->row_gap == b->row_gap && a->column_gap == b->column_gap &&
+           a->overflow == b->overflow &&
+           a->image_width == b->image_width &&
+           a->image_height == b->image_height &&
+           strings_equal(a->image_src, b->image_src) &&
+           strings_equal(a->image_alt, b->image_alt) &&
+           a->object_fit == b->object_fit &&
+           a->border_width == b->border_width &&
+           a->border_color == b->border_color &&
+           a->border_radius == b->border_radius &&
+           a->shadow_x == b->shadow_x && a->shadow_y == b->shadow_y &&
+           a->shadow_blur == b->shadow_blur &&
+           a->shadow_spread == b->shadow_spread &&
+           a->shadow_color == b->shadow_color &&
+           a->text_align == b->text_align &&
+           a->line_height == b->line_height &&
+           a->margin_auto == b->margin_auto &&
+           a->box_sizing == b->box_sizing &&
+           a->flex_grow == b->flex_grow &&
+           a->flex_shrink == b->flex_shrink &&
+           a->flex_basis == b->flex_basis &&
+           strings_equal(a->font_family, b->font_family) &&
+           a->font_weight == b->font_weight;
+}
+
+static int documents_equal(const wn_document *a, const wn_document *b)
+{
+    if (a == NULL || b == NULL) {
+        return 0;
+    }
+    if (a->node_count != b->node_count ||
+        a->viewport_width != b->viewport_width ||
+        a->viewport_height != b->viewport_height ||
+        a->input_count != b->input_count) {
+        return 0;
+    }
+    for (int i = 0; i < a->node_count; ++i) {
+        if (!node_equal(&a->nodes[i], &b->nodes[i]) ||
+            !strings_equal(a->names[i], b->names[i])) {
+            return 0;
+        }
+    }
+    for (int i = 0; i < a->input_count; ++i) {
+        if (a->inputs[i].node != b->inputs[i].node ||
+            a->inputs[i].max_length != b->inputs[i].max_length ||
+            a->inputs[i].password != b->inputs[i].password ||
+            !strings_equal(a->inputs[i].value, b->inputs[i].value) ||
+            !strings_equal(a->inputs[i].placeholder, b->inputs[i].placeholder)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static int memory_rejected(const unsigned char *data, size_t size, const char *needle)
+{
+    wn_document *document = wn_document_load_blob_memory(data, size);
+    const char *error = wn_last_error();
+    int ok = document == NULL && error != NULL &&
+             (needle == NULL || strstr(error, needle) != NULL);
+    printf("  error: %s\n", error != NULL ? error : "(none)");
+    if (document != NULL) {
+        wn_document_destroy(document);
+    }
+    return ok;
+}
+
 int main(int argc, char **argv)
 {
     const char *path = argc > 1 ? argv[1] : "fixture/app.wnui";
     const wn_document *builtin = wn_document_builtin();
-    wn_document *loaded = wn_document_load_blob(path);
+    wn_document *loaded;
     wn_core *core_builtin;
     wn_core *core_blob;
     const wn_rect *rects_builtin;
@@ -336,6 +430,17 @@ int main(int argc, char **argv)
     const wn_display_list *list_builtin;
     const wn_display_list *list_blob;
 
+    /* The builtin must come from the embedded blob alone: no file is open yet
+     * and the fixture path is only used below. */
+    check("builtin document parses without an external file",
+          builtin != NULL && builtin->node_count > 0 && builtin->nodes != NULL &&
+              builtin->names != NULL &&
+              builtin->nodes[0].parent == -1);
+    if (builtin == NULL) {
+        printf("blob_test: FAIL (%s)\n", wn_last_error() != NULL ? wn_last_error() : "builtin");
+        return 1;
+    }
+    loaded = wn_document_load_blob(path);
     if (loaded == NULL) {
         printf("blob_test: FAIL (%s)\n", wn_last_error() != NULL ? wn_last_error() : "load");
         return 1;
@@ -358,11 +463,12 @@ int main(int argc, char **argv)
         printf("blob_test: FAIL\n");
         return 1;
     }
-    wn_core_resize(core_builtin, UI_VIEWPORT_WIDTH, UI_VIEWPORT_HEIGHT);
-    wn_core_resize(core_blob, UI_VIEWPORT_WIDTH, UI_VIEWPORT_HEIGHT);
+    wn_core_resize(core_builtin, builtin->viewport_width, builtin->viewport_height);
+    wn_core_resize(core_blob, builtin->viewport_width, builtin->viewport_height);
     rects_builtin = wn_core_rects(core_builtin, &count_builtin);
     rects_blob = wn_core_rects(core_blob, &count_blob);
-    check("same rect count", count_builtin == count_blob && count_builtin == UI_NODE_COUNT);
+    check("same rect count",
+          count_builtin == count_blob && count_builtin == builtin->node_count);
 
     for (int node = 0; node < count_builtin && node < count_blob; ++node) {
         if (rects_builtin[node].x == rects_blob[node].x &&
@@ -371,7 +477,7 @@ int main(int argc, char **argv)
             rects_builtin[node].h == rects_blob[node].h) {
             ++matching_rects;
         } else {
-            printf("  [FAIL] rect[%d] differs: %s\n", node, kUiNodeNames[node]);
+            printf("  [FAIL] rect[%d] differs: %s\n", node, builtin->names[node]);
         }
     }
     check("layout is identical", matching_rects == count_builtin);
@@ -399,8 +505,122 @@ int main(int argc, char **argv)
                         list_blob->image_vertex_count,
                         sizeof(wn_image_vertex)));
     printf("  nodes=%d rects=%d/%d solids=%d glyphs=%d images=%d\n",
-           UI_NODE_COUNT, matching_rects, count_builtin, list_blob->vertex_count,
+           builtin->node_count, matching_rects, count_builtin, list_blob->vertex_count,
            list_blob->glyph_vertex_count, list_blob->image_vertex_count);
+
+    /* ------------------------- memory loader vs the file path ------------ */
+    {
+        long length = 0;
+        unsigned char *data = read_whole_file(path, &length);
+        unsigned char *before = data != NULL ? (unsigned char *)malloc((size_t)length) : NULL;
+        wn_document *from_memory = NULL;
+        wn_core *memory_core = NULL;
+
+        check("memory fixture read", data != NULL && before != NULL && length > 0);
+        if (data != NULL && before != NULL) {
+            memcpy(before, data, (size_t)length);
+            from_memory = wn_document_load_blob_memory(data, (size_t)length);
+            check("memory load succeeds", from_memory != NULL);
+            if (from_memory != NULL) {
+                check("memory document matches the file document",
+                      documents_equal(from_memory, loaded));
+                check("memory buffer is not modified",
+                      memcmp(before, data, (size_t)length) == 0);
+                memory_core = wn_core_create(from_memory);
+                check("memory document builds a core", memory_core != NULL);
+                if (memory_core != NULL) {
+                    const wn_rect *memory_rects;
+                    int memory_count = 0;
+                    int same = 1;
+                    wn_core_resize(memory_core, from_memory->viewport_width,
+                                   from_memory->viewport_height);
+                    memory_rects = wn_core_rects(memory_core, &memory_count);
+                    if (memory_count != count_blob) {
+                        same = 0;
+                    } else {
+                        for (int node = 0; node < memory_count; ++node) {
+                            if (memory_rects[node].x != rects_blob[node].x ||
+                                memory_rects[node].y != rects_blob[node].y ||
+                                memory_rects[node].w != rects_blob[node].w ||
+                                memory_rects[node].h != rects_blob[node].h) {
+                                same = 0;
+                                break;
+                            }
+                        }
+                    }
+                    check("memory pixels match the file layout", same);
+                    wn_core_destroy(memory_core);
+                }
+                wn_document_destroy(from_memory);
+            }
+            free(before);
+            free(data);
+        }
+    }
+
+    /* --------------------------- malformed memory buffers ---------------- */
+    {
+        long length = 0;
+        unsigned char *data = read_whole_file(path, &length);
+        unsigned char small[WN_BLOB_HEADER_SIZE];
+
+        check("malformed fixture read", data != NULL && length > 0);
+        memset(small, 0, sizeof(small));
+        check("truncated memory is rejected",
+              memory_rejected(small, sizeof(small) - 1u, "too small"));
+        check("null memory is rejected",
+              memory_rejected(NULL, 0, "empty buffer"));
+
+        if (data != NULL) {
+            unsigned char *copy = (unsigned char *)malloc((size_t)length);
+            WnBlobSection *sections;
+            uint32_t section_count;
+
+            check("memory copy allocated", copy != NULL);
+            if (copy != NULL) {
+                memcpy(copy, data, (size_t)length);
+                ((WnBlobHeader *)copy)->magic = 0;
+                check("bad magic in memory is rejected",
+                      memory_rejected(copy, (size_t)length, "bad magic"));
+
+                memcpy(copy, data, (size_t)length);
+                ((WnBlobHeader *)copy)->version = WN_BLOB_VERSION + 1u;
+                check("bad version in memory is rejected",
+                      memory_rejected(copy, (size_t)length, "bad magic or version"));
+
+                memcpy(copy, data, (size_t)length);
+                ((WnBlobHeader *)copy)->file_size = (uint32_t)length + 1u;
+                check("wrong memory size in the header is rejected",
+                      memory_rejected(copy, (size_t)length, "inconsistent header"));
+
+                memcpy(copy, data, (size_t)length);
+                sections = (WnBlobSection *)(copy + WN_BLOB_HEADER_SIZE);
+                section_count = ((WnBlobHeader *)copy)->section_count;
+                for (uint32_t i = 0; i < section_count; ++i) {
+                    if (sections[i].id == WN_BLOB_SECTION_NODES) {
+                        sections[i].offset = (uint32_t)length;
+                        break;
+                    }
+                }
+                check("section offset past the end is rejected",
+                      memory_rejected(copy, (size_t)length, "missing required section"));
+
+                memcpy(copy, data, (size_t)length);
+                {
+                    /* Valid magic/version, but the section table does not fit
+                     * in the buffer: the loader must not read past `size`. */
+                    size_t cut = WN_BLOB_HEADER_SIZE + sizeof(WnBlobSection);
+                    memcpy(copy, data, cut);
+                    ((WnBlobHeader *)copy)->file_size = (uint32_t)cut;
+                    check("truncated section table is rejected",
+                          memory_rejected(copy, cut, "inconsistent header"));
+                }
+
+                free(copy);
+            }
+            free(data);
+        }
+    }
 
     {
         const char *corrupt = "corrupt_nul.wnui";

@@ -27,19 +27,12 @@
 #include <wgpu.h>
 #endif
 
-#include "ui_data.h"
+#include "document/wn_document_internal.h"
 #include "wn_core.h"
 #include "wn_internal.h"
 #include "wn_view.h"
 
-/* ui-tree/3 only emits R2_NODE_INPUT in headers with inputs; the demo helper
- * must compile against v1/v2 headers too. */
-#ifndef R2_NODE_INPUT
-#define R2_NODE_INPUT 5
-#endif
-
 #define ARRAY_LEN(a) ((size_t)(sizeof(a) / sizeof((a)[0])))
-#define MAX_FLEX_ITEMS UI_NODE_COUNT
 
 /* --------------------------------------------------------------- utilities */
 
@@ -97,6 +90,7 @@ typedef wn_vertex Vertex;
 typedef wn_glyph_vertex GlyphVertex;
 
 static wn_core *g_core;
+static const wn_document *g_document;
 
 #define g_rects (wn_core_rects(g_core, NULL))
 #define g_hover (wn_core_hover(g_core))
@@ -191,7 +185,7 @@ static int render_offscreen_vt(int width, int height, const wchar_t *path,
                                        (float)wheel_dy);
         if (container >= 0) {
             printf("wheel: (%d,%d) delta_y=%d -> node=%d %s scroll=%.1f/%.1f\n", wheel_x,
-                   wheel_y, wheel_dy, container, kUiNodeNames[container],
+                   wheel_y, wheel_dy, container, g_document->names[container],
                    wn_core_scroll_offset(g_core, container),
                    wn_core_scroll_max(g_core, container));
         } else {
@@ -360,7 +354,7 @@ static int write_layout_report(const char *path, const int *widths, const int *h
         fprintf(stderr, "error: cannot open report %s\n", path);
         return 1;
     }
-    fprintf(f, "{\n  \"generated_by\": \"runtime_r2.c\",\n  \"node_count\": %d,\n", UI_NODE_COUNT);
+    fprintf(f, "{\n  \"generated_by\": \"runtime_r2.c\",\n  \"node_count\": %d,\n", g_document->node_count);
     fprintf(f, "  \"sizes\": [\n");
     for (int s = 0; s < count; ++s) {
         const int w = widths[s], h = heights[s];
@@ -379,19 +373,19 @@ static int write_layout_report(const char *path, const int *widths, const int *h
         fprintf(f, "      \"layout_ms_best\": %.4f,\n      \"layout_ms_avg\": %.4f,\n",
                 best, total / (double)iterations);
         fprintf(f, "      \"nodes\": [\n");
-        for (int i = 0; i < UI_NODE_COUNT; ++i) {
+        for (int i = 0; i < g_document->node_count; ++i) {
             const Rect *r = &g_rects[i];
             fprintf(f, "        {\"id\": %d, \"name\": ", i);
-            json_escape(f, kUiNodeNames[i]);
+            json_escape(f, g_document->names[i]);
             fprintf(f, ", \"kind\": \"%s\", \"x\": %.2f, \"y\": %.2f, \"w\": %.2f, \"h\": %.2f}%s\n",
-                    kind_name(kUiNodes[i].kind), r->x, r->y, r->w, r->h,
-                    i + 1 < UI_NODE_COUNT ? "," : "");
+                    kind_name(g_document->nodes[i].kind), r->x, r->y, r->w, r->h,
+                    i + 1 < g_document->node_count ? "," : "");
         }
         fprintf(f, "      ]\n    }%s\n", s + 1 < count ? "," : "");
     }
     fprintf(f, "  ]\n}\n");
     fclose(f);
-    printf("report: wrote %s (%d size(s), %d nodes each)\n", path, count, UI_NODE_COUNT);
+    printf("report: wrote %s (%d size(s), %d nodes each)\n", path, count, g_document->node_count);
     return 0;
 }
 
@@ -423,8 +417,8 @@ static int is_card_node(const char *name)
 static void print_layout_summary(float w, float h)
 {
     int sidebar = -1, content = -1, header = -1, cards[8], card_count = 0;
-    for (int i = 0; i < UI_NODE_COUNT; ++i) {
-        const char *name = kUiNodeNames[i];
+    for (int i = 0; i < g_document->node_count; ++i) {
+        const char *name = g_document->names[i];
         if (name_is(name, "body.root/div.sidebar")) sidebar = i;
         else if (name_is(name, "body.root/div.content")) content = i;
         else if (name_is(name, "body.root/div.content/div.header")) header = i;
@@ -454,13 +448,13 @@ static void print_layout_summary(float w, float h)
 /* One line per scroll container, machine-readable for the pilot verifier. */
 static void print_scroll_summary(void)
 {
-    for (int i = 0; i < UI_NODE_COUNT; ++i) {
-        if (kUiNodes[i].overflow != R2_OVERFLOW_SCROLL) {
+    for (int i = 0; i < g_document->node_count; ++i) {
+        if (g_document->nodes[i].overflow != R2_OVERFLOW_SCROLL) {
             continue;
         }
         printf("scroll: node=%d name=%s rect=[%.1f,%.1f,%.1f,%.1f] "
                "offset=%.2f max=%.2f\n",
-               i, kUiNodeNames[i], g_rects[i].x, g_rects[i].y,
+               i, g_document->names[i], g_rects[i].x, g_rects[i].y,
                g_rects[i].w, g_rects[i].h,
                wn_core_scroll_offset(g_core, i),
                wn_core_scroll_max(g_core, i));
@@ -471,8 +465,8 @@ static void print_scroll_summary(void)
 
 static int first_interactive_node(void)
 {
-    for (int i = 0; i < UI_NODE_COUNT; ++i) {
-        if (kUiNodes[i].action != ACTION_NONE) {
+    for (int i = 0; i < g_document->node_count; ++i) {
+        if (g_document->nodes[i].action != ACTION_NONE) {
             return i;
         }
     }
@@ -481,8 +475,8 @@ static int first_interactive_node(void)
 
 static int first_input_node(void)
 {
-    for (int i = 0; i < UI_NODE_COUNT; ++i) {
-        if (kUiNodes[i].kind == R2_NODE_INPUT) {
+    for (int i = 0; i < g_document->node_count; ++i) {
+        if (g_document->nodes[i].kind == R2_NODE_INPUT) {
             return i;
         }
     }
@@ -495,7 +489,7 @@ static int run_states(const char *prefix, int node, int width, int height)
     double layout_ms = 0.0, frame_ms = 0.0;
     const char *suffixes[4] = {"normal", "hover", "press", "selected"};
 
-    if (node < 0 || node >= UI_NODE_COUNT || kUiNodes[node].action == ACTION_NONE) {
+    if (node < 0 || node >= g_document->node_count || g_document->nodes[node].action == ACTION_NONE) {
         fprintf(stderr, "error: node %d is not interactive\n", node);
         return 1;
     }
@@ -514,7 +508,7 @@ static int run_states(const char *prefix, int node, int width, int height)
             return 1;
         }
         printf("state %-8s node=%d %-40s layout=%.3fms frame=%.3fms -> %s\n",
-               suffixes[state], node, kUiNodeNames[node], layout_ms, frame_ms, path);
+               suffixes[state], node, g_document->names[node], layout_ms, frame_ms, path);
     }
 
     /* Small machine-readable state report for verify.py. */
@@ -523,14 +517,14 @@ static int run_states(const char *prefix, int node, int width, int height)
     if (f != NULL) {
         const Rect *r = &g_rects[node];
         fprintf(f, "{\n  \"node\": %d,\n  \"name\": ", node);
-        json_escape(f, kUiNodeNames[node]);
+        json_escape(f, g_document->names[node]);
         fprintf(f, ",\n  \"rect\": {\"x\": %.2f, \"y\": %.2f, \"w\": %.2f, \"h\": %.2f},\n",
                 r->x, r->y, r->w, r->h);
         fprintf(f, "  \"colors\": {\n");
-        fprintf(f, "    \"normal\": \"#%06X\",\n", kUiNodes[node].background & 0xFFFFFFu);
-        fprintf(f, "    \"hover\": \"#%06X\",\n", kUiNodes[node].hover_bg & 0xFFFFFFu);
-        fprintf(f, "    \"press\": \"#%06X\",\n", kUiNodes[node].press_bg & 0xFFFFFFu);
-        fprintf(f, "    \"selected\": \"#%06X\"\n", kUiNodes[node].selected_bg & 0xFFFFFFu);
+        fprintf(f, "    \"normal\": \"#%06X\",\n", g_document->nodes[node].background & 0xFFFFFFu);
+        fprintf(f, "    \"hover\": \"#%06X\",\n", g_document->nodes[node].hover_bg & 0xFFFFFFu);
+        fprintf(f, "    \"press\": \"#%06X\",\n", g_document->nodes[node].press_bg & 0xFFFFFFu);
+        fprintf(f, "    \"selected\": \"#%06X\"\n", g_document->nodes[node].selected_bg & 0xFFFFFFu);
         fprintf(f, "  },\n  \"pngs\": [");
         for (int state = 0; state < 4; ++state) {
             snprintf(path, sizeof(path), "%s_%s.png", prefix, suffixes[state]);
@@ -567,8 +561,8 @@ static int g_demo_stage = 0;
 
 static int find_node_contains(const char *fragment)
 {
-    for (int i = 0; i < UI_NODE_COUNT; ++i) {
-        if (strstr(kUiNodeNames[i], fragment)) {
+    for (int i = 0; i < g_document->node_count; ++i) {
+        if (strstr(g_document->names[i], fragment)) {
             return i;
         }
     }
@@ -808,7 +802,7 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
         if (container >= 0) {
             g_need_geometry = 1;
             printf("wheel: (%ld,%ld) notches=%d -> node=%d %s scroll=%.1f/%.1f\n",
-                   point.x, point.y, notches, container, kUiNodeNames[container],
+                   point.x, point.y, notches, container, g_document->names[container],
                    wn_core_scroll_offset(g_core, container),
                    wn_core_scroll_max(g_core, container));
             fflush(stdout);
@@ -828,8 +822,8 @@ static LRESULT CALLBACK wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lpar
         int y = (int)(short)HIWORD(lparam);
         int press = g_press;
         int hit = wn_core_pointer_up(g_core, (float)x, (float)y);
-        if (press >= 0 && hit == press && kUiNodes[press].action == ACTION_SELECT) {
-            printf("click: node=%d %s -> selected\n", press, kUiNodeNames[press]);
+        if (press >= 0 && hit == press && g_document->nodes[press].action == ACTION_SELECT) {
+            printf("click: node=%d %s -> selected\n", press, g_document->names[press]);
             fflush(stdout);
         }
         ReleaseCapture();
@@ -977,17 +971,17 @@ static int run_window(void)
                 if (g_frame_index == 8) {
                     SendMessageW(hwnd, WM_MOUSEMOVE, 0, point);
                     printf("input-demo: WM_MOUSEMOVE (%d,%d) -> hover=%d %s\n",
-                           cx, cy, g_hover, g_hover >= 0 ? kUiNodeNames[g_hover] : "(none)");
+                           cx, cy, g_hover, g_hover >= 0 ? g_document->names[g_hover] : "(none)");
                     fflush(stdout);
                 } else if (g_frame_index == 9) {
                     SendMessageW(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, point);
                     printf("input-demo: WM_LBUTTONDOWN -> press=%d %s\n",
-                           g_press, g_press >= 0 ? kUiNodeNames[g_press] : "(none)");
+                           g_press, g_press >= 0 ? g_document->names[g_press] : "(none)");
                     fflush(stdout);
                 } else if (g_frame_index == 10) {
                     SendMessageW(hwnd, WM_LBUTTONUP, 0, point);
                     printf("input-demo: WM_LBUTTONUP -> selected=%d %s\n",
-                           g_selected, g_selected >= 0 ? kUiNodeNames[g_selected] : "(none)");
+                           g_selected, g_selected >= 0 ? g_document->names[g_selected] : "(none)");
                     fflush(stdout);
                 } else if (input_mode && g_frame_index == 12) {
                     SendMessageW(hwnd, WM_CHAR, (WPARAM)'a', 0);
@@ -1488,7 +1482,7 @@ int main(int argc, char **argv)
     int mode_input = 0;
     const char *dynamic_prefix = "dynamic";
     const char *input_prefix = "input";
-    int render_w = UI_VIEWPORT_WIDTH, render_h = UI_VIEWPORT_HEIGHT;
+    int render_w = 0, render_h = 0;
     const char *render_path = "out.png";
     const char *states_prefix = "state";
     const char *report_path = "layout_report.json";
@@ -1521,6 +1515,9 @@ int main(int argc, char **argv)
         exit_code = 1;
         goto done;
     }
+    g_document = document;
+    render_w = document->viewport_width;
+    render_h = document->viewport_height;
     g_core = wn_core_create(document);
     if (g_core == NULL) {
         fprintf(stderr, "error: wn_core_create failed\n");
@@ -1630,12 +1627,12 @@ int main(int argc, char **argv)
     (void)height_arg;
 
     if (mode_dump) {
-        printf("nodes: %d\n", UI_NODE_COUNT);
-        for (int i = 0; i < UI_NODE_COUNT; ++i) {
-            const UiNode *n = &kUiNodes[i];
+        printf("nodes: %d\n", g_document->node_count);
+        for (int i = 0; i < g_document->node_count; ++i) {
+            const UiNode *n = &g_document->nodes[i];
             printf("[%2d] parent=%2d %-42s kind=%s dir=%s justify=%d align=%d wrap=%d "
                    "w=%.1f h=%.1f wpct=%.1f hpct=%.1f gap=%.1f bg=0x%08X action=%d\n",
-                   i, n->parent, kUiNodeNames[i], kind_name(n->kind),
+                   i, n->parent, g_document->names[i], kind_name(n->kind),
                    n->direction ? "col" : "row", n->justify, n->align, n->wrap,
                    n->width, n->height, n->width_pct, n->height_pct, n->gap,
                    n->background, n->action);
@@ -1684,7 +1681,7 @@ int main(int argc, char **argv)
         print_scroll_summary();
         printf("render: %s %dx%d nodes=%d vertices=%d glyph_vertices=%d "
                "image_vertices=%d layout=%.3fms frame=%.3fms\n",
-               render_path, render_w, render_h, UI_NODE_COUNT, vertices, glyphs, images,
+               render_path, render_w, render_h, g_document->node_count, vertices, glyphs, images,
                layout_ms, frame_ms);
         printf("timings: layout=%.3fms | frame(build+upload+pass+readback+png)=%.3fms\n",
                layout_ms, frame_ms);

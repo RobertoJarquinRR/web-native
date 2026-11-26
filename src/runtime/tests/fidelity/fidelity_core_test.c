@@ -8,8 +8,9 @@
  *   5. visible scrollbar (track + thumb) and thumb movement on wheel,
  *   6. rounded focus ring for a text input with border-radius.
  *
- * Compiles against tests/fidelity/out/emit/ui_data.h and the core only (no GPU,
- * no window). All checks are deterministic geometry/vertex invariants.
+ * Compiles against the embedded fixture blob in tests/fidelity and the core
+ * only (no GPU, no window). All checks are deterministic geometry/vertex
+ * invariants.
  *
  *   fidelity_core_test.exe
  */
@@ -17,13 +18,10 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "ui_data.h"
+#include "document/wn_document_internal.h"
 #include "wn_core.h"
 
-#ifndef UI_STYLE_EXTRAS
-#error "fidelity fixture must be emitted with text-align/line-height/margin:auto (UI_STYLE_EXTRAS)"
-#endif
-
+static const wn_document *g_document;
 static wn_core *g_core;
 static int g_checks;
 static int g_failures;
@@ -57,22 +55,22 @@ static int find(const char *name)
 /* Display-list vertices live in clip space; convert to view pixels. */
 static float px_x(const wn_vertex *v)
 {
-    return (v->x + 1.0f) * 0.5f * (float)UI_VIEWPORT_WIDTH;
+    return (v->x + 1.0f) * 0.5f * (float)g_document->viewport_width;
 }
 
 static float px_y(const wn_vertex *v)
 {
-    return (1.0f - v->y) * 0.5f * (float)UI_VIEWPORT_HEIGHT;
+    return (1.0f - v->y) * 0.5f * (float)g_document->viewport_height;
 }
 
 static float gpx_x(const wn_glyph_vertex *v)
 {
-    return (v->x + 1.0f) * 0.5f * (float)UI_VIEWPORT_WIDTH;
+    return (v->x + 1.0f) * 0.5f * (float)g_document->viewport_width;
 }
 
 static float gpx_y(const wn_glyph_vertex *v)
 {
-    return (1.0f - v->y) * 0.5f * (float)UI_VIEWPORT_HEIGHT;
+    return (1.0f - v->y) * 0.5f * (float)g_document->viewport_height;
 }
 
 /* Ink bounding box (glyph quad corners) inside a row rect. */
@@ -160,12 +158,13 @@ int main(void)
     int before_count, after_count;
     float before_y, after_y;
 
-    g_core = wn_core_create(wn_document_builtin());
+    g_document = wn_document_builtin();
+    g_core = wn_core_create(g_document);
     if (g_core == NULL) {
         printf("FAIL: wn_core_create\n");
         return 1;
     }
-    wn_core_resize(g_core, UI_VIEWPORT_WIDTH, UI_VIEWPORT_HEIGHT);
+    wn_core_resize(g_core, g_document->viewport_width, g_document->viewport_height);
     wn_core_relayout(g_core);
     wn_core_build_display_list(g_core);
 
@@ -192,8 +191,8 @@ int main(void)
         wn_rect rr = rect_of(right);
         const wn_display_list *list = wn_core_display_list(g_core);
         check("text-align fields reached the C tree",
-              list != NULL && kUiNodes[center].text_align == 1 &&
-              kUiNodes[right].text_align == 2,
+              list != NULL && g_document->nodes[center].text_align == 1 &&
+              g_document->nodes[right].text_align == 2,
               "center node=1, right node=2");
         if (ink_bbox(lr, &x0, &x1, &y0, &y1) > 0) {
             cx = (x0 + x1) * 0.5f;
@@ -240,9 +239,9 @@ int main(void)
             }
         }
         check("line-height is exported on the text node",
-              kUiNodes[line].line_height > 0.0f ||
-              (line + 1 < UI_NODE_COUNT &&
-               kUiNodes[line + 1].line_height > 0.0f),
+              g_document->nodes[line].line_height > 0.0f ||
+              (line + 1 < g_document->node_count &&
+               g_document->nodes[line + 1].line_height > 0.0f),
               "line_height > 0");
     }
 

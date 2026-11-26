@@ -2,8 +2,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "document/wn_document_internal.h"
 #include "text/text_runtime.h"
-#include "ui_data.h"
 #include "wn_core.h"
 
 static int checks = 0;
@@ -34,11 +34,11 @@ int main(void)
         printf("document_text_test: FAIL (no core)\n");
         return 1;
     }
-    wn_core_resize(core, UI_VIEWPORT_WIDTH, UI_VIEWPORT_HEIGHT);
+    wn_core_resize(core, document->viewport_width, document->viewport_height);
     rects = wn_core_rects(core, &rect_count);
 
-    for (int node = 0; node < UI_NODE_COUNT && node < rect_count; ++node) {
-        const UiNode *n = &kUiNodes[node];
+    for (int node = 0; node < document->node_count && node < rect_count; ++node) {
+        const UiNode *n = &document->nodes[node];
         wn_text_metrics measured;
         float expected_w;
         float expected_h;
@@ -64,7 +64,7 @@ int main(void)
             ++height_matches;
         }
         printf("  %-48s %-10s rect=%6.2fx%5.2f measured=%6.2fx%5.2f\n",
-               kUiNodeNames[node], n->text, rects[node].w, rects[node].h,
+               document->names[node], n->text, rects[node].w, rects[node].h,
                measured.width, measured.height);
     }
 

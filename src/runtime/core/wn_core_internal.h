@@ -41,29 +41,18 @@ typedef struct {
 #define WN_INPUT_PLACEHOLDER_COLOR 0xFF6B7785u
 #define WN_INPUT_CARET_WIDTH 2.0f
 
-/* Style extras are emitted only for pages that use them (the generated
- * header defines UI_STYLE_EXTRAS). Source pages without text-align,
- * line-height or margin:auto compile with the zero defaults, so their
- * geometry stays byte-identical. */
-#if defined(UI_STYLE_EXTRAS)
+/* The runtime always carries the E1/CSS style extras (UI_STYLE_EXTRAS is set
+ * by wn_document_format.h). Blob v2 writes every field, so pages that do not
+ * use them keep the zero defaults and their geometry stays byte-identical. */
 #define WN_TEXT_ALIGN(n) ((n)->text_align)
 #define WN_LINE_HEIGHT(n) ((n)->line_height)
 #define WN_MARGIN_AUTO(n, bit) ((((n)->margin_auto) >> (bit)) & 1)
-/* 1 = border-box (width/height include padding); 0/absent = content-box (CSS
+/* 1 = border-box (width/height include padding); 0 = content-box (CSS
  * default). Pages that don't declare box-sizing keep the browser behaviour. */
 #define WN_BOX_SIZING(n) ((n)->box_sizing)
 #define WN_FLEX_GROW(n) ((n)->flex_grow)
 #define WN_FLEX_SHRINK(n) ((n)->flex_shrink)
 #define WN_FLEX_BASIS(n) ((n)->flex_basis)
-#else
-#define WN_TEXT_ALIGN(n) 0
-#define WN_LINE_HEIGHT(n) 0.0f
-#define WN_MARGIN_AUTO(n, bit) 0
-#define WN_BOX_SIZING(n) 0
-#define WN_FLEX_GROW(n) 0.0f
-#define WN_FLEX_SHRINK(n) 1.0f
-#define WN_FLEX_BASIS(n) (-1.0f)
-#endif
 
 /* Outer (border-box) width/height of the declared size. */
 #define WN_DECL_W(n) ((WN_BOX_SIZING(n)) ? 0.0f : ((n)->padding[1] + (n)->padding[3]))

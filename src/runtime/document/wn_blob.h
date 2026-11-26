@@ -1,6 +1,7 @@
 #ifndef WN_BLOB_H
 #define WN_BLOB_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #if defined(__cplusplus)
@@ -108,6 +109,14 @@ typedef struct {
     int32_t max_length;
     int32_t password;
 } WnBlobInput;
+
+struct wn_document;
+
+/* Parse a .wnui image already resident in memory. The buffer is validated
+ * exactly like wn_document_load_blob() but is never modified or freed: the
+ * document borrows the string pool, so `data` must stay alive and unchanged
+ * until wn_document_destroy(). */
+struct wn_document *wn_document_load_blob_memory(const void *data, size_t size);
 
 #if defined(__cplusplus)
 }

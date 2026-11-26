@@ -10,36 +10,31 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "builtin_blob.h"
+#include "document/wn_blob.h"
 #include "wn_core_internal.h"
 #include "wn_internal.h"
 
-#if defined(UI_INPUT_COUNT) && UI_INPUT_COUNT > 0
-#define WN_BUILTIN_INPUTS kUiInputs
-#define WN_BUILTIN_INPUT_COUNT UI_INPUT_COUNT
-#else
-#define WN_BUILTIN_INPUTS NULL
-#define WN_BUILTIN_INPUT_COUNT 0
-#endif
-
-static const wn_document g_builtin_document = {
-    kUiNodes,
-    UI_NODE_COUNT,
-    kUiNodeNames,
-    UI_VIEWPORT_WIDTH,
-    UI_VIEWPORT_HEIGHT,
-    WN_BUILTIN_INPUTS,
-    WN_BUILTIN_INPUT_COUNT,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    WN_DOCUMENT_STATIC_REFS
-};
+/* The builtin page is an embedded .wnui blob parsed once by the same loader
+ * the file path uses. Its strings point into kBuiltinBlob, which lives for the
+ * whole process; the document itself is cached for the same lifetime. */
+static wn_document *g_builtin_document;
+static int g_builtin_failed;
 
 const wn_document *wn_document_builtin(void)
 {
-    return &g_builtin_document;
+    if (g_builtin_document == NULL && !g_builtin_failed) {
+        wn_document *document = wn_document_load_blob_memory(
+            kBuiltinBlob, (size_t)kBuiltinBlobSize);
+        if (document == NULL) {
+            /* wn_last_error() already names the failing header/section. */
+            g_builtin_failed = 1;
+            return NULL;
+        }
+        document->refs = WN_DOCUMENT_STATIC_REFS;
+        g_builtin_document = document;
+    }
+    return g_builtin_document;
 }
 
 int wn_document_node_count(const wn_document *document)
@@ -427,6 +422,11 @@ wn_core *wn_core_create(const wn_document *document)
     int i;
     size_t bytes;
     if (document == NULL || document->node_count <= 0) {
+        if (document == NULL && wn_last_error() != NULL) {
+            /* Keep the loader's diagnostic: it explains why the embedded
+             * builtin blob could not be parsed. */
+            return NULL;
+        }
         wn_set_error("wn_core_create: document is NULL or empty");
         return NULL;
     }

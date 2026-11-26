@@ -1069,7 +1069,7 @@ void build_input_decorations(wn_core *c)
 }
 
 /* Copy the generated ui-tree/3 input tables into the core's compact state.
- * Compiled out entirely for pages whose ui_data.h has no input tables. */
+ * Compiled out entirely for documents with no input records. */
 char *input_alloc_value(const char *text)
 {
     /* Fixed capacity: editing inserts in place up to WN_INPUT_MAX_BYTES. */

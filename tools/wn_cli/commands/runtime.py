@@ -67,6 +67,8 @@ def cmd_emit(args: argparse.Namespace) -> int:
     ui_json = out_dir / "ui.json"
     ui_header = out_dir / "ui_data.h"
     ui_meta = out_dir / "ui_meta.json"
+    blob_path = out_dir / "builtin.wnui"
+    embed_header = out_dir / "builtin_blob.h"
 
     log_step("emitting ui tree with frontend-rust")
     rust_cmd: list[str | Path] = [
@@ -79,12 +81,17 @@ def cmd_emit(args: argparse.Namespace) -> int:
         str(height),
         "--emit-ui",
         ui_json,
+        "--emit-blob",
+        blob_path,
     ]
     if fixture_css.is_file():
         rust_cmd.extend(["--css", fixture_css])
     if args.pilot:
         rust_cmd.append("--pilot")
     run_cmd(rust_cmd, cwd=paths.root)
+
+    if not blob_path.is_file():
+        raise CliError(f"frontend-rust did not write {blob_path}")
 
     log_step("generating C header with emit_ui.py")
     run_cmd(
@@ -101,6 +108,23 @@ def cmd_emit(args: argparse.Namespace) -> int:
         cwd=paths.root,
     )
     log_info(f"generated {ui_header}")
+
+    log_step("embedding the canonical blob for the builtin document")
+    embed_script = Path(__file__).resolve().parents[1] / "embed_blob.py"
+    run_cmd(
+        [
+            get_python_exe(),
+            embed_script,
+            "--blob",
+            blob_path,
+            "--header",
+            embed_header,
+        ],
+        cwd=paths.root,
+    )
+    # The SDK artifact keeps its historical name; it is the same canonical blob.
+    shutil.copy2(blob_path, out_dir / "app.wnui")
+    log_info(f"generated {embed_header} from {blob_path.name}")
     return 0
 
 
@@ -109,8 +133,8 @@ def cmd_build(args: argparse.Namespace) -> int:
     build_dir = _resolve_build_dir(args.config)
     generated_dir = Path(args.generated_dir).resolve() if args.generated_dir else paths.generated
 
-    if not (generated_dir / "ui_data.h").is_file():
-        raise CliError(f"missing {generated_dir / 'ui_data.h'} (run: runtime emit)")
+    if not (generated_dir / "builtin_blob.h").is_file():
+        raise CliError(f"missing {generated_dir / 'builtin_blob.h'} (run: runtime emit)")
 
     if args.clean and build_dir.exists():
         log_step(f"cleaning {build_dir}")

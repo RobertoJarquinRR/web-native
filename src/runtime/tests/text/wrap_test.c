@@ -9,7 +9,6 @@
 
 #include "core/wn_core_internal.h"
 #include "text/text_runtime.h"
-#include "ui_data.h"
 #include "wn_core.h"
 
 static int checks = 0;
@@ -74,7 +73,7 @@ int main(void)
         printf("wrap_test: FAIL\n");
         return 1;
     }
-    wn_core_resize(core, UI_VIEWPORT_WIDTH, UI_VIEWPORT_HEIGHT);
+    wn_core_resize(core, document->viewport_width, document->viewport_height);
 
     /* ------------------------------------------------ direct line breaking */
     layout = wn_text_line_layout_get("Supercalifragilisticexpialidocious", "Segoe UI",
