@@ -45,6 +45,7 @@ src/runtime/
   renderer_wgpu.c     backend wgpu-native (D3D12/Vulkan/Metal)
   renderer_wgpu_stub.c stub cuando se compila con WN_WGPU=OFF
   wn_renderer.h       vtable de renderer
+  wn_ime.h            vtable de IME (focus/blur, caret y ventana de candidatos)
   wn_core.h           tipos del core (UiNode, handles, eventos)
   wn_common.c         errores thread-local, utilidades
   core/
@@ -159,6 +160,29 @@ El texto no está horneado. El nodo lleva cadena, familia, tamaño, peso y
 Los inputs se editan en `core/input.c` y su spec (`value`, `placeholder`,
 `max_length`, `password`) llega en la sección `inputs` del blob.
 
+### IME (ABI v7)
+
+`wn_ime.h` es la frontera de plataforma: `focus(context, caret_rect)`,
+`blur(context)`, `set_caret_rect` y `set_candidate_rect`. El core no conoce
+Win32: guarda el vtable y avisa en focus/blur y en cada movimiento del caret
+(reutilizando el reset del blink). `host_win32.c` implementa IMM32 (adjunta/
+suelta el `HIMC` al enfocar/desenfocar un input, coloca `ImmSetCompositionWindow`
+y `ImmSetCandidateWindow`) y traduce `WM_IME_STARTCOMPOSITION/COMPOSITION/
+ENDCOMPOSITION` a `WN_EVENT_IME_START/COMPOSITION/COMMIT/CANCEL`. TSF puede
+sustituirlo detrás de la misma vtable.
+
+El core mantiene una composición por input enfocado (texto UTF-8 + cursor); el
+valor no se toca hasta `COMMIT`, que borra la selección e inserta **una vez**.
+`CANCEL` y Escape solo limpian el estado (el valor queda intacto), las teclas
+normales se suprimen mientras se compone, y el texto se pinta en el caret con
+subrayado. Un `WM_CHAR` final que repite el commit se descarta para no insertar
+dos veces. Un input deshabilitado rechaza la composición. No cambia el blob.
+`tests/input/ime_test.c` prueba todo con un backend IME falso y el backend de
+texto falso (sin IME de Windows); la ruta Win32 es un smoke manual. En esta
+máquina el runtime compila/linkea con `/W4 /WX` e `imm32.lib`, pero la
+composición real con un IME japonés **no** se verificó a mano: el gate
+automático es el backend falso.
+
 ## Renderers y host
 
 `wn_renderer` es una vtable. En Windows el backend por defecto es **D3D11
@@ -197,7 +221,7 @@ Suites de `tools/wn_cli/suites.py`:
 | `css` | radios/borde/sombra e imagen; HTML/CSS → blob, campos leídos con `wnui-dump --json` |
 | `fidelity` | E1: font-weight, text-align, line-height, margin auto, flex |
 | `dynamic` | visibilidad, clone/append/remove, demo ABI |
-| `input` | caret, selección, clipboard, demo ABI |
+| `input` | caret, selección, clipboard, IME (backend falso), demo ABI |
 | `offscreen` | readback y caché de imágenes, D3D11 vs wgpu |
 | `text` | medición DirectWrite, atlas, wrapping, documento |
 | `blob` | loader, builtin vs archivo, píxeles; invariante `max=0` |

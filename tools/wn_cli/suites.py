@@ -49,6 +49,7 @@ RUNTIME_LIBS = (
     "user32.lib",
     "gdi32.lib",
     "dwrite.lib",
+    "imm32.lib",
 )
 CFLAGS = ("/nologo", "/O2", "/W4", "/WX", "/D_CRT_SECURE_NO_WARNINGS", "/DWN_STATIC")
 CXX_SUFFIXES = (".cpp", ".cc", ".cxx")
@@ -977,6 +978,23 @@ def run_input() -> int:
     _compile(core_exe, [suite / "input_core_test.c", *[runtime / item for item in CORE_SOURCES]], includes, CORE_LIBS)
     _expect(_run_logged(core_exe, [str(out / "core_events.jsonl")], suite,
                         out / "core_test.log"), ["input_core_test: PASS"], "input core test")
+
+    log_step("input: IME composition (fake backend)")
+    ime_exe = out / "ime_test.exe"
+    _compile(
+        ime_exe,
+        [suite / "ime_test.c", _suite_dir("text") / "fake_text.c",
+         *[runtime / item for item in CORE_SOURCES]],
+        includes,
+        CORE_LIBS,
+    )
+    ime_text = _run(ime_exe, [], suite)
+    _expect(ime_text, ["ime_test: PASS"], "IME test")
+    # The full set: focus/blur vtable + caret rect, START/COMPOSITION rendering
+    # (glyph + underline), key suppression, Escape/explicit cancel, commit once,
+    # no double insertion after a following char, commit over a selection,
+    # disabled rejection and the focus switch. Deleting a probe drops this.
+    _expect_checks(ime_text, "ime_test", 47)
 
     log_step("input: runtime stages")
     runtime_exe = out / "runtime_input.exe"

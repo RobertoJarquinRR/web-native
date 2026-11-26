@@ -14,6 +14,7 @@
 #include "wn_internal.h"
 
 static void input_blink_reset(wn_core *c);
+static void input_ime_caret_sync(wn_core *c);
 
 const WnInputRecord *input_record(const wn_core *c, int node)
 {
@@ -366,6 +367,391 @@ static void input_update_scroll(wn_core *c, int node)
     c->input_scroll[node] = scroll;
 }
 
+/* ---------------------------------------------------------------- IME (v7) */
+/*
+ * One composition at a time, owned by the focused input. The value buffer is
+ * not touched until commit: cancel only clears this state, so the value and the
+ * selection are unchanged by construction. While active, the composition text
+ * is painted at the caret origin (selection start when there is a selection,
+ * otherwise the caret) with an underline; segments/styles come later.
+ */
+
+static int input_ime_origin_index(const wn_core *c, int node)
+{
+    int start;
+    int end;
+    input_selection_bounds(c, node, &start, &end);
+    if (start < end) {
+        return start;
+    }
+    return c->input_cursor[node];
+}
+
+/* Baseline of the single editor line, shared by value and composition glyphs. */
+static float input_baseline(wn_core *c, int node, const wn_rect *content)
+{
+    const wn_atlas_run *run = input_run(c, node, input_text(c, node));
+    float ascent = 0.0f;
+    float descent = 0.0f;
+    if (run != NULL && (run->count > 0 || run->ascent > 0.0f)) {
+        ascent = run->ascent;
+        descent = run->descent;
+    } else {
+        float line_height = input_line_height(c, node);
+        (void)input_line_metrics(c, node, &ascent, &line_height);
+        descent = line_height - ascent;
+    }
+    return content->y + (content->h - (ascent + descent)) * 0.5f + ascent;
+}
+
+static void input_caret_rect(wn_core *c, int node, wn_rect *out)
+{
+    wn_rect content = input_content_rect(c, node);
+    int length = input_length(c, node);
+    int cursor = c->input_cursor[node];
+    float caret;
+    float max_caret;
+    if (cursor < 0) {
+        cursor = 0;
+    }
+    if (cursor > length) {
+        cursor = length;
+    }
+    caret = content.x + input_prefix_width(c, node, input_text(c, node), cursor) -
+            c->input_scroll[node];
+    max_caret = content.x + content.w - WN_INPUT_CARET_WIDTH;
+    /* Same clamp as the painted caret. */
+    if (caret < content.x) {
+        caret = content.x;
+    }
+    if (caret > max_caret) {
+        caret = max_caret;
+    }
+    out->x = caret;
+    out->y = content.y;
+    out->w = WN_INPUT_CARET_WIDTH;
+    out->h = content.h;
+}
+
+static void input_ime_candidate_rect(const wn_rect *caret, wn_rect *out)
+{
+    out->x = caret->x;
+    out->y = caret->y + caret->h;
+    out->w = 0.0f;
+    out->h = 0.0f;
+}
+
+static void input_ime_clear(wn_core *c)
+{
+    c->ime_node = -1;
+    c->ime_text[0] = '\0';
+    c->ime_caret = 0;
+}
+
+static void input_ime_swallow_clear(wn_core *c)
+{
+    c->ime_swallow[0] = '\0';
+    c->ime_swallow_len = 0;
+    c->ime_swallow_pos = 0;
+}
+
+/* 1 when `cp` repeats the next codepoint of the just-committed text. The
+ * pending string is cleared on any mismatch so an unrelated keystroke is never
+ * eaten. */
+static int input_ime_swallow_char(wn_core *c, uint32_t cp)
+{
+    char encoded[4];
+    int length;
+    if (c == NULL || c->ime_swallow_len <= c->ime_swallow_pos) {
+        return 0;
+    }
+    length = utf8_encode(cp, encoded);
+    if (length <= 0) {
+        input_ime_swallow_clear(c);
+        return 0;
+    }
+    if (c->ime_swallow_len - c->ime_swallow_pos >= length &&
+        memcmp(c->ime_swallow + c->ime_swallow_pos, encoded, (size_t)length) == 0) {
+        c->ime_swallow_pos += length;
+        if (c->ime_swallow_pos >= c->ime_swallow_len) {
+            input_ime_swallow_clear(c);
+        }
+        return 1;
+    }
+    input_ime_swallow_clear(c);
+    return 0;
+}
+
+/* Copy a valid UTF-8 prefix that fits, never splitting a sequence. */
+static int input_utf8_prefix_copy(char *dst, int capacity, const char *src)
+{
+    int offset = 0;
+    int out = 0;
+    uint32_t cp;
+    if (dst == NULL || capacity <= 0) {
+        return 0;
+    }
+    dst[0] = '\0';
+    if (src == NULL) {
+        return 0;
+    }
+    while (src[offset] != '\0') {
+        int length = utf8_decode(src, offset, &cp);
+        if (length <= 0) {
+            ++offset;
+            continue;
+        }
+        if (out + length >= capacity) {
+            break;
+        }
+        memcpy(dst + out, src + offset, (size_t)length);
+        out += length;
+        offset += length;
+    }
+    dst[out] = '\0';
+    return out;
+}
+
+static void input_ime_caret_sync(wn_core *c)
+{
+    wn_rect caret;
+    wn_rect candidate;
+    if (c == NULL || c->ime_ops == NULL || c->input_focus < 0) {
+        return;
+    }
+    ensure_layout_for_hit(c);
+    input_update_scroll(c, c->input_focus);
+    input_caret_rect(c, c->input_focus, &caret);
+    if (c->ime_ops->set_caret_rect != NULL) {
+        c->ime_ops->set_caret_rect(c->ime_context, &caret);
+    }
+    input_ime_candidate_rect(&caret, &candidate);
+    if (c->ime_ops->set_candidate_rect != NULL) {
+        c->ime_ops->set_candidate_rect(c->ime_context, &candidate);
+    }
+}
+
+static void input_ime_focus(wn_core *c)
+{
+    wn_rect caret;
+    wn_rect candidate;
+    if (c == NULL || c->ime_ops == NULL || c->input_focus < 0) {
+        return;
+    }
+    ensure_layout_for_hit(c);
+    input_update_scroll(c, c->input_focus);
+    input_caret_rect(c, c->input_focus, &caret);
+    if (c->ime_ops->focus != NULL) {
+        c->ime_ops->focus(c->ime_context, &caret);
+    }
+    if (c->ime_ops->set_caret_rect != NULL) {
+        c->ime_ops->set_caret_rect(c->ime_context, &caret);
+    }
+    input_ime_candidate_rect(&caret, &candidate);
+    if (c->ime_ops->set_candidate_rect != NULL) {
+        c->ime_ops->set_candidate_rect(c->ime_context, &candidate);
+    }
+}
+
+void wn_core_set_ime(wn_core *core, const wn_ime_ops *ops, void *context)
+{
+    if (core == NULL) {
+        return;
+    }
+    if (core->ime_ops != NULL &&
+        (core->ime_ops != ops || core->ime_context != context) &&
+        core->ime_ops->blur != NULL) {
+        core->ime_ops->blur(core->ime_context);
+    }
+    input_ime_clear(core);
+    input_ime_swallow_clear(core);
+    core->ime_ops = ops;
+    core->ime_context = context;
+    if (ops != NULL && core->input_focus >= 0) {
+        input_ime_focus(core);
+    }
+}
+
+void wn_core_ime_abort(wn_core *c)
+{
+    if (c == NULL) {
+        return;
+    }
+    input_ime_clear(c);
+    if (c->ime_ops != NULL && c->ime_ops->blur != NULL) {
+        c->ime_ops->blur(c->ime_context);
+    }
+}
+
+int wn_core_input_composition(const wn_core *core, const char **text, int *caret)
+{
+    if (core == NULL || core->ime_node < 0) {
+        if (text != NULL) {
+            *text = "";
+        }
+        if (caret != NULL) {
+            *caret = 0;
+        }
+        return 0;
+    }
+    if (text != NULL) {
+        *text = core->ime_text;
+    }
+    if (caret != NULL) {
+        *caret = core->ime_caret;
+    }
+    return 1;
+}
+
+/* Insert every codepoint that fits (max_length/byte cap). Returns the count and
+ * the source bytes that were inserted, so commit can remember exactly what a
+ * following WM_CHAR would repeat. */
+static int input_insert_utf8(wn_core *c, int node, const char *text,
+                            int *consumed_bytes)
+{
+    int cursor = c->input_cursor[node];
+    int length = input_length(c, node);
+    int offset = 0;
+    int inserted = 0;
+    int consumed = 0;
+    uint32_t cp;
+    if (consumed_bytes != NULL) {
+        *consumed_bytes = 0;
+    }
+    if (text == NULL) {
+        return 0;
+    }
+    if (cursor < 0) {
+        cursor = 0;
+    }
+    if (cursor > length) {
+        cursor = length;
+    }
+    while (text[offset] != '\0') {
+        int length_bytes = utf8_decode(text, offset, &cp);
+        if (length_bytes <= 0) {
+            ++offset;
+            continue;
+        }
+        offset += length_bytes;
+        if (cp < 0x20u && cp != (uint32_t)'\t') {
+            continue;
+        }
+        if (!input_insert_codepoint(c, node, cp, &cursor)) {
+            break;
+        }
+        ++inserted;
+        consumed = offset;
+    }
+    if (inserted > 0) {
+        c->input_cursor[node] = cursor;
+        c->input_anchor[node] = -1;
+        input_blink_reset(c);
+        c->dirty = 1;
+    }
+    if (consumed_bytes != NULL) {
+        *consumed_bytes = consumed;
+    }
+    return inserted;
+}
+
+int wn_core_input_ime(wn_core *core, int event_type, const char *text_utf8,
+                      int caret, int *value_changed, int *visual_changed)
+{
+    int node;
+    int length;
+    if (value_changed != NULL) {
+        *value_changed = 0;
+    }
+    if (visual_changed != NULL) {
+        *visual_changed = 0;
+    }
+    if (core == NULL) {
+        return -1;
+    }
+    node = core->input_focus;
+    if (input_record(core, node) == NULL || core->input_value == NULL ||
+        core->input_value[node] == NULL) {
+        return -1;
+    }
+    /* A disabled input rejects composition: a leaked focus cannot start one. */
+    if (wn_core_node_disabled(core, node)) {
+        wn_core_ime_abort(core);
+        input_ime_swallow_clear(core);
+        return -1;
+    }
+    switch (event_type) {
+    case WN_EVENT_IME_START:
+        input_ime_swallow_clear(core);
+        input_ime_clear(core);
+        core->ime_node = node;
+        core->ime_caret = 0;
+        core->dirty = 1;
+        if (visual_changed != NULL) {
+            *visual_changed = 1;
+        }
+        input_ime_caret_sync(core);
+        return node;
+    case WN_EVENT_IME_COMPOSITION:
+        input_ime_swallow_clear(core);
+        input_utf8_prefix_copy(core->ime_text, (int)sizeof(core->ime_text),
+                               text_utf8);
+        core->ime_node = node;
+        length = utf8_count(core->ime_text);
+        if (caret < 0 || caret > length) {
+            caret = length;
+        }
+        core->ime_caret = caret;
+        core->dirty = 1;
+        if (visual_changed != NULL) {
+            *visual_changed = 1;
+        }
+        input_ime_caret_sync(core);
+        return node;
+    case WN_EVENT_IME_COMMIT: {
+        int consumed = 0;
+        int inserted;
+        if (text_utf8 != NULL && text_utf8[0] != '\0' &&
+            input_has_selection(core, node)) {
+            int start;
+            int end;
+            input_selection_bounds(core, node, &start, &end);
+            input_delete_range(core, node, start, end);
+        }
+        inserted = input_insert_utf8(core, node, text_utf8, &consumed);
+        input_ime_clear(core);
+        if (inserted > 0) {
+            if (consumed > WN_INPUT_MAX_BYTES) {
+                consumed = WN_INPUT_MAX_BYTES;
+            }
+            memcpy(core->ime_swallow, text_utf8, (size_t)consumed);
+            core->ime_swallow[consumed] = '\0';
+            core->ime_swallow_len = consumed;
+            core->ime_swallow_pos = 0;
+            if (value_changed != NULL) {
+                *value_changed = 1;
+            }
+            if (visual_changed != NULL) {
+                *visual_changed = 1;
+            }
+        }
+        core->dirty = 1;
+        input_ime_caret_sync(core);
+        return node;
+    }
+    case WN_EVENT_IME_CANCEL:
+        input_ime_clear(core);
+        core->dirty = 1;
+        if (visual_changed != NULL) {
+            *visual_changed = 1;
+        }
+        input_ime_caret_sync(core);
+        return node;
+    default:
+        return -1;
+    }
+}
+
 int wn_core_node_is_input(const wn_core *core, int node)
 {
     return input_record(core, node) != NULL;
@@ -398,6 +784,9 @@ static int input_caret_from_x(wn_core *c, int node, float pointer_x)
 static void input_blink_reset(wn_core *c)
 {
     c->caret_blink_ms = wn_now_ms();
+    /* Every edit/caret move resets the blink; reuse that single choke point to
+     * keep the platform composition/candidate windows on the caret. */
+    input_ime_caret_sync(c);
 }
 
 int wn_core_caret_visible(const wn_core *core)
@@ -444,10 +833,19 @@ int wn_core_focus_input(wn_core *core, int node, float pointer_x)
         return -1;
     }
     ensure_layout_for_hit(core);
-    if (core->input_focus >= 0 && core->input_focus != node) {
-        core->input_anchor[core->input_focus] = -1;
-        core->state[core->input_focus] =
-            WN_STATE_CLEAR(core->state[core->input_focus], WN_STATE_FOCUSED);
+    if (core->input_focus >= 0) {
+        if (core->input_focus != node) {
+            /* Moving the focus ends the old composition and hands the platform
+             * IME to the new input below. */
+            wn_core_ime_abort(core);
+            core->input_anchor[core->input_focus] = -1;
+            core->state[core->input_focus] =
+                WN_STATE_CLEAR(core->state[core->input_focus], WN_STATE_FOCUSED);
+        } else {
+            /* Re-focusing the same input drops a stale composition; the next
+             * IME event rebuilds it. */
+            input_ime_clear(core);
+        }
     }
     core->input_focus = node;
     core->state[node] |= (unsigned char)WN_STATE_FOCUSED;
@@ -455,6 +853,7 @@ int wn_core_focus_input(wn_core *core, int node, float pointer_x)
     input_update_scroll(core, node);
     core->input_cursor[node] = input_caret_from_x(core, node, pointer_x);
     input_blink_reset(core);
+    input_ime_focus(core);
     core->dirty = 1;
     return node;
 }
@@ -487,6 +886,7 @@ int wn_core_blur_input(wn_core *core)
     if (node < 0) {
         return -1;
     }
+    wn_core_ime_abort(core);
     core->input_anchor[node] = -1;
     core->state[node] = WN_STATE_CLEAR(core->state[node], WN_STATE_FOCUSED);
     core->input_focus = -1;
@@ -519,6 +919,16 @@ int wn_core_input_char(wn_core *core, uint32_t codepoint,
      * leaked through another path. */
     if (wn_core_node_disabled(core, node)) {
         return -1;
+    }
+    /* While an IME composition is active the platform owns the text; a stray
+     * WM_CHAR for a composing key must not insert. */
+    if (core->ime_node >= 0) {
+        return node;
+    }
+    /* A final WM_CHAR that repeats the just-committed composition text is
+     * dropped here, so commit-insert + WM_CHAR cannot insert twice. */
+    if (input_ime_swallow_char(core, codepoint)) {
+        return node;
     }
     if (input_has_selection(core, node)) {
         int start;
@@ -576,6 +986,21 @@ int wn_core_input_key(wn_core *core, int key, uint32_t modifiers,
     if (wn_core_node_disabled(core, node)) {
         return -1;
     }
+    /* While composing, the IME consumes editing keys. Escape cancels the
+     * composition (and keeps the focus) instead of blurring the input. */
+    if (core->ime_node >= 0) {
+        if (key == WN_KEY_ESCAPE) {
+            input_ime_clear(core);
+            core->dirty = 1;
+            if (visual_changed != NULL) {
+                *visual_changed = 1;
+            }
+            input_ime_caret_sync(core);
+        }
+        return node;
+    }
+    /* A real key event means the post-commit WM_CHAR window is over. */
+    input_ime_swallow_clear(core);
     len = input_length(core, node);
     cursor = core->input_cursor[node];
     switch (key) {
@@ -792,6 +1217,11 @@ int wn_core_input_paste(wn_core *core, const char *text,
     if (wn_core_node_disabled(core, node)) {
         return -1;
     }
+    /* A programmatic paste ends an active composition on the same input. */
+    if (core->ime_node == node) {
+        input_ime_clear(core);
+        input_ime_swallow_clear(core);
+    }
     if (input_has_selection(core, node)) {
         int start;
         int end;
@@ -875,6 +1305,10 @@ int wn_core_set_input_value(wn_core *core, int node, const char *text)
     core->input_value[node] = copy;
     core->input_cursor[node] = length;
     core->input_anchor[node] = -1;
+    if (core->ime_node == node) {
+        input_ime_clear(core);
+        input_ime_swallow_clear(core);
+    }
     input_blink_reset(core);
     core->dirty = 1;
     return 0;
@@ -955,19 +1389,22 @@ void build_input_text_geometry(wn_core *c, float viewport_w, float viewport_h)
         uint8_t a, cr, cg, cb;
         wn_rect content;
         wn_rect clip;
-        float pen;
         float scroll;
-        float line_offset;
         int use_placeholder;
+        int composing;
         wn_paint_draw *draw = wn_core_draw_for_item(c, order_index);
         int glyph_first = c->glyph_vertex_count;
         if (n->kind != R2_NODE_INPUT || record == NULL) {
             continue;
         }
         value = input_text(c, node);
-        use_placeholder = value[0] == '\0' && record->placeholder[0] != '\0';
+        composing = c->ime_node == node;
+        /* While composing, the composition replaces the placeholder and is
+         * painted at the caret; the value stays visible. */
+        use_placeholder = value[0] == '\0' && record->placeholder[0] != '\0' &&
+                          !composing;
         text = use_placeholder ? record->placeholder : value;
-        if (text[0] == '\0') {
+        if (text[0] == '\0' && !(composing && c->ime_text[0] != '\0')) {
             continue;
         }
         color = use_placeholder ? WN_INPUT_PLACEHOLDER_COLOR
@@ -997,29 +1434,53 @@ void build_input_text_geometry(wn_core *c, float viewport_w, float viewport_h)
          * symmetrically and is clipped. */
         {
             const wn_atlas_run *run = input_run(c, node, text);
-            float baseline;
-            if (run == NULL) {
-                continue;
-            }
-            line_offset = (content.h - (run->ascent + run->descent)) * 0.5f;
-            baseline = content.y + line_offset + run->ascent;
-            pen = 0.0f;
-            for (int i = 0; i < run->count; ++i) {
-                const wn_atlas_glyph *packed = wn_text_atlas_glyph(
-                    c->text_atlas, n->font_family, n->font_size, n->font_weight,
-                    run->glyphs[i].glyph);
-                if (packed == NULL || packed->width <= 0 || packed->height <= 0) {
-                    continue;
+            float baseline = input_baseline(c, node, &content);
+            if (run != NULL) {
+                for (int i = 0; i < run->count; ++i) {
+                    const wn_atlas_glyph *packed = wn_text_atlas_glyph(
+                        c->text_atlas, n->font_family, n->font_size, n->font_weight,
+                        run->glyphs[i].glyph);
+                    if (packed == NULL || packed->width <= 0 || packed->height <= 0) {
+                        continue;
+                    }
+                    float x = floorf(content.x + run->glyphs[i].x - scroll +
+                                     (float)packed->bearing_x + 0.5f);
+                    float y = floorf(baseline + (float)packed->bearing_y + 0.5f);
+                    push_glyph_quad(c, x, y, (float)packed->width, (float)packed->height,
+                                    packed->u0, packed->v0, packed->u1, packed->v1,
+                                    viewport_w, viewport_h, cr, cg, cb, a);
                 }
-                float x = floorf(content.x + run->glyphs[i].x - scroll +
-                                 (float)packed->bearing_x + 0.5f);
-                float y = floorf(baseline + (float)packed->bearing_y + 0.5f);
-                push_glyph_quad(c, x, y, (float)packed->width, (float)packed->height,
-                                packed->u0, packed->v0, packed->u1, packed->v1,
-                                viewport_w, viewport_h, cr, cg, cb, a);
+            }
+            /* Composition text is painted after the value at the caret origin
+             * (the selection start when a commit will replace it). Underline is
+             * added by build_input_decorations. */
+            if (composing && c->ime_text[0] != '\0') {
+                const wn_atlas_run *ime_run = input_run(c, node, c->ime_text);
+                float origin = content.x +
+                               input_prefix_width(c, node, value,
+                                                  input_ime_origin_index(c, node)) -
+                               scroll;
+                if (ime_run != NULL) {
+                    for (int i = 0; i < ime_run->count; ++i) {
+                        const wn_atlas_glyph *packed = wn_text_atlas_glyph(
+                            c->text_atlas, n->font_family, n->font_size,
+                            n->font_weight, ime_run->glyphs[i].glyph);
+                        if (packed == NULL || packed->width <= 0 ||
+                            packed->height <= 0) {
+                            continue;
+                        }
+                        float x = floorf(origin + ime_run->glyphs[i].x +
+                                         (float)packed->bearing_x + 0.5f);
+                        float y = floorf(baseline + (float)packed->bearing_y + 0.5f);
+                        push_glyph_quad(c, x, y, (float)packed->width,
+                                        (float)packed->height, packed->u0,
+                                        packed->v0, packed->u1, packed->v1,
+                                        viewport_w, viewport_h, cr, cg, cb, a);
+                    }
+                }
             }
         }
-        if (draw != NULL && draw->input_glyph.count == 0) {
+        if (draw != NULL) {
             draw->input_glyph.count = c->glyph_vertex_count - glyph_first;
         }
     }
@@ -1114,6 +1575,28 @@ void build_input_decorations(wn_core *c)
                 push_quad(c, caret, content.y + 1.0f, WN_INPUT_CARET_WIDTH,
                           content.h - 2.0f, (float)c->width, (float)c->height,
                           n->text_color);
+            }
+        }
+        if (c->input_focus == node && c->ime_node == node &&
+            c->ime_text[0] != '\0') {
+            float x0;
+            float x1;
+            float baseline;
+            int origin = input_ime_origin_index(c, node);
+            x0 = content.x +
+                 input_prefix_width(c, node, input_text(c, node), origin) - scroll;
+            x1 = x0 + input_prefix_width(c, node, c->ime_text,
+                                         utf8_count(c->ime_text));
+            if (x0 < content.x) {
+                x0 = content.x;
+            }
+            if (x1 > content.x + content.w) {
+                x1 = content.x + content.w;
+            }
+            baseline = input_baseline(c, node, &content);
+            if (x1 > x0) {
+                push_quad(c, x0, floorf(baseline + 1.0f), x1 - x0, 1.0f,
+                          (float)c->width, (float)c->height, n->text_color);
             }
         }
         if (draw != NULL) {

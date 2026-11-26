@@ -25,6 +25,7 @@ Leyenda:
 | Documento `.wnui`       | blob v6                    | ✅                       |
 | Grid, scroll e imágenes | campos v2 del blob         | ✅ pilot                 |
 | Text input              | sección `inputs` del blob  | ✅ pilot                 |
+| IME (IMM32, una línea)  | eventos v7 + `wn_ime_ops`  | ✅ composición/commit/cancel; TSF y multilínea pendientes |
 | ABI C                   | `WN_ABI_VERSION 7`         | ✅ standalone + embedded |
 | Estados CSS             | sección `states` del blob  | ✅ hover/press/focus/disabled (color; `disabled` en HTML siembra el bit) |
 
@@ -37,7 +38,7 @@ Leyenda:
 | `img` local                                                  | Sí       | Parcial | Sí  | WIC; sin red        |
 | `ul`, `ol`, `li`                                             | Sí       | Sí      | Sí  | listas estáticas    |
 | `link` stylesheet, `style`                                   | Sí       | Sí      | Sí  | CSS local           |
-| `input type="text"`                                          | Pilot v3 | warning | Sí  | UTF-8 en edición    |
+| `input type="text"`                                          | Pilot v3 | warning | Sí  | UTF-8 en edición; IME en runtime (no cambia el blob) |
 | `script`, `iframe`                                           | No       | No      | No  | no-goal             |
 | `form`, `select`, `table`, `canvas`, `video`, `audio`, `svg` | No       | No      | No  | fuera del subset    |
 | `template`, `slot`, `object`, `embed`                        | No       | No      | No  | fuera del subset    |
@@ -112,6 +113,8 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | Botones y doble clic                         | ✅  | `button`/`click_count`; derecho/central reportan sin pulsar |
 | UI dinámica v3                               | ✅  | visibilidad, `set_image`, clone/append/remove            |
 | Input v4                                     | ✅  | UTF-8, caret, selección, drag, blink; texto shapeado en runtime |
+| IME IMM32 (v7)                               | ✅  | composición en el caret con subrayado, commit una vez, cancel; `wn_ime_ops` + eventos `WN_EVENT_IME_*` |
+| IME TSF / segmentos / multilínea             | ❌  | pendiente; misma vtable                         |
 | Bordes / radius / sombras v1                 | ✅  | radio/borde uniforme; primera sombra; sin per-side/inset |
 | Virtualización / culling                     | ❌  | pendiente                                                |
 | Text shaping runtime                         | ✅  | DirectWrite; medición, shaping y atlas dinámico          |
@@ -119,7 +122,7 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | Wrapping / line breaking                     | ✅  | greedy por palabras; `line-height` y `text-align` por línea |
 | Ellipsis / truncado por ancho                | ❌  | pendiente (el host compacta)                             |
 | Timers / reloj público                       | ✅  | `wn_app_set_tick_ms` + `wn_view_tick`; blink interno aparte |
-| Bidi, CJK, emoji, IME                        | ❌  | pendiente                                                |
+| Bidi, CJK, emoji                             | ❌  | pendiente (el IME compone texto CJK, pero el motor no implementa bidi/emoji) |
 | Accesibilidad / UIA                          | ❌  | pendiente                                                |
 | DPI / multi-monitor                          | ❌  | Windows básico                                           |
 | Multiventana, diálogos, tray, notificaciones | ❌  | pendiente                                                |

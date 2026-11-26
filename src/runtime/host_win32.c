@@ -7,6 +7,7 @@
  */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <imm.h>
 
 #include <stdint.h>
 #include <stdio.h>
@@ -30,6 +31,15 @@ typedef struct {
     int click_count;      /* 2 while a double click release is pending */
     int caret_blink;
     int tick_ms;
+    /* ABI v7 IME: the input context detached while no editable input owns the
+     * focus, the last caret/candidate boxes in client px, and the composition
+     * bookkeeping used to tell a commit from a cancel at ENDCOMPOSITION. */
+    HIMC ime_context;
+    int ime_attached;
+    int ime_composing;
+    int ime_had_result;
+    wn_rect ime_caret;
+    wn_rect ime_candidate;
     char *title;
     wn_host_event_fn on_event;
     wn_host_frame_fn on_frame;
@@ -122,6 +132,232 @@ static void emit_wheel(WnHostWin32 *host, LPARAM lparam, int32_t wheel_delta,
         event.delta_y = -(float)wheel_delta * (120.0f / (float)WHEEL_DELTA);
     }
     host->on_event(host->userdata, &event);
+}
+
+/* ------------------------------------------------------------ IME (v7) */
+/*
+ * IMM32 backend. The core calls these through wn_ime_ops; the WndProc turns
+ * WM_IME_* into the generic WN_EVENT_IME_* events. TSF can replace both halves
+ * behind this vtable later.
+ */
+static void emit_ime(WnHostWin32 *host, wn_event_type type, const char *text_utf8,
+                     int caret)
+{
+    wn_event event;
+    if (host == NULL || host->on_event == NULL) {
+        return;
+    }
+    memset(&event, 0, sizeof(event));
+    event.type = type;
+    event.target_id = text_utf8;
+    event.key = (int32_t)caret;
+    event.x = host->ime_caret.x;
+    event.y = host->ime_caret.y;
+    event.width = (int32_t)host->ime_caret.w;
+    event.height = (int32_t)host->ime_caret.h;
+    event.modifiers = current_modifiers();
+    host->on_event(host->userdata, &event);
+}
+
+/* Place the composition window at the caret and the candidate window at the
+ * anchor the core computed. Called on focus and every caret move. */
+static void host_ime_apply_position(WnHostWin32 *host)
+{
+    HIMC himc;
+    COMPOSITIONFORM composition;
+    CANDIDATEFORM candidate;
+    if (host == NULL || host->hwnd == NULL) {
+        return;
+    }
+    himc = ImmGetContext(host->hwnd);
+    if (himc == NULL) {
+        return;
+    }
+    memset(&composition, 0, sizeof(composition));
+    composition.dwStyle = CFS_POINT;
+    composition.ptCurrentPos.x = (LONG)host->ime_caret.x;
+    composition.ptCurrentPos.y = (LONG)host->ime_caret.y;
+    ImmSetCompositionWindow(himc, &composition);
+    memset(&candidate, 0, sizeof(candidate));
+    candidate.dwIndex = 0;
+    candidate.dwStyle = CFS_CANDIDATEPOS | CFS_EXCLUDE;
+    candidate.ptCurrentPos.x = (LONG)host->ime_candidate.x;
+    candidate.ptCurrentPos.y = (LONG)host->ime_candidate.y;
+    candidate.rcArea.left = (LONG)host->ime_caret.x;
+    candidate.rcArea.top = (LONG)host->ime_caret.y;
+    candidate.rcArea.right = (LONG)(host->ime_caret.x + host->ime_caret.w);
+    candidate.rcArea.bottom = (LONG)(host->ime_caret.y + host->ime_caret.h);
+    ImmSetCandidateWindow(himc, &candidate);
+    ImmReleaseContext(host->hwnd, himc);
+}
+
+static int host_ime_focus(void *context, const wn_rect *caret_rect)
+{
+    WnHostWin32 *host = (WnHostWin32 *)context;
+    if (host == NULL || host->hwnd == NULL) {
+        return 1;
+    }
+    if (caret_rect != NULL) {
+        host->ime_caret = *caret_rect;
+        host->ime_candidate.x = caret_rect->x;
+        host->ime_candidate.y = caret_rect->y + caret_rect->h;
+        host->ime_candidate.w = 0.0f;
+        host->ime_candidate.h = 0.0f;
+    }
+    if (!host->ime_attached) {
+        if (host->ime_context != NULL) {
+            ImmAssociateContext(host->hwnd, host->ime_context);
+        } else {
+            /* No saved context (no IME at window creation): ask IMM32 for the
+             * default one so an IME installed later still works. */
+            ImmAssociateContextEx(host->hwnd, NULL, IACE_DEFAULT);
+        }
+        host->ime_attached = 1;
+    }
+    host_ime_apply_position(host);
+    return 0;
+}
+
+static void host_ime_blur(void *context)
+{
+    WnHostWin32 *host = (WnHostWin32 *)context;
+    HIMC previous;
+    if (host == NULL || host->hwnd == NULL || !host->ime_attached) {
+        return;
+    }
+    previous = ImmAssociateContext(host->hwnd, NULL);
+    if (previous != NULL) {
+        host->ime_context = previous;
+    }
+    host->ime_attached = 0;
+    host->ime_composing = 0;
+    host->ime_had_result = 0;
+}
+
+static void host_ime_set_caret(void *context, const wn_rect *caret_rect)
+{
+    WnHostWin32 *host = (WnHostWin32 *)context;
+    if (host == NULL || caret_rect == NULL) {
+        return;
+    }
+    host->ime_caret = *caret_rect;
+    if (host->ime_candidate.w == 0.0f && host->ime_candidate.h == 0.0f) {
+        host->ime_candidate.x = caret_rect->x;
+        host->ime_candidate.y = caret_rect->y + caret_rect->h;
+    }
+    host_ime_apply_position(host);
+}
+
+static void host_ime_set_candidate(void *context, const wn_rect *candidate_rect)
+{
+    WnHostWin32 *host = (WnHostWin32 *)context;
+    if (host == NULL || candidate_rect == NULL) {
+        return;
+    }
+    host->ime_candidate = *candidate_rect;
+    host_ime_apply_position(host);
+}
+
+static const wn_ime_ops g_ime_win32_ops = {
+    "win32-imm32",
+    host_ime_focus,
+    host_ime_blur,
+    host_ime_set_caret,
+    host_ime_set_candidate
+};
+
+static const wn_ime_ops *host_ime_backend(void *context, void **ime_context)
+{
+    if (ime_context != NULL) {
+        *ime_context = context;
+    }
+    return &g_ime_win32_ops;
+}
+
+/* UTF-16 units [0, cursor) as codepoints (surrogate pairs count once). */
+static int ime_codepoints_before(const WCHAR *wide, int cursor)
+{
+    int i;
+    int count = 0;
+    for (i = 0; i < cursor; ++i) {
+        if (wide[i] >= 0xD800 && wide[i] <= 0xDBFF && i + 1 < cursor &&
+            wide[i + 1] >= 0xDC00 && wide[i + 1] <= 0xDFFF) {
+            ++i;
+        }
+        ++count;
+    }
+    return count;
+}
+
+/* Reads a composition/result string into UTF-8. `caret` receives the codepoint
+ * cursor for GCS_COMPSTR. Returns the byte count written, 0 when empty. */
+static int ime_read_string(HWND hwnd, DWORD flag, char *utf8, int capacity,
+                           int *caret)
+{
+    HIMC himc;
+    LONG bytes;
+    WCHAR wide[256];
+    int units;
+    int written;
+    if (utf8 == NULL || capacity <= 0) {
+        return 0;
+    }
+    utf8[0] = '\0';
+    if (caret != NULL) {
+        *caret = 0;
+    }
+    himc = ImmGetContext(hwnd);
+    if (himc == NULL) {
+        return 0;
+    }
+    bytes = ImmGetCompositionStringW(himc, flag, NULL, 0);
+    if (bytes <= 0) {
+        ImmReleaseContext(hwnd, himc);
+        return 0;
+    }
+    units = (int)(bytes / (LONG)sizeof(WCHAR));
+    if (units > (int)(sizeof(wide) / sizeof(wide[0]))) {
+        units = (int)(sizeof(wide) / sizeof(wide[0]));
+    }
+    ImmGetCompositionStringW(himc, flag, wide, (DWORD)(units * (int)sizeof(WCHAR)));
+    if (caret != NULL) {
+        LONG cursor = ImmGetCompositionStringW(himc, GCS_CURSORPOS, NULL, 0);
+        if (cursor < 0) {
+            cursor = 0;
+        }
+        if (cursor > units) {
+            cursor = units;
+        }
+        *caret = ime_codepoints_before(wide, (int)cursor);
+    }
+    written = WideCharToMultiByte(CP_UTF8, 0, wide, units, utf8, capacity - 1,
+                                  NULL, NULL);
+    ImmReleaseContext(hwnd, himc);
+    if (written <= 0) {
+        utf8[0] = '\0';
+        return 0;
+    }
+    utf8[written] = '\0';
+    return written;
+}
+
+static void host_ime_composition(WnHostWin32 *host, LPARAM lparam)
+{
+    char utf8[512];
+    int caret = 0;
+    if ((lparam & GCS_RESULTSTR) != 0) {
+        if (ime_read_string(host->hwnd, GCS_RESULTSTR, utf8, (int)sizeof(utf8),
+                            NULL) > 0) {
+            host->ime_had_result = 1;
+            emit_ime(host, WN_EVENT_IME_COMMIT, utf8, 0);
+        }
+        return;
+    }
+    if ((lparam & GCS_COMPSTR) != 0) {
+        int written = ime_read_string(host->hwnd, GCS_COMPSTR, utf8,
+                                      (int)sizeof(utf8), &caret);
+        emit_ime(host, WN_EVENT_IME_COMPOSITION, utf8, written > 0 ? caret : 0);
+    }
 }
 
 static LRESULT CALLBACK host_wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
@@ -274,8 +510,37 @@ static LRESULT CALLBACK host_wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
                    (int32_t)wparam, 0, 0, 0);
         return 0;
     case WM_CHAR:
+        /* The IME owns the text while a composition is active (and the core
+         * also suppresses chars there). The commit is delivered through
+         * WM_IME_COMPOSITION; a duplicate WM_CHAR after it is swallowed by the
+         * core, so forwarding both can never insert twice. */
+        if (host->ime_composing) {
+            return 0;
+        }
         emit_event(host, WN_EVENT_CHAR, NULL, 0.0f, 0.0f, 0,
                    (uint32_t)wparam, 0, 0);
+        return 0;
+    case WM_IME_STARTCOMPOSITION:
+        host->ime_composing = 1;
+        host->ime_had_result = 0;
+        emit_ime(host, WN_EVENT_IME_START, NULL, 0);
+        return 0;
+    case WM_IME_SETCONTEXT:
+        /* The view paints the composition text itself (at the caret), so hide
+         * the system composition window; the candidate window stays. */
+        lparam &= ~ISC_SHOWUICOMPOSITIONWINDOW;
+        return DefWindowProcW(hwnd, msg, wparam, lparam);
+    case WM_IME_COMPOSITION:
+        host_ime_composition(host, lparam);
+        return 0;
+    case WM_IME_ENDCOMPOSITION:
+        /* END follows both a commit and a cancel; only the latter reaches it
+         * without a result string. */
+        if (!host->ime_had_result) {
+            emit_ime(host, WN_EVENT_IME_CANCEL, NULL, 0);
+        }
+        host->ime_composing = 0;
+        host->ime_had_result = 0;
         return 0;
     case WM_SETFOCUS:
         emit_event(host, WN_EVENT_FOCUS_IN, NULL, 0.0f, 0.0f, 0, 0, 0, 0);
@@ -363,6 +628,11 @@ static int host_create(void **context, const wn_host_config *config,
         free(host);
         return 1;
     }
+    /* Detach the IME until an editable input takes the focus; host_ime_focus
+     * restores this context. ImmAssociateContext(NULL) returns the previous
+     * context, which may itself be NULL when the system has no IME. */
+    host->ime_context = ImmAssociateContext(host->hwnd, NULL);
+    host->ime_attached = 0;
     *context = host;
     return 0;
 }
@@ -550,6 +820,7 @@ static const wn_host_ops g_host_win32_ops = {
     host_set_continuous,
     host_set_caret_blink,
     host_set_tick,
+    host_ime_backend,
     host_destroy
 };
 

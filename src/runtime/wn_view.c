@@ -201,6 +201,13 @@ static int view_input_key(wn_view *view, const wn_event *event,
     if (node < 0) {
         return -1;
     }
+    /* While composing the platform owns the text: Ctrl+A/C/X/V and every
+     * editing key are suppressed. wn_core_input_key handles Escape as a
+     * composition cancel. */
+    if (wn_core_input_composition(view->core, NULL, NULL) != 0) {
+        return wn_core_input_key(view->core, event->key, event->modifiers,
+                                 value_changed, visual_changed);
+    }
     if ((event->modifiers & WN_MOD_CTRL) != 0u) {
         if (event->key == WN_KEY_A) {
             return wn_core_input_select_all(view->core, visual_changed);
@@ -231,6 +238,17 @@ static int view_input_key(wn_view *view, const wn_event *event,
     }
     return wn_core_input_key(view->core, event->key, event->modifiers,
                              value_changed, visual_changed);
+}
+
+/* ABI v7: IME events carry their UTF-8 payload in `target_id` (the only string
+ * field in wn_event) and the composition caret index in `key`; `node` is still
+ * the focused input and x/y/width/height the caret rect. The core validates,
+ * so a stray event with no focused input is a no-op. */
+static int view_input_ime(wn_view *view, const wn_event *event,
+                          int *value_changed, int *visual_changed)
+{
+    return wn_core_input_ime(view->core, (int)event->type, event->target_id,
+                             event->key, value_changed, visual_changed);
 }
 
 /* -------------------------------------------------- renderer selection */
@@ -720,6 +738,7 @@ wn_status wn_view_event(wn_view *view, const wn_event *event)
     int input_value_changed = 0;
     int input_visual_changed = 0;
     uint8_t button = 0;
+    int ime_event = 0;
 
     wn_clear_error();
     if (view == NULL) {
@@ -738,6 +757,10 @@ wn_status wn_view_event(wn_view *view, const wn_event *event)
     out.target_id = NULL;
     out.node = WN_NODE_INVALID;
     button = event->button;
+    ime_event = event->type == WN_EVENT_IME_START ||
+                event->type == WN_EVENT_IME_COMPOSITION ||
+                event->type == WN_EVENT_IME_COMMIT ||
+                event->type == WN_EVENT_IME_CANCEL;
 
     switch (event->type) {
     case WN_EVENT_POINTER_MOVE: {
@@ -799,6 +822,15 @@ wn_status wn_view_event(wn_view *view, const wn_event *event)
             changed = 1;
         }
         break;
+    case WN_EVENT_IME_START:
+    case WN_EVENT_IME_COMPOSITION:
+    case WN_EVENT_IME_COMMIT:
+    case WN_EVENT_IME_CANCEL:
+        hit = view_input_ime(view, event, &input_value_changed,
+                             &input_visual_changed);
+        event_node = hit;
+        changed = input_visual_changed;
+        break;
     case WN_EVENT_RESIZE:
         view_resize_internal(view, event->width, event->height, 0.0f);
         break;
@@ -819,7 +851,7 @@ wn_status wn_view_event(wn_view *view, const wn_event *event)
             target = wn_core_node_name(view->core, event_node);
         }
     }
-    out.target_id = target;
+    out.target_id = ime_event ? event->target_id : target;
     if (changed) {
         view_mark_geometry(view);
     }
@@ -1656,4 +1688,12 @@ wn_status wn_view_tick(wn_view *view)
     wn_core_mark_dirty(view->core);
     view->geometry_dirty = 1;
     return WN_OK;
+}
+
+void wn_view_set_ime(wn_view *view, const wn_ime_ops *ops, void *context)
+{
+    if (view == NULL || view->core == NULL) {
+        return;
+    }
+    wn_core_set_ime(view->core, ops, context);
 }

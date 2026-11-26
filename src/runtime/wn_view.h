@@ -97,6 +97,11 @@ wn_status wn_view_blur_input(wn_view *view);
  * Hosts with their own loop call it from their timer/frame callback. */
 wn_status wn_view_tick(wn_view *view);
 
+/* ABI v7 internal: installs the platform IME backend on the view's core.
+ * Standalone installs the Win32 one from wn_host_ops; embedded hosts may pass
+ * their own (or NULL to keep composition inert). */
+void wn_view_set_ime(wn_view *view, const wn_ime_ops *ops, void *context);
+
 #if defined(__cplusplus)
 }
 #endif

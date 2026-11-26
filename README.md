@@ -118,10 +118,10 @@ Resumen de lo que hay hoy:
 | Layout      | block, flex, grid, scroll vertical, resize, relative/absolute v4        |
 | Renderer    | D3D11 hardware (Windows, por defecto); wgpu-native (D3D12/Vulkan/Metal) |
 | Contenido   | texto shapeado en runtime, imágenes locales (WIC, caché LRU)            |
-| Interacción | hover/press/selected por nodo, botones/doble clic, wheel, input de una línea |
+| Interacción | hover/press/selected por nodo, botones/doble clic, wheel, input de una línea + IME IMM32 |
 | Dinamismo   | visibilidad, `set_image`, clone/append/remove                           |
 | CSS visual  | radius/bordes/sombras v1; per-side/per-corner/inset pendiente           |
-| Fuera       | JS, iframes, red, parser runtime, formularios web, UIA/IME              |
+| Fuera       | JS, iframes, red, parser runtime, formularios web, UIA                  |
 
 La matriz completa —frontend, runtime y limitaciones— está en
 [`docs/support.md`](docs/support.md). `--strict-subset` convierte cualquier

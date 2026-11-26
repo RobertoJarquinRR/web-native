@@ -63,6 +63,10 @@ mide y shapea. Los nodos de texto salen con `width/height = -1` en el blob.
 
 Los inputs llevan solo `value`, `placeholder`, `max_length` y `password`.
 
+El IME es runtime-only: el blob no lleva estado de composición. `core/input.c`
+pinta y confirma la composición a través de `wn_ime.h`/`WN_EVENT_IME_*`, así que
+recompilar el frontend no cambia nada para IME.
+
 El formato binario y la vista de debug están en
 [`docs/wnui-format.md`](../../docs/wnui-format.md). El dump (`wnui-dump`) es una
 proyección de debug, **no un contrato**; la invariante es el hash del blob.
