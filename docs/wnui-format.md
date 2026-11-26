@@ -1,6 +1,6 @@
 # Formato `.wnui` y `wnui-dump`
 
-> **No es un contrato.** El documento `.wnui` v4 es el contrato *runtime* entre
+> **No es un contrato.** El documento `.wnui` v5 es el contrato *runtime* entre
 > el frontend y el loader. `wnui-dump` es una **proyección de debug** de ese
 > blob: su texto y su JSON pueden cambiar cuando cambia la versión del blob.
 > La invariante estable es el hash SHA-256 del blob canónico y la comparación
@@ -17,7 +17,7 @@ Cabecera de 32 bytes, little-endian:
 | Campo | Tipo | Notas |
 |---|---|---|
 | `magic` | `u32` | `0x49554E57` (`WNUI`) |
-| `version` | `u32` | `4` |
+| `version` | `u32` | `5` |
 | `section_count` | `u32` | secciones en la tabla |
 | `file_size` | `u32` | tamaño total; el loader lo exige exacto |
 | `node_count` | `u32` | nodos del árbol (máx. 65536) |
@@ -30,7 +30,7 @@ Las secciones empiezan alineadas a 8 bytes:
 
 | id | Sección | Contenido |
 |---|---|---|
-| 1 | nodos | `node_count` registros fijos de 248 bytes (`WnBlobNode`) |
+| 1 | nodos | `node_count` registros fijos de 252 bytes (`WnBlobNode`) |
 | 2 | nombres | `node_count` offsets `u32` al pool de strings |
 | 3 | strings | pool NUL-terminado; offset 0 = NULL |
 | 4 | inputs | registros `WnBlobInput` (20 bytes); ausente si no hay inputs |
@@ -42,7 +42,10 @@ borde/radius/sombra, alineación de texto, `line-height`, `margin-auto`,
 `box-sizing`, flex, peso de fuente y `opacity` (v3, `float`, 0..1; el loader
 rechaza valores fuera de rango). v4 añade al final `position` (entero: 0
 `static`, 1 `relative`, 2 `absolute`), `inset[4]` (`float`, orden
-top/right/bottom/left) e `inset_mask`. No guarda los atributos `data-*` crudos:
+top/right/bottom/left) e `inset_mask`. v5 añade `int32 z_index` con el sentinel
+documentado `INT32_MIN` (=-2147483648) para `auto`; cualquier otro int32 es un
+nivel de apilado explícito (negativo, 0 o positivo). No guarda los atributos
+`data-*` crudos:
 la cascada ya los convirtió en ARGB y código de acción. El orden y ancho de los
 campos están en `src/runtime/document/wn_blob.h`.
 
@@ -82,9 +85,8 @@ su lado declarado y que todo inset declarado sea finito.
   un absoluto que escape de un ancestro **totalmente** recortado (p. ej.
   `relative > overflow:hidden(height:0) > static > absolute`) sí se pinta y
   responde al hit-test en su rect colocado.
-- **Diferido:** `position: fixed`, `position: sticky`, `z-index` y el shorthand
-  `inset`. El orden de pintado sigue siendo el orden del árbol: un nodo
-  posicionado **no** se promueve todavía a una capa de stacking posterior.
+- **Diferido:** `position: fixed`, `position: sticky` y el shorthand `inset`.
+  `z-index` sí forma parte de v5 (ver abajo).
 - **Límites conocidos de esta lane:** un porcentaje de `relative` dentro de un
   grid se resuelve contra el content box del contenedor, no contra el área del
   track (F4b); una imagen `absolute` con ancho `auto` y sin tamaño intrínseco
@@ -92,6 +94,47 @@ su lado declarado y que todo inset declarado sea finito.
   reemplazado (F4c). Los hijos fuera de flujo no contribuyen al overflow
   scrolleable del contenedor (F4d), igual que un `absolute` no altera el tamaño
   de su padre.
+
+### Semántica de `z-index` y stacking contexts (v5)
+
+`z-index: auto | <integer>`; el default es `auto` (sentinel `INT32_MIN`). El
+frontend acepta enteros de 32 bits, incluidos 0 y negativos, y **diagnostica**
+fracciones, unidades, valores fuera de rango y `-2147483648` (reservado para
+`auto`). El loader trata `INT32_MIN` como `auto`; cualquier otro int32 vale.
+
+Un **stacking context** lo crea: la raíz; un nodo con `opacity < 1` (v3); y un
+nodo **posicionado** (`relative`/`absolute`) con `z-index != auto`. El motor
+implementa el orden de pintado simplificado de CSS 2.1 Apéndice E (sin floats
+ni cajas inline, que no existen en el subset):
+
+1. el ítem propio del nodo raíz del contexto (fondo/borde/contenido y, si es un
+   grupo de opacidad, su capa offscreen);
+2. contextos hijos con `z < 0`, de menor a mayor `z` (empate: orden de árbol);
+3. contenido en flujo del contexto en orden de árbol. Un descendiente
+   posicionado con `z-index: auto` **no** es contexto y se pinta aquí, en su
+   posición del árbol;
+4. contextos hijos con `z == 0`/`auto` en orden de árbol;
+5. contextos hijos con `z > 0`, de menor a mayor `z` (empate: orden de árbol).
+
+El bloque completo de un contexto hijo se emite como una unidad: sus
+descendientes **no pueden escapar** del contexto padre (un hijo con `z: 100`
+dentro de un padre `z: 1` sigue debajo de un hermano del padre con `z: 2`). Los
+contextos anidados componen recursivamente y el `z` se compara solo entre
+hermanos de contexto.
+
+**Simplificaciones documentadas:** `z-index` sobre un nodo `static` se
+**ignora** (CSS solo lo aplica a posicionados y a ítems flex/grid; este lane no
+crea contextos de ítem flex/grid). No hay floats, cajas inline ni
+`position: fixed/sticky`. Un posicionado con `z-index: auto` se pinta en el
+paso 3 (orden de árbol) en vez del paso 8 completo de CSS; el resultado es el
+mismo orden relativo para el subset soportado.
+
+**Capas:** un contexto de `z-index` **solo ordena**, no necesita textura. El
+modelo de comandos distingue `needs_texture` (grupo de opacidad → target
+offscreen y composición) de un contexto z-only (replay inline). Una página sin
+`opacity < 1` ni `z-index` conserva la ruta plana histórica por categorías
+(byte-idéntica); en cuanto hay un grupo o un contexto z se usa la ruta
+ordenada por ítem.
 
 ### Semántica de `opacity` (v3)
 
@@ -114,13 +157,16 @@ targets se reservan por profundidad y se reutilizan entre frames; el pico es
 grupo pequeño no reduce la textura: el recorte del clip se aplica al componer,
 no al reservar.
 
-**Orden de pintado:** una página sin ningún grupo conserva el orden plano por
-categorías (todos los sólidos, después las imágenes, después los glifos). En
-cuanto la página tiene al menos un grupo (`opacity < 1`), el replay dibuja por
-item (sólido/decoración/imagen/texto de cada nodo, en orden DFS) para que cada
-capa contenga su subárbol completo. Es el orden más cercano a CSS y es el
-precio de componer grupos correctamente; no se puede mezclar el orden global
-por categorías con la composición atómica de una capa.
+**Orden de pintado:** una página sin ningún grupo ni contexto `z-index`
+conserva el orden plano por categorías (todos los sólidos, después las
+imágenes, después los glifos). En cuanto la página tiene al menos un grupo
+(`opacity < 1`) **o** un contexto `z-index`, el replay dibuja por item
+(sólido/decoración/imagen/texto de cada nodo, en el orden de stacking) para que
+cada capa contenga su subárbol completo y los contextos z se ordenen. Es el
+orden más cercano a CSS y es el precio de componer grupos y contextos
+correctamente; no se puede mezclar el orden global por categorías con la
+composición atómica de una capa. Los contextos z-only no reservan textura: solo
+reordenan los ítems.
 
 El runtime no tiene parser HTML/CSS. Carga el blob con
 `wn_document_load_blob()` (archivo mapeado) o
@@ -147,24 +193,25 @@ stderr y sale con código distinto de cero.
 Primera línea:
 
 ```
-format=wnui/4 viewport=960x640 nodes=28 inputs=0
+format=wnui/5 viewport=960x640 nodes=28 inputs=0
 ```
 
 Una línea por nodo, con nombres simbólicos estables para `kind` (`block`,
 `flex`, `text`, `grid`, `image`, `input`), `direction`, `justify`, `align`,
 `wrap`, `overflow`, `object_fit`, `text_align`, `action`, `grid`, `opacity`,
-`position`, `inset` e `inset-mask`. Los colores salen como `#AARRGGBB`
+`position`, `inset`, `inset-mask` y `z-index` (`auto` o el número). Los colores salen como `#AARRGGBB`
 (`#ff0b0e14`) y los floats con cuatro decimales (`%.4f`, sin `-0.0000`), con el
 mismo formato estable del dump. Ejemplo recortado:
 
 ```
-node 0 parent=-1 kind=flex name="body.root" direction=row justify=start align=stretch wrap=nowrap width=-1.0000 height=-1.0000 ... background=#ff0b0e14 ... opacity=1.0000 position=static inset=0.0000,0.0000,0.0000,0.0000 inset-mask=0 text=""
+node 0 parent=-1 kind=flex name="body.root" direction=row justify=start align=stretch wrap=nowrap width=-1.0000 height=-1.0000 ... background=#ff0b0e14 ... opacity=1.0000 position=static inset=0.0000,0.0000,0.0000,0.0000 inset-mask=0 z-index=auto text=""
 node 4 parent=1 kind=block name="body.root/div.sidebar/div.nav" ... action=select ... hover=#ff2a3140 press=#ff3a4a5c selected=#ff3498db ... text=""
 ```
 
 `position` se imprime como nombre (`static`, `relative`, `absolute`); `inset`
 conserva el orden top/right/bottom/left y el valor crudo (un porcentaje se ve
-como su número, con el bit de porcentaje en `inset-mask`).
+como su número, con el bit de porcentaje en `inset-mask`). `z-index` se imprime
+como `auto` o como el entero explícito.
 
 Si hay inputs se añade una línea por input:
 
@@ -178,7 +225,7 @@ Mismas claves y valores, orden fijo:
 
 ```json
 {
-  "format": "wnui/4",
+  "format": "wnui/5",
   "viewport": { "width": 960, "height": 640 },
   "node_count": 28,
   "input_count": 0,
@@ -206,7 +253,7 @@ para detectar regresiones silenciosas del dump; si el formato cambia a
 propósito, se actualiza con el blob correspondiente. El gate primario es el hash
 SHA-256 fijado en `PINNED_BLOBS` (`canonical`, `input`, `fidelity`, `pilot`, más
 `dynamic`, `cache`, `css_card`/`css_control`/`css_none`,
-`opacity`/`opacity_deep` y `position` en sus suites): una
+`opacity`/`opacity_deep`, `position` y `z` en sus suites): una
 emisión nueva que difiera falla con el hash esperado, el real y la ruta del
 archivo. El suite `blob` sigue comparando
 además píxel a píxel (`blob-vs-builtin max=0`).

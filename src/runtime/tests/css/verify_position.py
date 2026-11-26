@@ -98,8 +98,8 @@ def dump_checks(dump: Path, blob: Path) -> bool:
         return check("dump", "wnui-dump --json", False,
                      (completed.stdout + completed.stderr).strip())
     document = json.loads(completed.stdout)
-    ok = check("dump", "format is wnui/4",
-               document.get("format") == "wnui/4",
+    ok = check("dump", "format is wnui/5",
+               document.get("format") == "wnui/5",
                f"{document.get('format')!r}")
     nodes = document.get("nodes") or []
     for suffix, expected in EXPECTED_STYLE.items():

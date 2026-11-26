@@ -17,7 +17,7 @@
 
 /* The on-disk node record is a fixed contract shared with the Rust writer and
  * the blob loader. A field added without bumping both sides must fail here. */
-_Static_assert(sizeof(WnBlobNode) == 248, "WnBlobNode must stay 248 bytes (v4)");
+_Static_assert(sizeof(WnBlobNode) == 252, "WnBlobNode must stay 252 bytes (v5)");
 
 #define WN_MAX_CLASSES 8
 

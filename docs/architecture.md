@@ -8,7 +8,7 @@
 │    Rust (canónico) · Python (oráculo) · C++/C# (frozen)      │
 ├──────────────────────────────────────────────────────────────┤
 │ 2. Documento (contrato runtime)                              │
-│    app.wnui (blob v4) · builtin embebido                     │
+│    app.wnui (blob v5) · builtin embebido                     │
 │    wnui-dump: proyección de debug, no contrato                │
 ├──────────────────────────────────────────────────────────────┤
 │ 3. Serializador (build time)                                 │
@@ -87,9 +87,10 @@ el mismo loader (`wn_document_load_blob_memory`).
 
 ### Documento compilado (`.wnui`)
 
-El árbol se serializa a un blob v4: cabecera de 32 bytes (`WNUI`, versión 4) y
-secciones de nodos, nombres, strings e inputs. Cada nodo mide 248 bytes e
-incluye `position` + `inset[4]`/`inset_mask` (relative/absolute). No hay glifos,
+El árbol se serializa a un blob v5: cabecera de 32 bytes (`WNUI`, versión 5) y
+secciones de nodos, nombres, strings e inputs. Cada nodo mide 252 bytes e
+incluye `position` + `inset[4]`/`inset_mask` (relative/absolute) y `z_index`
+(sentinel INT32_MIN = auto). No hay glifos,
 runs, atlas ni piscina ASCII: el texto de los inputs también lo shapea el
 runtime. Los nodos son enteros y floats con offsets al pool de strings
 (0 = NULL).

@@ -73,6 +73,9 @@ pub(crate) struct ComputedStyle {
     /// bit 0..3 = side is declared (not `auto`); bit 4..7 = that side is a
     /// percentage. 0 means all four insets are `auto`.
     pub(crate) inset_mask: u32,
+    /// Blob v5: CSS `z-index`; `None` is `auto`. Only applied by the runtime
+    /// to positioned nodes (relative/absolute). Negative values are valid.
+    pub(crate) z_index: Option<i32>,
     pub(crate) flex_direction: String,
     pub(crate) justify_content: String,
     pub(crate) align_items: String,
@@ -313,6 +316,10 @@ fn resolve(
         _ => "static".to_string(),
     };
     let (inset, inset_mask) = resolve_insets(&raw);
+    // Only the integer grammar is valid for z-index; `auto` and invalid
+    // declarations stay `auto` (CSS drops an unsupported value). The subset
+    // reports malformed values separately.
+    let z_index = raw.get("z-index").and_then(|value| parse_z_index(value));
 
     // E1: text-align is discrete and inherited; line-height resolves to px
     // (`normal` -> 0.0 so the runtime uses ascender + descender).
@@ -324,6 +331,7 @@ fn resolve(
         position,
         inset,
         inset_mask,
+        z_index,
         color,
         font_family: raw
             .get("font-family")
@@ -437,6 +445,36 @@ fn resolve_box_length(
         return (Some(ctx.resolve(rel)), 0.0, Some(rel));
     }
     (None, 0.0, None)
+}
+
+/// `auto | <integer>` -> `Some(value)` or `None` (auto/invalid).
+///
+/// CSS requires an integer (no fraction, no unit). The blob stores int32 with
+/// `INT32_MIN` reserved for `auto`, so that one explicit value is rejected.
+fn parse_z_index(value: &str) -> Option<i32> {
+    let text = value.trim();
+    if text.is_empty() || text.eq_ignore_ascii_case("auto") {
+        return None;
+    }
+    let integer = parse_css_integer(text)?;
+    if integer == i64::from(i32::MIN) {
+        return None;
+    }
+    i32::try_from(integer).ok()
+}
+
+/// Optional sign followed by one or more ASCII digits. No exponent or unit.
+fn parse_css_integer(text: &str) -> Option<i64> {
+    let mut chars = text.chars();
+    let first = chars.next()?;
+    let digits = match first {
+        '+' | '-' => chars.as_str(),
+        _ => text,
+    };
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    text.parse::<i64>().ok()
 }
 
 /// `top`/`right`/`bottom`/`left` -> `(values, mask)`.

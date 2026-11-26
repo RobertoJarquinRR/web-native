@@ -94,10 +94,11 @@ selección/caret de un input, texto o imagen sobre fondo).
   `W × H × 4` bytes. Los targets se reservan por profundidad, se reutilizan
   entre frames y el pico es `profundidad × W × H × 4` (más la surface). El
   clip del grupo recorta al componer, no reduce la textura.
-- **Orden:** sin grupos se mantiene el orden plano histórico por categorías
-  (todos los sólidos, luego imágenes, luego glifos). Con al menos un grupo, el
-  replay de comandos dibuja por item (sólido/decoración/imagen/texto) para
-  contener el subárbol completo en cada capa; es el orden más cercano a CSS.
+- **Orden:** sin grupos ni contextos z se mantiene el orden plano histórico por
+  categorías (todos los sólidos, luego imágenes, luego glifos). Con al menos un
+  grupo o un contexto `z-index`, el replay de comandos dibuja por item
+  (sólido/decoración/imagen/texto) en el orden de stacking para contener el
+  subárbol completo en cada capa; es el orden más cercano a CSS.
 - **Límites:** `WN_MAX_PAINT_LAYER_DEPTH` (512, igual que la profundidad del
   documento) y `WN_MAX_PAINT_LAYERS` (65536). El pool wgpu/D3D11 se indexa por
   profundidad, no por cantidad de grupos hermanos.
@@ -115,7 +116,20 @@ finales; `left+right`/`top+bottom` con tamaño `auto` estiran y los porcentajes
 se resuelven ahí, no en el frontend. Scroll, clip y hit-test usan los rects
 resultantes; el clip del absoluto es el de los hijos de su containing block
 (un `overflow` estático intermedio que no es containing block no lo recorta).
-`fixed`, `sticky` y `z-index` quedan fuera de esta lane.
+`fixed` y `sticky` quedan fuera de esta lane.
+
+### Z-index y stacking contexts (blob v5)
+
+Un contexto lo crea la raíz, un nodo con `opacity < 1` o un nodo posicionado
+con `z-index != auto`. Dentro de cada contexto se pinta: su propio ítem,
+contextos hijos con `z < 0` (ascendente), contenido en flujo en orden de árbol
+(incluye posicionados con `z: auto`), contextos con `z == 0`/`auto` en orden de
+árbol y contextos con `z > 0` (ascendente). El bloque de un contexto es
+contiguo: sus descendientes no escapan del padre. `z-index` en un nodo `static`
+se ignora (sin ítems flex/grid). Un contexto z-only no reserva textura: la capa
+solo existe para ordenar y el renderer la reproduce inline (`needs_texture=0`);
+un grupo de opacidad sí reserva target y compone. El hit-test recorre los
+ítems al revés, así que gana el z más alto.
 
 El texto no está horneado. El nodo lleva cadena, familia, tamaño, peso y
 `line-height`; DirectWrite mide y shapea, y `text_atlas` cachea glifos y runs.

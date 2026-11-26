@@ -2061,6 +2061,14 @@ static int run_layer_commands(WnWgpu *gpu, WGPUCommandEncoder encoder,
                 set_error(gpu, "invalid layer boundary");
                 return 1;
             }
+            layer = &list->layers[command->layer];
+            if (!layer->needs_texture) {
+                /* z-index-only context: no target, no pass. Its items replay
+                 * inline in the enclosing pass (ordering is already baked into
+                 * the item list). */
+                *index += 1;
+                continue;
+            }
             if (ensure_layer_target(gpu, depth) != 0) {
                 wgpuRenderPassEncoderEnd(pass);
                 wgpuRenderPassEncoderRelease(pass);
@@ -2096,7 +2104,15 @@ static int run_layer_commands(WnWgpu *gpu, WGPUCommandEncoder encoder,
             continue;
         }
         if (command->kind == WN_PAINT_CMD_END_LAYER) {
+            const wn_paint_layer *layer =
+                (command->layer >= 0 && command->layer < list->layer_count)
+                    ? &list->layers[command->layer]
+                    : NULL;
             *index += 1;
+            if (layer != NULL && !layer->needs_texture) {
+                /* z-index-only context: it never opened a pass/target. */
+                continue;
+            }
             wgpuRenderPassEncoderEnd(pass);
             wgpuRenderPassEncoderRelease(pass);
             return 0;

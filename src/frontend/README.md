@@ -1,7 +1,7 @@
 # Frontend Rust
 
 Compilador de UI de WebNative: convierte HTML + CSS en el **documento `.wnui`**
-(blob v4) que consume el runtime C. No calcula geometría ni hornea texto: el
+(blob v5) que consume el runtime C. No calcula geometría ni hornea texto: el
 motor mide, shapea y pinta en runtime.
 
 ## Uso

@@ -49,7 +49,7 @@ propiedad, es el modelo que exige.
 | `transition` | Cualquier propiedad animable, `all`, listas, `cubic-bezier()`/`steps()`, delays, reversa, interrupción/retarget, eventos `transitionrun/start/end/cancel`, unidades mezcladas, interpolación de color en varios espacios | Necesita reloj, scheduler de frames, interrupción, invalidación selectiva y semántica de valores para cada propiedad | **Solo `opacity`, `background-color` y `border-color`** en v1 (transform se suma cuando exista transform 2D); duración y `ease`, `linear`, `ease-in`, `ease-out`; sin `all`, sin delays, sin eventos; interrupción = saltar al valor actual y re-interpolar |
 | `transform` | Matriz 2D/3D, `transform-origin`, funciones múltiples, `perspective`, anidamiento, interacción con `position: fixed`, `backface-visibility` | Cambia el espacio de pintado, el hit-test, el clip, el rasterizado de texto y sombras; 3D añade proyección y composición | **Solo 2D**: `translate`, `scale`, `rotate` alrededor del centro; una matriz por nodo; sin 3D ni perspectiva; texto solo en nodos sin rotación (o re-raster limitado) |
 | `position` | `static`, `relative`, `absolute`, `fixed`, `sticky`, `inset`, `auto` resuelto contra containing block, containing blocks por transform/filter/contain, interacción con scroll y `overflow` | Exige sacar nodos del flujo, calcular containing blocks, clipping por ancestro, scroll y orden de pintado | **`relative` + `absolute`** contra el ancestro posicionado más cercano (o raíz); `inset` en px; `fixed` y `sticky` en una fase posterior |
-| `z-index` | Contextos de apilamiento completos (position, transform, opacity, filter, isolation), orden entre contextos, enteros y `auto` | Es un árbol de contextos, no un número: paint order, hit-test y clipping deben compartir el mismo orden | **Entero por padre**: los hijos posicionados se ordenan por `z-index` dentro de su padre; sin contextos anidados nuevos; hit-test en orden de pintado inverso |
+| `z-index` | Contextos de apilamiento completos (position, transform, opacity, filter, isolation), orden entre contextos, enteros y `auto` | Es un árbol de contextos, no un número: paint order, hit-test y clipping deben compartir el mismo orden | **Implementado (blob v5)**: contextos anidados (raíz, `opacity < 1`, posicionado con `z != auto`), pasos negativos/0/positivos, hit-test en orden inverso; capas z-only sin textura |
 | `animation` | `@keyframes`, múltiples animaciones, `%` arbitrarios, `iteration-count`, `direction`, `fill-mode`, `delay`, `play-state`, eventos, composición con transitions | Es una línea de tiempo por nodo con su propio modelo de estados y eventos; equivale a un mini WAAPI | **Un `@keyframes` por nodo**, `transform`/`opacity`, `linear`/`ease`, `infinite`, sin eventos ni `fill-mode`; o directamente **no-go v1** y cubrir spinners en el host |
 | `float` | `left`, `right`, `clear`, block formatting contexts, margin collapsing alrededor, line boxes, shrink-to-fit, interacción con flex/grid | Reimplementa el modelo de flujo históricamente más frágil de CSS, incluido el texto que rodea | **No-go**. Si un target real pide texto alrededor de imagen, se evalúa un contrato propio y estrecho, no `float` |
 
@@ -67,7 +67,7 @@ de trabajo efectivo; “pw” = persona-semana (~5 pd).
 | `position: absolute` | **6–10 pd** | 6–12 pw (familia completa) | Containing block + out-of-flow + medición de auto |
 | `position: fixed` | **+2–4 pd** | — | Coordenadas de viewport, ignora scroll; modales/toasts |
 | `position: sticky` | **5–8 pd** | — | Clamp por scroll y ancestro con scroll; fácil de romper |
-| `z-index` simple | **3–5 pd** | 4–8 pw | Requiere `position`; el completo es árbol de contextos |
+| `z-index` (contextos anidados) | **3-5 pd** | 4-8 pw | **Hecho (blob v5)**: requiere `position`; árbol de contextos con orden CSS simplificado |
 | `animation` keyframes | **8–15 pd** | 6–10 pw | Línea de tiempo, fill/direction/iteration y eventos |
 | `float` | **8–12 pd** (frágil) | 6–10 pw | Aun el limitado arrastra BFC y margin collapse |
 | **Paquete recomendado** | **~5–7 pw** | — | transition + transform 2D + relative/absolute + z-index simple |
@@ -109,9 +109,11 @@ block** y se pinta en otro orden. `fixed` añade viewport y scroll; `sticky`
 añade un clamp dependiente del scroll de cada ancestro.
 
 `z-index` no es un entero suelto: en CSS crea **contextos de apilamiento**, y el
-orden entre contextos decide paint, clip y hit-test. El limitado propuesto evita
-contextos anidados: un solo nivel por padre, orden estable por `z-index` y luego
-document order. Eso cubre modales/toasts/tooltips y es testeable.
+orden entre contextos decide paint, clip y hit-test. La propuesta limitada
+original (un solo nivel por padre) quedó superada: la lane v5 implementa el
+árbol de contextos anidados del Apéndice E (simplificado sin floats/inline),
+con un contexto z-only que solo ordena y un grupo de opacidad que reserva
+textura. Eso cubre modales/toasts/tooltips y es testeable.
 
 Riesgo principal: hit-test y clipping deben usar **el mismo orden y la misma
 geometría** que el pintado. Si divergen, aparecen clicks en el sitio equivocado,
@@ -194,14 +196,15 @@ se descarta.
       texto ≥ umbral de `docs/visual-parity.md`.
 - [ ] Sin 3D, sin perspectiva, sin `transform-origin` arbitrario en v1.
 
-### Position relative/absolute + z-index simple
+### Position relative/absolute + z-index
 
 - [x] `absolute` mide contra el ancestro posicionado correcto; `auto` resuelve
       sin ambigüedad (blob v4, `position_test` + fixture de píxeles).
 - [x] El nodo absoluto no altera el flujo de sus hermanos (test de layout).
-- [ ] Orden de pintado y hit-test coinciden en un fixture con solape y
-      `z-index` negativo/positivo (test de click en el nodo superior). Hoy el
-      orden es el del árbol: `z-index` sigue diferido.
+- [x] Orden de pintado y hit-test coinciden en un fixture con solape y
+      `z-index` negativo/0/positivo (blob v5, `zindex_test` + fixture de
+      píxeles 400x420 en D3D11 y wgpu). Contextos anidados: un hijo no escapa
+      del padre; `opacity + z` combina textura y orden.
 - [x] Clip por `overflow: hidden` del ancestro correcto: el containing block
       recorta, y un `overflow` estático que no es el containing block no
       recorta al absoluto (verificado en `position_test`).

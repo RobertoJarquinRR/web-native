@@ -9,8 +9,14 @@ extern "C" {
 #endif
 
 #define WN_BLOB_MAGIC 0x49554E57u /* "WNUI" */
-#define WN_BLOB_VERSION 4u
+#define WN_BLOB_VERSION 5u
 #define WN_BLOB_HEADER_SIZE 32u
+
+/* Blob v5: `z_index` uses INT32_MIN as the "auto" sentinel, so every other
+ * int32 is a valid explicit CSS `z-index` (negative, zero and positive).
+ * An explicit `z-index: -2147483648` is not representable in the blob; the
+ * frontend diagnoses it and falls back to auto. */
+#define WN_BLOB_Z_INDEX_AUTO INT32_MIN
 
 /* Loader limits: the layout/paint walk is recursive, so a crafted chain would
  * otherwise overflow the stack. Both are rejected before a core is built. */
@@ -109,6 +115,12 @@ typedef struct {
     int32_t position;
     float inset[4];
     uint32_t inset_mask;
+    /* Blob v5: CSS `z-index`. WN_BLOB_Z_INDEX_AUTO (INT32_MIN) means `auto`;
+     * every other int32 is an explicit stacking level. Only a positioned node
+     * (relative/absolute) with a value other than auto creates a stacking
+     * context; z-index on a static non-flex/grid node is ignored by the
+     * runtime, matching CSS for the subset this engine supports. */
+    int32_t z_index;
 } WnBlobNode;
 
 typedef struct {

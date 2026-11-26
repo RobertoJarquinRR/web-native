@@ -10,6 +10,10 @@
 
 #include <stdint.h>
 
+/* Blob v5: CSS `z-index`. INT32_MIN means `auto`. Any other int32 is an
+ * explicit stacking level (negative, zero or positive). */
+#define R2_Z_INDEX_AUTO INT32_MIN
+
 /* The runtime always carries the E1/CSS style extras. Blob v3 writes every
  * field for every node, so a page that does not use them gets the same
  * defaults the old header-less builds used (text_align 0, line_height 0,
@@ -113,6 +117,10 @@ typedef struct {
     int position;
     float inset[4];
     unsigned int inset_mask;
+    /* Blob v5: CSS `z-index`; R2_Z_INDEX_AUTO means `auto`. A positioned node
+     * with an explicit value is a stacking context (paint order only, no
+     * offscreen texture). Ignored on a static non-flex/grid node. */
+    int z_index;
 } UiNode;
 
 typedef struct {

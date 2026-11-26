@@ -510,6 +510,11 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
         dst->position = src->position;
         memcpy(dst->inset, src->inset, sizeof(dst->inset));
         dst->inset_mask = src->inset_mask;
+        /* Blob v5: INT32_MIN is the documented `auto` sentinel; every other
+         * int32 is an explicit CSS z-index. The int32 field itself is the
+         * range validation: the frontend rejects non-integers, values outside
+         * int32 and the reserved sentinel before writing. */
+        dst->z_index = src->z_index;
     }
     {
         const uint32_t *name_offsets =

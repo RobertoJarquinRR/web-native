@@ -173,7 +173,7 @@ Estado real según `docs/support.md`; no prometer lo que no hay:
 | IME / i18n    | Sin IME; input UTF-8 de una línea; sin bidi, CJK ni emoji                                                                      |
 | DPI           | System-aware básico; sin `WM_DPICHANGED` ni multi-monitor                                                                 |
 | Texto         | Shape/raster/medición en runtime (DirectWrite); `font-weight`, `line-height`, `text-align`; sin wrapping todavía |
-| CSS           | `position: relative/absolute` (blob v4) con insets px/%/auto; sin `fixed`/`sticky`/`z-index`/`inset`, `transform`, `transition`, `animation`, `float`; borders/radius uniformes; una sombra no-inset |
+| CSS           | `position: relative/absolute` (blob v4) con insets px/%/auto y `z-index` + stacking contexts (blob v5); sin `fixed`/`sticky`/`inset`, `transform`, `transition`, `animation`, `float`; borders/radius uniformes; una sombra no-inset |
 | Layout        | Sin virtualización/culling; grids con `repeat(auto-fill, px)` pilot                                                       |
 | Host          | Una ventana por app; sin tray, diálogos, notificaciones ni drag & drop                                                    |
 | Renderer      | wgpu/D3D12 por defecto; D3D11 en curso; WARP lento y con RSS alto                                                         |

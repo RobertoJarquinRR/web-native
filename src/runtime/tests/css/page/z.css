@@ -1,0 +1,96 @@
+/* z-index fixture: 400x420. Eight isolation regions exercise the CSS
+   stacking-context order: positioned siblings, swapped DOM order, z auto vs
+   z 0, negative z behind in-flow content, a high-z child trapped inside a
+   lower-z parent, opacity+z, nested contexts, z on a relative node and z on a
+   static node (ignored). */
+* { box-sizing: border-box; }
+html { height: 100%; }
+body {
+  margin: 0;
+  padding: 0;
+  width: 400px;
+  height: 420px;
+  background: #f0f0f0;
+}
+
+.region {
+  position: absolute;
+  width: 120px;
+  height: 120px;
+}
+.r0c0 { left: 10px;  top: 10px; }
+.r0c1 { left: 145px; top: 10px; }
+.r0c2 { left: 270px; top: 10px; }
+.r1c0 { left: 10px;  top: 150px; }
+.r1c2 { left: 270px; top: 150px; }
+.r2c1 { left: 145px; top: 290px; }
+.r2c2 { left: 270px; top: 290px; }
+
+.green  { background: #22aa66; }
+.red    { background: #cc3333; }
+.blue   { background: #3366cc; }
+.yellow { background: #ccaa22; }
+
+/* Row 1a: z 1 then z 2 (tree order and z order agree). */
+#sib-a { position: absolute; left: 10px; top: 20px; width: 70px; height: 70px; z-index: 1; }
+#sib-b { position: absolute; left: 50px; top: 20px; width: 70px; height: 70px; z-index: 2; }
+
+/* Row 1b: swapped DOM order; z still decides. */
+#swap-a { position: absolute; left: 10px; top: 20px; width: 70px; height: 70px; z-index: 2; }
+#swap-b { position: absolute; left: 50px; top: 20px; width: 70px; height: 70px; z-index: 1; }
+
+/* Row 1c: z auto stays in flow; z 0 is a context in step 4. */
+#auto-a { position: absolute; left: 10px; top: 20px; width: 70px; height: 70px; }
+#zero-a { position: absolute; left: 50px; top: 20px; width: 70px; height: 70px; z-index: 0; }
+
+/* Row 2a: negative context paints behind the in-flow box. */
+#flowbox { width: 70px; height: 70px; margin-left: 10px; margin-top: 20px; }
+#neg { position: absolute; left: 50px; top: 20px; width: 70px; height: 70px; z-index: -1; }
+
+/* Row 2b: parent context z 1, child z 100, root sibling z 2. The sibling is a
+   direct body child, so it is a root-context z 2 context and wins. */
+.trap {
+  position: absolute;
+  left: 145px;
+  top: 150px;
+  width: 120px;
+  height: 120px;
+  background: #dddddd;
+  z-index: 1;
+}
+#trap-child { position: absolute; left: 5px; top: 5px; width: 60px; height: 60px; z-index: 100; }
+#trap-sibling { position: absolute; left: 170px; top: 175px; width: 80px; height: 80px; z-index: 2; }
+
+/* Row 2c: opacity group (texture) with z 2, opaque z 3 box above it. */
+#ogroup {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 80px;
+  height: 80px;
+  background: #ff0000;
+  opacity: 0.5;
+  z-index: 2;
+}
+#otop { position: absolute; left: 40px; top: 0; width: 70px; height: 70px; background: #0000ff; z-index: 3; }
+
+/* Row 3a: A z 1 contains B z 10; D z 5 at the root is above the whole A block. */
+#nested-a {
+  position: absolute;
+  left: 10px;
+  top: 290px;
+  width: 110px;
+  height: 110px;
+  background: #dddddd;
+  z-index: 1;
+}
+#nested-b { position: absolute; left: 5px; top: 5px; width: 60px; height: 60px; z-index: 10; }
+#nested-d { position: absolute; left: 30px; top: 310px; width: 80px; height: 80px; z-index: 5; }
+
+/* Row 3b: z-index on a relative node; it paints after the in-flow box. */
+#rel-base { width: 100px; height: 80px; margin-left: 10px; margin-top: 10px; }
+#rel-z { position: relative; left: 0; top: -80px; width: 50px; height: 80px; margin-left: 10px; z-index: 1; }
+
+/* Row 3c: z-index on a static node is ignored; the z 2 absolute is on top. */
+#static-z { width: 70px; height: 70px; margin-left: 10px; margin-top: 20px; z-index: 5; }
+#abs-over { position: absolute; left: 310px; top: 310px; width: 70px; height: 70px; z-index: 2; }

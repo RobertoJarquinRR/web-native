@@ -46,6 +46,10 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 - `position: static | relative | absolute` (v4; `static` es el default).
 - `top`, `right`, `bottom`, `left` en px, `%` o `auto` (los porcentajes se
   resuelven en layout contra el containing block; no se hornean).
+- `z-index: auto | <integer>` (v5; enteros de 32 bits, negativos y 0 incluidos;
+  `-2147483648` reservado para `auto`). Solo se aplica a nodos posicionados
+  (`relative`/`absolute`); en `static` se ignora, como en CSS sin ítem
+  flex/grid.
 
 > **Modelo de caja:** el motor calcula siempre *border-box*: `width`/`height`
 > incluyen padding y borde. CSS usa *content-box* por defecto, así que una
@@ -90,7 +94,7 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 
 ### Fuera de v1
 
-`position: fixed | sticky`, `z-index`, el shorthand `inset`, `transform`,
+`position: fixed | sticky`, el shorthand `inset`, `transform`,
 `transition`, `animation`, `gradient`, `@media`, `@font-face`, pseudo-elementos
 (`::before/::after`), `calc()`, `float`, `table`, `filter`, `clip-path`,
 `columns`.
@@ -112,8 +116,10 @@ v4 (`position`) se acepta directamente en esta lane:
   en runtime); bordes por lado, `border-radius` por esquina, `box-shadow`,
   `min/max-*` y unidades `em/rem/vh/vw`.
 - **v4:** `position: relative | absolute` con `top/right/bottom/left` en
-  px/%/auto (blob v4). `fixed`, `sticky`, `z-index` y el shorthand `inset`
-  siguen fuera de esta lane.
+  px/%/auto (blob v5). `fixed`, `sticky` y el shorthand `inset` siguen fuera
+  de esta lane.
+- **v5:** `z-index: auto | <integer>` y el orden de pintado por stacking
+  contexts (negativos, 0/auto y positivos, anidados). Se acepta sin `--pilot`.
 
 El detalle del contrato y de lo que el runtime ya implementa está en
 [`support.md`](support.md).
@@ -122,7 +128,8 @@ El detalle del contrato y de lo que el runtime ya implementa está en
 
 - El frontend Rust emite `warning`/`error` con archivo, línea y propiedad.
   `position: fixed/sticky`, valores de `position` desconocidos, unidades no
-  soportadas en insets, el shorthand `inset` y `z-index` se diagnostican.
+  soportadas en insets, el shorthand `inset` y valores de `z-index` no
+  enteros/fuera de rango se diagnostican.
 - `--strict-subset`: error y exit ≠ 0 ante cualquier feature fuera del subset.
 - Sin `--strict-subset`: warning y fallback (ignorar la propiedad).
 - Objetivo: que el diseñador sepa exactamente qué puede usar.

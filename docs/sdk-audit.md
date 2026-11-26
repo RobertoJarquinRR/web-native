@@ -31,7 +31,7 @@ calculado. Deja `position`, `z-index`, `transform`, opacidad y virtualización
 como features aditivas.
 
 Pendiente de la lista: B1, B7, B10, C2, C3, C6–C10. **Siguiente:** features de
-estilo (`opacity` estrena blob v3, luego position/z-index y transform). En
+estilo (`opacity` estrena blob v3, luego position (v4), z-index (v5) y transform). En
 pre-alfa el formato rompe libremente; C6 se decide al congelar 1.0.
 
 ## P0 — corrección y seguridad
@@ -104,7 +104,7 @@ pre-alfa el formato rompe libremente; C6 se decide al congelar 1.0.
 ## Lo que ya está maduro
 
 - Texto: medición, shaping y raster en runtime; atlas dinámico; sin glifos en el documento.
-- Documento: blob v4 versionado, loader con mmap y por memoria, builtin embebido, hashes fijados por suite, escritor Rust byte-idéntico al de referencia.
+- Documento: blob v5 versionado, loader con mmap y por memoria, builtin embebido, hashes fijados por suite, escritor Rust byte-idéntico al de referencia.
 - ABI v6: identidad de nodo, estado por nodo, getters, eventos con botón, tick y refcount.
 - Suites: 10/10 con comparación de píxeles exacta (blob/offscreen), dump y piloto 48/48.
 
