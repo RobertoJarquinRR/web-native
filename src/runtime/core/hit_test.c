@@ -35,13 +35,12 @@ int wn_core_node_at(const wn_core *core, float px, float py)
         return -1;
     }
     ensure_layout_for_hit((wn_core *)core);
-    for (i = core->paint_count - 1; i >= 0; --i) {
-        int node = core->paint_order[i];
-        if (!core->visible_eff[node]) {
-            continue;
-        }
+    /* Reverse paint-item order is reverse z-order. Items already exclude
+     * invisible nodes and empty clips, which can never hit. */
+    for (i = core->paint_item_count - 1; i >= 0; --i) {
+        int node = core->paint_items[i].node;
         if (point_in_rect(px, py, &core->rects[node]) &&
-            point_in_rect(px, py, &core->clips[node])) {
+            point_in_rect(px, py, &core->paint_items[i].clip)) {
             return node;
         }
     }
@@ -55,15 +54,12 @@ int wn_core_hit_test(const wn_core *core, float px, float py)
         return -1;
     }
     ensure_layout_for_hit((wn_core *)core);
-    for (i = core->paint_count - 1; i >= 0; --i) {
-        int node = core->paint_order[i];
-        if (!core->visible_eff[node]) {
-            continue;
-        }
+    for (i = core->paint_item_count - 1; i >= 0; --i) {
+        int node = core->paint_items[i].node;
         if ((core->nodes[node].action != ACTION_NONE ||
              core->nodes[node].kind == R2_NODE_INPUT) &&
             point_in_rect(px, py, &core->rects[node]) &&
-            point_in_rect(px, py, &core->clips[node])) {
+            point_in_rect(px, py, &core->paint_items[i].clip)) {
             return node;
         }
     }

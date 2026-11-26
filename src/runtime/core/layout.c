@@ -8,6 +8,7 @@
  */
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "kind_ops.h"
 #include "wn_core_internal.h"
@@ -881,18 +882,184 @@ static void compute_clips(wn_core *c, int node, wn_rect clip)
     }
 }
 
-static void build_paint_order(wn_core *c, int node)
+/* -------------------------------------------------------------- paint list */
+
+static void append_paint_item(wn_core *c, int node)
+{
+    WnPaintItem *item;
+    if (c->paint_item_count >= c->paint_item_capacity) {
+        return;
+    }
+    item = &c->paint_items[c->paint_item_count++];
+    *item = (WnPaintItem){
+        node, c->clips[node], 0, 1.0f, WN_TRANSFORM_IDENTITY_INIT
+    };
+}
+
+/* Items are visible nodes with a non-empty inherited clip, in DFS order. The
+ * clip is the intersection of the viewport with the ancestor content boxes
+ * (compute_clips starts at the viewport), so it says nothing about the node's
+ * own box: a node whose box is entirely outside the viewport still has a
+ * non-empty clip through an overflow:visible ancestor. Descendants of an
+ * empty-clip node also have an empty clip (clips only shrink), so the walk can
+ * stop there without changing the paint set; invisible subtrees are skipped
+ * whole, exactly like the old paint_order build.
+ *
+ * wn_paint_item_visible() computes the second test (item AABB vs viewport),
+ * but the build intentionally does not apply it. A box fully below the
+ * viewport can still cast its box-shadow into the viewport, and shadows are
+ * not part of the visibility test yet. Culling is computed and tested, never
+ * applied; paint_list_test locks the offscreen-shadow-caster case.
+ *
+ * Cost note (measured on the paint-list refactor, Release/D3D11): canonical
+ * page +0.4 % versus the old paint_order walk; a 1201-node synthetic page +7 %
+ * layout and +10 % build, still inside the absolute budgets. The AoS stride of
+ * 52 B per item (node, clip, layer, opacity, transform) is the tradeoff that
+ * keeps one ordered array instead of parallel arrays. */
+static void build_paint_items(wn_core *c, int node)
 {
     int child;
     if (!c->alive[node] || !c->visible_eff[node]) {
         return;
     }
-    if (c->paint_count < c->node_capacity) {
-        c->paint_order[c->paint_count++] = node;
+    if (rect_is_empty(c->clips[node])) {
+        return;
     }
+    append_paint_item(c, node);
     for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
-        build_paint_order(c, child);
+        build_paint_items(c, child);
     }
+}
+
+/* Stable bottom-up merge sort by layer. Every layer is 0 in production, so the
+ * first scan returns before any allocation or element copy (O(n), order
+ * untouched, 0 moves). A distinct-layer list pays one malloc plus O(n log n)
+ * merge passes. Ties take the left run, preserving the DFS order of equal
+ * layers. Returns the number of element copies performed (0 on the all-equal
+ * fast path) so the test can prove the fast path; layout ignores the result. */
+int wn_core_sort_paint_items(wn_core *c)
+{
+    int n, i, width, copies = 0;
+    WnPaintItem *src, *dst, *tmp;
+
+    if (c == NULL || c->paint_item_count < 2) {
+        return 0;
+    }
+    n = c->paint_item_count;
+    for (i = 1; i < n; ++i) {
+        if (c->paint_items[i].layer != c->paint_items[0].layer) {
+            break;
+        }
+    }
+    if (i == n) {
+        return 0; /* all-equal fast path: O(n) scan, no allocation, no copies */
+    }
+
+    tmp = (WnPaintItem *)malloc((size_t)n * sizeof(*tmp));
+    if (tmp == NULL) {
+        /* Out of memory: stable insertion sort keeps the contract. */
+        for (i = 1; i < n; ++i) {
+            WnPaintItem item = c->paint_items[i];
+            int j = i - 1;
+            while (j >= 0 && c->paint_items[j].layer > item.layer) {
+                c->paint_items[j + 1] = c->paint_items[j];
+                --j;
+                ++copies;
+            }
+            if (j + 1 != i) {
+                c->paint_items[j + 1] = item;
+                ++copies;
+            }
+        }
+        return copies;
+    }
+
+    src = c->paint_items;
+    dst = tmp;
+    for (width = 1; width < n; width *= 2) {
+        int left;
+        for (left = 0; left < n; left += width * 2) {
+            int mid = left + width < n ? left + width : n;
+            int right = left + width * 2 < n ? left + width * 2 : n;
+            int a = left, b = mid, k = left;
+            while (a < mid && b < right) {
+                if (src[a].layer <= src[b].layer) {
+                    dst[k++] = src[a++]; /* ties keep the left (DFS) run */
+                } else {
+                    dst[k++] = src[b++];
+                }
+            }
+            while (a < mid) {
+                dst[k++] = src[a++];
+            }
+            while (b < right) {
+                dst[k++] = src[b++];
+            }
+            copies += right - left;
+        }
+        {
+            WnPaintItem *swap = src;
+            src = dst;
+            dst = swap;
+        }
+    }
+    if (src != c->paint_items) {
+        memcpy(c->paint_items, src, (size_t)n * sizeof(*src));
+    }
+    free(tmp);
+    return copies;
+}
+
+static int transform_is_identity(const wn_transform *t)
+{
+    return t->m0 == 1.0f && t->m1 == 0.0f && t->m2 == 0.0f &&
+           t->m3 == 1.0f && t->m4 == 0.0f && t->m5 == 0.0f;
+}
+
+/* AABB of a rect after the 2x3 matrix. The clip stays the parent's
+ * axis-aligned screen rect; only the item geometry is transformed. */
+static wn_rect transform_rect_aabb(const wn_transform *t, wn_rect r)
+{
+    wn_rect out;
+    float x0, x1, x2, x3;
+    float y0, y1, y2, y3;
+    if (transform_is_identity(t)) {
+        return r;
+    }
+    x0 = t->m0 * r.x + t->m2 * r.y + t->m4;
+    y0 = t->m1 * r.x + t->m3 * r.y + t->m5;
+    x1 = t->m0 * (r.x + r.w) + t->m2 * r.y + t->m4;
+    y1 = t->m1 * (r.x + r.w) + t->m3 * r.y + t->m5;
+    x2 = t->m0 * (r.x + r.w) + t->m2 * (r.y + r.h) + t->m4;
+    y2 = t->m1 * (r.x + r.w) + t->m3 * (r.y + r.h) + t->m5;
+    x3 = t->m0 * r.x + t->m2 * (r.y + r.h) + t->m4;
+    y3 = t->m1 * r.x + t->m3 * (r.y + r.h) + t->m5;
+    out.x = fminf(fminf(x0, x1), fminf(x2, x3));
+    out.y = fminf(fminf(y0, y1), fminf(y2, y3));
+    out.w = fmaxf(fmaxf(x0, x1), fmaxf(x2, x3)) - out.x;
+    out.h = fmaxf(fmaxf(y0, y1), fmaxf(y2, y3)) - out.y;
+    return out;
+}
+
+int wn_paint_item_visible(const wn_core *c, const WnPaintItem *item)
+{
+    wn_rect viewport;
+    wn_rect box;
+    if (c == NULL || item == NULL || rect_is_empty(item->clip)) {
+        return 0;
+    }
+    if (item->node < 0 || item->node >= c->node_count || !c->alive[item->node]) {
+        return 0;
+    }
+    viewport.x = 0.0f;
+    viewport.y = 0.0f;
+    viewport.w = (float)c->width;
+    viewport.h = (float)c->height;
+    if (rect_is_empty(viewport)) {
+        return 0;
+    }
+    box = transform_rect_aabb(&item->transform, c->rects[item->node]);
+    return !rect_is_empty(rect_intersection(box, viewport));
 }
 
 void layout_page(wn_core *c, float viewport_w, float viewport_h)
@@ -916,7 +1083,7 @@ void layout_page(wn_core *c, float viewport_w, float viewport_h)
             break;
         }
     }
-    c->paint_count = 0;
+    c->paint_item_count = 0;
     if (root >= 0) {
         layout_node(c, root, 0.0f, 0.0f, viewport_w, viewport_h, 1, -1.0f);
         viewport.x = 0.0f;
@@ -926,7 +1093,8 @@ void layout_page(wn_core *c, float viewport_w, float viewport_h)
         if (c->visible_eff[root]) {
             compute_clips(c, root, viewport);
         }
-        build_paint_order(c, root);
+        build_paint_items(c, root);
+        wn_core_sort_paint_items(c);
     }
 }
 

@@ -27,6 +27,41 @@
 #define WN_NODE_MIN_CAPACITY 512
 #define WN_NODE_MAX_CAPACITY (1 << 20)
 
+/* 2x3 affine matrix in view pixels:
+ *   x' = m0*x + m2*y + m4
+ *   y' = m1*x + m3*y + m5
+ * Identity is {1,0,0,1,0,0}. Only the geometry helpers consume it; the clip
+ * rect in WnPaintItem stays screen-space (see the paint list notes below). */
+typedef struct {
+    float m0, m1, m2, m3, m4, m5;
+} wn_transform;
+
+#define WN_TRANSFORM_IDENTITY_INIT {1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f}
+
+/* One entry of the ordered paint list built after layout. Today every item is
+ * identity (layer 0, opacity 1, identity transform), so the batches it drives
+ * are byte-identical to the historical DFS order. The fields exist so
+ * z-index/transform/opacity lanes can change one value without re-plumbing the
+ * builders:
+ *   - clip: the node's screen-space scissor from compute_clips(). Transform is
+ *     applied to geometry only; a transformed node stays clipped by its
+ *     axis-aligned parent clip until the clipping lane lands.
+ *   - layer: stable paint key. Sorting by layer is a no-op while all are 0.
+ *   - opacity: multiplies solid and glyph alpha. Image vertices carry no
+ *     per-vertex alpha (wn_image_vertex is x,y,u,v), so image opacity is
+ *     pending that format/feature lane.
+ *   - transform: applied to solid/shadow/glyph/image vertex positions in pixel
+ *     space before the clip-space projection.
+ * Synthetic passes (input decorations, scrollbars) are not nodes and stay
+ * post-passes in paint.c; they borrow the owning item's clip and attrs. */
+typedef struct {
+    int node;
+    wn_rect clip;
+    int layer;
+    float opacity;
+    wn_transform transform;
+} WnPaintItem;
+
 /* ui-tree/3 text input. Only the spec lives in the document; the text is
  * shaped and rasterized by the runtime like any other string. */
 typedef struct {
@@ -157,8 +192,14 @@ struct wn_core {
     int input_drag;
     double caret_blink_ms;
 
-    int *paint_order;
-    int paint_count;
+    /* Ordered paint list: visible nodes with a non-empty clip, DFS order, then
+     * a stable sort by layer. Capacity tracks node_capacity. */
+    WnPaintItem *paint_items;
+    int paint_item_count;
+    int paint_item_capacity;
+    /* Geometry helper context: the item whose transform/opacity the push_*
+     * helpers apply. NULL means identity/opaque (also the post-build reset). */
+    const WnPaintItem *paint_item;
 
     int dirty;
     int needs_layout;
@@ -182,6 +223,20 @@ void wn_core_set_caret_epoch(wn_core *core, double ms);
 int build_input_state(wn_core *c);
 void build_input_text_geometry(wn_core *c, float viewport_w, float viewport_h);
 void build_input_decorations(wn_core *c);
+
+/* Paint list maintenance (layout.c). The item build walks the same visible
+ * subtrees as the old DFS order and skips empty clips. The sort is a stable
+ * merge sort; it returns the number of element copies (0 when all layers are
+ * equal, the production fast path) so tests can assert the no-copy path. */
+int wn_core_sort_paint_items(wn_core *c);
+/* Culling helper: transformed node AABB vs the viewport plus a non-empty clip.
+ * Computed and tested, never applied by the item build: a box outside the
+ * viewport can still cast a box-shadow into it, so dropping the item is not
+ * pixel-safe until shadows join the visibility test. */
+int wn_paint_item_visible(const wn_core *c, const WnPaintItem *item);
+/* Publishes the item whose transform/opacity the push_* helpers apply. NULL
+ * restores the identity/opaque fast path. */
+void wn_paint_use_item(wn_core *c, const WnPaintItem *item);
 
 void push_quad(wn_core *c, float x, float y, float w, float h,
                float vw, float vh, unsigned int argb);
