@@ -263,9 +263,10 @@ private static partial nint wn_node_get_value(nint app, ulong node);
 
 ## Limitaciones de v6 (importante)
 
-- `wn_app_load` / `wn_view_load` **copian** HTML/CSS, pero el runtime renderiza
-  el árbol compilado `ui_data.h`. **No hay parser HTML/CSS en runtime**; cambiar
-  la página requiere recompilar el árbol o cargar otro `.wnui`.
+- `wn_app_load` / `wn_view_load` **copian** HTML/CSS por compatibilidad de
+  host, pero el runtime renderiza el documento `.wnui` compilado. **No hay
+  parser HTML/CSS en runtime**; cambiar la página requiere recompilar el blob
+  (`frontend-rust --emit-blob`) o cargar otro `.wnui`.
 - `set_text` acepta cualquier UTF-8: el runtime shapea y rasteriza el texto. El
   documento solo lleva cadena, familia, tamaño, peso y `line-height`.
 - `set_image` conserva el tamaño intrínseco compilado hasta que el host llame

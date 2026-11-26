@@ -9,10 +9,10 @@
 ├──────────────────────────────────────────────────────────────┤
 │ 2. Documento (contrato runtime)                              │
 │    app.wnui (blob v2) · builtin embebido                     │
-│    ui.json / ui_data.h: solo oráculo/tests (en retirada)     │
+│    wnui-dump: proyección de debug, no contrato                │
 ├──────────────────────────────────────────────────────────────┤
 │ 3. Serializadores (build time)                               │
-│    frontend Rust (--emit-blob) · emit_ui.py (oráculo)        │
+│    frontend Rust (--emit-blob) · emit_ui.py (solo CSS)       │
 ├──────────────────────────────────────────────────────────────┤
 │ 4. Core C                                                    │
 │    tree · styles · layout · state · hit test · display list  │
@@ -49,7 +49,7 @@
 | App ↔ engine | `include/webnative.h` | engine | host (C/C++/Rust/C#/Python) |
 | Engine ↔ GPU | vtable `wn_renderer` | core | D3D11 o wgpu |
 | Engine ↔ OS | vtable `wn_host` | core | Win32 host |
-| *Transición* | `ui.json` + `ui_data.h` | frontend + `emit_ui.py` | oráculo y tests de CSS |
+| Debug del blob | texto / JSON de `wnui-dump` | `wnui-dump` | operadores; **no es contrato** |
 
 ## Flujo
 
@@ -88,11 +88,14 @@ secciones de nodos, nombres, strings e inputs. No hay glifos, runs, atlas ni
 piscina ASCII: el texto de los inputs también lo shapea el runtime. Los nodos
 son enteros y floats con offsets al pool de strings (0 = NULL).
 
+`wnui-dump` carga el blob con ese mismo loader y lo imprime para debug; su
+formato no es un contrato (ver `docs/wnui-format.md`).
+
 `wn_document_load_blob` mapea el archivo en solo lectura (Windows:
 `CreateFileMapping`/`MapViewOfFile`; resto: `malloc`) y devuelve el documento
 hasta la última referencia. `wn_app_load_document` lo carga en una app viva,
 conserva el renderer y devuelve `WN_ERR_IO` con blob inválido. La página
-canónica pesa 17.557 bytes como header y 7.512 bytes como blob.
+canónica pesa 7.480 bytes como blob.
 
 `renderer` es la vtable `wn_renderer`. En Windows el backend por defecto es
 **D3D11 hardware** (`renderer_d3d11.c`) con fallback a **wgpu-native**; en otras
@@ -112,8 +115,8 @@ emite `display_list.json`. Solo queda el nombre en el histórico.
 src/
   frontend/            canónico en Rust (Cargo.toml, src/, tests/)
   runtime/             motor (core/, document/, text/) + ABI + renderers
-  ir/                  schema + validador
-  emitter/python/      emit_ui
+  ir/                  histórico del IR retirado (no producción)
+  emitter/python/      emit_ui (solo fixtures CSS; retirada fase 2b)
 tools/
   cli.py + wn_cli/     wn-cli (build/run/test/bench/setup)
 include/webnative.h    ABI C v6 (v3 dinámica + v4 input + v5 nodos + v6 estado)
@@ -122,14 +125,14 @@ archive/experiments/   histórico inmutable
 archive/frontends-legacy/  frontends C++/C#/Python congelados (test-only)
 archive/ps1-legacy/    orquestadores PowerShell archivados
 archive/r1-static/     R1 horneado (archivado)
-docs/                  spec, arquitectura, ABI, métricas, subset, roadmap
+docs/                 arquitectura, blob, ABI, métricas, subset, roadmap
 third_party/wgpu-native/
 ```
 
 ## Reglas de diseño
 
 1. El **core no conoce** el modo (standalone/embedded) ni el backend GPU.
-2. El **IR/UI tree no contiene** conceptos de GPU.
+2. El **árbol de estilos no contiene** conceptos de GPU.
 3. La **ABI no expone** wgpu ni Win32 (solo un handle opaco).
 4. Los **emitters son backends**: C hoy; binario/Rust después.
 5. Los **frontends alternativos no son producción**: viven en benchmarks.

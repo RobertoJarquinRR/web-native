@@ -58,7 +58,7 @@ def cmd_root_build(args: argparse.Namespace) -> int:
     frontend.cmd_build(argparse.Namespace(debug=is_debug))
 
     if args.emit or not (paths.generated / "builtin_blob.h").is_file():
-        log_step("master 2/3: emitting UI data header and builtin blob")
+        log_step("master 2/3: emitting the canonical blob")
         runtime.cmd_emit(
             argparse.Namespace(
                 pilot=args.pilot,

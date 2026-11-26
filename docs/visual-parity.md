@@ -32,7 +32,7 @@ fixture/index.html + style.css + mask.json
         │     --disable-gpu --force-device-scale-factor=1
         │     --force-color-profile=srgb --hide-scrollbars --disable-lcd-text
         │
-        └─► frontend Rust ─► IR / ui.json ─► runtime (R1/R2) ─► PNG nativo
+        └─► frontend Rust ─► .wnui ─► runtime (R2) ─► PNG nativo
                                                       │
         referencia ◄──────── compare.py ─────────────►│
                     SSIM + pixel diff + máscaras

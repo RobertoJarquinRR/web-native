@@ -47,8 +47,6 @@ def cmd_emit(args: argparse.Namespace) -> int:
 
     if not fixture_html.is_file():
         raise CliError(f"html input not found: {fixture_html}")
-    if not paths.emitter.is_file():
-        raise CliError(f"emitter script not found: {paths.emitter}")
 
     if not args.skip_rust:
         log_step("building frontend-rust (release)")
@@ -64,13 +62,10 @@ def cmd_emit(args: argparse.Namespace) -> int:
     height = args.height or (800 if args.pilot else 640)
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    ui_json = out_dir / "ui.json"
-    ui_header = out_dir / "ui_data.h"
-    ui_meta = out_dir / "ui_meta.json"
     blob_path = out_dir / "builtin.wnui"
     embed_header = out_dir / "builtin_blob.h"
 
-    log_step("emitting ui tree with frontend-rust")
+    log_step("emitting the canonical blob with frontend-rust")
     rust_cmd: list[str | Path] = [
         rust_exe,
         "--html",
@@ -79,8 +74,6 @@ def cmd_emit(args: argparse.Namespace) -> int:
         str(width),
         "--height",
         str(height),
-        "--emit-ui",
-        ui_json,
         "--emit-blob",
         blob_path,
     ]
@@ -92,22 +85,6 @@ def cmd_emit(args: argparse.Namespace) -> int:
 
     if not blob_path.is_file():
         raise CliError(f"frontend-rust did not write {blob_path}")
-
-    log_step("generating C header with emit_ui.py")
-    run_cmd(
-        [
-            get_python_exe(),
-            paths.emitter,
-            "--ui-json",
-            ui_json,
-            "--out",
-            ui_header,
-            "--meta",
-            ui_meta,
-        ],
-        cwd=paths.root,
-    )
-    log_info(f"generated {ui_header}")
 
     log_step("embedding the canonical blob for the builtin document")
     embed_script = Path(__file__).resolve().parents[1] / "embed_blob.py"
@@ -263,10 +240,10 @@ def cmd_verify(args: argparse.Namespace) -> int:
 
 
 def register_subcommands(subparsers: argparse._SubParsersAction) -> None:
-    p_runtime = subparsers.add_parser("runtime", help="Emit UI, build C runtime, and run verification")
+    p_runtime = subparsers.add_parser("runtime", help="Emit the blob, build C runtime, and run verification")
     rt_sub = p_runtime.add_subparsers(dest="runtime_cmd", required=True)
 
-    p_emit = rt_sub.add_parser("emit", help="Compile UI into generated/ui_data.h")
+    p_emit = rt_sub.add_parser("emit", help="Emit the canonical blob into generated/builtin.wnui")
     p_emit.add_argument("--pilot", action="store_true", help="Emit canonical pilot-media-library page")
     p_emit.add_argument("--html", type=str, default=None, help="Custom HTML entry file")
     p_emit.add_argument("--css", type=str, default=None, help="Custom CSS stylesheet")
@@ -279,7 +256,7 @@ def register_subcommands(subparsers: argparse._SubParsersAction) -> None:
     p_build = rt_sub.add_parser("build", help="Configure and build C runtime via CMake/Ninja")
     p_build.add_argument("--config", choices=["Release", "Debug"], default="Release")
     p_build.add_argument("--clean", action="store_true", help="Remove build directory before configuring")
-    p_build.add_argument("--generated-dir", type=str, default=None, help="Directory containing ui_data.h")
+    p_build.add_argument("--generated-dir", type=str, default=None, help="Directory containing builtin_blob.h (from runtime emit)")
     p_build.add_argument("--no-wgpu", action="store_true",
                          help="Configure with -DWN_WGPU=OFF (D3D11 only, no wgpu-native link)")
     p_build.set_defaults(func=cmd_build)

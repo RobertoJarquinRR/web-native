@@ -2,8 +2,8 @@
 """Embed a .wnui document as a C byte array.
 
 The runtime's builtin page is parsed from an embedded blob (see
-`wn_document_builtin`), so a build only needs this generated header next to the
-usual ui_data.h. No linker step or extra dependency.
+`wn_document_builtin`), so a build only needs this generated header. No linker
+step, no ui_data table and no extra dependency.
 
 Usage:
   python tools/wn_cli/embed_blob.py --blob builtin.wnui --header builtin_blob.h

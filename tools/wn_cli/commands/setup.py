@@ -158,7 +158,8 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
         has_errors = True
 
     checks = [
-        ("generated/ui_data.h", (paths.generated / "ui_data.h").is_file()),
+        ("generated/builtin.wnui", (paths.generated / "builtin.wnui").is_file()),
+        ("generated/builtin_blob.h", (paths.generated / "builtin_blob.h").is_file()),
         ("build_release/build.ninja", (paths.runtime_build_release / "build.ninja").is_file()),
         ("build_debug/build.ninja", (paths.runtime_build_debug / "build.ninja").is_file()),
     ]

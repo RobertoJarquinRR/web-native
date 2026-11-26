@@ -139,6 +139,18 @@ add_executable(abi_header_check_cpp
     examples/abi_header_check.cpp
 )
 
+add_executable(wnui-dump
+    tools/wn_dump.c
+)
+
+target_include_directories(wnui-dump PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${WN_REPO_ROOT}/include"
+    "${WN_GENERATED_DIR}"
+)
+
+target_compile_definitions(wnui-dump PRIVATE WN_STATIC)
+
 target_include_directories(abi_header_check_cpp PRIVATE "${WN_REPO_ROOT}/include")
 
 target_compile_definitions(abi_header_check_cpp PRIVATE WN_STATIC)
@@ -164,8 +176,13 @@ target_link_libraries(embedded PRIVATE
     ${WN_LINK_LIBS}
 )
 
+target_link_libraries(wnui-dump PRIVATE
+    wn_runtime_obj
+    ${WN_LINK_LIBS}
+)
+
 if(MSVC)
-    foreach(target_name IN ITEMS runtime_r2 abi_smoke standalone embedded)
+    foreach(target_name IN ITEMS runtime_r2 abi_smoke standalone embedded wnui-dump)
         target_compile_options(${target_name} PRIVATE /W3)
     endforeach()
 endif()
@@ -173,6 +190,7 @@ endif()
 if(MSVC)
     target_compile_options(abi_header_check_c PRIVATE /W4)
     target_compile_options(abi_header_check_cpp PRIVATE /W4)
+    target_compile_options(wnui-dump PRIVATE /W4 /WX)
 endif()
 
 
@@ -184,7 +202,7 @@ if(WN_WGPU)
         COMMENT "copying wgpu_native.dll to build directory"
     )
 
-    foreach(target_name IN ITEMS runtime_r2 abi_smoke standalone embedded webnative)
+    foreach(target_name IN ITEMS runtime_r2 abi_smoke standalone embedded webnative wnui-dump)
         add_dependencies(${target_name} copy_wgpu_dll)
     endforeach()
 else()
@@ -195,7 +213,7 @@ else()
         COMMENT "removing wgpu_native.dll (WN_WGPU=OFF)"
     )
 
-    foreach(target_name IN ITEMS runtime_r2 abi_smoke standalone embedded webnative)
+    foreach(target_name IN ITEMS runtime_r2 abi_smoke standalone embedded webnative wnui-dump)
         add_dependencies(${target_name} remove_wgpu_dll)
     endforeach()
 endif()
@@ -204,3 +222,4 @@ enable_testing()
 add_test(NAME abi_header_check_c COMMAND abi_header_check_c)
 add_test(NAME abi_header_check_cpp COMMAND abi_header_check_cpp)
 add_test(NAME abi_smoke COMMAND abi_smoke)
+add_test(NAME wnui_dump_help COMMAND wnui-dump --help)

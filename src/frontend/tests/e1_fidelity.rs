@@ -1,17 +1,14 @@
 //! E1 fidelity tests: `font-weight` real variants, `text-align`,
-//! `line-height` and `margin: auto` in the pre-layout tree.
+//! `line-height`, `margin: auto` and flex growth in the pre-layout tree.
 //!
-//! They run the real `frontend-rust --emit-ui` binary on temporary fixtures and
-//! read the emitted `ui.json`; the C runtime invariants live in
-//! `src/runtime/c-r2/tests/fidelity`.
+//! These tests use the library pipeline (`frontend_rust::build_tree`) and
+//! inspect the in-memory [`Tree`]: no process spawn, no JSON. The C runtime
+//! invariants live in the runtime test suites.
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
 
-fn exe() -> &'static str {
-    env!("CARGO_BIN_EXE_frontend-rust")
-}
+use frontend_rust::{build_tree, check_document_pilot, NodeOut, Tree};
 
 fn temp_dir(name: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
@@ -20,83 +17,16 @@ fn temp_dir(name: &str) -> PathBuf {
     dir
 }
 
-fn run(dir: &Path, html: &str, extra: &[&str]) -> Output {
-    let mut command = Command::new(exe());
-    command
-        .arg("--html")
-        .arg(dir.join(html))
-        .arg("--width")
-        .arg("480")
-        .arg("--height")
-        .arg("320");
-    for arg in extra {
-        command.arg(arg);
-    }
-    command.current_dir(dir).output().unwrap()
+fn build(dir: &Path, html: &str) -> Tree {
+    fs::write(dir.join("page.html"), html).unwrap();
+    build_tree(html, dir, (480, 320)).unwrap_or_else(|err| panic!("pipeline failed: {err}"))
 }
 
-fn stderr(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stderr).to_string()
-}
-
-fn emit_ui(dir: &Path, html: &str, out: &str, extra: &[&str]) -> String {
-    let mut args = vec!["--emit-ui", out];
-    args.extend_from_slice(extra);
-    let output = run(dir, html, &args);
-    assert!(
-        output.status.success(),
-        "emit-ui failed: exit {:?}\n{}",
-        output.status.code(),
-        stderr(&output)
-    );
-    fs::read_to_string(dir.join(out)).unwrap()
-}
-
-/// Numeric CSS field of the node whose `"name"` matches exactly.
-fn field_number(json: &str, node_name: &str, key: &str) -> f64 {
-    let marker = format!("\"name\": \"{node_name}\"");
-    let start = json
-        .find(&marker)
-        .unwrap_or_else(|| panic!("node not found: {node_name}"));
-    let rest = &json[start..];
-    let key_marker = format!("\"{key}\": ");
-    let key_at = rest
-        .find(&key_marker)
-        .unwrap_or_else(|| panic!("{key} not found for {node_name}"));
-    let value = &rest[key_at + key_marker.len()..];
-    let end = value
-        .find(|c: char| c == ',' || c == '\n' || c == '}')
-        .unwrap_or(value.len());
-    value[..end].trim().parse::<f64>().unwrap()
-}
-
-fn field_string<'a>(json: &'a str, node_name: &str, key: &str) -> &'a str {
-    let marker = format!("\"name\": \"{node_name}\"");
-    let start = json
-        .find(&marker)
-        .unwrap_or_else(|| panic!("node not found: {node_name}"));
-    let rest = &json[start..];
-    let key_marker = format!("\"{key}\": \"");
-    let key_at = rest
-        .find(&key_marker)
-        .unwrap_or_else(|| panic!("{key} not found for {node_name}"));
-    let value = &rest[key_at + key_marker.len()..];
-    &value[..value.find('"').unwrap()]
-}
-
-fn field_raw<'a>(json: &'a str, node_name: &str, key: &str) -> &'a str {
-    let marker = format!("\"name\": \"{node_name}\"");
-    let start = json
-        .find(&marker)
-        .unwrap_or_else(|| panic!("node not found: {node_name}"));
-    let rest = &json[start..];
-    let key_marker = format!("\"{key}\": ");
-    let key_at = rest
-        .find(&key_marker)
-        .unwrap_or_else(|| panic!("{key} not found for {node_name}"));
-    let slice = &rest[key_at + key_marker.len()..];
-    let end = slice.find(']').map(|index| index + 1).unwrap_or(slice.len());
-    &slice[..end]
+fn node<'a>(tree: &'a Tree, name: &str) -> &'a NodeOut {
+    tree.nodes
+        .iter()
+        .find(|node| node.name == name)
+        .unwrap_or_else(|| panic!("node not found: {name}"))
 }
 
 const BOLD_PAGE: &str = r##"<!doctype html>
@@ -114,26 +44,18 @@ const BOLD_PAGE: &str = r##"<!doctype html>
 #[test]
 fn font_weight_700_is_recorded_and_text_is_not_baked() {
     let dir = temp_dir("e1-bold");
-    fs::write(dir.join("page.html"), BOLD_PAGE).unwrap();
-    let json = emit_ui(&dir, "page.html", "ui.json", &[]);
+    let tree = build(&dir, BOLD_PAGE);
 
-    // The page uses no v2 feature: it stays /1 (no extra fields).
-    assert!(json.contains("\"schema\": \"webnative.ui-tree/1\""), "{json}");
-    assert_eq!(
-        field_string(&json, "body.root/div#regular.row/text", "font_weight"),
-        "400"
-    );
-    assert_eq!(
-        field_string(&json, "body.root/div#bold.row/text[1]", "font_weight"),
-        "700"
-    );
+    let regular = node(&tree, "body.root/div#regular.row/text");
+    let bold = node(&tree, "body.root/div#bold.row/text[1]");
+    assert_eq!(regular.style.font_weight, "400");
+    assert_eq!(bold.style.font_weight, "700");
     // The runtime measures and shapes: the document carries no box or glyphs.
-    assert_eq!(
-        field_number(&json, "body.root/div#bold.row/text[1]", "width_px"),
-        0.0
-    );
-    assert!(!json.contains("\"glyphs\""), "no glyphs are baked: {json}");
-    assert!(!json.contains("\"baseline\""), "no baseline is baked: {json}");
+    assert_eq!(bold.style.width_px, 0.0);
+    assert_eq!(bold.style.font_size, 18.0);
+    assert_eq!(bold.text.as_ref().map(|text| text.content.as_str()), Some("Media Bold"));
+    // A page without v2 features keeps the compact blob section.
+    assert!(!tree.detailed);
 }
 
 const ALIGN_PAGE: &str = r##"<!doctype html>
@@ -153,40 +75,41 @@ const ALIGN_PAGE: &str = r##"<!doctype html>
 #[test]
 fn text_align_is_cascaded_to_the_text_run() {
     let dir = temp_dir("e1-align");
-    fs::write(dir.join("page.html"), ALIGN_PAGE).unwrap();
-    let json = emit_ui(&dir, "page.html", "ui.json", &[]);
+    let tree = build(&dir, ALIGN_PAGE);
 
+    assert_eq!(node(&tree, "body.root/div#left.row").style.text_align, "left");
     assert_eq!(
-        field_string(&json, "body.root/div#left.row", "text_align"),
-        "left"
-    );
-    assert_eq!(
-        field_string(&json, "body.root/div#center.row", "text_align"),
+        node(&tree, "body.root/div#center.row").style.text_align,
         "center"
     );
     assert_eq!(
-        field_string(&json, "body.root/div#right.row/text[2]", "text_align"),
+        node(&tree, "body.root/div#right.row/text[2]").style.text_align,
         "right"
     );
     // The text node inherits the element's alignment.
     assert_eq!(
-        field_string(&json, "body.root/div#center.row/text[1]", "text_align"),
+        node(&tree, "body.root/div#center.row/text[1]").style.text_align,
         "center"
     );
 }
 
 #[test]
-fn text_align_does_not_add_fields_to_unrelated_pages() {
-    let dir = temp_dir("e1-align-off");
+fn pages_without_e1_features_keep_neutral_defaults() {
+    let dir = temp_dir("e1-defaults");
     let html = r##"<!doctype html><html><head><style>
       body { display: block; }
       .row { display: block; font-size: 16px; }
     </style></head><body><div id="a" class="row">Plain</div></body></html>"##;
-    fs::write(dir.join("page.html"), html).unwrap();
-    let json = emit_ui(&dir, "page.html", "ui.json", &[]);
-    assert!(!json.contains("\"text_align\""), "no text_align fields");
-    assert!(!json.contains("\"line_height\""), "no line_height fields");
-    assert!(!json.contains("\"margin_auto\""), "no margin_auto fields");
+    let tree = build(&dir, html);
+
+    let plain = node(&tree, "body.root/div#a.row");
+    assert_eq!(plain.style.text_align, "left");
+    assert_eq!(plain.style.line_height, 0.0);
+    assert_eq!(plain.style.margin_auto, [false; 4]);
+    assert!(!plain.style.box_sizing_border);
+    assert_eq!(plain.style.flex_grow, 0.0);
+    assert_eq!(plain.style.flex_shrink, 1.0);
+    assert_eq!(plain.style.flex_basis, -1.0);
 }
 
 const LINE_HEIGHT_PAGE: &str = r##"<!doctype html>
@@ -204,19 +127,16 @@ const LINE_HEIGHT_PAGE: &str = r##"<!doctype html>
 #[test]
 fn line_height_sets_the_text_box() {
     let dir = temp_dir("e1-line-height");
-    fs::write(dir.join("page.html"), LINE_HEIGHT_PAGE).unwrap();
-    let json = emit_ui(&dir, "page.html", "ui.json", &[]);
+    let tree = build(&dir, LINE_HEIGHT_PAGE);
 
-    let normal = field_number(&json, "body.root/div#normal.row/text", "height_px");
-    let tall = field_number(&json, "body.root/div#tall.row/text[1]", "height_px");
-    assert_eq!(normal, 0.0, "auto box is measured at runtime");
-    assert_eq!(tall, 40.0, "declared line-height travels in the document");
+    let normal = node(&tree, "body.root/div#normal.row/text");
+    let tall = node(&tree, "body.root/div#tall.row/text[1]");
+    assert_eq!(normal.style.height_px, 0.0, "auto box is measured at runtime");
     assert_eq!(
-        field_number(&json, "body.root/div#tall.row/text[1]", "line_height"),
-        40.0
+        tall.style.height_px, 40.0,
+        "declared line-height travels in the document"
     );
-    // `baseline` is not baked: it lives in the runtime that shapes the text.
-    assert!(!json.contains("\"baseline\""), "baseline is not baked: {json}");
+    assert_eq!(tall.style.line_height, 40.0);
 }
 
 const AUTO_PAGE: &str = r##"<!doctype html>
@@ -235,25 +155,22 @@ const AUTO_PAGE: &str = r##"<!doctype html>
 "##;
 
 #[test]
-fn margin_auto_is_parsed_and_emitted_per_side() {
+fn margin_auto_is_parsed_per_side() {
     let dir = temp_dir("e1-margin-auto");
-    fs::write(dir.join("page.html"), AUTO_PAGE).unwrap();
-    let json = emit_ui(&dir, "page.html", "ui.json", &[]);
+    let tree = build(&dir, AUTO_PAGE);
 
     assert_eq!(
-        field_raw(&json, "body.root/div#pin.pin/div#foot.foot", "margin_auto"),
-        "[1, 0, 0, 0]".to_string()
+        node(&tree, "body.root/div#pin.pin/div#foot.foot").style.margin_auto,
+        [true, false, false, false]
     );
     assert_eq!(
-        field_raw(&json, "body.root/div#box.box/div#mid.mid", "margin_auto"),
-        "[0, 1, 0, 1]".to_string()
+        node(&tree, "body.root/div#box.box/div#mid.mid").style.margin_auto,
+        [false, true, false, true]
     );
-    // `margin: 0 auto` and `margin-top: auto` are no longer subset-v1 errors:
-    // the page still emits under --strict-subset.
-    let strict = run(&dir, "page.html", &["--emit-ui", "ui.json", "--strict-subset"]);
-    assert!(
-        strict.status.success(),
-        "--strict-subset rejected margin:auto:\n{}",
-        stderr(&strict)
-    );
+    // The flex container keeps its declared direction.
+    assert_eq!(node(&tree, "body.root/div#pin.pin").style.direction, 1);
+    // `margin: 0 auto` and `margin-top: auto` are no longer subset-v1 errors.
+    let html_path = dir.join("page.html");
+    let diagnostics = check_document_pilot(AUTO_PAGE, &html_path, &dir, false);
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
 }

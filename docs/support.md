@@ -22,9 +22,9 @@ Leyenda:
 | Contrato                | Versión                    | Estado                   |
 | ----------------------- | -------------------------- | ------------------------ |
 | Display list R1         | `webnative.display-list/1` | archivado, ya no se emite |
-| UI tree base            | `webnative.ui-tree/1`      | ✅                       |
-| Grid, scroll e imágenes | `webnative.ui-tree/2`      | ✅ pilot                 |
-| Text input              | `webnative.ui-tree/3`      | ✅ pilot                 |
+| Documento `.wnui`       | blob v2                    | ✅                       |
+| Grid, scroll e imágenes | campos v2 del blob         | ✅ pilot                 |
+| Text input              | sección `inputs` del blob  | ✅ pilot                 |
 | ABI C                   | `WN_ABI_VERSION 6`         | ✅ standalone + embedded |
 
 ## HTML
@@ -159,10 +159,10 @@ actualizan o se quedan fuera del subset actual. Snapshot de resultados en
 
 ```powershell
 # Diagnóstico estricto: falla ante cualquier feature fuera del subset
-frontend-rust --html page.html --css style.css --width 1280 --height 800 --emit-ui ui.json --strict-subset
+frontend-rust --html page.html --css style.css --width 1280 --height 800 --emit-blob app.wnui --strict-subset
 
 # Extensiones del piloto
-frontend-rust --html page.html --width 1280 --height 800 --emit-ui ui.json --pilot
+frontend-rust --html page.html --width 1280 --height 800 --emit-blob app.wnui --pilot
 
 # Build + aceptación completa (ABI, CTest, layout, píxeles y estados)
 python tools\cli.py test all
@@ -172,6 +172,10 @@ python tools\cli.py bench pilot
 
 # Blob: layout y píxeles contra el documento builtin
 python tools\cli.py test suite blob
+
+# Vista de debug del blob (texto o --json); no es un contrato
+src\runtime\build\release\wnui-dump.exe app.wnui
+python tools\cli.py test suite dump
 ```
 
 `--strict-subset` es literal: `<meta>`, `<title>` y atributos como `lang` no
