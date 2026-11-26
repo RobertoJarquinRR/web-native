@@ -18,15 +18,19 @@
  *   3. A forced translate moves solid, glyph and image vertices by exactly
  *      (dx, dy) in view pixels.
  *   4. Opacity boundaries on solid and glyph: 0/negative drop the vertices,
- *      1 keeps them, >1 clamps, 0.5 rounds to 128. Images are untouched
- *      (documented pending: wn_image_vertex has no alpha).
- *   5. Layers: distinct layers sort stably in O(n log n); an all-equal list
+ *      1 keeps them, >1 clamps, 0.5 rounds to 128. A leaf image carries the
+ *      same factor in its per-vertex alpha (no geometry when 0).
+ *   5. Layers: a group container (opacity < 1 with children) starts a layer
+ *      before its own item; its subtree shares that layer and the command list
+ *      replays the nesting. Nested groups get parented layers. A leaf with
+ *      opacity stays on the direct-alpha path.
+ *   6. Layers: distinct layers sort stably in O(n log n); an all-equal list
  *      takes the no-copy fast path and keeps the exact DFS order.
- *   6. The culling helper decides correctly, and a real .wnui fixture locks the
+ *   7. The culling helper decides correctly, and a real .wnui fixture locks the
  *      build decision: a child fully below the viewport but casting a shadow
  *      into it is still built, so enabling culling by the helper would lose
  *      the shadow. Culling is computed, never applied.
- *   7. Visibility rebuilds the item list.
+ *   8. Visibility rebuilds the item list.
  *
  *   paint_list_test.exe
  */
@@ -145,6 +149,9 @@ static wn_core *make_core(void)
     g_nodes[4].font_size = FAKE_SIZE;
     g_nodes[4].flex_shrink = 1.0f;
     g_nodes[4].flex_basis = -1.0f;
+    for (int index = 0; index < ITEM_COUNT; ++index) {
+        g_nodes[index].opacity = 1.0f;
+    }
 
     g_doc.nodes = g_nodes;
     g_doc.node_count = ITEM_COUNT;
@@ -153,6 +160,94 @@ static wn_core *make_core(void)
     g_doc.viewport_height = (int)VIEW_H;
     g_doc.refs = WN_DOCUMENT_STATIC_REFS;
     return wn_core_create(&g_doc);
+}
+
+/* ---------------------------------------------- group layers (paint model) */
+
+#define GROUP_NODES 8
+static wn_document g_group_doc;
+static UiNode g_group_nodes[GROUP_NODES];
+static const char *const g_group_names[GROUP_NODES] = {
+    "body.root", "body.root/div.group", "body.root/div.group/div.a",
+    "body.root/div.group/div.b", "body.root/div.leaf",
+    "body.root/div.outer", "body.root/div.outer/div.inner",
+    "body.root/div.outer/div.inner/div.fill"
+};
+
+static wn_core *make_group_core(void)
+{
+    int i;
+    memset(g_group_nodes, 0, sizeof(g_group_nodes));
+    memset(&g_group_doc, 0, sizeof(g_group_doc));
+
+    g_group_nodes[0].parent = -1;
+    g_group_nodes[0].kind = R2_NODE_BLOCK;
+    g_group_nodes[0].width = VIEW_W;
+    g_group_nodes[0].height = VIEW_H;
+
+    /* Container: 0.5 group with two overlapping children. */
+    g_group_nodes[1].parent = 0;
+    g_group_nodes[1].kind = R2_NODE_BLOCK;
+    g_group_nodes[1].width = 100.0f;
+    g_group_nodes[1].height = 100.0f;
+    g_group_nodes[1].opacity = 0.5f;
+    g_group_nodes[1].background = COLOR_A;
+
+    g_group_nodes[2].parent = 1;
+    g_group_nodes[2].kind = R2_NODE_BLOCK;
+    g_group_nodes[2].width = 40.0f;
+    g_group_nodes[2].height = 30.0f;
+    g_group_nodes[2].background = COLOR_B;
+
+    g_group_nodes[3].parent = 1;
+    g_group_nodes[3].kind = R2_NODE_BLOCK;
+    g_group_nodes[3].width = 40.0f;
+    g_group_nodes[3].height = 30.0f;
+    g_group_nodes[3].background = COLOR_TEXT;
+
+    /* Leaf: direct alpha, no layer. */
+    g_group_nodes[4].parent = 0;
+    g_group_nodes[4].kind = R2_NODE_BLOCK;
+    g_group_nodes[4].width = 10.0f;
+    g_group_nodes[4].height = 10.0f;
+    g_group_nodes[4].opacity = 0.5f;
+    g_group_nodes[4].background = COLOR_A;
+
+    /* Nested groups: outer 0.5 -> inner 0.5 -> fill. */
+    g_group_nodes[5].parent = 0;
+    g_group_nodes[5].kind = R2_NODE_BLOCK;
+    g_group_nodes[5].width = 50.0f;
+    g_group_nodes[5].height = 50.0f;
+    g_group_nodes[5].opacity = 0.5f;
+
+    g_group_nodes[6].parent = 5;
+    g_group_nodes[6].kind = R2_NODE_BLOCK;
+    g_group_nodes[6].width = 40.0f;
+    g_group_nodes[6].height = 40.0f;
+    g_group_nodes[6].opacity = 0.5f;
+
+    g_group_nodes[7].parent = 6;
+    g_group_nodes[7].kind = R2_NODE_BLOCK;
+    g_group_nodes[7].width = 10.0f;
+    g_group_nodes[7].height = 10.0f;
+    g_group_nodes[7].background = COLOR_B;
+
+    for (i = 0; i < GROUP_NODES; ++i) {
+        g_group_nodes[i].font_size = FAKE_SIZE;
+        g_group_nodes[i].flex_shrink = 1.0f;
+        g_group_nodes[i].flex_basis = -1.0f;
+        if (g_group_nodes[i].opacity == 0.0f) {
+            g_group_nodes[i].opacity = 1.0f;
+        }
+    }
+
+    g_group_doc.nodes = g_group_nodes;
+    g_group_doc.node_count = GROUP_NODES;
+    g_group_doc.names = g_group_names;
+    g_group_doc.viewport_width = (int)VIEW_W;
+    g_group_doc.viewport_height = (int)VIEW_H;
+    g_group_doc.refs = WN_DOCUMENT_STATIC_REFS;
+    return wn_core_create(&g_group_doc);
 }
 
 /* ------------------------------------------- culling fixture (.wnui blob)
@@ -239,6 +334,9 @@ static unsigned char *build_cull_blob(size_t *out_size)
     nodes[1].font_size = FAKE_SIZE;
     nodes[1].flex_shrink = 1.0f;
     nodes[1].flex_basis = -1.0f;
+
+    nodes[0].opacity = 1.0f;
+    nodes[1].opacity = 1.0f;
 
     name_offsets = (uint32_t *)(data + names_offset);
     name_offsets[0] = 0u;
@@ -490,11 +588,105 @@ int main(void)
         int index = item_index_for_node(core, 4);
         core->paint_items[index].opacity = 0.5f;
         wn_core_build_display_list(core);
-        check("image opacity is pending (vertices untouched)",
+        check("leaf image opacity lands in the vertex alpha",
               list->image_vertex_count == IMAGE_VERTS &&
-                  memcmp(list->image_vertices, identity.images,
-                         (size_t)IMAGE_VERTS * sizeof(wn_image_vertex)) == 0);
+                  list->image_vertices[0].a == 0.5f &&
+                  list->image_vertices[5].a == 0.5f &&
+                  list->image_vertices[0].x == identity.images[0].x &&
+                  list->image_vertices[0].y == identity.images[0].y);
         reset_items(core);
+        core->paint_items[item_index_for_node(core, 4)].opacity = 0.0f;
+        wn_core_build_display_list(core);
+        check("leaf image opacity 0 drops the image geometry",
+              list->image_vertex_count == 0 && list->image_batch_count == 0);
+        reset_items(core);
+    }
+
+    /* ------------------------------------------------- group layers (opacity) */
+    {
+        wn_core *group = make_group_core();
+        const wn_display_list *glist;
+        static const struct {
+            int kind;
+            int layer;
+        } expected[] = {
+            { WN_PAINT_CMD_DRAW, -1 },
+            { WN_PAINT_CMD_BEGIN_LAYER, 1 },
+            { WN_PAINT_CMD_DRAW, -1 },
+            { WN_PAINT_CMD_DRAW, -1 },
+            { WN_PAINT_CMD_DRAW, -1 },
+            { WN_PAINT_CMD_END_LAYER, 1 },
+            { WN_PAINT_CMD_DRAW, -1 },
+            { WN_PAINT_CMD_BEGIN_LAYER, 2 },
+            { WN_PAINT_CMD_DRAW, -1 },
+            { WN_PAINT_CMD_BEGIN_LAYER, 3 },
+            { WN_PAINT_CMD_DRAW, -1 },
+            { WN_PAINT_CMD_DRAW, -1 },
+            { WN_PAINT_CMD_END_LAYER, 3 },
+            { WN_PAINT_CMD_END_LAYER, 2 },
+        };
+        int ok;
+        if (!check("group core is created", group != NULL)) {
+            printf("paint_list_test: FAIL (%d checks, %d failed)\n", checks, failures);
+            return 1;
+        }
+        glist = wn_core_display_list(group);
+        check("one root layer plus one per group container",
+              glist->layer_count == 4 && glist->layers[0].parent == -1 &&
+                  glist->layers[0].opacity == 1.0f);
+
+        ok = group->paint_item_count == GROUP_NODES;
+        ok = ok && group->paint_items[item_index_for_node(group, 1)].layer == 1 &&
+             group->paint_items[item_index_for_node(group, 1)].opacity == 1.0f &&
+             group->paint_items[item_index_for_node(group, 2)].layer == 1 &&
+             group->paint_items[item_index_for_node(group, 2)].opacity == 1.0f &&
+             group->paint_items[item_index_for_node(group, 3)].layer == 1;
+        check("group container keeps its subtree in layer 1", ok);
+
+        ok = group->paint_items[item_index_for_node(group, 4)].layer == 0 &&
+             group->paint_items[item_index_for_node(group, 4)].opacity == 0.5f;
+        check("leaf opacity stays on the direct-alpha path (layer 0)", ok);
+
+        ok = glist->layers[1].node == 1 && glist->layers[1].parent == 0 &&
+             glist->layers[1].opacity == 0.5f &&
+             glist->layers[2].node == 5 && glist->layers[2].parent == 0 &&
+             glist->layers[3].node == 6 && glist->layers[3].parent == 2 &&
+             glist->layers[3].opacity == 0.5f;
+        check("nested groups get parented layers (0.5 inside 0.5)", ok);
+
+        ok = glist->command_count ==
+             (int)(sizeof(expected) / sizeof(expected[0]));
+        for (i = 0; ok && i < glist->command_count; ++i) {
+            ok = glist->commands[i].kind == expected[i].kind;
+            if (expected[i].layer >= 0) {
+                ok = ok && glist->commands[i].layer == expected[i].layer;
+            }
+            if (expected[i].kind == WN_PAINT_CMD_DRAW) {
+                ok = ok && glist->commands[i].item >= 0 &&
+                     glist->commands[i].item < glist->draw_count;
+            }
+        }
+        check("command list replays begin/draw/end nesting in DFS order", ok);
+
+        ok = glist->draws[item_index_for_node(group, 1)].solid.count == 6 &&
+             glist->draws[item_index_for_node(group, 2)].solid.count == 6 &&
+             glist->draws[item_index_for_node(group, 1)].layer == 1;
+        check("draw records carry per-item ranges and their layer", ok);
+
+        /* opacity: 0 group still owns a layer; the composite alpha is 0. */
+        group->nodes[1].opacity = 0.0f;
+        reset_items(group);
+        glist = wn_core_display_list(group);
+        check("group opacity 0 keeps the layer with alpha 0",
+              glist->layer_count == 4 && glist->layers[1].opacity == 0.0f &&
+                  glist->command_count == (int)(sizeof(expected) / sizeof(expected[0])));
+
+        group->nodes[4].opacity = 0.0f;
+        reset_items(group);
+        glist = wn_core_display_list(group);
+        ok = glist->draws[item_index_for_node(group, 4)].solid.count == 0;
+        check("leaf opacity 0 drops its own geometry", ok);
+        wn_core_destroy(group);
     }
 
     /* ------------------------------------------------------ 5. layers */

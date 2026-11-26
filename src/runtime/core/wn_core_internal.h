@@ -47,9 +47,9 @@ typedef struct {
  *     applied to geometry only; a transformed node stays clipped by its
  *     axis-aligned parent clip until the clipping lane lands.
  *   - layer: stable paint key. Sorting by layer is a no-op while all are 0.
- *   - opacity: multiplies solid and glyph alpha. Image vertices carry no
- *     per-vertex alpha (wn_image_vertex is x,y,u,v), so image opacity is
- *     pending that format/feature lane.
+ *   - opacity: leaf opacity (group roots stay 1: their layer carries it).
+ *     Multiplied into solid and glyph alpha and into the image vertex alpha.
+ *   - layer: group layer id from the command list; 0 is the root layer.
  *   - transform: applied to solid/shadow/glyph/image vertex positions in pixel
  *     space before the clip-space projection.
  * Synthetic passes (input decorations, scrollbars) are not nodes and stay
@@ -197,6 +197,18 @@ struct wn_core {
     WnPaintItem *paint_items;
     int paint_item_count;
     int paint_item_capacity;
+    /* Group layers and command list, allocated lazily: a page with no
+     * `opacity < 1` group keeps these NULL and the renderers' historical
+     * single-pass fast path. `paint_draws` is per paint item and only built
+     * when `paint_layer_count > 1`. */
+    wn_paint_layer *paint_layers;
+    int paint_layer_count;
+    int paint_layer_capacity;
+    wn_paint_command *paint_commands;
+    int paint_command_count;
+    int paint_command_capacity;
+    wn_paint_draw *paint_draws;
+    int paint_draw_capacity;
     /* Geometry helper context: the item whose transform/opacity the push_*
      * helpers apply. NULL means identity/opaque (also the post-build reset). */
     const WnPaintItem *paint_item;
@@ -223,6 +235,11 @@ void wn_core_set_caret_epoch(wn_core *core, double ms);
 int build_input_state(wn_core *c);
 void build_input_text_geometry(wn_core *c, float viewport_w, float viewport_h);
 void build_input_decorations(wn_core *c);
+
+/* Per-item geometry ranges for the layer command model (NULL when the page
+ * has no group layers). Defined in paint.c; input.c records its synthetic
+ * passes there too. */
+wn_paint_draw *wn_core_draw_for_item(wn_core *c, int item);
 
 /* Paint list maintenance (layout.c). The item build walks the same visible
  * subtrees as the old DFS order and skips empty clips. The sort is a stable

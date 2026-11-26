@@ -161,22 +161,31 @@ static void paint_map_point(const wn_core *c, float *x, float *y)
     *y = t->m1 * px + t->m3 * py + t->m5;
 }
 
-/* Solid/glyph alpha multiplier. Identity returns the byte untouched. */
-static uint8_t paint_alpha(wn_core *c, uint8_t a)
+/* Effective item opacity. The core bakes leaf opacity into vertex alpha; group
+ * roots are 1.0 and their layer carries the group alpha instead. Identity
+ * returns 1.0 with no float math so the fast path stays byte-identical. */
+static float paint_opacity(const wn_core *c)
 {
     float opacity;
     if (c->paint_item == NULL) {
-        return a;
+        return 1.0f;
     }
     opacity = c->paint_item->opacity;
+    if (!(opacity > 0.0f)) {
+        return 0.0f;
+    }
+    return opacity > 1.0f ? 1.0f : opacity;
+}
+
+/* Solid/glyph alpha multiplier. Identity returns the byte untouched. */
+static uint8_t paint_alpha(wn_core *c, uint8_t a)
+{
+    float opacity = paint_opacity(c);
     if (opacity == 1.0f || a == 0u) {
         return a;
     }
     if (opacity <= 0.0f) {
         return 0;
-    }
-    if (opacity > 1.0f) {
-        opacity = 1.0f;
     }
     return (uint8_t)((float)a * opacity + 0.5f);
 }
@@ -549,11 +558,9 @@ static void finalize_draw_batches(wn_draw_batch *batches, int *count, int vertex
 }
 
 static void push_image_vertex(wn_core *c, float x, float y, float u, float v,
-                              float vw, float vh)
+                              float vw, float vh, float a)
 {
     wn_image_vertex *out;
-    /* Image opacity is pending: wn_image_vertex has no per-vertex alpha yet,
-     * so only the transform applies here. */
     paint_map_point(c, &x, &y);
     ensure_image_capacity(c, c->image_vertex_count + 1);
     if (c->image_vertex_count >= c->image_vertex_capacity) {
@@ -564,6 +571,7 @@ static void push_image_vertex(wn_core *c, float x, float y, float u, float v,
     out->y = 1.0f - (y / vh) * 2.0f;
     out->u = u;
     out->v = v;
+    out->a = a;
 }
 
 /* An image is clipped by its own border-radius, or by the radius of a parent
@@ -597,18 +605,22 @@ static void push_image_textured(wn_core *c, float x, float y, float w, float h,
     float vh = (float)c->height;
     float x1 = x + w;
     float y1 = y + h;
+    float a = paint_opacity(c);
     int needed = radius > 0.5f ? WN_ROUND_POINTS * 3 : 6;
+    if (a <= 0.0f) {
+        return;
+    }
     ensure_image_capacity(c, c->image_vertex_count + needed);
     if (c->image_vertex_count + needed > c->image_vertex_capacity) {
         return;
     }
     if (radius <= 0.5f) {
-        push_image_vertex(c, x, y, u0, v0, vw, vh);
-        push_image_vertex(c, x1, y, u1, v0, vw, vh);
-        push_image_vertex(c, x1, y1, u1, v1, vw, vh);
-        push_image_vertex(c, x, y, u0, v0, vw, vh);
-        push_image_vertex(c, x1, y1, u1, v1, vw, vh);
-        push_image_vertex(c, x, y1, u0, v1, vw, vh);
+        push_image_vertex(c, x, y, u0, v0, vw, vh, a);
+        push_image_vertex(c, x1, y, u1, v0, vw, vh, a);
+        push_image_vertex(c, x1, y1, u1, v1, vw, vh, a);
+        push_image_vertex(c, x, y, u0, v0, vw, vh, a);
+        push_image_vertex(c, x1, y1, u1, v1, vw, vh, a);
+        push_image_vertex(c, x, y1, u0, v1, vw, vh, a);
     } else {
         float points[WN_ROUND_POINTS][2];
         float cx = x + w * 0.5f;
@@ -623,9 +635,9 @@ static void push_image_textured(wn_core *c, float x, float y, float w, float h,
             float v_a = v0 + (points[i][1] - y) / h * (v1 - v0);
             float u_b = u0 + (points[next][0] - x) / w * (u1 - u0);
             float v_b = v0 + (points[next][1] - y) / h * (v1 - v0);
-            push_image_vertex(c, cx, cy, cu, cv, vw, vh);
-            push_image_vertex(c, points[i][0], points[i][1], u_a, v_a, vw, vh);
-            push_image_vertex(c, points[next][0], points[next][1], u_b, v_b, vw, vh);
+            push_image_vertex(c, cx, cy, cu, cv, vw, vh, a);
+            push_image_vertex(c, points[i][0], points[i][1], u_a, v_a, vw, vh, a);
+            push_image_vertex(c, points[next][0], points[next][1], u_b, v_b, vw, vh, a);
         }
     }
 }
@@ -649,6 +661,9 @@ static void push_image_quad(wn_core *c, int node, const wn_rect *clip)
 
     if (src == NULL || w <= 0.0f || h <= 0.0f) {
         return;
+    }
+    if (paint_opacity(c) <= 0.0f) {
+        return; /* opacity: 0 contributes no geometry (and no empty batch) */
     }
     if (iw > 0.0f && ih > 0.0f) {
         if (n->object_fit == R2_OBJECT_FIT_COVER) {
@@ -715,6 +730,12 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
         unsigned int color;
         uint8_t a, cr, cg, cb;
         int j;
+        wn_paint_draw *draw = wn_core_draw_for_item(c, order_index);
+        int glyph_first = c->glyph_vertex_count;
+        if (draw != NULL) {
+            draw->glyph.first = glyph_first;
+            draw->glyph.clip = item->clip;
+        }
         if (n->kind != R2_NODE_TEXT) {
             continue;
         }
@@ -791,8 +812,14 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
                 }
             }
         }
+        if (draw != NULL) {
+            draw->glyph.count = c->glyph_vertex_count - glyph_first;
+        }
     }
 }
+
+static void paint_range_set(wn_paint_range *range, int first, int end,
+                            wn_rect clip);
 
 /* Visible scrollbars for `overflow:auto|scroll` boxes that really overflow.
  * Subtle track + rounded thumb; painted inside the node clip before
@@ -811,6 +838,8 @@ static void build_scrollbars(wn_core *c)
         int node = item->node;
         const UiNode *n = &c->nodes[node];
         const wn_rect *r;
+        wn_paint_draw *draw;
+        int scrollbar_first = c->vertex_count;
         if (n->overflow != R2_OVERFLOW_SCROLL) {
             continue;
         }
@@ -882,12 +911,35 @@ static void build_scrollbars(wn_core *c)
                 }
             }
         }
+        draw = wn_core_draw_for_item(c, order);
+        if (draw != NULL) {
+            draw->scrollbar.first = scrollbar_first;
+            draw->scrollbar.count = c->vertex_count - scrollbar_first;
+            draw->scrollbar.clip = item->clip;
+        }
     }
+}
+
+wn_paint_draw *wn_core_draw_for_item(wn_core *c, int index)
+{
+    if (c->paint_draws == NULL || index < 0 || index >= c->paint_draw_capacity) {
+        return NULL;
+    }
+    return &c->paint_draws[index];
+}
+
+static void paint_range_set(wn_paint_range *range, int first, int end,
+                            wn_rect clip)
+{
+    range->first = first;
+    range->count = end > first ? end - first : 0;
+    range->clip = clip;
 }
 
 void wn_core_build_display_list(wn_core *core)
 {
     int i;
+    int layered;
     unsigned int clear = 0xFF0B0E14u;
     int root = -1;
     if (core == NULL) {
@@ -896,6 +948,37 @@ void wn_core_build_display_list(wn_core *core)
     if (core->needs_layout) {
         layout_page(core, (float)core->width, (float)core->height);
         core->needs_layout = 0;
+    }
+    layered = core->paint_layer_count > 1 && core->paint_command_count > 0;
+    if (layered) {
+        if (core->paint_item_count > core->paint_draw_capacity) {
+            wn_paint_draw *grown = (wn_paint_draw *)realloc(
+                core->paint_draws,
+                (size_t)core->paint_item_count * sizeof(wn_paint_draw));
+            if (grown != NULL) {
+                core->paint_draws = grown;
+                core->paint_draw_capacity = core->paint_item_count;
+            }
+        }
+        if (core->paint_draw_capacity < core->paint_item_count) {
+            /* Out of memory for the command model: render flat. The group
+             * alpha is lost, but a frame still comes out. */
+            layered = 0;
+        } else {
+            memset(core->paint_draws, 0,
+                   (size_t)core->paint_item_count * sizeof(wn_paint_draw));
+            for (i = 0; i < core->paint_item_count; ++i) {
+                wn_paint_draw *draw = &core->paint_draws[i];
+                draw->node = core->paint_items[i].node;
+                draw->layer = core->paint_items[i].layer;
+                draw->solid.clip = core->paint_items[i].clip;
+                draw->decoration.clip = core->paint_items[i].clip;
+                draw->scrollbar.clip = core->paint_items[i].clip;
+                draw->image.clip = core->paint_items[i].clip;
+                draw->glyph.clip = core->paint_items[i].clip;
+                draw->image_src = wn_core_node_image_src(core, draw->node);
+            }
+        }
     }
     core->vertex_count = 0;
     core->solid_batch_count = 0;
@@ -910,6 +993,8 @@ void wn_core_build_display_list(wn_core *core)
         const UiNode *n = &core->nodes[node];
         unsigned int color;
         const wn_rect *r;
+        wn_paint_draw *draw = wn_core_draw_for_item(core, i);
+        int solid_first = core->vertex_count;
         wn_paint_use_item(core, item);
         r = &core->rects[node];
         if (((n->shadow_color >> 24) & 0xFFu) != 0u) {
@@ -918,6 +1003,10 @@ void wn_core_build_display_list(wn_core *core)
         }
         color = node_color(core, node);
         if (color == 0) {
+            if (draw != NULL) {
+                paint_range_set(&draw->solid, solid_first, core->vertex_count,
+                                item->clip);
+            }
             continue;
         }
         set_solid_clip(core, &item->clip);
@@ -938,14 +1027,26 @@ void wn_core_build_display_list(wn_core *core)
             push_box_shape(core, r->x, r->y, r->w, r->h,
                            n->border_radius, color);
         }
+        if (draw != NULL) {
+            paint_range_set(&draw->solid, solid_first, core->vertex_count,
+                            item->clip);
+        }
     }
     build_input_decorations(core);
     build_scrollbars(core);
     for (i = 0; i < core->paint_item_count; ++i) {
         const WnPaintItem *item = &core->paint_items[i];
+        wn_paint_draw *draw;
+        int image_first = core->image_vertex_count;
         if (core->nodes[item->node].kind == R2_NODE_IMAGE) {
             wn_paint_use_item(core, item);
             push_image_quad(core, item->node, &item->clip);
+        }
+        draw = wn_core_draw_for_item(core, i);
+        if (draw != NULL) {
+            paint_range_set(&draw->image, image_first, core->image_vertex_count,
+                            item->clip);
+            draw->image_src = wn_core_node_image_src(core, item->node);
         }
     }
     build_text_geometry(core, (float)core->width, (float)core->height);
@@ -982,6 +1083,21 @@ void wn_core_build_display_list(wn_core *core)
     core->list.image_vertex_count = core->image_vertex_count;
     core->list.image_batches = core->image_batches;
     core->list.image_batch_count = core->image_batch_count;
+    if (layered) {
+        core->list.layers = core->paint_layers;
+        core->list.layer_count = core->paint_layer_count;
+        core->list.commands = core->paint_commands;
+        core->list.command_count = core->paint_command_count;
+        core->list.draws = core->paint_draws;
+        core->list.draw_count = core->paint_item_count;
+    } else {
+        core->list.layers = NULL;
+        core->list.layer_count = 0;
+        core->list.commands = NULL;
+        core->list.command_count = 0;
+        core->list.draws = NULL;
+        core->list.draw_count = 0;
+    }
     core->list.atlas.pixels = wn_text_atlas_pixels(core->text_atlas);
     core->list.atlas.width = wn_text_atlas_width(core->text_atlas);
     core->list.atlas.height = wn_text_atlas_height(core->text_atlas);
