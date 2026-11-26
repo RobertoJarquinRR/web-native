@@ -58,8 +58,11 @@ Los tests de integración usan esa API y no lanzan procesos ni serializan JSON.
 
 Cada nodo lleva `parent`, `kind`, geometría declarada, márgenes/padding,
 colores, `data-*`, y para texto: `content`, `font_family`, `font_size`,
-`font_weight` y `line_height`. No hay glifos, posiciones ni atlas: el runtime
-mide y shapea. Los nodos de texto salen con `width/height = -1` en el blob.
+`font_weight` y `line_height`. `font_weight` viaja como número canónico
+`100..900`: `normal` se normaliza a `400`, `bold` a `700` y un valor inválido se
+descarta (queda el peso heredado) y se diagnostica. No hay glifos, posiciones ni
+atlas: el runtime mide y shapea. Los nodos de texto salen con `width/height =
+-1` en el blob.
 
 Los inputs llevan solo `value`, `placeholder`, `max_length` y `password`.
 

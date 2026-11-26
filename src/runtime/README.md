@@ -156,8 +156,13 @@ hit-test recorre los ítems al revés, así que gana el z más alto.
 
 El texto no está horneado. El nodo lleva cadena, familia, tamaño, peso y
 `line-height`; DirectWrite mide y shapea, y `text_atlas` cachea glifos y runs.
-Los inputs se editan en `core/input.c` y su spec (`value`, `placeholder`,
-`max_length`, `password`) llega en la sección `inputs` del blob.
+`font-weight` 100–900 se traduce a `DWRITE_FONT_WEIGHT` (`400`/`700` siguen
+siendo `NORMAL`/`BOLD`) y `GetFirstMatchingFont`/`CreateTextFormat` eligen la
+cara **instalada** más cercana de la familia; no hay bold sintético. Si la
+familia no trae ese peso (p. ej. `500` en Segoe UI), se mide y shapea con la
+cara vecina real. La medición, el layout de líneas y el atlas incluyen el peso
+en su clave de cache. Los inputs se editan en `core/input.c` y su spec (`value`,
+`placeholder`, `max_length`, `password`) llega en la sección `inputs` del blob.
 
 ## Renderers y host
 

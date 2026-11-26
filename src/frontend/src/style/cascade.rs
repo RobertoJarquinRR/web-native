@@ -124,9 +124,11 @@ pub(crate) fn compute_styles(
     for id in dom.preorder() {
         let mut raw: HashMap<String, String> = HashMap::new();
         let mut parent_font_size = 16.0f64;
+        let mut parent_font_weight = 400i32;
         if let Some(parent) = dom.nodes[id].parent {
             if let Some(parent_style) = styles[parent].as_ref() {
                 parent_font_size = parent_style.font_size;
+                parent_font_weight = parent_style.font_weight.parse().unwrap_or(400);
                 for name in INHERITED {
                     // `font-size` is inherited as a computed value, not as a
                     // token: a child without its own font-size must not
@@ -146,7 +148,15 @@ pub(crate) fn compute_styles(
         for (name, (_, value, _)) in winners {
             raw.insert(name, value);
         }
-        let mut style = resolve(dom, id, raw, parent_font_size, root_font_size, viewport);
+        let mut style = resolve(
+            dom,
+            id,
+            raw,
+            parent_font_size,
+            parent_font_weight,
+            root_font_size,
+            viewport,
+        );
         let parent_style = dom.nodes[id].parent.and_then(|parent| styles[parent].as_ref());
         style.states = compute_state_styles(dom, id, rules, &style, parent_style);
         if dom.nodes[id].tag == "html" {
@@ -346,6 +356,7 @@ fn resolve(
     id: NodeId,
     raw: HashMap<String, String>,
     parent_font_size: f64,
+    parent_font_weight: i32,
     root_font_size: f64,
     viewport: (f64, f64),
 ) -> ComputedStyle {
@@ -498,9 +509,9 @@ fn resolve(
             .unwrap_or_else(|| "sans-serif".to_string()),
         font_weight: raw
             .get("font-weight")
-            .filter(|value| !value.trim().is_empty())
-            .cloned()
-            .unwrap_or_else(|| "400".to_string()),
+            .and_then(|value| parse_font_weight(value))
+            .unwrap_or(parent_font_weight)
+            .to_string(),
         text_align,
         line_height,
         margin_auto,
@@ -606,6 +617,30 @@ fn resolve_box_length(
         return (Some(ctx.resolve(rel)), 0.0, Some(rel));
     }
     (None, 0.0, None)
+}
+
+/// CSS `font-weight`: `normal | bold | <integer 100..=900>`.
+///
+/// CSS `font-weight` is inherited. A declaration outside the grammar or range
+/// is invalid and the cascade drops it: the node keeps the inherited computed
+/// weight (`parent_font_weight`), exactly like CSS. `subset` reports the value
+/// instead of letting it disappear.
+pub(crate) fn parse_font_weight(value: &str) -> Option<i32> {
+    let text = value.trim();
+    if text.eq_ignore_ascii_case("normal") {
+        return Some(400);
+    }
+    if text.eq_ignore_ascii_case("bold") {
+        return Some(700);
+    }
+    // Integers only: the blob field is int32 and DirectWrite weights are
+    // integral, so `450.5`/`450px` are diagnosed instead of silently rounded.
+    let integer = parse_css_integer(text)?;
+    if (100..=900).contains(&integer) {
+        Some(integer as i32)
+    } else {
+        None
+    }
 }
 
 /// `auto | <integer>` -> `Some(value)` or `None` (auto/invalid).

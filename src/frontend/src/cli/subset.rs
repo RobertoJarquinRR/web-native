@@ -18,6 +18,7 @@ use std::path::Path;
 
 use cssparser::{Delimiter, ParseError, Parser, ParserInput, Token};
 
+use crate::style::cascade::parse_font_weight;
 use crate::style::color::{is_declared_color, parse_color};
 use crate::style::grid::{parse_grid_auto_rows, parse_grid_template_columns};
 use crate::style::style_ext::{box_shadow_is_valid, is_relative_length};
@@ -1379,7 +1380,15 @@ fn check_property(
                 ));
             }
         }
-        "font-weight" => check_keyword(name, &lowered, &["400", "700"], "400 | 700", &mut report),
+        "font-weight" => {
+            // CSS keys and integers share the cascade parser, so the subset
+            // and the emitted style cannot disagree about what is valid.
+            if parse_font_weight(trimmed).is_none() {
+                report(format!(
+                    "valor '{trimmed}' no soportado en 'font-weight' (subset v1: normal | bold | 100-900)"
+                ));
+            }
+        }
         "text-align" => check_keyword(
             name,
             &lowered,

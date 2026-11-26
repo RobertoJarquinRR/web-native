@@ -120,7 +120,10 @@ pub(crate) fn text_align_code(value: &str) -> i32 {
     }
 }
 
-/// Python's `font_weight_value()`: keyword, number 100..900, or 400.
+/// `font-weight` blob code: the cascade already normalizes to a canonical
+/// integer string (`100..=900`). This keeps the archived Python oracle's
+/// keyword/number compatibility for direct callers; an unparsable value falls
+/// back to 400 and is clamped to the blob range.
 pub(crate) fn font_weight_code(value: &str) -> i32 {
     let text = value.trim().to_ascii_lowercase();
     match text.as_str() {
@@ -521,4 +524,21 @@ pub(crate) fn write_blob(
         }
     }
     fs::write(path, file).map_err(|err| format!("{}: {err}", path.display()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::font_weight_code;
+
+    #[test]
+    fn font_weight_code_keeps_every_css_weight() {
+        for weight in [100, 300, 400, 500, 600, 700, 800, 900] {
+            assert_eq!(font_weight_code(&weight.to_string()), weight);
+        }
+        assert_eq!(font_weight_code("normal"), 400);
+        assert_eq!(font_weight_code("bold"), 700);
+        // Out-of-range/direct callers still land on the int32 contract range.
+        assert_eq!(font_weight_code("1000"), 900);
+        assert_eq!(font_weight_code("bogus"), 400);
+    }
 }

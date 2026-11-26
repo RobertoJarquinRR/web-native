@@ -61,7 +61,11 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 ### Tipografía y color
 
 - `font-family` (system fonts; sin web fonts en v1).
-- `font-size` (px), `font-weight` (400/700).
+- `font-size` (px).
+- `font-weight`: `normal` (=400), `bold` (=700) o un entero 100–900.
+  Cualquier otro valor (unidad, decimal, fuera de rango) es inválido: la
+  declaración se descarta como en CSS (el nodo conserva el peso heredado) y el
+  subset la diagnostica. El peso es heredado.
 - `line-height` (px/normal), `text-align` (left/center/right).
 - `color`, `background`, `background-color`: hex 3/4/6/8, `rgb()`/`rgba()` y
   `hsl()`/`hsla()` (comas o sintaxis espacio/barra, 3–4 argumentos, alfa
@@ -71,11 +75,14 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 - `opacity` (0–1; valores fuera de rango se recortan, porcentajes no se
   aceptan en v1).
 
-> **Runtime actual:** `font-weight ≥ 600` usa la cara bold real del sistema,
-> `line-height` y `text-align` se aplican en R2 (E1), `margin: auto` funciona en
-> block y flex. Todo nodo con `opacity < 1` crea un **grupo**: su caja y su
-> subárbol se pintan en una capa offscreen y se componen una sola vez. Las
-> hojas también, porque pueden pintar varias pasadas (borde+fondo, sombra+
+> **Runtime actual:** `font-weight` 100–900 se mapea a `DWRITE_FONT_WEIGHT`
+> (los valores canónicos son los números CSS; valores intermedios eligen el más
+> cercano) y DirectWrite selecciona la cara instalada más próxima de la familia.
+> No hay bold sintético: si la familia no tiene ese peso se usa la cara real más
+> cercana. `line-height` y `text-align` se aplican en R2 (E1), `margin: auto`
+> funciona en block y flex. Todo nodo con `opacity < 1` crea un **grupo**: su
+> caja y su subárbol se pintan en una capa offscreen y se componen una sola vez.
+> Las hojas también, porque pueden pintar varias pasadas (borde+fondo, sombra+
 > relleno, decoraciones de input, texto/imagen sobre fondo). Ver `support.md`.
 
 ### Bordes y caja

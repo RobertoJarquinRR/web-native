@@ -82,6 +82,20 @@ int main(void)
     again = wn_text_atlas_shape(atlas, "Hola", "Segoe UI", 16.0f, 400);
     check("run lookup is cached", again == run);
 
+    /* The atlas slot and run keys include the weight. */
+    {
+        const wn_atlas_run *bold_run = wn_text_atlas_shape(atlas, "Hola", "Segoe UI", 16.0f, 700);
+        const wn_atlas_glyph *bold_glyph = NULL;
+        check("weight is part of the run key", bold_run != NULL && bold_run != run);
+        if (bold_run != NULL) {
+            bold_glyph = wn_text_atlas_glyph(atlas, "Segoe UI", 16.0f, 700,
+                                             bold_run->glyphs[0].glyph);
+        }
+        check("weight is part of the glyph key", bold_glyph != NULL && bold_glyph != glyph);
+        check("weight-keyed run is cached",
+              wn_text_atlas_shape(atlas, "Hola", "Segoe UI", 16.0f, 700) == bold_run);
+    }
+
     /* -------------------------------------------------- run cache scaling */
     memset(&before, 0, sizeof(before));
     wn_text_atlas_cache_stats(atlas, &before);
