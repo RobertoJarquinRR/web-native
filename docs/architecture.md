@@ -53,11 +53,13 @@
 ## Flujo
 
 ```
-HTML/CSS → frontend Rust ──> ui.json ──> emit_ui.py ──> ui_data.h (fallback builtin)
-                        └──> app.wnui (blob v2) ──> wn_app_load_document()
+HTML/CSS → frontend Rust ──> ui.json ──┬─> --emit-header ──> ui_data.h (builtin)
+                        │             └─> --emit-blob ────> app.wnui (SDK)
+                        └─ emit_ui.py (oráculo test-only, mismo header)
 runtime: eventos → estado → layout C (mide el texto) → display list
          → renderer → ventana
-host: ABI v4 → set_visible/set_image/set_text/clone (v3) + input (v4)
+host: ABI v5 → set_visible/set_image/set_text/clone (v3) + input (v4)
+      + handle estable y navegación (v5)
 ```
 
 El texto no se hornea: el documento lleva cadena, familia, tamaño, peso y
@@ -114,7 +116,7 @@ src/
   emitter/python/      emit_ui
 tools/
   cli.py + wn_cli/     wn-cli (build/run/test/bench/setup)
-include/webnative.h    ABI C v4 (v3 dinámica + v4 input)
+include/webnative.h    ABI C v5 (v3 dinámica + v4 input + v5 identidad)
 benchmarks/            paridad de frontends, paridad visual, engine-metrics
 archive/experiments/   histórico inmutable
 archive/frontends-legacy/  frontends C++/C#/Python congelados (test-only)

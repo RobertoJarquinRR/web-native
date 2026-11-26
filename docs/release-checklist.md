@@ -68,13 +68,13 @@ Construir y conservar (nombres reales del repo):
 
 | Artefacto                                 | Origen                           | Qué es                                          |
 | ----------------------------------------- | -------------------------------- | ----------------------------------------------- |
-| `build/release/wgpu_native.dll`           | `python tools\cli.py setup wgpu` | Runtime GPU (obligatorio)                       |
+| `build/release/wgpu_native.dll`           | `python tools\cli.py setup wgpu` | Runtime GPU opcional (`--no-wgpu` no lo necesita) |
 | `build/release/runtime_r2.exe`            | `python tools\cli.py build`      | Layout runtime, eventos, `--render`, `--frames` |
-| `build/release/standalone.exe`            | `python tools\cli.py build`      | Demo standalone (ABI v4)                        |
-| `build/release/embedded.exe`              | `python tools\cli.py build`      | Demo embedded (ABI v4)                          |
+| `build/release/standalone.exe`            | `python tools\cli.py build`      | Demo standalone (ABI v5)                        |
+| `build/release/embedded.exe`              | `python tools\cli.py build`      | Demo embedded (ABI v5)                          |
 | `build/release/webnative.dll` (+ `.lib`)  | `python tools\cli.py build`      | Motor como DLL (ABI C)                          |
 | `src/runtime/build/release/abi_smoke.exe` | `python tools\cli.py build`      | Smoke de la ABI                                 |
-| `include/webnative.h`                     | repo                             | Contrato C v4 (SDK)                             |
+| `include/webnative.h`                     | repo                             | Contrato C v5 (SDK)                             |
 | `src/ir/schema.json`                      | repo                             | Contrato del display list                       |
 
 - [ ] Build reproducible desde el tag: `python tools\cli.py build` (R1 queda

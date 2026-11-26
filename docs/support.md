@@ -97,8 +97,9 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | -------------------------------------------- | --- | -------------------------------------------------------- |
 | Layout block/flex/grid                       | ✅  | layout en C; `margin: auto` en block y flex              |
 | Scroll vertical + clip                       | ✅  | scrollbar track+thumb (sin drag); thumb sigue el wheel   |
-| Imágenes WIC + cache                         | ✅  | sin eviction LRU                                         |
-| Hover / press / selected                     | ✅  | estados por nodo                                         |
+| Imágenes WIC + cache                         | ✅  | LRU con presupuesto (`WN_IMAGE_CACHE_MB`, 256 MB)        |
+| Tamaño intrínseco tras `set_image`            | ❌  | el rect conserva el tamaño compilado (A9)                |
+| Hover / press / selected                     | ✅  | hover/press del nodo bajo el cursor; un `selected` global |
 | Resize                                       | ✅  | re-layout                                                |
 | Wheel                                        | ✅  | `WN_EVENT_WHEEL`                                         |
 | UI dinámica v3                               | ✅  | visibilidad, `set_image`, clone/append/remove            |
@@ -107,7 +108,9 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | Virtualización / culling                     | ❌  | pendiente                                                |
 | Text shaping runtime                         | ✅  | DirectWrite; medición, shaping y atlas dinámico          |
 | Documento `.wnui` (blob)                     | ✅  | mmap solo lectura; `wn_app_load_document` vía ABI        |
-| Wrapping / line breaking                     | ❌  | una línea por nodo; pendiente                            |
+| Wrapping / line breaking                     | ✅  | greedy por palabras; `line-height` y `text-align` por línea |
+| Ellipsis / truncado por ancho                | ❌  | pendiente (el host compacta)                             |
+| Timers / reloj público                       | ❌  | solo blink interno; pendiente (B5)                       |
 | Bidi, CJK, emoji, IME                        | ❌  | pendiente                                                |
 | Accesibilidad / UIA                          | ❌  | pendiente                                                |
 | DPI / multi-monitor                          | ❌  | Windows básico                                           |

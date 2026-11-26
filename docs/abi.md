@@ -1,4 +1,7 @@
-# ABI C v4
+# ABI C v5
+
+Referencia de la superficie pública. El contrato compilable y comentado está
+en `include/webnative.h`; este documento explica uso y límites.
 
 ## Principios
 
@@ -10,16 +13,17 @@
 6. **Strings copiadas** por el engine; el caller conserva ownership.
 7. **Sin excepciones**: todo devuelve `wn_status`; error legible en `wn_last_error`.
 8. **Versionado**: `WN_ABI_VERSION` + `wn_version()`; breaking bump de major.
-   v2 (wheel), v3 (UI dinámica) y v4 (text input) son aditivas.
+   v2 (wheel), v3 (UI dinámica), v4 (text input) y v5 (identidad de nodos) son
+   aditivas.
 
-## Superficie v4
+## Superficie v5
 
 ### Común
 
 | Función | Uso |
 |---|---|
 | `wn_version()` | versión legible |
-| `wn_abi_version()` | `WN_ABI_VERSION` (4) |
+| `wn_abi_version()` | `WN_ABI_VERSION` (5) |
 | `wn_last_error()` | último error del hilo |
 
 ### Documentos
@@ -99,6 +103,20 @@ pinta. No hay `commit` separado.
   caret, foco/blur ni `set_value`.
 - `get_value` es propiedad del engine; cópialo dentro del callback.
 
+### Identidad y navegación (v5)
+
+- `wn_node_id` es opaco y empaqueta una **generación** por slot: un handle que
+  sobrevive a `wn_node_remove` (o a la retirada de un ancestro) deja de resolver.
+  Las llamadas `wn_node_*` lo rechazan, la navegación devuelve
+  `WN_NODE_INVALID` y los eventos nunca lo reportan.
+- `wn_event.node` lleva el handle estable del target, así que los clones son
+  direccionables aunque no tengan nombre.
+- `wn_node_parent`, `wn_node_first_child` y `wn_node_next_sibling` recorren el
+  árbol vivo en O(1) por arista; `parent` de la raíz y `next_sibling` del último
+  hijo devuelven `WN_NODE_INVALID`.
+- La búsqueda por nombre solo resuelve nodos compilados; los clones se alcanzan
+  por handle o por navegación.
+
 ## Eventos
 
 ```c
@@ -111,6 +129,7 @@ typedef struct wn_event {
     int32_t width, height;   // resize
     uint32_t modifiers;      // WN_MOD_SHIFT/CTRL/ALT/META
     float delta_x, delta_y;  // wheel (v2)
+    wn_node_id node;         // target estable (v5); WN_NODE_INVALID si no aplica
 } wn_event;
 ```
 
@@ -119,6 +138,7 @@ typedef struct wn_event {
 - El app standalone traduce Win32 → `wn_event` internamente.
 - v2 añade `WN_EVENT_WHEEL`; el wheel-forward es `delta_y < 0`.
 - v4 añade `WN_EVENT_INPUT = 11`.
+- v5 añade `wn_event.node` (handle estable, también para clones).
 - No hay `WN_EVENT_CLICK`: un click es `POINTER_DOWN` + `POINTER_UP` sobre el
   mismo nodo.
 
@@ -185,7 +205,7 @@ private static partial nint wn_node_get_value(nint app, ulong node);
 - Sin tipos de UI de .NET expuestos a la ABI.
 - `wn_node_get_value` se convierte inmediatamente con `Marshal.PtrToStringUTF8`.
 
-## Limitaciones de v4 (importante)
+## Limitaciones de la base v4/v5 (importante)
 
 - `wn_app_load` / `wn_view_load` **copian** HTML/CSS, pero el runtime renderiza
   el árbol compilado `ui_data.h`. **No hay parser HTML/CSS en runtime**; cambiar
@@ -195,18 +215,20 @@ private static partial nint wn_node_get_value(nint app, ulong node);
 - `set_image` conserva el tamaño intrínseco compilado; no hay probe WIC nuevo.
 - Input: una línea UTF-8 (shapeada en runtime), sin IME/bidi/CJK/emoji, sin
   multilínea, sin password, sin undo/redo; drag-select y caret blink incluidos.
+- Un solo nodo `selected` a la vez y eventos solo de botón izquierdo; sin
+  getters de texto/rect, sin scroll-to ni foco programático (v6).
+- El documento no tiene refcount: quien lo crea lo destruye después del core.
 - Sin virtualización, culling de sólidos, accesibilidad/UIA, DPI/multi-monitor
   ni cross-platform todavía.
 - Sin path offscreen en la ABI (sigue en `runtime_r2.exe --render/--states`).
 - Sin bindings WPF/WinForms; el host C# es consola/WinExe.
 - `wn_app_run`/`wn_view_render` son single-thread; no reentrar.
 
-## Fuera de v4
+## Fuera de v5
 
 - Motor de texto en Linux (HarfBuzz/FreeType detrás de la misma vtable).
 - IME, bidi, CJK, emoji.
-- Virtualización de listas/grids y cache LRU de imágenes.
-- Render de bordes/radius/sombras en el core.
+- Virtualización de listas/grids y decode asíncrono de imágenes.
 - Accesibilidad/UIA, DPI formal, multi-window, drag & drop, diálogos.
 - Modelo de componentes/templates más allá de clone/append.
 - Scripting/JS, red/HTTP, iframes, parser runtime.

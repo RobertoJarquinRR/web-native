@@ -40,7 +40,7 @@ Pendiente de la lista: A2, A9, B1–B5, B7, B10, C2–C10.
 | B3 | Lectura | No se puede leer el texto de un nodo, ni su rect, ni hacer scroll a un nodo | no hay `wn_node_get_text/rect/scroll_to` | añadir getters y `wn_node_scroll_into_view`. Aditivo |
 | B4 | Eventos | Solo botón izquierdo, sin doble clic, sin rueda horizontal, sin botón en `wn_event` | `host_win32.c` traduce `WM_LBUTTON*` y wheel vertical | `button` y `click_count` en el evento; `WM_RBUTTON/MBUTTON/DBLCLK`. Aditivo |
 | B5 | Tiempo | Sin reloj/timers: no hay caret blink, ni debounce, ni animaciones | el bucle es solo por eventos | `wn_host` con timer o `wn_view_tick(ms)`. Aditivo |
-| B6 | Input | Edición ASCII 32..126, una línea, sin IME; pegar `Café` inserta `Caf` | modelo byte a byte y `WM_CHAR` | input v5: cursor por codepoint, UTF-8, drag-select, blink; IME en E3. Aditivo |
+| B6 | Input | ~~Edición ASCII 32..126, una línea, sin IME~~ / sin IME todavía | modelo byte a byte y `WM_CHAR` | **resuelto en la ola 1**: cursor por codepoint, UTF-8, drag-select, blink; IME en E3 |
 | B7 | DPI | `dpi_scale` se guarda y no se usa: texto y layout van a píxeles 1:1 | falta escalar fuentes/medidas | aplicar escala en layout+texto (E3). Aditivo |
 | B8 | Renderer | `wgpu_native.dll` (9 MB) siempre enlazado aunque D3D11 sea el default | CMake sin interruptor | `WN_NO_WGPU` y cargar backend por vtable. Aditivo |
 | B9 | Fuentes | Cualquier genérica (`serif`, `monospace`) se resuelve a Segoe UI; solo se usa la primera familia del stack | `text_runtime.c:resolve_family` | parsear el stack y elegir por disponibilidad. Aditivo |

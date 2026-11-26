@@ -97,9 +97,9 @@ frontend avisa (o falla con `--strict-subset`) si se usan sin él:
 
 - **v2:** `display:grid` con `repeat(auto-fill, px)`, `grid-auto-rows`, gap,
   `overflow: auto|scroll`, imágenes locales y `object-fit`.
-- **v3:** `input type="text"` de una línea con pool ASCII; bordes por lado,
-  `border-radius` por esquina, `box-shadow`, `min/max-*` y unidades
-  `em/rem/vh/vw`.
+- **v3:** `input type="text"` de una línea (valor inicial ASCII, edición UTF-8
+  en runtime); bordes por lado, `border-radius` por esquina, `box-shadow`,
+  `min/max-*` y unidades `em/rem/vh/vw`.
 
 El detalle del contrato y de lo que el runtime ya implementa está en
 [`support.md`](support.md).

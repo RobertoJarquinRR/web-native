@@ -39,17 +39,21 @@ Un stream no toca los archivos de otro; se integra por contrato.
   lleva glifos, runs ni atlas, tampoco para inputs.
 - ✅ **Blob v2 `.wnui`**: escritor en Rust (`--emit-blob`, byte-idéntico al
   emisor) y loader C con mmap; `wn_app_load_document` en la ABI.
-- ✅ **SDK genérica**: `webnative.dll` (157 KB) + `app.wnui`; la galería
-  (`C:\Proyects\gallery`) consume solo `sdk/` y su documento.
-- ✅ ABI v4: dinámica, input ASCII, stats públicas.
-- ✅ CSS core v1 (41/41), E1 (23/23), dynamic (53/53), input (111/111),
-  offscreen (100 % exacto), text y blob; `test all` 9/9 y piloto 48/48.
+- ✅ **SDK genérica**: `webnative.dll` (212 KB con wgpu, 190 KB sin él) +
+  `app.wnui`; la galería (`C:\Proyects\gallery`) consume solo `sdk/` y su
+  documento.
+- ✅ ABI v4: dinámica, input de una línea, stats públicas; ABI v5: identidad de
+  nodos y navegación.
+- ✅ CSS core v1 (41/41), E1 (23/23), dynamic (61/61), input (80 + 118/118),
+  text (144), offscreen (100 % exacto), blob; `test all` 9/9 y piloto 48/48.
 - ✅ Frontend Rust por etapas (`parse/style/emit/cli`); R1 retirado y su
-  benchmark archivado (`archive/benchmarks-r1/`).
-- ⏳ **E6**: el borrado de R1 se llevó el único workflow; falta CI de
-  `test all` + `bench pilot`. La paridad visual no tiene runner.
-- ⏭ Siguiente: CI, **ABI v5 (identidad de nodos en eventos)**, wrapping,
-  culling/virtualización, playback del host, E3 y E7.
+  benchmark archivado (`archive/benchmarks-r1/`). `.wnui` y `ui_data.h` se
+  emiten desde Rust (`--emit-blob`, `--emit-header`).
+- ✅ **E6**: CI de dos jobs — D3D11 offline y wgpu con artefacto fijado por
+  SHA-256. La paridad visual sigue sin runner.
+- ⏭ Siguiente: ABI v6 (estado por nodo, getters, botón/doble clic, timer,
+  refcount, tamaño de imagen), paridad de color (C11) para retirar el emisor
+  Python, input v2 (IME, multilínea, undo) e imágenes (async, formatos).
 
 Documentos de esta ola: [`e8-css-extensions.md`](e8-css-extensions.md),
 [`visual-parity.md`](visual-parity.md), [`release-checklist.md`](release-checklist.md)
@@ -88,8 +92,9 @@ subset rechaza features fuera de v1; R2 sin regresión.
 - ✅ **API de UI dinámica: crear/actualizar/eliminar nodos, templates/listas.**
 - **Virtualización de listas/grids.** (E5, pendiente)
 - ✅ **Texto dinámico**: shaping, rasterizado y medición en runtime.
-- ✅ **Input de texto single-line + foco/teclado** (ASCII; IME queda en E3).
-- **Texto**: wrapping, line breaking, DPI/zoom. (E3/E4)
+- ✅ **Input de texto single-line + foco/teclado** (UTF-8 por codepoint; IME
+  queda en E3).
+- **Texto**: wrapping ✅; faltan ellipsis, bidi y DPI/zoom. (E3/E4)
 - **Animaciones/transiciones:** solo la propuesta limitada de E8; el resto es
   futuro/no-go. (ver `docs/e8-css-extensions.md`)
 
