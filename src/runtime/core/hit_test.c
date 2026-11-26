@@ -6,8 +6,8 @@
  */
 #include <math.h>
 
+#include "scroll.h"
 #include "wn_core_internal.h"
-#include "wn_internal.h"
 
 /* ------------------------------------------------------------- interaction */
 
@@ -74,15 +74,14 @@ int wn_core_wheel(wn_core *core, float x, float y, float delta_x, float delta_y)
 {
     int node;
     int container = -1;
-    float next;
-    (void)delta_x; /* v2 scrolls vertically only */
     if (core == NULL) {
         return -1;
     }
     node = wn_core_node_at(core, x, y);
     while (node >= 0) {
         if (core->nodes[node].overflow == R2_OVERFLOW_SCROLL &&
-            core->scroll_max[node] > 0.0f) {
+            (core->scroll_max_y[node] > 0.0f ||
+             core->scroll_max_x[node] > 0.0f)) {
             container = node;
             break;
         }
@@ -91,31 +90,19 @@ int wn_core_wheel(wn_core *core, float x, float y, float delta_x, float delta_y)
     if (container < 0) {
         return -1;
     }
-    next = core->scroll[container] + delta_y;
-    if (next < 0.0f) {
-        next = 0.0f;
-    }
-    if (next > core->scroll_max[container]) {
-        next = core->scroll_max[container];
-    }
-    if (next == core->scroll[container]) {
-        return -1;
-    }
-    core->scroll[container] = next;
-    {
-        double t0 = wn_now_ms();
-        layout_page(core, (float)core->width, (float)core->height);
-        core->last_layout_ms = wn_now_ms() - t0;
-    }
-    return container;
+    /* x is inert while scroll_max_x == 0; the service makes it a no-op. */
+    return wn_core_scroll_by(core, container, delta_x, delta_y) > 0
+               ? container
+               : -1;
 }
 
+/* ABI v6 diagnostics stay vertical-only; the x offset is internal. */
 float wn_core_scroll_offset(const wn_core *core, int node)
 {
     if (!wn_core_node_is_alive(core, node)) {
         return -1.0f;
     }
-    return core->scroll[node];
+    return core->scroll_y[node];
 }
 
 float wn_core_scroll_max(const wn_core *core, int node)
@@ -123,7 +110,7 @@ float wn_core_scroll_max(const wn_core *core, int node)
     if (!wn_core_node_is_alive(core, node)) {
         return -1.0f;
     }
-    return core->scroll_max[node];
+    return core->scroll_max_y[node];
 }
 
 int wn_core_node_rect(wn_core *core, int node, wn_rect *out)
@@ -142,9 +129,12 @@ int wn_core_scroll_node_into_view(wn_core *core, int node, float margin)
     wn_rect r;
     wn_rect content;
     const UiNode *cn;
+    float left;
+    float right;
     float top;
     float bottom;
-    float next;
+    float next_x;
+    float next_y;
     if (core == NULL || !wn_core_node_is_alive(core, node)) {
         return -1;
     }
@@ -152,7 +142,8 @@ int wn_core_scroll_node_into_view(wn_core *core, int node, float margin)
     container = core->parent[node];
     while (container >= 0) {
         if (core->nodes[container].overflow == R2_OVERFLOW_SCROLL &&
-            core->scroll_max[container] > 0.0f) {
+            (core->scroll_max_y[container] > 0.0f ||
+             core->scroll_max_x[container] > 0.0f)) {
             break;
         }
         container = core->parent[container];
@@ -169,33 +160,35 @@ int wn_core_scroll_node_into_view(wn_core *core, int node, float margin)
     if (margin < 0.0f) {
         margin = 0.0f;
     }
+    left = content.x + margin;
+    right = content.x + content.w - margin;
+    if (right < left) {
+        left = content.x;
+        right = content.x + content.w;
+    }
     top = content.y + margin;
     bottom = content.y + content.h - margin;
     if (bottom < top) {
         top = content.y;
         bottom = content.y + content.h;
     }
-    next = core->scroll[container];
+    /* Same clamp for both axes. The x target is inert while max_x == 0. */
+    next_x = core->scroll_x[container];
+    if (r.x < left) {
+        next_x -= left - r.x;
+    } else if (r.x + r.w > right) {
+        next_x += (r.x + r.w) - right;
+    }
+    next_y = core->scroll_y[container];
     if (r.y < top) {
-        next -= top - r.y;
+        next_y -= top - r.y;
     } else if (r.y + r.h > bottom) {
-        next += (r.y + r.h) - bottom;
+        next_y += (r.y + r.h) - bottom;
     }
-    if (next < 0.0f) {
-        next = 0.0f;
-    }
-    if (next > core->scroll_max[container]) {
-        next = core->scroll_max[container];
-    }
-    if (next == core->scroll[container]) {
-        return 0;
-    }
-    core->scroll[container] = next;
-    {
-        double t0 = wn_now_ms();
-        layout_page(core, (float)core->width, (float)core->height);
-        core->last_layout_ms = wn_now_ms() - t0;
-    }
+    next_x = wn_core_scroll_clamp(core, container, WN_SCROLL_X, next_x);
+    next_y = wn_core_scroll_clamp(core, container, WN_SCROLL_Y, next_y);
+    wn_core_scroll_by(core, container, next_x - core->scroll_x[container],
+                      next_y - core->scroll_y[container]);
     return 0;
 }
 

@@ -711,6 +711,11 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
     }
     c->visible_eff[node] = 1;
 
+    /* Horizontal scroll is reserved: the layout pass does not compute
+     * horizontal overflow yet, so the bound stays 0 for every node (leaves
+     * included) and the x half of the scroll service is a no-op. */
+    c->scroll_max_x[node] = 0.0f;
+
     /* The table only owns the auto cases: forced/declared/percentage widths are
      * the same rule for every kind and stay here. */
     ops = wn_kind_ops(n->kind);
@@ -747,8 +752,9 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
     /* Leaves never run children: the kind entry owns their height and the
      * early return keeps the historical "no children" contract. Their scroll
      * state needs no write either: only the container path below (and
-     * hit_test, gated on scroll_max > 0) ever changes it, so a leaf's
-     * scroll/scroll_max stay at the zero the arena is initialised with. */
+     * scroll.c, gated on the axis max) ever changes it, so a leaf's
+     * scroll offsets and vertical max stay at the zero the arena is
+     * initialised with. */
     /* One declared-height rule for every leaf, TEXT included: the percentage is
      * the content box, so WN_DECL_H adds the padding back for content-box and
      * is zero for border-box. IMAGE/INPUT always resolved this way; TEXT used
@@ -807,23 +813,23 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
     if (n->overflow == R2_OVERFLOW_SCROLL && definite_h) {
         const float view_h = fmaxf(h - pad_t - pad_b, 0.0f);
         const float max_scroll = fmaxf(content_used - view_h, 0.0f);
-        c->scroll_max[node] = max_scroll;
-        if (c->scroll[node] < 0.0f) {
-            c->scroll[node] = 0.0f;
+        c->scroll_max_y[node] = max_scroll;
+        if (c->scroll_y[node] < 0.0f) {
+            c->scroll_y[node] = 0.0f;
         }
-        if (c->scroll[node] > max_scroll) {
-            c->scroll[node] = max_scroll;
+        if (c->scroll_y[node] > max_scroll) {
+            c->scroll_y[node] = max_scroll;
         }
-        if (c->scroll[node] > 0.0f) {
+        if (c->scroll_y[node] > 0.0f) {
             int child;
             for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
-                translate_subtree(c, child, 0.0f, -c->scroll[node]);
+                translate_subtree(c, child, 0.0f, -c->scroll_y[node]);
             }
         }
     } else {
-        c->scroll_max[node] = 0.0f;
-        if (c->scroll[node] != 0.0f) {
-            c->scroll[node] = 0.0f;
+        c->scroll_max_y[node] = 0.0f;
+        if (c->scroll_y[node] != 0.0f) {
+            c->scroll_y[node] = 0.0f;
         }
     }
     return h + n->margin[2];

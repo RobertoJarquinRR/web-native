@@ -26,6 +26,7 @@ set(WN_RUNTIME_SOURCES
     core/paint.c
     core/input.c
     core/hit_test.c
+    core/scroll.c
     document/wn_blob.c
     text/text_runtime.c
     text/text_atlas.c
