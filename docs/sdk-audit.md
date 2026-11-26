@@ -5,29 +5,33 @@ No es una spec: es la lista de trabajo, ordenada por riesgo. Cada fila dice el
 síntoma real y el arreglo propuesto; "aditivo" significa que no rompe contratos
 existentes.
 
-## Resuelto en la ola 1
+## Resuelto
 
-Ya en `main`: A1 (handles con generación), A3 (LRU de imágenes con presupuesto),
+**Ola 1:** A1 (handles con generación), A3 (LRU de imágenes con presupuesto),
 A4 (arena creciente + jerarquía O(1)), A5 (NUL del blob), A6 (cachés hash+LRU),
 A7 (wrapping), A8/B9 (stack de fuentes y fallback probado), A10 (medición del
 override), B6 (input UTF-8, drag, blink; falta IME), B8 (`WN_WGPU=OFF`), C1 (CI
 D3D11 offline + job wgpu fijado) y D1–D19 salvo lo anotado en cada fila.
 
-Pendiente de la lista: A2, A9, B1–B5, B7, B10, C2–C10.
+**Ola 2:** A2 (refcount del documento), A9 (`wn_node_set_image_size`), B2
+(estado por nodo), B3 (getters/scroll/foco), B4 (botón/doble clic/rueda
+horizontal), B5 (tick público), C5 (`--emit-header` en Rust, con goldens).
+
+Pendiente de la lista: B1, B7, B10, C2–C10 (C11 en revisión).
 
 ## P0 — corrección y seguridad
 
 | ID | Área | Síntoma | Causa | Arreglo |
 |---|---|---|---|---|
 | A1 | ABI | Un handle viejo puede apuntar a otro nodo: `wn_node_remove` devuelve el índice a `free_list` y `wn_node_clone` lo reutiliza | `wn_node_id` es `índice + 1`, sin generación (`core/wn_core.c:arena_alloc`) | codificar generación en el handle (`índice + gen<<32`) o no reutilizar índices. Aditivo |
-| A2 | Documento | `wn_core_create(doc)` no posee el documento; destruirlo antes que el core deja punteros colgando | contrato de propiedad disperso (`wn_document_internal.h`); además `names`, `n->text`, `font_family` e `image_src` apuntan dentro del mmap: el core copia la tabla por valor y `wn_document_destroy` libera `owned_nodes` y cierra el mapa (`wn_blob.c:291-299`, `wn_core.c:472-474`) | refcount o copia de tablas; documentar en `webnative.h`. Aditivo |
+| A2 | Documento | ~~`wn_core_create(doc)` no posee el documento~~ | contrato de propiedad disperso | **resuelto (v6)**: refcount (`wn_document_retain/release`); el core retiene y suelta; `replace_document` mantiene una referencia |
 | A3 | Imágenes | La caché de texturas crece sin límite (cada foto 4K son ~33 MB RGBA) | `image_count` sin desalojo (`renderer_d3d11.c`, `renderer_wgpu.c`); cada decode admite hasta 16384×16384 (~1 GB RGBA) antes de entrar en la caché (`decode_image_rgba`) | LRU con presupuesto (p. ej. 256 MB) y `wn_renderer_stats.images_bytes`. Aditivo |
 | A4 | Nodos | Las listas se cortan en 4096 nodos vivos; `wn_node_clone` devuelve `-2` | arena de capacidad fija (`WN_MAX_NODES`) | arena creciente o capacidad declarada en el documento. Aditivo |
 | A5 | Blob | Un `.wnui` corrupto puede hacer que `strcmp` lea fuera de la sección de strings | `blob_string` valida el offset, no el NUL dentro de la sección | validar NUL antes del final de la sección; checksum opcional. Aditivo |
 | A6 | Texto | Re-shaping cada frame cuando hay más strings que caché (la galería ya tiene ~90) | caché de runs 64 lineal, medición 128 lineal; además `wn_text_atlas_glyph` se consulta por glifo cada frame (sondeo lineal sobre 8192 slots en `text_atlas.c:76-91`) | hash + LRU dimensionada por nodos. Aditivo |
 | A7 | Texto | Layout mide texto envuelto (2 líneas) y el pintado dibuja una sola línea | `measure` acepta `max_width`, `shape` no | line breaking en layout+paint (E4). Aditivo |
 | A8 | Fuentes | Familia desconocida cae a un ancho heurístico `0.6 * size * len` sin avisar | `measure_text_node` si el backend falla | fallback real + diagnóstico `wn_text_last_error`. Aditivo |
-| A9 | Imágenes | `set_image` conserva el tamaño intrínseco compilado; una foto de otra relación de aspecto queda mal si el CSS no fija caja | `wn_core_set_image` solo cambia el path | medir la imagen nueva en el renderer o aceptar `wn_node_set_image_size`. Aditivo |
+| A9 | Imágenes | `set_image` conserva el tamaño intrínseco compilado | `wn_core_set_image` solo cambia el path | **resuelto (v6)**: `wn_node_set_image_size` re-layout y `object-fit`; rechaza tamaños no finitos |
 | A10 | Texto | `set_text` cambia lo que se pinta pero no lo que se mide: el nodo conserva ancho/alto compilados | `measure_text_node` usa `n->text`, no el override (`core/layout.c`) | medir el texto efectivo (override incluido). Aditivo |
 | D1 | Texto | Un `font-size` grande en un `.wnui` desborda el `scratch` de 64 KB del atlas: `width*height` se multiplica en `int` y el chequeo de capacidad pasa con el producto desbordado | `text_directwrite.cpp:471` compara `capacity < width * height` (int) y `:476` pasa ese producto a `CreateAlphaTexture`; el buffer es `text_atlas.c:214` (`WN_ATLAS_MAX_BITMAP`) y `font_size` entra sin validar desde el blob (`wn_blob.c:244`) | calcular en `int64_t`, tope de em-size (~512 px) y rechazar `font_size` fuera de rango al cargar. Aditivo |
 
@@ -36,10 +40,10 @@ Pendiente de la lista: A2, A9, B1–B5, B7, B10, C2–C10.
 | ID | Área | Síntoma | Causa | Arreglo |
 |---|---|---|---|---|
 | B1 | ABI | `wn_app_load`/`wn_view_load` copian HTML/CSS y no parsean nada (no hay parser runtime) | API heredada de cuando se pensó el runtime como parser | retirar en v6 o documentar como no-op. Destructivo (major) |
-| B2 | Estado | Un solo `hover`/`press`/`selected` global; `wn_app_set_class` solo acepta nombres, así que un clon no puede llevar clase | estado en `core->selected` y búsqueda por nombre | estado por nodo (bitset) y `set_class` por handle. Aditivo |
-| B3 | Lectura | No se puede leer el texto de un nodo, ni su rect, ni hacer scroll a un nodo | no hay `wn_node_get_text/rect/scroll_to` | añadir getters y `wn_node_scroll_into_view`. Aditivo |
-| B4 | Eventos | Solo botón izquierdo, sin doble clic, sin rueda horizontal, sin botón en `wn_event` | `host_win32.c` traduce `WM_LBUTTON*` y wheel vertical | `button` y `click_count` en el evento; `WM_RBUTTON/MBUTTON/DBLCLK`. Aditivo |
-| B5 | Tiempo | Sin reloj/timers: no hay caret blink, ni debounce, ni animaciones | el bucle es solo por eventos | `wn_host` con timer o `wn_view_tick(ms)`. Aditivo |
+| B2 | Estado | ~~Un solo `hover`/`press`/`selected` global~~ | estado en `core->selected` | **resuelto (v6)**: bitset por nodo, varias selecciones; `set_class` sigue por nombre compilado |
+| B3 | Lectura | ~~No se puede leer texto/rect ni hacer scroll a un nodo~~ | no había getters | **resuelto (v6)**: `get_text`, `get_rect`, `scroll_into_view`, `focus_input`/`blur_input` |
+| B4 | Eventos | ~~Solo botón izquierdo, sin doble clic ni rueda horizontal~~ | `host_win32.c` solo traducía `WM_LBUTTON*` | **resuelto (v6)**: `button`/`click_count`, derecho/central, doble clic y `delta_x` |
+| B5 | Tiempo | ~~Sin reloj/timers públicos~~ | bucle solo por eventos | **resuelto (v6)**: `wn_app_set_tick_ms` + `wn_view_tick`; el blink del caret mantiene su timer |
 | B6 | Input | ~~Edición ASCII 32..126, una línea, sin IME~~ / sin IME todavía | modelo byte a byte y `WM_CHAR` | **resuelto en la ola 1**: cursor por codepoint, UTF-8, drag-select, blink; IME en E3 |
 | B7 | DPI | `dpi_scale` se guarda y no se usa: texto y layout van a píxeles 1:1 | falta escalar fuentes/medidas | aplicar escala en layout+texto (E3). Aditivo |
 | B8 | Renderer | `wgpu_native.dll` (9 MB) siempre enlazado aunque D3D11 sea el default | CMake sin interruptor | `WN_NO_WGPU` y cargar backend por vtable. Aditivo |
@@ -99,8 +103,9 @@ no son del motor (diálogo de carpeta, persistencia) están marcados P3 allí.
 
 ## Orden recomendado
 
-1. A1, A3, A4 (handles, memoria de imágenes, capacidad): correctness para apps reales.
-2. B8 (wgpu opcional) → desbloquea CI (C1) y baja el runtime a ~190 KB.
-3. A6, A7 (cachés y wrapping): escala y texto correcto.
-4. B2, B3, B4, B5 (estado por nodo, getters, botones/doble clic, timer): lo que pide una app como la galería.
-5. C5 (`--emit-header`) y B1 (limpiar ABI v6).
+1. ~~A1, A3, A4~~ (hecho), ~~A6, A7~~ (hecho), ~~B2–B5~~ (hecho en v6).
+2. C11 (paridad de color con tinycss2): desbloquea retirar el emisor Python.
+3. C5 + B1: cambiar `wn-cli`/suites a `--emit-header` y limpiar la API heredada.
+4. Input v2 (IME, multilínea, undo/redo) e imágenes (decode asíncrono, formatos).
+5. A2/A9 ~~hechos~~; quedan A5 (checksum del blob), B7 (DPI), B10 (async),
+   C2–C10 (tooling, accesibilidad, undo de UI).

@@ -27,8 +27,9 @@ Un stream no toca los archivos de otro; se integra por contrato.
 | **E7** | Release y packaging | versión, artefactos, licencias, installer, signing, smoke de release | E1–E3, E6 | Pendiente |
 | **E8** | Extensiones CSS | transition limitada (P1 post-E1); transform 2D + position rel/abs + z-index simple (P2); animation/float futuro/no-go | E1, E6 (schema `/4`), reloj del `wn_host` | **Definido**; ver `e8-css-extensions.md` |
 
-> **Orden de ejecución:** CI y contratos (E6) → ABI v5 (identidad de nodos en
-> eventos) → E4 wrapping → E5 escala → E3 plataforma → E7 release. E2 va en
+> **Orden de ejecución:** CI y contratos (E6) → ABI v6 (estado/lecturas) →
+> C11 color + retirar el emisor → E4 input v2 → E5 escala → E3 plataforma →
+> E7 release. E2 va en
 > paralelo. E8 transform/position/z-index después de transition;
 > animation/float futuro/no-go.
 
@@ -42,18 +43,18 @@ Un stream no toca los archivos de otro; se integra por contrato.
 - ✅ **SDK genérica**: `webnative.dll` (212 KB con wgpu, 190 KB sin él) +
   `app.wnui`; la galería (`C:\Proyects\gallery`) consume solo `sdk/` y su
   documento.
-- ✅ ABI v4: dinámica, input de una línea, stats públicas; ABI v5: identidad de
-  nodos y navegación.
-- ✅ CSS core v1 (41/41), E1 (23/23), dynamic (61/61), input (80 + 118/118),
+- ✅ ABI v4: dinámica, input de una línea, stats públicas; v5: identidad de
+  nodos y navegación; **v6**: estado por nodo, getters/scroll/foco, botón y
+  doble clic, tick, refcount del documento y tamaño de imagen.
+- ✅ CSS core v1 (41/41), E1 (23/23), dynamic (61/61), input (83 + 118/118),
   text (144), offscreen (100 % exacto), blob; `test all` 9/9 y piloto 48/48.
 - ✅ Frontend Rust por etapas (`parse/style/emit/cli`); R1 retirado y su
   benchmark archivado (`archive/benchmarks-r1/`). `.wnui` y `ui_data.h` se
   emiten desde Rust (`--emit-blob`, `--emit-header`).
 - ✅ **E6**: CI de dos jobs — D3D11 offline y wgpu con artefacto fijado por
   SHA-256. La paridad visual sigue sin runner.
-- ⏭ Siguiente: ABI v6 (estado por nodo, getters, botón/doble clic, timer,
-  refcount, tamaño de imagen), paridad de color (C11) para retirar el emisor
-  Python, input v2 (IME, multilínea, undo) e imágenes (async, formatos).
+- ⏭ Siguiente: C11 (paridad de color) y retirar el emisor Python, input v2
+  (IME, multilínea, undo), imágenes (async, formatos) y escala (culling/DPI).
 
 Documentos de esta ola: [`e8-css-extensions.md`](e8-css-extensions.md),
 [`visual-parity.md`](visual-parity.md), [`release-checklist.md`](release-checklist.md)

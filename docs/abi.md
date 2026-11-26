@@ -1,4 +1,4 @@
-# ABI C v5
+# ABI C v6
 
 Referencia de la superficie pública. El contrato compilable y comentado está
 en `include/webnative.h`; este documento explica uso y límites.
@@ -13,17 +13,17 @@ en `include/webnative.h`; este documento explica uso y límites.
 6. **Strings copiadas** por el engine; el caller conserva ownership.
 7. **Sin excepciones**: todo devuelve `wn_status`; error legible en `wn_last_error`.
 8. **Versionado**: `WN_ABI_VERSION` + `wn_version()`; breaking bump de major.
-   v2 (wheel), v3 (UI dinámica), v4 (text input) y v5 (identidad de nodos) son
-   aditivas.
+   v2 (wheel), v3 (UI dinámica), v4 (text input), v5 (identidad de nodos) y
+   v6 (estado, lecturas, eventos, timer, ownership) son aditivas.
 
-## Superficie v5
+## Superficie v6
 
 ### Común
 
 | Función | Uso |
 |---|---|
 | `wn_version()` | versión legible |
-| `wn_abi_version()` | `WN_ABI_VERSION` (5) |
+| `wn_abi_version()` | `WN_ABI_VERSION` (6) |
 | `wn_last_error()` | último error del hilo |
 
 ### Documentos
@@ -117,6 +117,57 @@ pinta. No hay `commit` separado.
 - La búsqueda por nombre solo resuelve nodos compilados; los clones se alcanzan
   por handle o por navegación.
 
+### Estado por nodo (v6)
+
+| Función | Uso |
+|---|---|
+| `wn_node_set_state(app, node, mask, enabled)` | enciende/apaga `WN_STATE_HOVER/PRESS/SELECTED` |
+| `wn_node_get_state(app, node)` | máscara activa; 0 si el handle está muerto |
+
+- `selected` es por nodo: el host puede marcar varias tarjetas. Hover y press
+  siguen siendo exclusivos (un cursor).
+- El click de selección sigue reemplazando la selección para conservar el
+  comportamiento y los píxeles de la v5.
+- `wn_app_set_class` sigue siendo por nombre y solo para clases compiladas; no
+  hay clases por handle (limitación de v6).
+
+### Lecturas y navegación (v6)
+
+| Función | Uso |
+|---|---|
+| `wn_node_get_text(app, node)` | texto efectivo (override o compilado); buffer del engine |
+| `wn_node_get_rect(app, node, &rect)` | caja de borde en px de vista; fuerza layout si está sucio |
+| `wn_node_scroll_into_view(app, node, margin)` | mueve el ancestro scrollable más cercano |
+| `wn_app_focus_input(app, node)` | foco programático, caret al final, sin evento |
+| `wn_app_blur_input(app)` | quita el foco; idempotente, sin evento |
+
+- El buffer de `get_text` vale hasta la próxima llamada `webnative` en el hilo.
+- `scroll_into_view` es vertical (el motor no tiene scroll horizontal), respeta
+  el margen cuando cabe y no hace nada si el nodo ya es visible o no hay
+  ancestro scrollable.
+- `focus_input` solo acepta un `kind:"input"`; sincroniza el blink aunque se
+  llame fuera de un evento.
+
+### Timer (v6)
+
+- `wn_app_set_tick_ms(app, ms)` arranca un timer Win32 que pide frame y marca el
+  core sucio; `0` lo para. Convive con el timer interno del caret (ids
+  distintos).
+
+### Imágenes (v6)
+
+- `wn_node_set_image_size(app, node, w, h)` fija el tamaño intrínseco tras
+  `set_image` (0,0 = desconocido); el layout y `object-fit` usan el nuevo ratio.
+  Rechaza negativos, NaN e infinito.
+
+### Documentos (v6)
+
+- `wn_document_retain`/`wn_document_release`: refcount. `wn_document_destroy`
+  suelta una referencia.
+- `wn_core_create` retiene el documento y `wn_core_destroy` lo suelta; se puede
+  destruir la referencia del caller justo después de crear el core sin UAF.
+- `wn_view_replace_document` mantiene su propia referencia y suelta la anterior.
+
 ## Eventos
 
 ```c
@@ -128,8 +179,10 @@ typedef struct wn_event {
     uint32_t codepoint;      // UTF-32 para WN_EVENT_CHAR
     int32_t width, height;   // resize
     uint32_t modifiers;      // WN_MOD_SHIFT/CTRL/ALT/META
-    float delta_x, delta_y;  // wheel (v2)
+    float delta_x, delta_y;  // wheel (v2); delta_x = rueda horizontal
     wn_node_id node;         // target estable (v5); WN_NODE_INVALID si no aplica
+    uint8_t button;          // 0 ninguno, 1 izq, 2 der, 3 central (v6)
+    uint8_t click_count;     // 1 normal, 2 doble clic (v6)
 } wn_event;
 ```
 
@@ -139,6 +192,9 @@ typedef struct wn_event {
 - v2 añade `WN_EVENT_WHEEL`; el wheel-forward es `delta_y < 0`.
 - v4 añade `WN_EVENT_INPUT = 11`.
 - v5 añade `wn_event.node` (handle estable, también para clones).
+- v6 añade `button` y `click_count`. El botón derecho/central reporta el nodo
+  pero no pulsa ni selecciona; un `POINTER_UP` debe comprobar `button` (0 queda
+  reservado para eventos que no son de puntero).
 - No hay `WN_EVENT_CLICK`: un click es `POINTER_DOWN` + `POINTER_UP` sobre el
   mismo nodo.
 
@@ -205,26 +261,27 @@ private static partial nint wn_node_get_value(nint app, ulong node);
 - Sin tipos de UI de .NET expuestos a la ABI.
 - `wn_node_get_value` se convierte inmediatamente con `Marshal.PtrToStringUTF8`.
 
-## Limitaciones de la base v4/v5 (importante)
+## Limitaciones de v6 (importante)
 
 - `wn_app_load` / `wn_view_load` **copian** HTML/CSS, pero el runtime renderiza
   el árbol compilado `ui_data.h`. **No hay parser HTML/CSS en runtime**; cambiar
   la página requiere recompilar el árbol o cargar otro `.wnui`.
 - `set_text` acepta cualquier UTF-8: el runtime shapea y rasteriza el texto. El
   documento solo lleva cadena, familia, tamaño, peso y `line-height`.
-- `set_image` conserva el tamaño intrínseco compilado; no hay probe WIC nuevo.
+- `set_image` conserva el tamaño intrínseco compilado hasta que el host llame
+  `wn_node_set_image_size`; no hay probe WIC automático.
 - Input: una línea UTF-8 (shapeada en runtime), sin IME/bidi/CJK/emoji, sin
   multilínea, sin password, sin undo/redo; drag-select y caret blink incluidos.
-- Un solo nodo `selected` a la vez y eventos solo de botón izquierdo; sin
-  getters de texto/rect, sin scroll-to ni foco programático (v6).
-- El documento no tiene refcount: quien lo crea lo destruye después del core.
+- `selected` ya es por nodo, pero las clases siguen siendo por nombre compilado
+  (no hay `set_class` por handle).
+- `scroll_into_view` es vertical y mueve solo el ancestro scrollable más cercano.
 - Sin virtualización, culling de sólidos, accesibilidad/UIA, DPI/multi-monitor
   ni cross-platform todavía.
 - Sin path offscreen en la ABI (sigue en `runtime_r2.exe --render/--states`).
 - Sin bindings WPF/WinForms; el host C# es consola/WinExe.
 - `wn_app_run`/`wn_view_render` son single-thread; no reentrar.
 
-## Fuera de v5
+## Fuera de v6
 
 - Motor de texto en Linux (HarfBuzz/FreeType detrás de la misma vtable).
 - IME, bidi, CJK, emoji.

@@ -82,7 +82,7 @@ no les obligan a seguirlas. Los resultados se versionan en
 | IR de estilos (`ui.json`)     | ✅ schema + goldens                                                         |
 | Emitter                       | ✅ `--emit-header` en Rust, byte-idéntico a `emit_ui.py` (oráculo, 4 páginas) |
 | Runtime C                     | ✅ `src/runtime` — layout, grid, scroll, imágenes y eventos (69/69)         |
-| ABI C v5                      | ✅ standalone/embedded; v3 dinámica + v4 input + v5 identidad de nodos      |
+| ABI C v6                      | ✅ standalone/embedded; v3 dinámica + v4 input + v5 nodos + v6 estado/lecturas |
 | Dynamic UI (v3)               | ✅ `set_visible`, `set_image`, `set_text`, clone/append/remove (61/61)      |
 | Text input (v4)               | ✅ UTF-8 single-line, caret/selección/drag/blink, `WN_EVENT_INPUT` (80+118) |
 | Texto en runtime              | ✅ DirectWrite, wrapping, atlas dinámico y cachés (66/34/4/40)              |
@@ -110,7 +110,7 @@ Resumen de lo que hay hoy:
 | Layout      | block, flex, grid, scroll vertical, resize                              |
 | Renderer    | D3D11 hardware (Windows, por defecto); wgpu-native (D3D12/Vulkan/Metal) |
 | Contenido   | texto shapeado en runtime, imágenes locales (WIC, caché LRU)            |
-| Interacción | hover/press/selected, wheel, input de una línea                         |
+| Interacción | hover/press/selected por nodo, botones/doble clic, wheel, input de una línea |
 | Dinamismo   | visibilidad, `set_image`, clone/append/remove                           |
 | CSS visual  | radius/bordes/sombras v1; per-side/per-corner/inset pendiente           |
 | Fuera       | JS, iframes, red, parser runtime, formularios web, UIA/IME              |

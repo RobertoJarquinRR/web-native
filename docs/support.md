@@ -98,19 +98,21 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | Layout block/flex/grid                       | ✅  | layout en C; `margin: auto` en block y flex              |
 | Scroll vertical + clip                       | ✅  | scrollbar track+thumb (sin drag); thumb sigue el wheel   |
 | Imágenes WIC + cache                         | ✅  | LRU con presupuesto (`WN_IMAGE_CACHE_MB`, 256 MB)        |
-| Tamaño intrínseco tras `set_image`            | ❌  | el rect conserva el tamaño compilado (A9)                |
-| Hover / press / selected                     | ✅  | hover/press del nodo bajo el cursor; un `selected` global |
+| Tamaño intrínseco tras `set_image`            | ✅  | `wn_node_set_image_size` re-layout y `object-fit` (A9)   |
+| Hover / press / selected                     | ✅  | bitset por nodo; varias selecciones, hover/press exclusivos |
+| Lecturas y navegación                        | ✅  | `get_text`, `get_rect`, `scroll_into_view`, foco/blur     |
 | Resize                                       | ✅  | re-layout                                                |
-| Wheel                                        | ✅  | `WN_EVENT_WHEEL`                                         |
+| Wheel                                        | ✅  | `WN_EVENT_WHEEL`; `delta_x` horizontal llega, el core no lo usa |
+| Botones y doble clic                         | ✅  | `button`/`click_count`; derecho/central reportan sin pulsar |
 | UI dinámica v3                               | ✅  | visibilidad, `set_image`, clone/append/remove            |
 | Input v4                                     | ✅  | UTF-8, caret, selección, drag, blink; texto shapeado en runtime |
 | Bordes / radius / sombras v1                 | ✅  | radio/borde uniforme; primera sombra; sin per-side/inset |
 | Virtualización / culling                     | ❌  | pendiente                                                |
 | Text shaping runtime                         | ✅  | DirectWrite; medición, shaping y atlas dinámico          |
-| Documento `.wnui` (blob)                     | ✅  | mmap solo lectura; `wn_app_load_document` vía ABI        |
+| Documento `.wnui` (blob)                     | ✅  | mmap, refcount (`retain/release`), carga en app viva     |
 | Wrapping / line breaking                     | ✅  | greedy por palabras; `line-height` y `text-align` por línea |
 | Ellipsis / truncado por ancho                | ❌  | pendiente (el host compacta)                             |
-| Timers / reloj público                       | ❌  | solo blink interno; pendiente (B5)                       |
+| Timers / reloj público                       | ✅  | `wn_app_set_tick_ms` + `wn_view_tick`; blink interno aparte |
 | Bidi, CJK, emoji, IME                        | ❌  | pendiente                                                |
 | Accesibilidad / UIA                          | ❌  | pendiente                                                |
 | DPI / multi-monitor                          | ❌  | Windows básico                                           |

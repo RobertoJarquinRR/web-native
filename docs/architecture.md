@@ -58,8 +58,9 @@ HTML/CSS → frontend Rust ──> ui.json ──┬─> --emit-header ──> u
                         └─ emit_ui.py (oráculo test-only, mismo header)
 runtime: eventos → estado → layout C (mide el texto) → display list
          → renderer → ventana
-host: ABI v5 → set_visible/set_image/set_text/clone (v3) + input (v4)
+host: ABI v6 → set_visible/set_image/set_text/clone (v3) + input (v4)
       + handle estable y navegación (v5)
+      + estado por nodo, getters, botón/doble clic, tick, refcount (v6)
 ```
 
 El texto no se hornea: el documento lleva cadena, familia, tamaño, peso y
@@ -116,7 +117,7 @@ src/
   emitter/python/      emit_ui
 tools/
   cli.py + wn_cli/     wn-cli (build/run/test/bench/setup)
-include/webnative.h    ABI C v5 (v3 dinámica + v4 input + v5 identidad)
+include/webnative.h    ABI C v6 (v3 dinámica + v4 input + v5 nodos + v6 estado)
 benchmarks/            paridad de frontends, paridad visual, engine-metrics
 archive/experiments/   histórico inmutable
 archive/frontends-legacy/  frontends C++/C#/Python congelados (test-only)
