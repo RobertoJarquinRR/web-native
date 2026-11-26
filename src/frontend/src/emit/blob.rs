@@ -70,7 +70,7 @@ fn push_f32(out: &mut Vec<u8>, value: f64) {
 }
 
 /// Python's `argb()` for a color already normalized to `#rrggbb[aa]`.
-fn argb_hex(value: Option<&str>) -> u32 {
+pub(crate) fn argb_hex(value: Option<&str>) -> u32 {
     let Some(text) = value else {
         return 0;
     };
@@ -105,14 +105,14 @@ fn argb_hex(value: Option<&str>) -> u32 {
     (u32::from(a) << 24) | (u32::from(r) << 16) | (u32::from(g) << 8) | u32::from(b)
 }
 
-fn action_code(value: Option<&str>) -> i32 {
+pub(crate) fn action_code(value: Option<&str>) -> i32 {
     match value {
         Some(text) if text.trim().eq_ignore_ascii_case("select") => 1,
         _ => 0,
     }
 }
 
-fn overflow_code(value: Option<&str>) -> i32 {
+pub(crate) fn overflow_code(value: Option<&str>) -> i32 {
     match value.map(|text| text.trim().to_ascii_lowercase()) {
         Some(text) if text == "auto" || text == "scroll" => 2,
         Some(text) if text == "hidden" => 1,
@@ -120,7 +120,7 @@ fn overflow_code(value: Option<&str>) -> i32 {
     }
 }
 
-fn object_fit_code(value: Option<&str>) -> i32 {
+pub(crate) fn object_fit_code(value: Option<&str>) -> i32 {
     match value.map(|text| text.trim().to_ascii_lowercase()) {
         Some(text) if text == "cover" => 1,
         Some(text) if text == "contain" => 2,
@@ -128,7 +128,7 @@ fn object_fit_code(value: Option<&str>) -> i32 {
     }
 }
 
-fn text_align_code(value: &str) -> i32 {
+pub(crate) fn text_align_code(value: &str) -> i32 {
     match value.trim().to_ascii_lowercase().as_str() {
         "center" => 1,
         "right" => 2,
@@ -137,7 +137,7 @@ fn text_align_code(value: &str) -> i32 {
 }
 
 /// Python's `font_weight_value()`: keyword, number 100..900, or 400.
-fn font_weight_code(value: &str) -> i32 {
+pub(crate) fn font_weight_code(value: &str) -> i32 {
     let text = value.trim().to_ascii_lowercase();
     match text.as_str() {
         "normal" => 400,
@@ -150,7 +150,7 @@ fn font_weight_code(value: &str) -> i32 {
     }
 }
 
-fn margin_auto_code(flags: &[bool; 4]) -> i32 {
+pub(crate) fn margin_auto_code(flags: &[bool; 4]) -> i32 {
     let mut mask = 0i32;
     for (index, flag) in flags.iter().enumerate() {
         if *flag {
@@ -160,14 +160,14 @@ fn margin_auto_code(flags: &[bool; 4]) -> i32 {
     mask
 }
 
-fn grid_columns(columns: Option<&GridTemplateColumns>) -> (i32, f64) {
+pub(crate) fn grid_columns(columns: Option<&GridTemplateColumns>) -> (i32, f64) {
     match columns {
         Some(grid) if grid.mode == "auto_fill" && grid.size_px > 0.0 => (1, grid.size_px),
         _ => (0, 0.0),
     }
 }
 
-fn grid_rows(rows: Option<&GridAutoRows>) -> f64 {
+pub(crate) fn grid_rows(rows: Option<&GridAutoRows>) -> f64 {
     match rows {
         Some(GridAutoRows::Px(px)) => px.max(0.0),
         Some(GridAutoRows::Auto) | None => -1.0,
@@ -175,19 +175,19 @@ fn grid_rows(rows: Option<&GridAutoRows>) -> f64 {
 }
 
 /// `border_width_value()`: uniform width across the visible sides.
-fn border_width(css3: &crate::style::style_ext::StyleV3) -> f64 {
+pub(crate) fn border_width(css3: &crate::style::style_ext::StyleV3) -> f64 {
     let (width, _) = css3.border.uniform_width();
     width.max(0.0)
 }
 
 /// `first_box_shadow()`: first non-`inset` shadow.
-fn first_shadow(
+pub(crate) fn first_shadow(
     css3: &crate::style::style_ext::StyleV3,
 ) -> Option<&crate::style::style_ext::BoxShadow> {
     css3.box_shadow.iter().find(|shadow| !shadow.inset)
 }
 
-fn border_radius(css3: &crate::style::style_ext::StyleV3) -> f64 {
+pub(crate) fn border_radius(css3: &crate::style::style_ext::StyleV3) -> f64 {
     css3.border_radius
         .iter()
         .copied()
@@ -252,7 +252,7 @@ fn jpeg_size(data: &[u8]) -> Option<(u32, u32)> {
 
 /// Intrinsic PNG/JPEG size resolved against the `ui.json` directory, same as
 /// the Python emitter's `image_size()`.
-fn image_size(source: Option<&str>, base_dir: &Path) -> (f64, f64) {
+pub(crate) fn image_size(source: Option<&str>, base_dir: &Path) -> (f64, f64) {
     let Some(source) = source else {
         return (0.0, 0.0);
     };
