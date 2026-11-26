@@ -731,16 +731,8 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
         w = fmaxf(available_w - n->margin[1] - n->margin[3], 0.0f);
     }
 
-    float x = origin_x + n->margin[3];
-    float y = origin_y + n->margin[0];
-    if (is_root) {
-        x = 0.0f;
-        y = 0.0f;
-    }
-
     const float pad_l = n->padding[3], pad_r = n->padding[1];
     const float pad_t = n->padding[0], pad_b = n->padding[2];
-    const float content_w = fmaxf(w - pad_l - pad_r, 0.0f);
     float content_h = -1.0f;
     int definite_h = 0;
     if (n->height >= 0.0f) {
@@ -751,9 +743,6 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
                               (WN_BOX_SIZING(n) ? pad_t + pad_b : 0.0f), 0.0f);
         definite_h = 1;
     }
-
-    const float content_x = x + pad_l;
-    const float content_y = y + pad_t;
 
     /* Leaves never run children: the kind entry owns their height and the
      * early return keeps the historical "no children" contract. Their scroll
@@ -769,12 +758,26 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
         } else {
             h = ops->auto_height(c, node, w, content_h);
         }
-        c->rects[node].x = x;
-        c->rects[node].y = y;
+        c->rects[node].x = origin_x + n->margin[3];
+        c->rects[node].y = origin_y + n->margin[0];
+        if (is_root) {
+            c->rects[node].x = 0.0f;
+            c->rects[node].y = 0.0f;
+        }
         c->rects[node].w = w;
         c->rects[node].h = h;
         return h + n->margin[2];
     }
+
+    float x = origin_x + n->margin[3];
+    float y = origin_y + n->margin[0];
+    if (is_root) {
+        x = 0.0f;
+        y = 0.0f;
+    }
+    const float content_w = fmaxf(w - pad_l - pad_r, 0.0f);
+    const float content_x = x + pad_l;
+    const float content_y = y + pad_t;
 
     const float cursor = ops->layout_children(c, node, content_x, content_y,
                                               content_w, content_h);
