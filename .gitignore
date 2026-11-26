@@ -49,3 +49,6 @@ benchmarks/pilot-media-library/posters/manifest.json
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# Generated header kept inside archived experiments
+archive/**/ui_data.h
