@@ -7,16 +7,20 @@ del proceso, no como código de producción.
 
 El código canónico vive en:
 
-- `src/frontend/rust/` — frontend HTML/CSS canónico.
-- `src/frontend/python/` — oráculo de paridad y verificación.
-- `src/emitter/python/` — `emit_c`, `emit_c_text`, `emit_ui`.
-- `src/runtime/c-r2/` — runtime dinámico, core y ABI C.
-- `src/runtime/c-static/` — runtime estático R1.
-- `docs/` — contratos, arquitectura, ABI, roadmap.
+- `src/frontend/` — frontend HTML/CSS canónico (Rust) y tests.
+- `src/runtime/` — motor C: core, documento, texto, renderers y host.
+- `docs/` — contratos, arquitectura, ABI, roadmap y auditoría.
+
+Solo el contenido **trackeado** del archivo (~3.5 MB de fuente, READMEs y
+referencias) forma parte del repo. Los `.venv/`, `build/`, `target/`,
+`node_modules/`, `__pycache__/` y capturas son artefactos ignorados y
+desechables: se pueden borrar sin tocar la historia, y el pack de git sigue
+siendo de ~2 MB. Por eso el archivo se queda aquí y no se mueve a una rama:
+una rama no reduce el tamaño del clon.
 
 `archive/experiments/16-text-atlas-c/` se conserva como **fixture de
-referencia** para `src/runtime/c-static/build_text.ps1` y
-`src/frontend/rust/bench-rust.ps1`; por eso no se borra.
+referencia** para `src/frontend/verify_text.py` (sus `display_list.json` y
+`atlas.bin`); por eso no se borra.
 
 | Experimento | Tema | Estado |
 |---|---|---|

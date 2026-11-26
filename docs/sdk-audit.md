@@ -47,7 +47,7 @@ pre-alfa el formato rompe libremente; C6 se decide al congelar 1.0.
 | A7 | Texto | Layout mide texto envuelto (2 líneas) y el pintado dibuja una sola línea | `measure` acepta `max_width`, `shape` no | line breaking en layout+paint (E4). Aditivo |
 | A8 | Fuentes | Familia desconocida cae a un ancho heurístico `0.6 * size * len` sin avisar | `measure_text_node` si el backend falla | fallback real + diagnóstico `wn_text_last_error`. Aditivo |
 | A9 | Imágenes | `set_image` conserva el tamaño intrínseco compilado | `wn_core_set_image` solo cambia el path | **resuelto (v6)**: `wn_node_set_image_size` re-layout y `object-fit`; rechaza tamaños no finitos |
-| A10 | Texto | `set_text` cambia lo que se pinta pero no lo que se mide: el nodo conserva ancho/alto compilados | `measure_text_node` usa `n->text`, no el override (`core/layout.c`) | medir el texto efectivo (override incluido). Aditivo |
+| A10 | Texto | ~~`set_text` cambia lo que se pinta pero no lo que se mide~~ | `measure_text_node` usaba `n->text`, no el override | **resuelto (ola 1)**: `set_text` marca layout y el bloque de línea mide el override; la galería dejó los anchos fijos |
 | D1 | Texto | Un `font-size` grande en un `.wnui` desborda el `scratch` de 64 KB del atlas: `width*height` se multiplica en `int` y el chequeo de capacidad pasa con el producto desbordado | `text_directwrite.cpp:471` compara `capacity < width * height` (int) y `:476` pasa ese producto a `CreateAlphaTexture`; el buffer es `text_atlas.c:214` (`WN_ATLAS_MAX_BITMAP`) y `font_size` entra sin validar desde el blob (`wn_blob.c:244`) | calcular en `int64_t`, tope de em-size (~512 px) y rechazar `font_size` fuera de rango al cargar. Aditivo |
 
 ## P1 — semántica y API
