@@ -30,8 +30,9 @@ x/y (X reservado), paint items ordenados con capa/transform/opacidad y culling
 calculado. Deja `position`, `z-index`, `transform`, opacidad y virtualización
 como features aditivas.
 
-Pendiente de la lista: B1, B7, B10, C2, C3, C6–C10. **Siguiente:** C6 (política
-de versión del blob) antes de añadir campos de estilo.
+Pendiente de la lista: B1, B7, B10, C2, C3, C6–C10. **Siguiente:** features de
+estilo (`opacity` estrena blob v3, luego position/z-index y transform). En
+pre-alfa el formato rompe libremente; C6 se decide al congelar 1.0.
 
 ## P0 — corrección y seguridad
 
@@ -83,7 +84,7 @@ de versión del blob) antes de añadir campos de estilo.
 | C4 | Tests | **resuelto**: los suites emiten blobs en `out/` y no regeneran fixtures trackeados | fixtures dentro del repo | cerrado con la consolidación del documento |
 | C5 | Compilador | **resuelto**: el frontend Rust emite solo `.wnui`; no hay otro serializador | había dos serializadores | cerrado; el emisor Python se retiró en 2b |
 | C12 | Documento | **resuelto (2b)**: runtime blob-only (builtin embebido, loader por memoria), frontend `--emit-blob` único, `wnui-dump` y hashes fijados; fixtures CSS migrados a HTML/CSS | quedaba un árbol JSON intermedio en build y tests | cerrado; ya no existe ningún consumidor del pipeline anterior |
-| C6 | Blob | Solo hay versión exacta; sin política de compatibilidad | loader exige `version == 2` | aceptar versiones ≤ actual con secciones opcionales |
+| C6 | Blob | Versión exacta y sin política de compatibilidad | loader exige la versión actual | **pre-alfa: pospuesto a 1.0**; el formato puede romper y subir de versión sin retrocompatibilidad |
 | C7 | Hilos | `text_runtime` es singleton global con buffer estático | asume un hilo de UI | documentar o pasar contexto por core |
 | C8 | Errores | Mezcla de `-1/-2` y `wn_status`; no hay código estructurado | crecimiento histórico | normalizar a `wn_status` + `wn_last_error` |
 | C9 | Input | Valor máximo 255 bytes y sin deshacer/rehacer | buffer fijo | buffer dinámico y undo/redo (E3) |

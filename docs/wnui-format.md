@@ -5,6 +5,10 @@
 > blob: su texto y su JSON pueden cambiar cuando cambia la versión del blob.
 > La invariante estable es el hash SHA-256 del blob canónico y la comparación
 > píxel a píxel (`blob` vs builtin), no la salida del dump.
+>
+> **Pre-alfa:** el formato puede romperse y subir de versión sin compatibilidad
+> hacia atrás. Todos los consumidores (DLL, galería, fixtures) se reconstruyen
+> del mismo repo. La política de compatibilidad (C6) se decide al congelar 1.0.
 
 ## Secciones del blob
 

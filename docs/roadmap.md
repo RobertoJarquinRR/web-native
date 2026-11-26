@@ -30,9 +30,10 @@ Un stream no toca los archivos de otro; se integra por contrato.
 
 > **Orden de ejecución:** CI y contratos (E6) → ABI v6 (estado/lecturas) →
 > documento blob-only y retirada del emisor (C5/C12) → enablers (capabilities,
-> textblock, scroll, paintlist) → **blob v3/C6** → opacity →
-> position/z-index → transform → E4 input v2 → E5 escala → E3 plataforma →
-> E7 release. E2 va en paralelo. E8 animation/float futuro/no-go.
+> textblock, scroll, paintlist) → **opacity (blob v3)** → position/z-index →
+> transform → E4 input v2 → E5 escala → E3 plataforma → E7 release. E2 va en
+> paralelo. La compatibilidad del blob (C6) se decide al congelar 1.0, no en
+> pre-alfa. E8 animation/float futuro/no-go.
 
 ## Estado (2026-11)
 
