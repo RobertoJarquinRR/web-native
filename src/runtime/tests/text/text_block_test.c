@@ -71,6 +71,7 @@ static wn_core *make_leaf_core(int kind, const char *text, float width, float he
     g_nodes[0].width = -1.0f;
     g_nodes[0].height = -1.0f;
     g_nodes[0].flex_shrink = 1.0f;
+    g_nodes[0].opacity = 1.0f;
 
     g_nodes[1].parent = 0;
     g_nodes[1].kind = kind;
@@ -87,6 +88,7 @@ static wn_core *make_leaf_core(int kind, const char *text, float width, float he
     g_nodes[1].padding[2] = pad;
     g_nodes[1].padding[3] = pad;
     g_nodes[1].flex_shrink = 1.0f;
+    g_nodes[1].opacity = 1.0f;
 
     g_doc.nodes = g_nodes;
     g_doc.node_count = 2;

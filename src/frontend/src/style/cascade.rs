@@ -61,6 +61,9 @@ pub(crate) struct ComputedStyle {
     pub(crate) flex_grow: f64,
     pub(crate) flex_shrink: f64,
     pub(crate) flex_basis: f64,
+    /// `opacity` (0..1, clamped). Not inherited: a node with `opacity < 1`
+    /// becomes a group that fades its own box and its whole subtree.
+    pub(crate) opacity: f64,
     pub(crate) flex_direction: String,
     pub(crate) justify_content: String,
     pub(crate) align_items: String,
@@ -318,6 +321,7 @@ fn resolve(
         flex_grow,
         flex_shrink,
         flex_basis,
+        opacity,
         flex_direction: keyword(&raw, "flex-direction", "row"),
         justify_content: keyword(&raw, "justify-content", "flex-start"),
         align_items: keyword(&raw, "align-items", "stretch"),
@@ -366,7 +370,6 @@ fn resolve(
             border_radius,
             border_radius_rel,
             box_shadow,
-            opacity,
         },
         raw,
     }

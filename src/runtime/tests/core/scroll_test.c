@@ -117,6 +117,9 @@ static unsigned char *build_blob(size_t *out_size)
     nodes[2].font_size = 16.0f;
     nodes[2].flex_shrink = 1.0f;
     nodes[2].flex_basis = -1.0f;
+    for (int index = 0; index < 3; ++index) {
+        nodes[index].opacity = 1.0f;
+    }
 
     name_offsets = (uint32_t *)(data + names_offset);
     memset(name_offsets, 0, names_bytes);

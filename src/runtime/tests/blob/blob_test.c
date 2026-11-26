@@ -182,6 +182,7 @@ static int write_chain_blob(const char *path, uint32_t node_count)
     for (i = 0; i < node_count; ++i) {
         nodes[i].parent = i == 0 ? -1 : (int32_t)(i - 1);
         nodes[i].font_size = 16.0f;
+        nodes[i].opacity = 1.0f;
     }
     ok = write_file(path, data, (size_t)total);
     free(data);
@@ -371,7 +372,8 @@ static int node_equal(const UiNode *a, const UiNode *b)
            a->flex_shrink == b->flex_shrink &&
            a->flex_basis == b->flex_basis &&
            strings_equal(a->font_family, b->font_family) &&
-           a->font_weight == b->font_weight;
+           a->font_weight == b->font_weight &&
+           a->opacity == b->opacity;
 }
 
 static int documents_equal(const wn_document *a, const wn_document *b)
@@ -812,3 +814,4 @@ int main(int argc, char **argv)
     printf("blob_test: PASS (%d checks)\n", checks);
     return 0;
 }
+

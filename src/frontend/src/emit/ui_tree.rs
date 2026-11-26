@@ -144,6 +144,10 @@ pub struct StyleOut {
     pub flex_grow: f64,
     pub flex_shrink: f64,
     pub flex_basis: f64,
+    /// CSS `opacity` (0..1). A value below 1 makes the node a group: the
+    /// runtime renders its box and subtree into an offscreen layer and
+    /// composites it once. Not inherited.
+    pub opacity: f64,
     /// v3: borders, radius, shadows and relative units (only schema `/2`).
     pub css3: StyleV3,
 }
@@ -398,6 +402,7 @@ impl<'a> Builder<'a> {
                 flex_grow: style.flex_grow,
                 flex_shrink: style.flex_shrink,
                 flex_basis: style.flex_basis,
+                opacity: style.opacity,
                 css3: style.css3.clone(),
             },
             data: DataOut {
@@ -535,6 +540,9 @@ impl<'a> Builder<'a> {
                 flex_grow: style.flex_grow,
                 flex_shrink: style.flex_shrink,
                 flex_basis: style.flex_basis,
+                // Generated text nodes do not inherit `opacity`: the owning
+                // element's group layer already fades the text.
+                opacity: 1.0,
                 css3: StyleV3::default(),
             },
             data: DataOut {

@@ -1,4 +1,4 @@
-//! `--emit-blob`: the `.wnui` v2 document (same section layout as the
+//! `--emit-blob`: the `.wnui` v3 document (same section layout as the
 //! archived Python oracle's `write_blob`).
 //!
 //! The tree is already parsed into `NodeOut`; this module only reproduces the
@@ -16,7 +16,7 @@ use crate::style::color::argb;
 use crate::style::grid::{GridAutoRows, GridTemplateColumns};
 
 const BLOB_MAGIC: u32 = 0x4955_4E57; // "WNUI"
-const BLOB_VERSION: u32 = 2;
+const BLOB_VERSION: u32 = 3;
 const BLOB_HEADER_SIZE: usize = 32;
 const BLOB_SECTION_SIZE: usize = 16;
 
@@ -368,9 +368,11 @@ fn push_node_record(
     };
     push_u32(out, pool.offset(Some(family)));
     push_i32(out, font_weight_code(&style.font_weight));
+    // Blob v3: CSS group opacity (0..1). The cascade already clamps it.
+    push_f32(out, style.opacity.clamp(0.0, 1.0));
 }
 
-/// Writes the v2 `.wnui` document. `asset_dir` is the directory the document's
+/// Writes the v3 `.wnui` document. `asset_dir` is the directory the document's
 /// asset references (image sources) resolve against; it comes from the
 /// pipeline input, never from `path`, so the blob may be written anywhere.
 pub(crate) fn write_blob(

@@ -426,6 +426,11 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
                          (double)WN_BLOB_MAX_FONT_SIZE);
             goto fail;
         }
+        if (!(src->opacity >= 0.0f && src->opacity <= 1.0f)) {
+            wn_set_error("wn_document_load_blob: %s: node %u has opacity %.4f "
+                         "(expected 0..1)", origin, i, (double)src->opacity);
+            goto fail;
+        }
         dst->parent = src->parent;
         dst->kind = src->kind;
         dst->direction = src->direction;
@@ -475,6 +480,7 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
         dst->flex_basis = src->flex_basis;
         dst->font_family = blob_string(strings, strings_size, src->font_family);
         dst->font_weight = src->font_weight;
+        dst->opacity = src->opacity;
     }
     {
         const uint32_t *name_offsets =

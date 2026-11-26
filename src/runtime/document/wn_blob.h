@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 #define WN_BLOB_MAGIC 0x49554E57u /* "WNUI" */
-#define WN_BLOB_VERSION 2u
+#define WN_BLOB_VERSION 3u
 #define WN_BLOB_HEADER_SIZE 32u
 
 /* Loader limits: the layout/paint walk is recursive, so a crafted chain would
@@ -100,6 +100,7 @@ typedef struct {
     float flex_basis;
     uint32_t font_family;
     int32_t font_weight;
+    float opacity;
 } WnBlobNode;
 
 typedef struct {
