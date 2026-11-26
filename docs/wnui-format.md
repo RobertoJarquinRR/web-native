@@ -61,8 +61,10 @@ su lado declarado y que todo inset declarado sea finito.
   left/top. Los hermanos no se mueven.
 - `absolute`: sale del flujo (block/flex/grid no lo cuentan ni avanzan el
   cursor; no altera el tamaño del padre). El containing block es el ancestro
-  posicionado más cercano (`relative` o `absolute`) o el root. Los insets se
-  resuelven contra su **padding box**. `left+right` con ancho `auto` estira;
+  posicionado más cercano (`relative` o `absolute`) o el viewport (initial
+  containing block) cuando no hay ninguno. Los insets se resuelven contra su
+  **border box**; el layout ignora el ancho de borde, así que ese rect coincide
+  con el padding box que define CSS. `left+right` con ancho `auto` estira;
   `top+bottom` con alto `auto` estira; un solo inset coloca ese borde; con los
   cuatro en `auto` el nodo se coloca en el origen del content box del containing
   block (regla simplificada de esta lane, no la static position completa de
@@ -75,12 +77,21 @@ su lado declarado y que todo inset declarado sea finito.
   así un `overflow` de un ancestro estático que no es el containing block no lo
   recorta (comportamiento CSS), mientras que el propio containing block con
   `overflow` sí lo recorta. Scroll, clip y hit-test consumen el mismo rect.
-  Caso límite: el walk de pintado poda un subárbol cuyo clip ya es vacío, así
-  que un absoluto que escape de un ancestro **totalmente** recortado no llega a
-  pintarse (sus rects/clip/hit sí están calculados).
+  El walk de pintado ya no poda un subárbol porque un ancestro tenga el clip
+  vacío: sigue bajando y omite solo los nodos cuyo propio clip está vacío. Así
+  un absoluto que escape de un ancestro **totalmente** recortado (p. ej.
+  `relative > overflow:hidden(height:0) > static > absolute`) sí se pinta y
+  responde al hit-test en su rect colocado.
 - **Diferido:** `position: fixed`, `position: sticky`, `z-index` y el shorthand
   `inset`. El orden de pintado sigue siendo el orden del árbol: un nodo
   posicionado **no** se promueve todavía a una capa de stacking posterior.
+- **Límites conocidos de esta lane:** un porcentaje de `relative` dentro de un
+  grid se resuelve contra el content box del contenedor, no contra el área del
+  track (F4b); una imagen `absolute` con ancho `auto` y sin tamaño intrínseco
+  resuelto colapsa a ancho 0 en vez del ancho por defecto de un elemento
+  reemplazado (F4c). Los hijos fuera de flujo no contribuyen al overflow
+  scrolleable del contenedor (F4d), igual que un `absolute` no altera el tamaño
+  de su padre.
 
 ### Semántica de `opacity` (v3)
 

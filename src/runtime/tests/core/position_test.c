@@ -52,6 +52,14 @@ typedef struct {
     float inset[4];     /* top,right,bottom,left */
     unsigned int inset_mask;
     int overflow;
+    /* Flex/grid knobs for the out-of-flow exclusion cases. */
+    int direction;      /* 0 row, 1 column */
+    float gap;
+    int grid_mode;
+    float grid_column_px;
+    float grid_auto_rows;
+    float row_gap;
+    float column_gap;
 } NodeSpec;
 
 static uint32_t align_up8(uint32_t value)
@@ -116,6 +124,13 @@ static unsigned char *build_blob(const NodeSpec *spec, uint32_t count,
         memcpy(nodes[i].inset, spec[i].inset, sizeof(nodes[i].inset));
         nodes[i].inset_mask = spec[i].inset_mask;
         nodes[i].overflow = spec[i].overflow;
+        nodes[i].direction = spec[i].direction;
+        nodes[i].gap = spec[i].gap;
+        nodes[i].grid_mode = spec[i].grid_mode;
+        nodes[i].grid_column_px = spec[i].grid_column_px;
+        nodes[i].grid_auto_rows = spec[i].grid_auto_rows;
+        nodes[i].row_gap = spec[i].row_gap;
+        nodes[i].column_gap = spec[i].column_gap;
         nodes[i].font_size = 16.0f;
         nodes[i].flex_shrink = 1.0f;
         nodes[i].flex_basis = -1.0f;
@@ -136,6 +151,7 @@ static void spec_init(NodeSpec *spec, int parent, int kind, float width, float h
     spec->width = width;
     spec->height = height;
     spec->position = R2_POSITION_STATIC;
+    spec->grid_auto_rows = -1.0f;
 }
 
 static wn_core *load_core(unsigned char *data, size_t size, wn_document **out_doc)
@@ -508,7 +524,7 @@ static void run_scroll_hit(void)
         return;
     }
 
-    check("absolute: scroll max ignores the out-of-flow children",
+    check("scroll: the tall static child sets the scroll max",
           fabsf(wn_core_scroll_max(core, 1) - 300.0f) < 0.01f,
           "scroll_max_y=300 from the 400px static child");
     check("absolute: placed inside the positioned scroll container",
@@ -541,6 +557,289 @@ static void run_scroll_hit(void)
           wn_core_node_at(core, 20.0f, 20.0f) == 3,
           "point (20,20) -> node 3");
     report_rect(core, 3, "scroll-hit");
+
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+    free(data);
+}
+
+static void run_relative_subtree(void)
+{
+    NodeSpec spec[5];
+    unsigned char *data;
+    size_t size = 0;
+    wn_document *document = NULL;
+    wn_core *core;
+
+    spec_init(&spec[0], -1, R2_NODE_BLOCK, 400.0f, 300.0f);
+    spec_init(&spec[1], 0, R2_NODE_BLOCK, 100.0f, 50.0f);
+    spec_init(&spec[2], 1, R2_NODE_BLOCK, 30.0f, 10.0f);
+    spec_init(&spec[3], 0, R2_NODE_BLOCK, 100.0f, 10.0f);
+    spec_init(&spec[4], 1, R2_NODE_BLOCK, 20.0f, 20.0f);
+
+    spec[1].position = R2_POSITION_RELATIVE;
+    spec[1].inset[0] = 25.0f;
+    spec[1].inset[3] = 15.0f;
+    spec[1].inset_mask = 0b1001u;
+
+    spec[4].position = R2_POSITION_ABSOLUTE;
+    spec[4].inset[0] = 5.0f;
+    spec[4].inset[3] = 5.0f;
+    spec[4].inset_mask = 0b1001u;
+
+    data = build_blob(spec, 5u, 400u, 300u, &size);
+    core = data != NULL ? load_core(data, size, &document) : NULL;
+    if (!check("relative subtree: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        free(data);
+        return;
+    }
+
+    check("relative: shifts its whole in-flow subtree",
+          rect_is(core, 1, 15, 25, 100, 50) && rect_is(core, 2, 15, 25, 30, 10),
+          "node 1 (15,25) and node 2 (15,25)");
+    check("relative: the next flow sibling keeps its slot",
+          rect_is(core, 3, 0, 50, 100, 10), "node 3 (0,50)");
+    check("relative: an absolute descendant resolves against the moved ancestor",
+          rect_is(core, 4, 20, 30, 20, 20), "node 4 (20,30)");
+
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+    free(data);
+}
+
+static void run_relative_scroll(void)
+{
+    NodeSpec spec[4];
+    unsigned char *data;
+    size_t size = 0;
+    wn_document *document = NULL;
+    wn_core *core;
+
+    spec_init(&spec[0], -1, R2_NODE_BLOCK, 400.0f, 300.0f);
+    spec_init(&spec[1], 0, R2_NODE_BLOCK, 200.0f, 100.0f);
+    spec_init(&spec[2], 1, R2_NODE_BLOCK, 30.0f, 20.0f);
+    spec_init(&spec[3], 1, R2_NODE_BLOCK, 100.0f, 400.0f);
+
+    spec[1].position = R2_POSITION_RELATIVE;
+    spec[1].overflow = R2_OVERFLOW_SCROLL;
+
+    spec[2].position = R2_POSITION_RELATIVE;
+    spec[2].inset[0] = 20.0f;
+    spec[2].inset[3] = 110.0f; /* clear of the 100px static sibling below it */
+    spec[2].inset_mask = 0b1001u;
+
+    data = build_blob(spec, 4u, 400u, 300u, &size);
+    core = data != NULL ? load_core(data, size, &document) : NULL;
+    if (!check("relative scroll: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        free(data);
+        return;
+    }
+
+    check("relative: scroll max counts only the in-flow children",
+          fabsf(wn_core_scroll_max(core, 1) - 320.0f) < 0.01f,
+          "scroll_max_y=320 from 20+400 content in a 100px viewport");
+    check("relative: placed inside the scrolled content",
+          rect_is(core, 2, 110, 20, 30, 20), "node 2 (110,20)");
+    check("relative: hittable at the placed rect",
+          wn_core_node_at(core, 115.0f, 25.0f) == 2, "point (115,25) -> node 2");
+    check("relative: moves with the scroll offset",
+          wn_core_scroll_by(core, 1, 0.0f, 10.0f) == 1 &&
+              rect_is(core, 2, 110, 10, 30, 20),
+          "node 2 (110,10) after scrolling 10");
+    check("relative: hit-test follows the scrolled rect",
+          wn_core_node_at(core, 115.0f, 15.0f) == 2,
+          "point (115,15) -> node 2");
+
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+    free(data);
+}
+
+static void run_flow_removal(void)
+{
+    NodeSpec spec[12];
+    unsigned char *data;
+    size_t size = 0;
+    wn_document *document = NULL;
+    wn_core *core;
+
+    spec_init(&spec[0], -1, R2_NODE_BLOCK, 400.0f, 300.0f);
+    /* Flex row: the 150x80 absolute child must not widen or heighten the line. */
+    spec_init(&spec[1], 0, R2_NODE_FLEX, 200.0f, -1.0f);
+    spec_init(&spec[2], 1, R2_NODE_BLOCK, 40.0f, 20.0f);
+    spec_init(&spec[3], 1, R2_NODE_BLOCK, 150.0f, 80.0f);
+    spec_init(&spec[4], 1, R2_NODE_BLOCK, 40.0f, 20.0f);
+    /* Grid: the absolute child must not add a row nor set the row height. */
+    spec_init(&spec[5], 0, R2_NODE_GRID, 200.0f, -1.0f);
+    spec_init(&spec[6], 5, R2_NODE_BLOCK, 20.0f, 20.0f);
+    spec_init(&spec[7], 5, R2_NODE_BLOCK, 150.0f, 90.0f);
+    spec_init(&spec[8], 5, R2_NODE_BLOCK, 20.0f, 20.0f);
+    /* Intrinsic width: an absolute auto-width box ignores its absolute child. */
+    spec_init(&spec[9], 0, R2_NODE_BLOCK, -1.0f, -1.0f);
+    spec_init(&spec[10], 9, R2_NODE_BLOCK, 20.0f, 10.0f);
+    spec_init(&spec[11], 9, R2_NODE_BLOCK, 120.0f, 10.0f);
+
+    spec[1].direction = 0;
+    spec[5].grid_mode = R2_GRID_AUTO_FILL;
+    spec[5].grid_column_px = 50.0f;
+
+    spec[3].position = R2_POSITION_ABSOLUTE;
+    spec[7].position = R2_POSITION_ABSOLUTE;
+    spec[9].position = R2_POSITION_ABSOLUTE;
+    spec[9].inset[0] = 200.0f;
+    spec[9].inset[3] = 250.0f;
+    spec[9].inset_mask = 0b1001u;
+    spec[11].position = R2_POSITION_ABSOLUTE;
+
+    data = build_blob(spec, 12u, 400u, 300u, &size);
+    core = data != NULL ? load_core(data, size, &document) : NULL;
+    if (!check("flow removal: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        free(data);
+        return;
+    }
+
+    check("absolute: removed from flex flow (size and line height)",
+          rect_is(core, 1, 0, 0, 200, 20) && rect_is(core, 2, 0, 0, 40, 20) &&
+              rect_is(core, 4, 40, 0, 40, 20) && rect_is(core, 3, 0, 0, 150, 80),
+          "flex height 20, second static at x=40, absolute at (0,0)");
+    check("absolute: removed from grid flow (no extra row, row height)",
+          rect_is(core, 5, 0, 20, 200, 20) && rect_is(core, 6, 0, 20, 20, 20) &&
+              rect_is(core, 8, 50, 20, 20, 20),
+          "grid height 20, second static at (50,20)");
+    check("absolute: excluded from the parent intrinsic width",
+          rect_is(core, 9, 250, 200, 20, 10) && rect_is(core, 11, 250, 200, 120, 10),
+          "node 9 auto width 20, its absolute child 120 wide");
+
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+    free(data);
+}
+
+static void run_scroll_max_exclusion(void)
+{
+    NodeSpec spec[4];
+    unsigned char *data;
+    size_t size = 0;
+    wn_document *document = NULL;
+    wn_core *core;
+
+    spec_init(&spec[0], -1, R2_NODE_BLOCK, 400.0f, 300.0f);
+    spec_init(&spec[1], 0, R2_NODE_BLOCK, 200.0f, 100.0f);
+    spec_init(&spec[2], 1, R2_NODE_BLOCK, 100.0f, 60.0f);
+    spec_init(&spec[3], 1, R2_NODE_BLOCK, 50.0f, 50.0f);
+
+    spec[1].position = R2_POSITION_RELATIVE;
+    spec[1].overflow = R2_OVERFLOW_SCROLL;
+
+    spec[3].position = R2_POSITION_ABSOLUTE;
+    spec[3].inset[0] = 400.0f;
+    spec[3].inset[3] = 10.0f;
+    spec[3].inset_mask = 0b1001u;
+
+    data = build_blob(spec, 4u, 400u, 300u, &size);
+    core = data != NULL ? load_core(data, size, &document) : NULL;
+    if (!check("scroll max: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        free(data);
+        return;
+    }
+
+    /* Only the absolute node could overflow here: 60px of static content in a
+     * 100px viewport must leave max_y at 0. */
+    check("absolute: out-of-flow children add no scrollable overflow",
+          fabsf(wn_core_scroll_max(core, 1)) < 0.01f &&
+              wn_core_scroll_by(core, 1, 0.0f, 50.0f) == 0,
+          "scroll_max_y=0 with a 400px absolute child");
+
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+    free(data);
+}
+
+static void run_clipped_ancestor_escape(void)
+{
+    NodeSpec spec[5];
+    unsigned char *data;
+    size_t size = 0;
+    wn_document *document = NULL;
+    wn_core *core;
+    wn_rect clipped;
+    wn_rect escaped;
+    int item;
+    int painted = 0;
+
+    spec_init(&spec[0], -1, R2_NODE_BLOCK, 400.0f, 300.0f);
+    spec_init(&spec[1], 0, R2_NODE_BLOCK, 100.0f, 100.0f); /* positioned parent */
+    spec_init(&spec[2], 1, R2_NODE_BLOCK, 100.0f, 0.0f);   /* fully clipped */
+    spec_init(&spec[3], 2, R2_NODE_BLOCK, 20.0f, 20.0f);   /* static intermediary */
+    spec_init(&spec[4], 3, R2_NODE_BLOCK, 30.0f, 30.0f);   /* absolute escapee */
+
+    spec[1].position = R2_POSITION_RELATIVE;
+    spec[2].overflow = R2_OVERFLOW_HIDDEN;
+    spec[4].position = R2_POSITION_ABSOLUTE;
+    spec[4].inset[0] = 5.0f;
+    spec[4].inset[3] = 5.0f;
+    spec[4].inset_mask = 0b1001u;
+
+    data = build_blob(spec, 5u, 400u, 300u, &size);
+    core = data != NULL ? load_core(data, size, &document) : NULL;
+    if (!check("clipped ancestor: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        free(data);
+        return;
+    }
+
+    for (item = 0; item < core->paint_item_count; ++item) {
+        if (core->paint_items[item].node == 4) {
+            painted = 1;
+            break;
+        }
+    }
+    check("absolute: kept in the paint list below a fully clipped static ancestor",
+          wn_core_node_clip(core, 3, &clipped) == 0 && rect_is_empty(clipped) &&
+              wn_core_node_clip(core, 4, &escaped) == 0 &&
+              !rect_is_empty(escaped) && painted,
+          "node 3 clip empty, node 4 clip non-empty and painted");
+    check("absolute: hittable at its placed rect after escaping the clip",
+          rect_is(core, 4, 5, 5, 30, 30) && wn_core_node_at(core, 10.0f, 10.0f) == 4,
+          "node 4 (5,5) and point (10,10) -> node 4");
+
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+    free(data);
+}
+
+static void run_viewport_containing_block(void)
+{
+    NodeSpec spec[2];
+    unsigned char *data;
+    size_t size = 0;
+    wn_document *document = NULL;
+    wn_core *core;
+
+    /* Root smaller than the viewport: the initial containing block is still the
+     * 400x300 viewport, not the 200x100 root box. */
+    spec_init(&spec[0], -1, R2_NODE_BLOCK, 200.0f, 100.0f);
+    spec_init(&spec[1], 0, R2_NODE_BLOCK, 20.0f, 20.0f);
+
+    spec[1].position = R2_POSITION_ABSOLUTE;
+    spec[1].inset[1] = 0.0f;   /* right */
+    spec[1].inset[2] = 0.0f;   /* bottom */
+    spec[1].inset_mask = 0b0110u;
+
+    data = build_blob(spec, 2u, 400u, 300u, &size);
+    core = data != NULL ? load_core(data, size, &document) : NULL;
+    if (!check("viewport cb: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        free(data);
+        return;
+    }
+
+    check("absolute: a static root falls back to the viewport, not its own box",
+          rect_is(core, 1, 380, 280, 20, 20), "node 1 (380,280) in a 400x300 viewport");
 
     wn_core_destroy(core);
     wn_document_destroy(document);
@@ -672,6 +971,12 @@ int main(void)
     run_containing_block();
     run_stretch_auto();
     run_scroll_hit();
+    run_relative_subtree();
+    run_relative_scroll();
+    run_flow_removal();
+    run_scroll_max_exclusion();
+    run_clipped_ancestor_escape();
+    run_viewport_containing_block();
     run_loader_validation();
 
     if (failures != 0) {

@@ -906,9 +906,12 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
 
 /* ------------------------------------------------- absolute positioning */
 
-/* Containing block for an absolute node: the padding box of the nearest
- * positioned ancestor (or the root when there is none). `content_x/y` are the
- * containing block content-box origin, used by the simplified all-auto rule. */
+/* Containing block for an absolute node. `padding` is the reference rect used
+ * by the insets: the border box of the nearest positioned ancestor. Layout
+ * ignores borders, so that rect is also the padding box CSS specifies.
+ * `content_x/y` are its content-box origin, used by the simplified all-auto
+ * rule. The viewport is the initial containing block when no ancestor is
+ * positioned (`node == -1`), not the root node's box. */
 typedef struct {
     int node;
     wn_rect padding;
@@ -925,6 +928,22 @@ static WnContainingBlock containing_block_from_node(wn_core *c, int node)
     cb.padding = *r;
     cb.content_x = r->x + n->padding[3];
     cb.content_y = r->y + n->padding[0];
+    return cb;
+}
+
+/* The initial containing block is the viewport, even when the root node is
+ * smaller than it. `node == -1` makes absolute_scroll_offset apply every
+ * ancestor scroller (there is no containing-block node to stop at). */
+static WnContainingBlock containing_block_viewport(float width, float height)
+{
+    WnContainingBlock cb;
+    cb.node = -1;
+    cb.padding.x = 0.0f;
+    cb.padding.y = 0.0f;
+    cb.padding.w = width;
+    cb.padding.h = height;
+    cb.content_x = 0.0f;
+    cb.content_y = 0.0f;
     return cb;
 }
 
@@ -1226,10 +1245,18 @@ static void append_paint_item(wn_core *c, int node, int layer, float opacity)
  * clip is the intersection of the viewport with the ancestor content boxes
  * (compute_clips starts at the viewport), so it says nothing about the node's
  * own box: a node whose box is entirely outside the viewport still has a
- * non-empty clip through an overflow:visible ancestor. Descendants of an
- * empty-clip node also have an empty clip (clips only shrink), so the walk can
- * stop there without changing the paint set; invisible subtrees are skipped
- * whole, exactly like the old paint_order build.
+ * non-empty clip through an overflow:visible ancestor.
+ *
+ * An empty clip on a node must not prune its subtree. Clips only shrink for
+ * in-flow descendants, so every normal child of an empty-clip node is empty
+ * too; but an absolutely positioned descendant can replace the inherited clip
+ * with the child clip of its containing block (compute_clips), which lies
+ * above the clipping node. CSS does not clip such a node by an `overflow`
+ * ancestor that is not its containing block, so the walk keeps descending and
+ * skips only the individual nodes whose own clip is empty. This is what makes
+ * `root > relative > overflow:hidden(height:0) > static > absolute` paint and
+ * hit-test at its placed rect. Invisible subtrees are still skipped whole,
+ * exactly like the old paint_order build.
  *
  * wn_paint_item_visible() computes the second test (item AABB vs viewport),
  * but the build intentionally does not apply it. A box fully below the
@@ -1246,25 +1273,25 @@ static void build_paint_items(wn_core *c, int node, int layer)
 {
     int child;
     int own_layer = layer;
-    int group;
+    int group = 0;
     if (!c->alive[node] || !c->visible_eff[node]) {
         return;
     }
-    if (rect_is_empty(c->clips[node])) {
-        return;
-    }
-    group = paint_group_root(c, node);
-    if (group) {
-        own_layer = paint_layer_add(c, layer, node, paint_node_opacity(c, node),
-                                    c->clips[node]);
-        if (own_layer < 0) {
-            /* Beyond WN_MAX_PAINT_LAYERS: fall back to direct alpha on this
-             * node's own box (deeper groups still layer below the cap). */
-            group = 0;
-            own_layer = layer;
+    if (!rect_is_empty(c->clips[node])) {
+        group = paint_group_root(c, node);
+        if (group) {
+            own_layer = paint_layer_add(c, layer, node, paint_node_opacity(c, node),
+                                        c->clips[node]);
+            if (own_layer < 0) {
+                /* Beyond WN_MAX_PAINT_LAYERS: fall back to direct alpha on this
+                 * node's own box (deeper groups still layer below the cap). */
+                group = 0;
+                own_layer = layer;
+            }
         }
+        append_paint_item(c, node, own_layer,
+                          group ? 1.0f : paint_node_opacity(c, node));
     }
-    append_paint_item(c, node, own_layer, group ? 1.0f : paint_node_opacity(c, node));
     for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
         build_paint_items(c, child, own_layer);
     }
@@ -1530,8 +1557,12 @@ void layout_page(wn_core *c, float viewport_w, float viewport_h)
         viewport.w = viewport_w;
         viewport.h = viewport_h;
         if (c->visible_eff[root]) {
-            /* Out-of-flow nodes: their containing blocks are final now. */
-            WnContainingBlock root_cb = containing_block_from_node(c, root);
+            /* Out-of-flow nodes: their containing blocks are final now. A
+             * static root is not a containing block: the viewport is. */
+            WnContainingBlock root_cb =
+                WN_IS_POSITIONED(&c->nodes[root])
+                    ? containing_block_from_node(c, root)
+                    : containing_block_viewport(viewport_w, viewport_h);
             layout_absolute_children(c, root, &root_cb);
             compute_clips(c, root, viewport, viewport);
         }

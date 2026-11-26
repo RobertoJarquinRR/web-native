@@ -101,7 +101,7 @@ formato no es un contrato (ver `docs/wnui-format.md`).
 `CreateFileMapping`/`MapViewOfFile`; resto: `malloc`) y devuelve el documento
 hasta la última referencia. `wn_app_load_document` lo carga en una app viva,
 conserva el renderer y devuelve `WN_ERR_IO` con blob inválido. La página
-canónica pesa 7.480 bytes como blob.
+canónica pesa 8.264 bytes como blob.
 
 `renderer` es la vtable `wn_renderer`. En Windows el backend por defecto es
 **D3D11 hardware** (`renderer_d3d11.c`) con fallback a **wgpu-native**; en otras

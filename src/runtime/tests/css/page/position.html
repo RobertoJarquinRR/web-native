@@ -17,5 +17,9 @@
   <div class="absstretch"></div>
   <div class="abspct"></div>
   <div class="nested-host"><div class="nested"></div></div>
+  <!-- F1 regression: the absolute escapes a static ancestor whose content box
+       is fully clipped (height:0 + overflow:hidden), so the paint walk must
+       not prune the subtree at that empty clip. -->
+  <div class="escape-host"><div class="escape-mid"><div class="escape"></div></div></div>
 </body>
 </html>

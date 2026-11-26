@@ -33,6 +33,7 @@ STRETCH = (153, 51, 204)     # #9933cc
 ABSPCT = (0, 119, 170)       # #0077aa
 HOST = (221, 221, 221)       # #dddddd
 NESTED = (0, 0, 0)
+ESCAPE = (204, 153, 0)       # #cc9900
 
 
 def check(group: str, name: str, ok: bool, detail: str) -> bool:
@@ -70,6 +71,7 @@ EXPECTED_RECTS = {
     "/div.abspct": (100, 150, 20, 10),
     "/div.nested-host": (200, 130, 80, 40),
     "/div.nested": (205, 135, 20, 15),
+    "/div.escape": (300, 90, 30, 30),
 }
 
 
@@ -81,6 +83,7 @@ EXPECTED_STYLE = {
     "/div.absstretch": ("absolute", [150.0, 10.0, 10.0, 10.0], 0b1111),
     "/div.abspct": ("absolute", [75.0, 0.0, 0.0, 25.0], 0b1001_1001),
     "/div.nested": ("absolute", [5.0, 0.0, 0.0, 5.0], 0b1001),
+    "/div.escape": ("absolute", [90.0, 0.0, 0.0, 300.0], 0b1001),
 }
 
 
@@ -160,6 +163,11 @@ def color_checks(img: Image.Image) -> bool:
     ok = probe("nested host background", (270, 160), HOST) and ok
     ok = probe("nested absolute inside the host", (210, 140), NESTED) and ok
     ok = probe("host corner outside the nested absolute", (201, 131), HOST) and ok
+
+    # F1: an absolute whose containing block is above a fully clipped static
+    # ancestor (height:0 + overflow:hidden) still paints at its placed rect.
+    ok = probe("absolute escapes a fully clipped static ancestor", (310, 100), ESCAPE) and ok
+    ok = probe("left of the escaped absolute is background", (299, 95), PAGE_BG) and ok
     return ok
 
 

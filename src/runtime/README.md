@@ -6,7 +6,7 @@ parser HTML/CSS: el documento compilado es la única entrada.
 
 ## Documento
 
-El contrato es el blob `.wnui` v3. El frontend Rust lo produce con
+El contrato es el blob `.wnui` v4. El frontend Rust lo produce con
 `frontend-rust --emit-blob`; el formato y la vista de debug están en
 [`docs/wnui-format.md`](../../docs/wnui-format.md) y
 [`src/frontend/README.md`](../frontend/README.md).
@@ -107,8 +107,9 @@ selección/caret de un input, texto o imagen sobre fondo).
 `relative` se dispone en el flujo normal y después se traslada el nodo y su
 subárbol (`left`/`top`, o `-right`/`-bottom`); el cursor del padre no cambia y
 los hermanos conservan su sitio. `absolute` sale del flujo: block/flex/grid lo
-saltan, el containing block es el ancestro posicionado más cercano (o el root)
-y los insets se resuelven contra su padding box. Una segunda pasada tras el
+saltan, el containing block es el ancestro posicionado más cercano (o el
+viewport cuando no hay ninguno) y los insets se resuelven contra su border box (el layout ignora bordes, así
+que coincide con el padding box). Una segunda pasada tras el
 layout normal coloca los absolutos cuando todos los containing blocks ya son
 finales; `left+right`/`top+bottom` con tamaño `auto` estiran y los porcentajes
 se resuelven ahí, no en el frontend. Scroll, clip y hit-test usan los rects

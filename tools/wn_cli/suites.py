@@ -73,7 +73,7 @@ PINNED_BLOBS = {
     "opacity": "51d9a1fb9a0880eba0a0f4c2b34eaf7488025369b27bc202c7533ce9894d9db3",
     "opacity_deep": "ff9a67e58d228c664b3ad2cbbfece05c1b1cab29427b83910ef330e4a331e0f1",
     # Position fixture (relative/absolute boxes, verified on d3d11 + wgpu).
-    "position": "2c11f9b159161e5e24f9bedac638bba59d3a1e8214d43e7dc896dbcfa339e7cd",
+    "position": "fbb13ef58989d5bc1afaa7a5cc50354791eb7b702a33d9250b285ce32bc361af",
 }
 
 
@@ -440,7 +440,7 @@ def run_css() -> int:
                     ["--png", str(png), "--report", str(report),
                      "--blob", str(position_blob), "--dump", str(dump_exe),
                      "--backend", position_backend], cwd=suite),
-            f"position verify ({position_backend})", 38)
+            f"position verify ({position_backend})", 42)
     if wgpu_available():
         log_step("position: compare d3d11 and wgpu")
         compare = out / "position_compare.json"
@@ -581,9 +581,11 @@ def run_fidelity() -> int:
     )
     position_text = _run(position_exe, [], out)
     _expect(position_text, ["position_test: PASS"], "position layout test")
-    # Relative offsets, absolute flow/containing-block/stretch/nested cases,
-    # scroll+clip+hit-test and the v4 loader validation.
-    _expect_checks(position_text, "position_test", 43)
+    # Relative offsets plus subtree/scroll, absolute flow/containing-block/
+    # stretch/nested cases, flex/grid/intrinsic exclusion, the viewport
+    # fallback, the fully clipped ancestor escape, scroll+clip+hit-test and the
+    # v4 loader validation.
+    _expect_checks(position_text, "position_test", 64)
 
     log_step("fidelity: paint item list (identity, transform, opacity, layers)")
     paint_exe = out / "paint_list_test.exe"

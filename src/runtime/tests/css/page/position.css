@@ -86,3 +86,24 @@ body {
   height: 15px;
   background: #000000;
 }
+
+/* A fully clipped static ancestor (content box 0px high) must not hide an
+   absolute whose containing block is above it. */
+.escape-host {
+  height: 0;
+  overflow: hidden;
+}
+
+.escape-mid {
+  width: 20px;
+  height: 20px;
+}
+
+.escape {
+  position: absolute;
+  left: 300px;
+  top: 90px;
+  width: 30px;
+  height: 30px;
+  background: #cc9900;
+}
