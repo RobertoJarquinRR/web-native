@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>webnative z-index fixture</title>
+  <link rel="stylesheet" href="z.css">
+</head>
+<body>
+  <!-- Row 1: positioned siblings with z 1/2, the same pair in swapped DOM
+       order, and z auto against an explicit z 0. -->
+  <div class="region r0c0">
+    <div id="sib-a" class="z1 green"></div>
+    <div id="sib-b" class="z2 red"></div>
+  </div>
+  <div class="region r0c1">
+    <div id="swap-a" class="z2 blue"></div>
+    <div id="swap-b" class="z1 yellow"></div>
+  </div>
+  <div class="region r0c2">
+    <div id="auto-a" class="green"></div>
+    <div id="zero-a" class="z0 red"></div>
+  </div>
+
+  <!-- Row 2: a negative context paints behind in-flow content; a high-z child
+       cannot escape a parent context with a lower z; opacity + z compose. -->
+  <div class="region r1c0">
+    <div id="flowbox" class="flowbox green"></div>
+    <div id="neg" class="neg red"></div>
+  </div>
+  <div id="trap-parent" class="trap r1c1">
+    <div id="trap-child" class="trap-child green"></div>
+  </div>
+  <!-- Direct body child: a root-context z 2 sibling above the z 1 parent. -->
+  <div id="trap-sibling" class="trap-sibling red"></div>
+  <div class="region r1c2">
+    <div id="ogroup" class="ogroup"></div>
+    <div id="otop" class="otop"></div>
+  </div>
+
+  <!-- Row 3: nested contexts (a z 10 child inside a z 1 parent stays below a
+       root z 5 sibling), z-index on a relative node, and z on a static node
+       (ignored). -->
+  <div id="nested-a" class="nested-a">
+    <div id="nested-b" class="nested-b green"></div>
+  </div>
+  <!-- Direct body child, root context z 5. -->
+  <div id="nested-d" class="nested-d red"></div>
+  <div class="region r2c1">
+    <div id="rel-base" class="rel-base green"></div>
+    <div id="rel-z" class="rel-z red"></div>
+  </div>
+  <div class="region r2c2">
+    <div id="static-z" class="static-z green"></div>
+  </div>
+  <!-- Direct body child, z 2 above the ignored static z 5. -->
+  <div id="abs-over" class="abs-over red"></div>
+
+  <!-- Row 4: CSS step 8 (positioned z 0 before positioned z auto, tree order),
+       the equal-z tree-order tie-break, and a group clipped to nothing with an
+       escaping absolute. -->
+  <div class="region r3c0">
+    <div id="step8-red" class="step8-red"></div>
+    <div id="step8-blue" class="step8-blue"></div>
+  </div>
+  <div class="region r3c1">
+    <div id="tie-a" class="tie-a"></div>
+    <div id="tie-b" class="tie-b"></div>
+  </div>
+  <div class="region r3c2">
+    <div id="f1-clip" class="f1-clip">
+      <div id="f1-group" class="f1-group">
+        <div id="f1-escape" class="f1-escape"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 5: non-positioned opacity groups are step-8 blocks (CSS Color 3
+       section 3.2), so they paint above in-flow siblings and order by tree
+       order against positioned z auto boxes. -->
+  <div class="region r4c0">
+    <div id="sgo-group"></div>
+    <div id="sgo-late"></div>
+  </div>
+  <div class="region r4c1">
+    <div id="ag-abs"></div>
+    <div id="ag-group"></div>
+  </div>
+  <div class="region r4c2">
+    <div id="ga-group"></div>
+    <div id="ga-abs"></div>
+  </div>
+</body>
+</html>

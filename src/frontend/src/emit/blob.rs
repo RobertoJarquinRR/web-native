@@ -1,11 +1,12 @@
-//! `--emit-blob`: the `.wnui` v4 document (same section layout as the
+//! `--emit-blob`: the `.wnui` v5 document (same section layout as the
 //! archived Python oracle's `write_blob`).
 //!
 //! The tree is already parsed into `NodeOut`; this module only reproduces the
 //! normalizations the emitter applies when reading the pre-layout tree, so the
 //! blob is byte-for-byte identical. `detailed == false` (historical schema
 //! `/1`) implies the page carries no v2 section: the contract there is to use
-//! `gap` for `row_gap`/`column_gap`, grid at zero and `overflow` at 0.
+//! `gap` for `row_gap`/`column_gap` and grid at zero. `overflow` is v1, so it
+//! is always emitted (`hidden` adds no scroll).
 
 use std::collections::HashMap;
 use std::fs;
@@ -16,7 +17,11 @@ use crate::style::color::argb;
 use crate::style::grid::{GridAutoRows, GridTemplateColumns};
 
 const BLOB_MAGIC: u32 = 0x4955_4E57; // "WNUI"
-const BLOB_VERSION: u32 = 4;
+const BLOB_VERSION: u32 = 5;
+
+/// Blob v5: `z-index: auto` sentinel (INT32_MIN). Every other int32 is an
+/// explicit stacking level.
+const Z_INDEX_AUTO: i32 = i32::MIN;
 const BLOB_HEADER_SIZE: usize = 32;
 const BLOB_SECTION_SIZE: usize = 16;
 
@@ -290,11 +295,9 @@ fn push_node_record(
     } else {
         (style.gap, style.gap)
     };
-    let overflow = if detailed {
-        overflow_code(style.overflow.as_deref())
-    } else {
-        0
-    };
+    /* `overflow` is a v1 field: `hidden` does not add scroll, so it must reach
+     * the runtime even when the rest of the historical schema is untouched. */
+    let overflow = overflow_code(style.overflow.as_deref());
     let image_src = node.image.as_ref().and_then(|image| image.src.as_deref());
     let image_alt = node.image.as_ref().and_then(|image| image.alt.as_deref());
     let (image_width, image_height) = image_size(image_src, asset_dir);
@@ -385,9 +388,12 @@ fn push_node_record(
         push_f32(out, value);
     }
     push_u32(out, style.inset_mask & 0xFF);
+    // Blob v5: CSS z-index. INT32_MIN is the `auto` sentinel; every other
+    // int32 (negative, zero, positive) is an explicit stacking level.
+    push_i32(out, style.z_index.unwrap_or(Z_INDEX_AUTO));
 }
 
-/// Writes the v3 `.wnui` document. `asset_dir` is the directory the document's
+/// Writes the v5 `.wnui` document. `asset_dir` is the directory the document's
 /// asset references (image sources) resolve against; it comes from the
 /// pipeline input, never from `path`, so the blob may be written anywhere.
 pub(crate) fn write_blob(

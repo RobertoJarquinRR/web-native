@@ -141,10 +141,9 @@ fn unsupported_values_and_deferred_features_are_diagnosed() {
   .bad-value { position: center; }
   .bad-unit { position: relative; top: 10em; }
   .shorthand { position: absolute; inset: 0; }
-  .layer { position: relative; z-index: 2; }
 </style></head><body>
   <div class="bad-value"></div><div class="bad-unit"></div>
-  <div class="shorthand"></div><div class="layer"></div>
+  <div class="shorthand"></div>
 </body></html>"##;
     let report = diagnostics(html, "position-unsupported");
     assert!(
@@ -162,9 +161,5 @@ fn unsupported_values_and_deferred_features_are_diagnosed() {
     assert!(
         report.iter().any(|line| line.contains("'inset'")),
         "missing inset shorthand diagnostic: {report:#?}"
-    );
-    assert!(
-        report.iter().any(|line| line.contains("z-index")),
-        "missing z-index diagnostic: {report:#?}"
     );
 }

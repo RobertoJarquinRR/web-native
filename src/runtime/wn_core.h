@@ -58,14 +58,20 @@ typedef struct {
 } wn_image_batch;
 
 /* ----------------------------------------------------- group layers (v3) */
-/* A node with `opacity < 1` is a CSS group: opacity creates a stacking
- * context, so the core renders its item and subtree into an offscreen layer
- * and composites the layer once with `opacity`. Leaves are groups too; a leaf
- * may paint several passes (border + fill, shadow + fill, input decorations,
- * background + text/image) that must fade as one flattened result.
+/* Stacking contexts are represented as paint layers. Two kinds exist:
  *
- * `layers[0]` is the root layer (opacity 1). Layer ids are allocated in DFS
- * order; `parent` is the enclosing layer. `commands` replay the nesting in
+ *   - `needs_texture == 1`: a CS3 group (`opacity < 1`). The core renders its
+ *     item and subtree into an offscreen layer and composites it once with
+ *     `opacity`. Leaves are groups too; a leaf may paint several passes
+ *     (border + fill, shadow + fill, input decorations, background + text or
+ *     image) that must fade as one flattened result.
+ *   - `needs_texture == 0`: an ordering-only context (`position: relative |
+ *     absolute` with `z-index != auto`, and the root). It owns no texture: the
+ *     renderer replays its items inline, which is enough because a stacking
+ *     context only needs its block to stay contiguous inside the parent.
+ *
+ * `layers[0]` is the root layer. Layer ids are assigned in paint order;
+ * `parent` is the enclosing layer/context. `commands` replay the nesting in
  * paint order: DRAW(item), BEGIN_LAYER(layer), END_LAYER(layer). */
 #define WN_MAX_PAINT_LAYERS 65536
 /* Nesting depth bound: matches the document tree depth limit, so a layer per
@@ -104,9 +110,12 @@ typedef struct {
 typedef struct {
     int id;
     int parent;   /* -1 for the root layer */
-    int node;     /* group-root node; -1 for the root layer */
+    int node;     /* context-root node; -1 for the root layer */
     float opacity;
     wn_rect clip;
+    /* 1: render into an offscreen target and composite (opacity group).
+     * 0: ordering-only stacking context (z-index); replay inline. */
+    int needs_texture;
 } wn_paint_layer;
 
 typedef struct {

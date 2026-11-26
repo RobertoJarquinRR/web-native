@@ -660,13 +660,13 @@ fn opacity_is_parsed_clamped_and_not_inherited() {
         }
     }
 
-    // The writer emits the current blob version (v4) and records the field
+    // The writer emits the current blob version (v5) and records the field
     // byte-for-byte.
     let blob = dir.join("opacity.wnui");
     tree.write_blob(&blob).unwrap();
     let bytes = fs::read(&blob).unwrap();
     assert_eq!(&bytes[0..4], b"WNUI");
-    assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().unwrap()), 4);
+    assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().unwrap()), 5);
 }
 
 #[test]
@@ -683,4 +683,3 @@ fn opacity_subset_accepts_zero_to_one_and_diagnoses_the_rest() {
     assert!(text.contains("'50%' no soportado en 'opacity'"), "{text}");
     assert!(!text.contains("piloto"), "{text}");
 }
-

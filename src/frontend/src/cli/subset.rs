@@ -982,10 +982,14 @@ fn check_property(
             );
         }
         "z-index" => {
-            report(
-                "z-index fuera del alcance de esta lane (el orden de pintado sigue el árbol; z-index diferido)"
-                    .to_string(),
-            );
+            // Blob v5: `auto | <integer>`. The runtime only applies it to
+            // positioned nodes (relative/absolute), which is CSS-correct for
+            // the subset (no flex/grid item stacking contexts yet).
+            if !z_index_value_is_valid(trimmed) {
+                report(format!(
+                    "valor '{trimmed}' no soportado en 'z-index' (v5: auto | entero de 32 bits; -2147483648 reservado para auto)"
+                ));
+            }
         }
         "flex-direction" => check_keyword(
             name,
@@ -1517,6 +1521,23 @@ fn is_length(token: &str, allow_percent: bool, allow_negative: bool) -> bool {
         }
     }
     false
+}
+
+/// `auto` or an ASCII integer inside int32. `INT32_MIN` is the blob's `auto`
+/// sentinel, so it is not a representable explicit value.
+fn z_index_value_is_valid(value: &str) -> bool {
+    let text = value.trim();
+    if text.eq_ignore_ascii_case("auto") {
+        return true;
+    }
+    let digits = text.strip_prefix(['+', '-']).unwrap_or(text);
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return false;
+    }
+    match text.parse::<i64>() {
+        Ok(number) => number != i64::from(i32::MIN) && i32::try_from(number).is_ok(),
+        Err(_) => false,
+    }
 }
 
 fn parse_css_number(text: &str) -> Option<f64> {

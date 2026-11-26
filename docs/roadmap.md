@@ -19,19 +19,20 @@ Un stream no toca los archivos de otro; se integra por contrato.
 
 | ID | Workstream | Alcance | Depende de | Estado |
 |---|---|---|---|---|---|
-| **E1** | Fidelidad visual/layout | `font-weight`, `line-height`, `text-align`, `margin: auto`, scrollbar y focus ring redondeado **(hecho)**; `opacity` compuesta con capas offscreen **(hecho, blob v3)**; `position: relative/absolute` + insets **(hecho, blob v4)**; per-side/per-corner, `fixed/sticky`, `z-index`, inset flex pendiente | E6 (schema) | **Hecho (primer corte)** |
+| **E1** | Fidelidad visual/layout | `font-weight`, `line-height`, `text-align`, `margin: auto`, scrollbar y focus ring redondeado **(hecho)**; `opacity` compuesta con capas offscreen **(hecho, blob v3)**; `position: relative/absolute` + insets **(hecho, blob v4)**; `z-index` y stacking contexts **(hecho, blob v5)**; per-side/per-corner, `fixed/sticky`, inset flex pendiente | E6 (schema) | **Hecho (primer corte)** |
 | **E2** | Renderer D3D11 | backend nativo hardware-first, WARP fallback, paridad con wgpu, objetivo ≤ 5 MB | E6 (vtable) | **Hecho** (falta retirar el enlace wgpu para el objetivo de tamaño) |
 | **E3** | Plataforma y accesibilidad | foco/tab order, DPI per-monitor, IME, clipboard/DnD, UIA, high contrast, reduced motion | E1, E6 | Pendiente (P1 `platform-v1.md`) |
 | **E4** | Texto e i18n | shaping runtime **(hecho)**, wrapping/line breaking **(hecho)**, bloque de línea único **(hecho)**; faltan bidi, CJK/emoji y re-raster de atlas | E1, E3 | **En curso**: falta bidi/CJK |
 | **E5** | Rendimiento y escala | dirty rects, culling/virtualización, 100/1k/10k nodos, presupuestos en CI | E1, E2 | Pendiente |
-| **E6** | Contratos y tooling | subset diagnostics, schemas IR/ui-tree, ABI v4, blob v4, SDK genérica, suites, paridad, métricas | — | **En curso**: falta CI |
+| **E6** | Contratos y tooling | subset diagnostics, schemas IR/ui-tree, ABI v4, blob v5, SDK genérica, suites, paridad, métricas | — | **En curso**: falta CI |
 | **E7** | Release y packaging | versión, artefactos, licencias, installer, signing, smoke de release | E1–E3, E6 | Pendiente |
-| **E8** | Extensiones CSS | transition limitada (P1 post-E1); **position rel/abs (hecho, blob v4)**; transform 2D + z-index simple (P2); `fixed`/`sticky` (P2/P3); animation/float futuro/no-go | E1, E6 (schema `/4`), reloj del `wn_host` | **En curso**; ver `e8-css-extensions.md` |
+| **E8** | Extensiones CSS | transition limitada (P1 post-E1); **position rel/abs (hecho, blob v4)**; **z-index y stacking contexts (hecho, blob v5)**; transform 2D (P2); `fixed`/`sticky` (P2/P3); animation/float futuro/no-go | E1, E6 (schema `/5`), reloj del `wn_host` | **En curso**; ver `e8-css-extensions.md` |
 
 > **Orden de ejecución:** CI y contratos (E6) → ABI v6 (estado/lecturas) →
 > documento blob-only y retirada del emisor (C5/C12) → enablers (capabilities,
 > textblock, scroll, paintlist) → **opacity (blob v3, capas offscreen)** →
-> **position relative/absolute (blob v4)** → z-index → transform → E4 input v2
+> **position relative/absolute (blob v4)** → **z-index (blob v5)** → transform
+> → E4 input v2
 > → E5 escala → E3 plataforma → E7 release. E2 va en paralelo. La
 > compatibilidad del blob (C6) se decide al congelar 1.0, no en pre-alfa. E8
 > animation/float futuro/no-go.
@@ -41,15 +42,21 @@ Un stream no toca los archivos de otro; se integra por contrato.
 - ✅ Runtime C en módulos (`core/`, `document/`, `text/`), grid/scroll/imágenes.
 - ✅ **Texto en runtime**: medición, shaping y atlas dinámico; el documento no
   lleva glifos, runs ni atlas, tampoco para inputs.
-- ✅ **Blob v4 `.wnui`**: escritor en Rust (byte-idéntico al emisor), loader C
+- ✅ **Blob v5 `.wnui`**: escritor en Rust (byte-idéntico al emisor), loader C
   con mmap y **loader por memoria**; el builtin de la DLL es un blob embebido
   parseado por el mismo loader. `wn_app_load_document` en la ABI. v3 añadió
-  `float opacity` y capas de grupo; v4 añade `position` + `inset[4]`/`inset_mask`
-  (relative/absolute) al final del registro (248 bytes).
+  `float opacity` y capas de grupo; v4 añadió `position` + `inset[4]`/`inset_mask`
+  (relative/absolute); v5 añade `int32 z_index` (sentinel `INT32_MIN` = auto)
+  al final del registro (252 bytes).
 - ✅ **Position relative/absolute** (blob v4): relative offsets sin mover
   hermanos, absolute fuera de flujo con containing block posicionado/root,
   stretch left+right/top+bottom, auto width/height, anidado, scroll/clip y
   hit-test. Fixture de píxeles en D3D11 + wgpu.
+- ✅ **Z-index / stacking contexts** (blob v5): orden CSS 2.1 simplificado
+  (contextos negativos, contenido en flujo, grupos de opacidad y posicionados
+  0/auto en el paso 8, y positivos), anidados que no escapan del padre,
+  auto/0/negativos, opacidad+z, hit-test por orden de pintado. Las capas z-only
+  solo ordenan (sin textura); fixture de píxeles 400x690 en D3D11 + wgpu.
 - ✅ **SDK genérica**: `webnative.dll` (181 KiB con wgpu, 160 KiB sin él) +
   `app.wnui`; la galería (`C:\Proyects\gallery`) consume solo `sdk/` y su
   documento.

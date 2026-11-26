@@ -59,21 +59,23 @@ CXX_SUFFIXES = (".cpp", ".cc", ".cxx")
 # compares the builtin and file renders, but that comparison alone is
 # tautological (both sides use the same emission).
 PINNED_BLOBS = {
-    "canonical": "a32d8b9d00802d723bb71d1abe3f744fe5cf1bb1922f90b3dea6af062c122c17",
-    "input": "08314abecdd00b9bf621b29d93fe52cdff2647c9ebac6569243672b6b5a3d1b4",
-    "fidelity": "de036df0d535121d573aff08c0dbeba68d020c885afaa1654fbf4a4d3c68ae53",
-    "pilot": "ee737b4b831219bf7845db3a1fc6bb74103104ca3310e5b51689550e9abb33f1",
-    "dynamic": "a55526dd0e312c6d9acee2d06a132e9d4fa8e37f3af02a132d5a9ac269e6c8e3",
-    "cache": "ac37ad35f9bdc81ffd612651fede26283997267192f65fa28188dce1485c5986",
+    "canonical": "dfa46359705934515e4e948024f32a78c9213ea14c544c26223a3c4659c2625e",
+    "input": "7b3958d025cf925bb68314fff3a971f4eb421ae790f27bfb2812c28de29f639b",
+    "fidelity": "a2b3482d8a428a8e0116a44ff1f565bb958fb41db12fe7f5bd38288a5f1f6590",
+    "pilot": "e161d59042d47a23c4ac51a0f11166551da3bed706b6a89bd137c4619a6311fa",
+    "dynamic": "b0f27f4ac9ed7b5a6299bd599ee3ec680d965baac78bdca58babe4f561930b5d",
+    "cache": "6ace803d5a913ff019d84ce927b037fbbd937cbbc2a6bdf7a7e19daf99c6f637",
     # CSS suite fixtures (HTML/CSS -> blob, same pinning rule as the corpus).
-    "css_card": "8f0c18b27f649e07ee862915c3ec348fde261caf66d5a3d7e80fbd39cb06a3bb",
-    "css_control": "7c0ad70398571b9a976133c85cff81d5ef947e88802aacd796e37a31933dcb72",
-    "css_none": "b473e4dd326f9a61d2535a1f0b7b8503685d8baa77c3ef8c6dd46d5a8c7236e2",
+    "css_card": "5a46f54aaa4f55634c1056a554f26b6f79a2ce93c5772423e37939891c764362",
+    "css_control": "a1c2ca56614a59778f118b79347ec37b58d18a30efb2f7a3a7cb6fec9757a452",
+    "css_none": "948f1edce0ef81e34c5c91e709f61596c9b9554bf3006427c9c13f13bd340d87",
     # Group-opacity pixel fixtures (emitted by the css suite, verified there).
-    "opacity": "51d9a1fb9a0880eba0a0f4c2b34eaf7488025369b27bc202c7533ce9894d9db3",
-    "opacity_deep": "ff9a67e58d228c664b3ad2cbbfece05c1b1cab29427b83910ef330e4a331e0f1",
+    "opacity": "2e8cf1307329d8041fa992ad1e56dd11553a566cd1204d8e53b4250856ad850e",
+    "opacity_deep": "01375814b629e6a5dd449e6a39194142ea94d35581073099bd1ac75ba4cd9a5c",
     # Position fixture (relative/absolute boxes, verified on d3d11 + wgpu).
-    "position": "fbb13ef58989d5bc1afaa7a5cc50354791eb7b702a33d9250b285ce32bc361af",
+    "position": "0d87b7001091c0b0289cb00307f2e33eae8fe4daa6fe35d94a38185636da39a4",
+    # z-index / stacking-context fixture (blob v5, d3d11 + wgpu).
+    "z": "f9674ee14826a9fa682fc25b4113a09a5d24697a82012d9a0e1b80ffa4e05fac",
 }
 
 
@@ -463,6 +465,55 @@ def run_css() -> int:
         if completed.returncode != 0:
             raise CliError("position pixel comparison failed")
 
+    log_step("z-index: stacking-context pixel fixture (d3d11" +
+             (" + wgpu)" if wgpu_available() else ")"))
+    z_blob = _emit_css_fixture("z", page, 400, 690, out / "emit" / "z")
+    _assert_pinned_blob("z", z_blob)
+    z_backends = ["d3d11"] + (["wgpu"] if wgpu_available() else [])
+    for z_backend in z_backends:
+        png = out / f"render_z_{z_backend}.png"
+        report = out / f"layout_z_{z_backend}.json"
+        environment = {"WN_RENDERER": z_backend}
+        _run(card_exe, ["--document", str(z_blob),
+                        "--report", str(report), "--sizes", "400x690"],
+             page, environment)
+        _run(card_exe, ["--document", str(z_blob),
+                        "--render", "400", "690", str(png)],
+             page, environment)
+        # 110 checks: format wnui/5, twenty-seven z-index dump values, the
+        # layout report, thirty-three exact rects, the PNG size and
+        # forty-seven analytic color probes (siblings, swapped order, auto/0,
+        # step 8, equal z, negative, trapped child, opacity+z, nested,
+        # relative, ignored static z, the empty-clip escaping absolute and the
+        # static opacity group bucket against flow and positioned z auto).
+        _expect_reported_checks(
+            _python(suite / "verify_z.py",
+                    ["--png", str(png), "--report", str(report),
+                     "--blob", str(z_blob), "--dump", str(dump_exe),
+                     "--backend", z_backend], cwd=suite),
+            f"z verify ({z_backend})", 110)
+    if wgpu_available():
+        log_step("z-index: compare d3d11 and wgpu")
+        compare = out / "z_compare.json"
+        completed = subprocess.run(
+            [
+                str(get_python_exe()),
+                str(runtime / "tests" / "d3d11" / "verify_d3d11.py"),
+                "--capture", str(out / "render_z_d3d11.png"),
+                "--reference", str(out / "render_z_wgpu.png"),
+                "--report", str(compare),
+                "--label", "z-d3d11-vs-wgpu",
+            ],
+            cwd=out,
+            capture_output=True,
+            text=True,
+        )
+        for line in (completed.stdout + completed.stderr).splitlines():
+            if line.strip():
+                log_info(line.rstrip())
+        if completed.returncode != 0:
+            raise CliError("z-index pixel comparison failed")
+
     log_info("css core v1: PASS")
     return 0
 
@@ -586,6 +637,28 @@ def run_fidelity() -> int:
     # fallback, the fully clipped ancestor escape, scroll+clip+hit-test and the
     # v4 loader validation.
     _expect_checks(position_text, "position_test", 64)
+
+    log_step("fidelity: z-index stacking contexts (order, hit-test, layers)")
+    zindex_exe = out / "zindex_test.exe"
+    _compile(
+        zindex_exe,
+        [_suite_dir("core") / "zindex_test.c",
+         *[runtime / source for source in CORE_SOURCES]],
+        [get_paths().root / "include", runtime, out / "emit"],
+        CORE_LIBS,
+    )
+    zindex_text = _run(zindex_exe, [], out)
+    _expect(zindex_text, ["zindex_test: PASS"], "z-index stacking test")
+    # 64 checks: positioned sibling z 1/2 and swapped, positioned z auto/0 in
+    # both tree orders (step 8), negative z behind in-flow, a high-z child
+    # trapped by a low-z parent, opacity+z texture-vs-ordering layers, nested
+    # contexts, the equal-z tree-order tie-break (including reversed DOM), a
+    # first-in-DOM relative z over a later in-flow sibling, static z ignored,
+    # non-positioned opacity groups in the step-8 bucket against a later
+    # in-flow sibling and against positioned z auto in both tree orders, the
+    # empty-clip group with and without an unrelated group, the flat
+    # no-context path, and the v5 loader sentinel/range roundtrip.
+    _expect_checks(zindex_text, "zindex_test", 64)
 
     log_step("fidelity: paint item list (identity, transform, opacity, layers)")
     paint_exe = out / "paint_list_test.exe"
@@ -1163,7 +1236,7 @@ def run_blob() -> int:
         CORE_LIBS,
     )
     _expect(_run(input_exe, [str(input_blob)], out), ["blob_test: PASS"], "input blob test")
-    log_info("blob v4: PASS")
+    log_info("blob v5: PASS")
     return 0
 
 
@@ -1206,7 +1279,7 @@ def run_dump() -> int:
 
     log_step("dump: canonical JSON projection")
     document = json.loads(_run(exe, ["--json", str(canonical)], out))
-    if document.get("format") != "wnui/4":
+    if document.get("format") != "wnui/5":
         raise CliError(f"unexpected dump format: {document.get('format')!r}")
     if document.get("viewport") != {"width": 960, "height": 640}:
         raise CliError(f"unexpected dump viewport: {document.get('viewport')!r}")
@@ -1256,7 +1329,7 @@ SUITES = {
     "input": ("text input v1 (caret, selection, clipboard, ABI demo)", run_input),
     "offscreen": ("offscreen vtable (d3d11 vs wgpu readback)", run_offscreen),
     "text": ("runtime text v0 (contracts on the fake backend + DirectWrite smoke)", run_text),
-    "blob": ("blob v4 (.wnui load, layout and pixels)", run_blob),
+    "blob": ("blob v5 (.wnui load, layout and pixels)", run_blob),
     "dump": ("wnui-dump debug projection (text/JSON/errors)", run_dump),
 }
 

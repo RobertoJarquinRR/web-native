@@ -155,6 +155,8 @@ pub struct StyleOut {
     pub inset: [f64; 4],
     /// bit 0..3 = declared side; bit 4..7 = that side is a percentage.
     pub inset_mask: u32,
+    /// Blob v5: CSS `z-index`; `None` is `auto`.
+    pub z_index: Option<i32>,
     /// v3: borders, radius, shadows and relative units (only schema `/2`).
     pub css3: StyleV3,
 }
@@ -413,6 +415,7 @@ impl<'a> Builder<'a> {
                 position: style.position.clone(),
                 inset: style.inset,
                 inset_mask: style.inset_mask,
+                z_index: style.z_index,
                 css3: style.css3.clone(),
             },
             data: DataOut {
@@ -556,6 +559,7 @@ impl<'a> Builder<'a> {
                 position: "static".to_string(),
                 inset: [0.0; 4],
                 inset_mask: 0,
+                z_index: None,
                 css3: StyleV3::default(),
             },
             data: DataOut {

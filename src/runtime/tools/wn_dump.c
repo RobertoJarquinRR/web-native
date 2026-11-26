@@ -20,7 +20,7 @@
 #include "document/wn_document_internal.h"
 #include "wn_internal.h"
 
-#define FORMAT_NAME "wnui/4"
+#define FORMAT_NAME "wnui/5"
 
 static const char *kind_name(int kind)
 {
@@ -237,6 +237,12 @@ static void text_node(FILE *out, int index, const UiNode *node, const char *name
     fprintf(out, " position=%s", position_name(node->position));
     text_box4(out, "inset", node->inset);
     text_int(out, "inset-mask", (long long)node->inset_mask);
+    fprintf(out, " z-index=");
+    if (node->z_index == R2_Z_INDEX_AUTO) {
+        fputs("auto", out);
+    } else {
+        fprintf(out, "%d", (int)node->z_index);
+    }
     text_string(out, "text", node->text);
     fputc('\n', out);
 }
@@ -333,6 +339,11 @@ static void json_node(FILE *out, int index, const UiNode *node, const char *name
     fprintf(out, "      \"position\": \"%s\",\n", position_name(node->position));
     json_box4(out, "inset", node->inset);
     fprintf(out, "      \"inset_mask\": %u,\n", node->inset_mask);
+    if (node->z_index == R2_Z_INDEX_AUTO) {
+        fprintf(out, "      \"z_index\": \"auto\",\n");
+    } else {
+        fprintf(out, "      \"z_index\": %d,\n", (int)node->z_index);
+    }
     fprintf(out, "      \"text\": ");
     json_string(out, node->text);
     fprintf(out, "\n    }");

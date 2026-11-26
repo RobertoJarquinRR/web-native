@@ -1717,6 +1717,16 @@ static int render_layered(WnD3D11 *gpu, const wn_display_list *list)
         }
         if (command->kind == WN_PAINT_CMD_BEGIN_LAYER) {
             WnD3D11LayerTarget *target;
+            const wn_paint_layer *layer;
+            if (command->layer < 0 || command->layer >= list->layer_count) {
+                continue;
+            }
+            layer = &list->layers[command->layer];
+            if (!layer->needs_texture) {
+                /* z-index-only context: ordering was resolved when the item
+                 * list was built, so its block replays inline here. */
+                continue;
+            }
             if (depth + 1 >= WN_MAX_PAINT_LAYER_DEPTH) {
                 set_error(gpu, "layer nesting exceeds %d", WN_MAX_PAINT_LAYER_DEPTH);
                 return 1;
@@ -1739,6 +1749,10 @@ static int render_layered(WnD3D11 *gpu, const wn_display_list *list)
                 continue;
             }
             layer = &list->layers[command->layer];
+            if (!layer->needs_texture) {
+                /* Matches the inline BEGIN above: nothing to composite. */
+                continue;
+            }
             composite_layer(gpu, targets[depth - 1], &gpu->layer_targets[depth - 1],
                             layer);
             --depth;
