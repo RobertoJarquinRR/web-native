@@ -30,7 +30,7 @@ x/y (X reservado), paint items ordenados con capa/transform/opacidad y culling
 calculado. Deja `position`, `z-index`, `transform`, opacidad y virtualización
 como features aditivas.
 
-Pendiente de la lista: B1, B7, B10, C2, C3, C6–C10. **Siguiente:** features de
+Pendiente de la lista: B1, B7, B10–B13, C2, C3, C6–C10. **Siguiente:** features de
 estilo (`opacity` estrena blob v3, luego position/z-index y transform). En
 pre-alfa el formato rompe libremente; C6 se decide al congelar 1.0.
 
@@ -64,6 +64,9 @@ pre-alfa el formato rompe libremente; C6 se decide al congelar 1.0.
 | B8 | Renderer | `wgpu_native.dll` (9 MB) siempre enlazado aunque D3D11 sea el default | CMake sin interruptor | `WN_NO_WGPU` y cargar backend por vtable. Aditivo |
 | B9 | Fuentes | Cualquier genérica (`serif`, `monospace`) se resuelve a Segoe UI; solo se usa la primera familia del stack | `text_runtime.c:resolve_family` | parsear el stack y elegir por disponibilidad. Aditivo |
 | B10 | Imágenes | Formatos dependen de los códecs WIC instalados; sin WebP/AVIF garantizado y sin decode asíncrono | decode en UI thread vía WIC | decode en worker + cola; formatos documentados. Aditivo |
+| B11 | Input/IME | Sin composición: solo `WM_CHAR` con caracteres ya resueltos; japonés/coreano y teclas muertas no funcionan como en una app nativa | el editor dibuja su propio texto y no habla con IMM32/TSF | `wn_ime_ops` de plataforma (foco, rect del caret/candidatos) + eventos de composición; el core guarda/pinta la composición y confirma una vez. Fake IME para tests; IMM32 primero, TSF después |
+| B12 | Accesibilidad | Sin UIA: Narrator/lectores ven una ventana vacía; sin foco por teclado fuera del input | no hay proveedor COM ni roles/nombres accesibles | adaptador UIA sobre el árbol interno (rol, nombre, bounds, estados, foco, Invoke/Value/Scroll) y Tab order. Aditivo |
+| B13 | Texto | `font-weight` solo distingue 400 y ≥600; 300/500/600/900 caen en regular/bold | el runtime pide regular o bold | mapear 100–900 a DirectWrite, elegir la cara más cercana y sintetizar si falta |
 | D2 | Texto | Si falla el `malloc` de la familia, la entrada de cara queda con `face` ya liberado y `family == NULL`: el siguiente lookup hace `strcmp(NULL, …)` y `destroy` vuelve a hacer `Release()` | `text_directwrite.cpp:216-224` libera `entry->face` y retorna sin limpiar el puntero; `:173` compara `entry->family` sin guarda de NULL | poner `entry->face = NULL` y `entry->family = NULL` en todos los caminos. Aditivo |
 | D3 | Renderer | Una sola imagen que no decodifica (path malo o formato sin códec) hace fallar el frame entero; en modo app el bucle cierra la ventana | `ensure_image_texture` devuelve NULL → `renderer_d3d11.c:1194` y `renderer_wgpu.c:1232` devuelven 1 → `wn_view.c:740-744` devuelve `WN_ERR_GPU` → `wn_app.c:101-106` marca `failed` | saltar el batch sin textura (o pintar placeholder) y reportar por nodo, no abortar el frame. Aditivo |
 | D4 | Renderer | En offscreen, si `CommandEncoderFinish` falla se libera `gpu->target_view` (que es el `view` del target) y el puntero queda colgando: el frame siguiente lo reusa | `renderer_wgpu.c:1549` aliasa `view = gpu->target_view` y `:1655-1656` lo libera sin distinguir offscreen (ahí `surface_texture.texture` es NULL) | liberar solo si `!gpu->offscreen` y poner `gpu->target_view = NULL`. Aditivo |
