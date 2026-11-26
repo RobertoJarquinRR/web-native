@@ -52,6 +52,11 @@ typedef enum {
     R2_OBJECT_FIT_COVER = 1,
     R2_OBJECT_FIT_CONTAIN = 2
 } ObjectFit;
+typedef enum {
+    R2_POSITION_STATIC = 0,
+    R2_POSITION_RELATIVE = 1,
+    R2_POSITION_ABSOLUTE = 2
+} PositionMode;
 
 typedef struct {
     int parent;                 /* -1 root */
@@ -100,6 +105,14 @@ typedef struct {
      * group: the runtime renders its subtree into an offscreen layer and
      * composites it once. Not inherited. */
     float opacity;
+    /* Blob v4: positioning. `position` is R2_POSITION_*; `inset` is
+     * top,right,bottom,left; `inset_mask` bit 0..3 marks a declared side and
+     * bit 4..7 marks a percentage value. `relative` offsets after normal flow;
+     * `absolute` leaves the flow and resolves against the nearest positioned
+     * ancestor (or the root). */
+    int position;
+    float inset[4];
+    unsigned int inset_mask;
 } UiNode;
 
 typedef struct {

@@ -8,7 +8,7 @@
 │    Rust (canónico) · Python (oráculo) · C++/C# (frozen)      │
 ├──────────────────────────────────────────────────────────────┤
 │ 2. Documento (contrato runtime)                              │
-│    app.wnui (blob v3) · builtin embebido                     │
+│    app.wnui (blob v4) · builtin embebido                     │
 │    wnui-dump: proyección de debug, no contrato                │
 ├──────────────────────────────────────────────────────────────┤
 │ 3. Serializador (build time)                                 │
@@ -69,6 +69,7 @@ El texto no se hornea: el documento lleva cadena, familia, tamaño, peso y
 
 | Módulo | Responsabilidad |
 |---|---|
+| `core/layout.c` | flujo block/flex/grid, relative offsets y segunda pasada absolute |
 | `core/kind_ops.c` | tabla por tipo de nodo: auto-size, intrínseco y layout de hijos |
 | `core/scroll.c` | servicio x/y: clamp, aplicar y relayout; X reservado |
 | `core/paint.c` | paint items ordenados (clip, capa, transform, opacidad) y batches |
@@ -86,10 +87,12 @@ el mismo loader (`wn_document_load_blob_memory`).
 
 ### Documento compilado (`.wnui`)
 
-El árbol se serializa a un blob v3: cabecera de 32 bytes (`WNUI`, versión 3) y
-secciones de nodos, nombres, strings e inputs. No hay glifos, runs, atlas ni
-piscina ASCII: el texto de los inputs también lo shapea el runtime. Los nodos
-son enteros y floats con offsets al pool de strings (0 = NULL).
+El árbol se serializa a un blob v4: cabecera de 32 bytes (`WNUI`, versión 4) y
+secciones de nodos, nombres, strings e inputs. Cada nodo mide 248 bytes e
+incluye `position` + `inset[4]`/`inset_mask` (relative/absolute). No hay glifos,
+runs, atlas ni piscina ASCII: el texto de los inputs también lo shapea el
+runtime. Los nodos son enteros y floats con offsets al pool de strings
+(0 = NULL).
 
 `wnui-dump` carga el blob con ese mismo loader y lo imprime para debug; su
 formato no es un contrato (ver `docs/wnui-format.md`).
@@ -98,7 +101,7 @@ formato no es un contrato (ver `docs/wnui-format.md`).
 `CreateFileMapping`/`MapViewOfFile`; resto: `malloc`) y devuelve el documento
 hasta la última referencia. `wn_app_load_document` lo carga en una app viva,
 conserva el renderer y devuelve `WN_ERR_IO` con blob inválido. La página
-canónica pesa 7.480 bytes como blob.
+canónica pesa 8.264 bytes como blob.
 
 `renderer` es la vtable `wn_renderer`. En Windows el backend por defecto es
 **D3D11 hardware** (`renderer_d3d11.c`) con fallback a **wgpu-native**; en otras

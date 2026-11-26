@@ -59,19 +59,21 @@ CXX_SUFFIXES = (".cpp", ".cc", ".cxx")
 # compares the builtin and file renders, but that comparison alone is
 # tautological (both sides use the same emission).
 PINNED_BLOBS = {
-    "canonical": "ffa40e0cb09c9e8759731c1b02863dd2e7c2d98c44750901aa9f4e609045df17",
-    "input": "368223ab6138751d94a30fce95d65727aafa296ba9b18b0553d3f088f61bb2c6",
-    "fidelity": "a4fb6308384c6203ecf9867d9320788efd56d8852b7a7b2d7a79faa854c2b0ec",
-    "pilot": "13c51fb10167acf5c9c450eb095fce3df99b1e2023af9dc6bf46fb61efd7b99d",
-    "dynamic": "4ff328afb0ef4996ff7c914c4a962128a7d4c8ab25613375648380eac1a85f15",
-    "cache": "e1810f16f0856eab9dfa34e3f21aca30b8318346ba49f6c63f75cbf7b4efa5dc",
+    "canonical": "a32d8b9d00802d723bb71d1abe3f744fe5cf1bb1922f90b3dea6af062c122c17",
+    "input": "08314abecdd00b9bf621b29d93fe52cdff2647c9ebac6569243672b6b5a3d1b4",
+    "fidelity": "de036df0d535121d573aff08c0dbeba68d020c885afaa1654fbf4a4d3c68ae53",
+    "pilot": "ee737b4b831219bf7845db3a1fc6bb74103104ca3310e5b51689550e9abb33f1",
+    "dynamic": "a55526dd0e312c6d9acee2d06a132e9d4fa8e37f3af02a132d5a9ac269e6c8e3",
+    "cache": "ac37ad35f9bdc81ffd612651fede26283997267192f65fa28188dce1485c5986",
     # CSS suite fixtures (HTML/CSS -> blob, same pinning rule as the corpus).
-    "css_card": "31ab1c766520935e243160e2d672e9dbb9bb367df270703d4f1b7c04af637f9c",
-    "css_control": "5379156f84b8a9a6f0292f3201a3f81ab021583d0a686fb8682f88bebe43cd44",
-    "css_none": "a148ca02ad727f4e49719ed4daf546e77ec8931095211e612609d8e0e43eec11",
+    "css_card": "8f0c18b27f649e07ee862915c3ec348fde261caf66d5a3d7e80fbd39cb06a3bb",
+    "css_control": "7c0ad70398571b9a976133c85cff81d5ef947e88802aacd796e37a31933dcb72",
+    "css_none": "b473e4dd326f9a61d2535a1f0b7b8503685d8baa77c3ef8c6dd46d5a8c7236e2",
     # Group-opacity pixel fixtures (emitted by the css suite, verified there).
-    "opacity": "98cbe11d799cfcfc38d360975348ddcfd900908dd37fdc8780b8041eb0cec591",
-    "opacity_deep": "f70a6054be05a70ac958314f70cb8a0a50f822429c75c9d26f8a103931511fa1",
+    "opacity": "51d9a1fb9a0880eba0a0f4c2b34eaf7488025369b27bc202c7533ce9894d9db3",
+    "opacity_deep": "ff9a67e58d228c664b3ad2cbbfece05c1b1cab29427b83910ef330e4a331e0f1",
+    # Position fixture (relative/absolute boxes, verified on d3d11 + wgpu).
+    "position": "fbb13ef58989d5bc1afaa7a5cc50354791eb7b702a33d9250b285ce32bc361af",
 }
 
 
@@ -417,6 +419,50 @@ def run_css() -> int:
                      "--backend", deep_backend], cwd=deep_suite),
             f"opacity deep verify ({deep_backend})", 4)
 
+    log_step("position: relative/absolute pixel fixture (d3d11" +
+             (" + wgpu)" if wgpu_available() else ")"))
+    position_blob = _emit_css_fixture("position", page, 400, 200,
+                                      out / "emit" / "position")
+    _assert_pinned_blob("position", position_blob)
+    position_backends = ["d3d11"] + (["wgpu"] if wgpu_available() else [])
+    for position_backend in position_backends:
+        png = out / f"render_position_{position_backend}.png"
+        report = out / f"layout_position_{position_backend}.json"
+        environment = {"WN_RENDERER": position_backend}
+        _run(card_exe, ["--document", str(position_blob),
+                        "--report", str(report), "--sizes", "400x200"],
+             page, environment)
+        _run(card_exe, ["--document", str(position_blob),
+                        "--render", "400", "200", str(png)],
+             page, environment)
+        _expect_reported_checks(
+            _python(suite / "verify_position.py",
+                    ["--png", str(png), "--report", str(report),
+                     "--blob", str(position_blob), "--dump", str(dump_exe),
+                     "--backend", position_backend], cwd=suite),
+            f"position verify ({position_backend})", 42)
+    if wgpu_available():
+        log_step("position: compare d3d11 and wgpu")
+        compare = out / "position_compare.json"
+        completed = subprocess.run(
+            [
+                str(get_python_exe()),
+                str(runtime / "tests" / "d3d11" / "verify_d3d11.py"),
+                "--capture", str(out / "render_position_d3d11.png"),
+                "--reference", str(out / "render_position_wgpu.png"),
+                "--report", str(compare),
+                "--label", "position-d3d11-vs-wgpu",
+            ],
+            cwd=out,
+            capture_output=True,
+            text=True,
+        )
+        for line in (completed.stdout + completed.stderr).splitlines():
+            if line.strip():
+                log_info(line.rstrip())
+        if completed.returncode != 0:
+            raise CliError("position pixel comparison failed")
+
     log_info("css core v1: PASS")
     return 0
 
@@ -523,6 +569,23 @@ def run_fidelity() -> int:
     # inert x delta, the forced x clamp and apply, the forced x into-view
     # path, and the synthetic-core wheel.
     _expect_checks(scroll_text, "scroll service test", 20)
+
+    log_step("fidelity: relative/absolute position (layout, clip, hit-test)")
+    position_exe = out / "position_test.exe"
+    _compile(
+        position_exe,
+        [_suite_dir("core") / "position_test.c",
+         *[runtime / source for source in CORE_SOURCES]],
+        [get_paths().root / "include", runtime, out / "emit"],
+        CORE_LIBS,
+    )
+    position_text = _run(position_exe, [], out)
+    _expect(position_text, ["position_test: PASS"], "position layout test")
+    # Relative offsets plus subtree/scroll, absolute flow/containing-block/
+    # stretch/nested cases, flex/grid/intrinsic exclusion, the viewport
+    # fallback, the fully clipped ancestor escape, scroll+clip+hit-test and the
+    # v4 loader validation.
+    _expect_checks(position_text, "position_test", 64)
 
     log_step("fidelity: paint item list (identity, transform, opacity, layers)")
     paint_exe = out / "paint_list_test.exe"
@@ -1100,7 +1163,7 @@ def run_blob() -> int:
         CORE_LIBS,
     )
     _expect(_run(input_exe, [str(input_blob)], out), ["blob_test: PASS"], "input blob test")
-    log_info("blob v3: PASS")
+    log_info("blob v4: PASS")
     return 0
 
 
@@ -1143,7 +1206,7 @@ def run_dump() -> int:
 
     log_step("dump: canonical JSON projection")
     document = json.loads(_run(exe, ["--json", str(canonical)], out))
-    if document.get("format") != "wnui/3":
+    if document.get("format") != "wnui/4":
         raise CliError(f"unexpected dump format: {document.get('format')!r}")
     if document.get("viewport") != {"width": 960, "height": 640}:
         raise CliError(f"unexpected dump viewport: {document.get('viewport')!r}")
@@ -1193,7 +1256,7 @@ SUITES = {
     "input": ("text input v1 (caret, selection, clipboard, ABI demo)", run_input),
     "offscreen": ("offscreen vtable (d3d11 vs wgpu readback)", run_offscreen),
     "text": ("runtime text v0 (contracts on the fake backend + DirectWrite smoke)", run_text),
-    "blob": ("blob v3 (.wnui load, layout and pixels)", run_blob),
+    "blob": ("blob v4 (.wnui load, layout and pixels)", run_blob),
     "dump": ("wnui-dump debug projection (text/JSON/errors)", run_dump),
 }
 

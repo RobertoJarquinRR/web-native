@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -431,6 +432,31 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
                          "(expected 0..1)", origin, i, (double)src->opacity);
             goto fail;
         }
+        if (src->position < R2_POSITION_STATIC ||
+            src->position > R2_POSITION_ABSOLUTE) {
+            wn_set_error("wn_document_load_blob: %s: node %u has position %d "
+                         "(expected 0 static, 1 relative, 2 absolute)",
+                         origin, i, (int)src->position);
+            goto fail;
+        }
+        if ((src->inset_mask & ~0xFFu) != 0u ||
+            ((src->inset_mask >> 4) & ~(src->inset_mask & 0x0Fu)) != 0u) {
+            wn_set_error("wn_document_load_blob: %s: node %u has inset_mask 0x%x "
+                         "(bits 0..3 declared, bits 4..7 percentage only on a "
+                         "declared side)", origin, i, src->inset_mask);
+            goto fail;
+        }
+        {
+            uint32_t side;
+            for (side = 0; side < 4u; ++side) {
+                if ((src->inset_mask & (1u << side)) != 0u &&
+                    !isfinite(src->inset[side])) {
+                    wn_set_error("wn_document_load_blob: %s: node %u has a "
+                                 "non-finite inset[%u]", origin, i, side);
+                    goto fail;
+                }
+            }
+        }
         dst->parent = src->parent;
         dst->kind = src->kind;
         dst->direction = src->direction;
@@ -481,6 +507,9 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
         dst->font_family = blob_string(strings, strings_size, src->font_family);
         dst->font_weight = src->font_weight;
         dst->opacity = src->opacity;
+        dst->position = src->position;
+        memcpy(dst->inset, src->inset, sizeof(dst->inset));
+        dst->inset_mask = src->inset_mask;
     }
     {
         const uint32_t *name_offsets =

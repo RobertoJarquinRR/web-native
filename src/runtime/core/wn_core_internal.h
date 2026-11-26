@@ -17,7 +17,7 @@
 
 /* The on-disk node record is a fixed contract shared with the Rust writer and
  * the blob loader. A field added without bumping both sides must fail here. */
-_Static_assert(sizeof(WnBlobNode) == 224, "WnBlobNode must stay 224 bytes");
+_Static_assert(sizeof(WnBlobNode) == 248, "WnBlobNode must stay 248 bytes (v4)");
 
 #define WN_MAX_CLASSES 8
 
@@ -100,6 +100,13 @@ typedef struct {
 /* Outer (border-box) width/height of the declared size. */
 #define WN_DECL_W(n) ((WN_BOX_SIZING(n)) ? 0.0f : ((n)->padding[1] + (n)->padding[3]))
 #define WN_DECL_H(n) ((WN_BOX_SIZING(n)) ? 0.0f : ((n)->padding[0] + (n)->padding[2]))
+
+/* Blob v4 positioning. `inset` order is top,right,bottom,left. */
+#define WN_POSITION(n) ((n)->position)
+#define WN_IS_ABSOLUTE(n) ((n)->position == R2_POSITION_ABSOLUTE)
+#define WN_IS_POSITIONED(n) ((n)->position != R2_POSITION_STATIC)
+#define WN_INSET_SET(n, side) ((((n)->inset_mask) >> (side)) & 1u)
+#define WN_INSET_PCT(n, side) ((((n)->inset_mask) >> (4u + (side))) & 1u)
 
 #ifndef R2_NODE_INPUT
 #define R2_NODE_INPUT 5

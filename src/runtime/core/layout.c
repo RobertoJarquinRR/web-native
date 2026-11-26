@@ -16,7 +16,7 @@
 
 static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
                          float available_w, float parent_content_h,
-                         int is_root, float forced_w);
+                         int is_root, float forced_w, float forced_h);
 
 /* ------------------------------------------------------------- hierarchy */
 
@@ -94,6 +94,51 @@ static void translate_subtree(wn_core *c, int node, float dx, float dy)
     }
 }
 
+/* Resolves one declared inset side against a basis (px stays px, a
+ * percentage is applied to the containing block). Only called when the side is
+ * marked as set in `inset_mask`. */
+static float inset_value(const UiNode *n, int side, float basis)
+{
+    if (!WN_INSET_SET(n, side)) {
+        return 0.0f;
+    }
+    if (WN_INSET_PCT(n, side)) {
+        return basis * n->inset[side] * 0.01f;
+    }
+    return n->inset[side];
+}
+
+/* `position: relative`: the node was laid out in normal flow; shift it and its
+ * subtree afterwards. Left/top win over right/bottom when both are present.
+ * The flow cursor is untouched, so siblings stay where they were. */
+static void apply_relative_offset(wn_core *c, int node, float available_w,
+                                  float parent_content_h)
+{
+    const UiNode *n = &c->nodes[node];
+    float dx = 0.0f;
+    float dy = 0.0f;
+    float height_basis;
+    if (n->position != R2_POSITION_RELATIVE) {
+        return;
+    }
+    if (WN_INSET_SET(n, 3)) {
+        dx = inset_value(n, 3, available_w);
+    } else if (WN_INSET_SET(n, 1)) {
+        dx = -inset_value(n, 1, available_w);
+    }
+    /* A percentage top/bottom needs a definite containing block height; with
+     * an auto-height flow containing block the offset resolves to 0. */
+    height_basis = parent_content_h >= 0.0f ? parent_content_h : 0.0f;
+    if (WN_INSET_SET(n, 0)) {
+        dy = inset_value(n, 0, height_basis);
+    } else if (WN_INSET_SET(n, 2)) {
+        dy = -inset_value(n, 2, height_basis);
+    }
+    if (dx != 0.0f || dy != 0.0f) {
+        translate_subtree(c, node, dx, dy);
+    }
+}
+
 static void mark_subtree_hidden(wn_core *c, int node)
 {
     int child;
@@ -163,7 +208,8 @@ static float layout_flex_children(wn_core *c, int parent, float content_x,
     int child;
 
     for (child = c->first_child[parent]; child >= 0; child = c->next_sibling[child]) {
-        if (!c->alive[child] || !c->visible[child]) {
+        if (!c->alive[child] || !c->visible[child] ||
+            WN_IS_ABSOLUTE(&c->nodes[child])) {
             continue;
         }
         ++count;
@@ -185,7 +231,8 @@ static float layout_flex_children(wn_core *c, int parent, float content_x,
 
     count = 0;
     for (child = c->first_child[parent]; child >= 0; child = c->next_sibling[child]) {
-        if (!c->alive[child] || !c->visible[child]) {
+        if (!c->alive[child] || !c->visible[child] ||
+            WN_IS_ABSOLUTE(&c->nodes[child])) {
             continue;
         }
         items[count] = child;
@@ -218,14 +265,14 @@ static float layout_flex_children(wn_core *c, int parent, float content_x,
             } else {
                 float saved = c->nodes[id].height;
                 c->nodes[id].height = basis - WN_DECL_H(n);
-                layout_node(c, id, 0.0f, 0.0f, content_w, content_h, 0, forced);
+                layout_node(c, id, 0.0f, 0.0f, content_w, content_h, 0, forced, -1.0f);
                 c->nodes[id].height = saved;
                 item_w[k] = c->rects[id].w;
                 item_h[k] = c->rects[id].h;
                 continue;
             }
         }
-        layout_node(c, id, 0.0f, 0.0f, content_w, content_h, 0, forced);
+        layout_node(c, id, 0.0f, 0.0f, content_w, content_h, 0, forced, -1.0f);
         item_w[k] = c->rects[id].w;
         item_h[k] = c->rects[id].h;
     }
@@ -380,13 +427,13 @@ static float layout_flex_children(wn_core *c, int parent, float content_x,
                 extra = free * g / grow_sum;
                 if (row) {
                     item_w[j] += extra;
-                    layout_node(c, id, 0.0f, 0.0f, content_w, content_h, 0, item_w[j]);
+                    layout_node(c, id, 0.0f, 0.0f, content_w, content_h, 0, item_w[j], -1.0f);
                     item_h[j] = c->rects[id].h;
                 } else {
                     float outer = item_h[j] + extra;
                     float saved = c->nodes[id].height;
                     c->nodes[id].height = outer - WN_DECL_H(n);
-                    layout_node(c, id, 0.0f, 0.0f, content_w, content_h, 0, -1.0f);
+                    layout_node(c, id, 0.0f, 0.0f, content_w, content_h, 0, -1.0f, -1.0f);
                     c->nodes[id].height = saved;
                     item_h[j] = outer;
                     item_w[j] = c->rects[id].w;
@@ -537,7 +584,8 @@ static float layout_grid_children(wn_core *c, int parent, float content_x,
     int k;
 
     for (child = c->first_child[parent]; child >= 0; child = c->next_sibling[child]) {
-        if (!c->alive[child] || !c->visible[child]) {
+        if (!c->alive[child] || !c->visible[child] ||
+            WN_IS_ABSOLUTE(&c->nodes[child])) {
             continue;
         }
         ++count;
@@ -552,7 +600,10 @@ static float layout_grid_children(wn_core *c, int parent, float content_x,
             if (!c->alive[child] || !c->visible[child]) {
                 continue;
             }
-            cursor += layout_node(c, child, content_x, cursor, content_w, content_h, 0, -1.0f);
+            if (WN_IS_ABSOLUTE(&c->nodes[child])) {
+                continue;
+            }
+            cursor += layout_node(c, child, content_x, cursor, content_w, content_h, 0, -1.0f, -1.0f);
         }
         return cursor - content_y;
     }
@@ -580,7 +631,8 @@ static float layout_grid_children(wn_core *c, int parent, float content_x,
 
     k = 0;
     for (child = c->first_child[parent]; child >= 0; child = c->next_sibling[child]) {
-        if (!c->alive[child] || !c->visible[child]) {
+        if (!c->alive[child] || !c->visible[child] ||
+            WN_IS_ABSOLUTE(&c->nodes[child])) {
             continue;
         }
         items[k] = child;
@@ -597,7 +649,7 @@ static float layout_grid_children(wn_core *c, int parent, float content_x,
             forced = content_w * n->width_pct * 0.01f + WN_DECL_W(n);
         }
         forced = fmaxf(forced - n->margin[1] - n->margin[3], 0.0f);
-        layout_node(c, items[k], 0.0f, 0.0f, content_w, content_h, 0, forced);
+        layout_node(c, items[k], 0.0f, 0.0f, content_w, content_h, 0, forced, -1.0f);
         item_w[k] = forced;
         item_h[k] = c->rects[items[k]].h;
         if (p->grid_auto_rows < 0.0f) {
@@ -626,7 +678,7 @@ static float layout_grid_children(wn_core *c, int parent, float content_x,
                 {
                     int col = k % columns;
                     float x = content_x + (float)col * (track + column_gap);
-                    layout_node(c, items[k], x, y, content_w, content_h, 0, item_w[k]);
+                    layout_node(c, items[k], x, y, content_w, content_h, 0, item_w[k], -1.0f);
                 }
             }
             total += row_h[row];
@@ -658,7 +710,13 @@ float wn_layout_block_children(wn_core *c, int node, float content_x, float cont
             mark_subtree_hidden(c, child);
             continue;
         }
-        used = layout_node(c, child, content_x, cursor, content_w, content_h, 0, -1.0f);
+        /* Absolute children leave the flow: no cursor advance, no size
+         * contribution. The absolute pass lays them out once the containing
+         * block is final. */
+        if (WN_IS_ABSOLUTE(&c->nodes[child])) {
+            continue;
+        }
+        used = layout_node(c, child, content_x, cursor, content_w, content_h, 0, -1.0f, -1.0f);
         /* `margin-left/right:auto` in a block container. Both auto margins
          * centre the box; only left pushes it to the right. */
         {
@@ -701,7 +759,7 @@ float wn_layout_grid_children(wn_core *c, int node, float content_x, float conte
 
 static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
                          float available_w, float parent_content_h,
-                         int is_root, float forced_w)
+                         int is_root, float forced_w, float forced_h)
 {
     const UiNode *n = &c->nodes[node];
     const WnKindOps *ops;
@@ -741,7 +799,11 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
     const float pad_t = n->padding[0], pad_b = n->padding[2];
     float content_h = -1.0f;
     int definite_h = 0;
-    if (n->height >= 0.0f) {
+    if (forced_h >= 0.0f) {
+        /* Absolute top+bottom stretch: the forced value is border-box. */
+        content_h = fmaxf(forced_h - pad_t - pad_b, 0.0f);
+        definite_h = 1;
+    } else if (n->height >= 0.0f) {
         content_h = fmaxf(n->height - (WN_BOX_SIZING(n) ? pad_t + pad_b : 0.0f), 0.0f);
         definite_h = 1;
     } else if (n->height_pct > 0.0f && parent_content_h >= 0.0f) {
@@ -764,7 +826,9 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
      * (locked by tests/core/text_pct_height_test.c). */
     if (ops->is_leaf) {
         float h;
-        if (n->height >= 0.0f) {
+        if (forced_h >= 0.0f) {
+            h = forced_h;
+        } else if (n->height >= 0.0f) {
             h = n->height + WN_DECL_H(n);
         } else if (n->height_pct > 0.0f && parent_content_h >= 0.0f) {
             h = parent_content_h * n->height_pct * 0.01f + WN_DECL_H(n);
@@ -779,6 +843,7 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
         }
         c->rects[node].w = w;
         c->rects[node].h = h;
+        apply_relative_offset(c, node, available_w, parent_content_h);
         return h + n->margin[2];
     }
 
@@ -797,7 +862,9 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
     const float content_used = cursor - content_y;
 
     float h;
-    if (n->height >= 0.0f) {
+    if (forced_h >= 0.0f) {
+        h = forced_h;
+    } else if (n->height >= 0.0f) {
         h = n->height + WN_DECL_H(n);
     } else if (n->height_pct > 0.0f && parent_content_h >= 0.0f) {
         h = parent_content_h * n->height_pct * 0.01f + WN_DECL_H(n);
@@ -833,7 +900,178 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
             c->scroll_y[node] = 0.0f;
         }
     }
+    apply_relative_offset(c, node, available_w, parent_content_h);
     return h + n->margin[2];
+}
+
+/* ------------------------------------------------- absolute positioning */
+
+/* Containing block for an absolute node. `padding` is the reference rect used
+ * by the insets: the border box of the nearest positioned ancestor. Layout
+ * ignores borders, so that rect is also the padding box CSS specifies.
+ * `content_x/y` are its content-box origin, used by the simplified all-auto
+ * rule. The viewport is the initial containing block when no ancestor is
+ * positioned (`node == -1`), not the root node's box. */
+typedef struct {
+    int node;
+    wn_rect padding;
+    float content_x;
+    float content_y;
+} WnContainingBlock;
+
+static WnContainingBlock containing_block_from_node(wn_core *c, int node)
+{
+    const UiNode *n = &c->nodes[node];
+    const wn_rect *r = &c->rects[node];
+    WnContainingBlock cb;
+    cb.node = node;
+    cb.padding = *r;
+    cb.content_x = r->x + n->padding[3];
+    cb.content_y = r->y + n->padding[0];
+    return cb;
+}
+
+/* The initial containing block is the viewport, even when the root node is
+ * smaller than it. `node == -1` makes absolute_scroll_offset apply every
+ * ancestor scroller (there is no containing-block node to stop at). */
+static WnContainingBlock containing_block_viewport(float width, float height)
+{
+    WnContainingBlock cb;
+    cb.node = -1;
+    cb.padding.x = 0.0f;
+    cb.padding.y = 0.0f;
+    cb.padding.w = width;
+    cb.padding.h = height;
+    cb.content_x = 0.0f;
+    cb.content_y = 0.0f;
+    return cb;
+}
+
+/* Absolute width auto is shrink-to-fit in this lane: intrinsic max-content,
+ * clamped to the containing block width. */
+static float absolute_auto_width(wn_core *c, int node, float cb_w)
+{
+    float width = wn_intrinsic_width(c, node, cb_w);
+    if (!(width > 0.0f)) {
+        width = 0.0f;
+    }
+    return fminf(width, cb_w);
+}
+
+/* Scroll offsets accumulated from the absolute node's parent up to (and
+ * including) its containing block node. Scrollers above the containing block
+ * already moved the containing block rect and must not be applied twice.
+ * `cb_node` is -1 for the viewport fallback, where every ancestor scroller
+ * applies. */
+static void absolute_scroll_offset(const wn_core *c, int node, int cb_node,
+                                   float *dx, float *dy)
+{
+    int walk;
+    *dx = 0.0f;
+    *dy = 0.0f;
+    for (walk = c->parent[node]; walk >= 0; walk = c->parent[walk]) {
+        if (c->nodes[walk].overflow == R2_OVERFLOW_SCROLL) {
+            *dx -= c->scroll_x[walk];
+            *dy -= c->scroll_y[walk];
+        }
+        if (walk == cb_node) {
+            break;
+        }
+    }
+}
+
+static void layout_absolute_node(wn_core *c, int node, const WnContainingBlock *cb)
+{
+    const UiNode *n = &c->nodes[node];
+    const float cb_w = cb->padding.w;
+    const float cb_h = cb->padding.h;
+    const int has_left = WN_INSET_SET(n, 3);
+    const int has_right = WN_INSET_SET(n, 1);
+    const int has_top = WN_INSET_SET(n, 0);
+    const int has_bottom = WN_INSET_SET(n, 2);
+    const float left = inset_value(n, 3, cb_w);
+    const float right = inset_value(n, 1, cb_w);
+    const float top = inset_value(n, 0, cb_h);
+    const float bottom = inset_value(n, 2, cb_h);
+    const int width_auto = n->width < 0.0f && n->width_pct == 0.0f;
+    const int height_auto = n->height < 0.0f && n->height_pct == 0.0f;
+    float w_outer;
+    float forced_h = -1.0f;
+    float bx;
+    float by;
+    float scroll_dx;
+    float scroll_dy;
+    int position_by_bottom = 0;
+
+    if (width_auto && has_left && has_right) {
+        w_outer = fmaxf(cb_w - left - right - n->margin[1] - n->margin[3], 0.0f);
+    } else if (width_auto) {
+        w_outer = absolute_auto_width(c, node, cb_w);
+    } else if (n->width >= 0.0f) {
+        w_outer = n->width + WN_DECL_W(n);
+    } else {
+        w_outer = cb_w * n->width_pct * 0.01f + WN_DECL_W(n);
+    }
+
+    if (height_auto && has_top && has_bottom) {
+        forced_h = fmaxf(cb_h - top - bottom - n->margin[0] - n->margin[2], 0.0f);
+    }
+
+    /* Insets place the margin edge; margins move the border box inside it. */
+    if (has_left) {
+        bx = cb->padding.x + left + n->margin[3];
+    } else if (has_right) {
+        bx = cb->padding.x + cb_w - right - n->margin[1] - w_outer;
+    } else {
+        bx = cb->content_x + n->margin[3];
+    }
+
+    if (has_top) {
+        by = cb->padding.y + top + n->margin[0];
+    } else {
+        /* Auto top: content origin when both are auto; a bottom-only box needs
+         * its final height before it can be placed, so it is translated after
+         * layout. */
+        by = cb->content_y + n->margin[0];
+        position_by_bottom = !has_top && has_bottom;
+    }
+
+    absolute_scroll_offset(c, node, cb->node, &scroll_dx, &scroll_dy);
+
+    layout_node(c, node, bx - n->margin[3], by - n->margin[0], cb_w, cb_h, 0,
+                w_outer, forced_h);
+
+    if (position_by_bottom) {
+        float target_y = cb->padding.y + cb_h - bottom - n->margin[2] -
+                         c->rects[node].h;
+        translate_subtree(c, node, 0.0f, target_y - c->rects[node].y);
+    }
+    if (scroll_dx != 0.0f || scroll_dy != 0.0f) {
+        translate_subtree(c, node, scroll_dx, scroll_dy);
+    }
+}
+
+/* Recursive second pass: lay out absolute nodes in tree order once normal flow
+ * (and relative offsets) has settled every containing block. Nested absolute
+ * children use the absolute node itself as their containing block. */
+static void layout_absolute_children(wn_core *c, int node,
+                                     const WnContainingBlock *inherited)
+{
+    WnContainingBlock cb = *inherited;
+    int child;
+
+    if (WN_IS_POSITIONED(&c->nodes[node])) {
+        cb = containing_block_from_node(c, node);
+    }
+    for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
+        if (!c->alive[child] || !c->visible[child]) {
+            continue;
+        }
+        if (WN_IS_ABSOLUTE(&c->nodes[child])) {
+            layout_absolute_node(c, child, &cb);
+        }
+        layout_absolute_children(c, child, &cb);
+    }
 }
 
 /* --------------------------------------------------------------- clipping */
@@ -858,12 +1096,24 @@ int rect_is_empty(wn_rect r)
 }
 
 /* clips[node] is the scissor applied when painting the node itself; children
- * of an overflow container are additionally clipped to its content box. */
-static void compute_clips(wn_core *c, int node, wn_rect clip)
+ * of an overflow container are additionally clipped to its content box.
+ *
+ * Absolute nodes use the clip of their containing block's children instead of
+ * the DOM parent's clip: CSS does not clip an out-of-flow descendant by an
+ * `overflow` ancestor that is not its containing block (or inside it). The
+ * fallback root acts as a containing block too, so a static overflow ancestor
+ * below the root does not clip an absolute node whose containing block is the
+ * root. `cb_child_clip` is the child clip of the nearest positioned ancestor
+ * (or the root), passed down through static ancestors. */
+static void compute_clips(wn_core *c, int node, wn_rect inherited_clip,
+                          wn_rect cb_child_clip)
 {
     const UiNode *n = &c->nodes[node];
+    wn_rect clip = WN_IS_ABSOLUTE(n) ? cb_child_clip : inherited_clip;
     wn_rect child_clip = clip;
     int child;
+    const int is_containing_block = c->parent[node] < 0 || WN_IS_POSITIONED(n);
+
     c->clips[node] = clip;
     if (n->overflow != R2_OVERFLOW_VISIBLE) {
         const wn_rect *r = &c->rects[node];
@@ -878,7 +1128,8 @@ static void compute_clips(wn_core *c, int node, wn_rect clip)
         if (!c->alive[child] || !c->visible_eff[child]) {
             continue;
         }
-        compute_clips(c, child, child_clip);
+        compute_clips(c, child, child_clip,
+                      is_containing_block ? child_clip : cb_child_clip);
     }
 }
 
@@ -994,10 +1245,18 @@ static void append_paint_item(wn_core *c, int node, int layer, float opacity)
  * clip is the intersection of the viewport with the ancestor content boxes
  * (compute_clips starts at the viewport), so it says nothing about the node's
  * own box: a node whose box is entirely outside the viewport still has a
- * non-empty clip through an overflow:visible ancestor. Descendants of an
- * empty-clip node also have an empty clip (clips only shrink), so the walk can
- * stop there without changing the paint set; invisible subtrees are skipped
- * whole, exactly like the old paint_order build.
+ * non-empty clip through an overflow:visible ancestor.
+ *
+ * An empty clip on a node must not prune its subtree. Clips only shrink for
+ * in-flow descendants, so every normal child of an empty-clip node is empty
+ * too; but an absolutely positioned descendant can replace the inherited clip
+ * with the child clip of its containing block (compute_clips), which lies
+ * above the clipping node. CSS does not clip such a node by an `overflow`
+ * ancestor that is not its containing block, so the walk keeps descending and
+ * skips only the individual nodes whose own clip is empty. This is what makes
+ * `root > relative > overflow:hidden(height:0) > static > absolute` paint and
+ * hit-test at its placed rect. Invisible subtrees are still skipped whole,
+ * exactly like the old paint_order build.
  *
  * wn_paint_item_visible() computes the second test (item AABB vs viewport),
  * but the build intentionally does not apply it. A box fully below the
@@ -1014,25 +1273,25 @@ static void build_paint_items(wn_core *c, int node, int layer)
 {
     int child;
     int own_layer = layer;
-    int group;
+    int group = 0;
     if (!c->alive[node] || !c->visible_eff[node]) {
         return;
     }
-    if (rect_is_empty(c->clips[node])) {
-        return;
-    }
-    group = paint_group_root(c, node);
-    if (group) {
-        own_layer = paint_layer_add(c, layer, node, paint_node_opacity(c, node),
-                                    c->clips[node]);
-        if (own_layer < 0) {
-            /* Beyond WN_MAX_PAINT_LAYERS: fall back to direct alpha on this
-             * node's own box (deeper groups still layer below the cap). */
-            group = 0;
-            own_layer = layer;
+    if (!rect_is_empty(c->clips[node])) {
+        group = paint_group_root(c, node);
+        if (group) {
+            own_layer = paint_layer_add(c, layer, node, paint_node_opacity(c, node),
+                                        c->clips[node]);
+            if (own_layer < 0) {
+                /* Beyond WN_MAX_PAINT_LAYERS: fall back to direct alpha on this
+                 * node's own box (deeper groups still layer below the cap). */
+                group = 0;
+                own_layer = layer;
+            }
         }
+        append_paint_item(c, node, own_layer,
+                          group ? 1.0f : paint_node_opacity(c, node));
     }
-    append_paint_item(c, node, own_layer, group ? 1.0f : paint_node_opacity(c, node));
     for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
         build_paint_items(c, child, own_layer);
     }
@@ -1292,13 +1551,20 @@ void layout_page(wn_core *c, float viewport_w, float viewport_h)
     c->paint_item_count = 0;
     if (root >= 0) {
         int layered;
-        layout_node(c, root, 0.0f, 0.0f, viewport_w, viewport_h, 1, -1.0f);
+        layout_node(c, root, 0.0f, 0.0f, viewport_w, viewport_h, 1, -1.0f, -1.0f);
         viewport.x = 0.0f;
         viewport.y = 0.0f;
         viewport.w = viewport_w;
         viewport.h = viewport_h;
         if (c->visible_eff[root]) {
-            compute_clips(c, root, viewport);
+            /* Out-of-flow nodes: their containing blocks are final now. A
+             * static root is not a containing block: the viewport is. */
+            WnContainingBlock root_cb =
+                WN_IS_POSITIONED(&c->nodes[root])
+                    ? containing_block_from_node(c, root)
+                    : containing_block_viewport(viewport_w, viewport_h);
+            layout_absolute_children(c, root, &root_cb);
+            compute_clips(c, root, viewport, viewport);
         }
         layered = paint_layers_begin(c, viewport);
         build_paint_items(c, root, 0);

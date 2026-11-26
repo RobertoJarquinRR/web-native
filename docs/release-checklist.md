@@ -107,9 +107,9 @@ python tools\cli.py bench pilot
 - [ ] `python tools\cli.py test all` encadena Rust, ABI, **CSS 52/52**,
       **fidelity 23/23**, **abi_v6 19**, **dynamic 61/61**, **input 83 + 118/118**,
       **text**, **blob**, **offscreen** (d3d11 vs wgpu) y **dump** (10/10 suites).
-- [ ] Los once blobs fijados (canonical/input/fidelity/pilot/dynamic/cache
-      más css_card/css_control/css_none/opacity/opacity_deep) coinciden con
-      `PINNED_BLOBS`; un byte de diferencia falla el build.
+- [ ] Los doce blobs fijados (canonical/input/fidelity/pilot/dynamic/cache
+      más css_card/css_control/css_none/opacity/opacity_deep/position)
+      coinciden con `PINNED_BLOBS`; un byte de diferencia falla el build.
 - [ ] Piloto (`python tools\cli.py bench pilot`) y su `verify.py` verdes.
 - [ ] Blob: `wn-cli test suite blob` da 28/28 rects y 100.00% de píxeles
       exactos contra el documento builtin, más el caso de input.
@@ -173,7 +173,7 @@ Estado real según `docs/support.md`; no prometer lo que no hay:
 | IME / i18n    | Sin IME; input UTF-8 de una línea; sin bidi, CJK ni emoji                                                                      |
 | DPI           | System-aware básico; sin `WM_DPICHANGED` ni multi-monitor                                                                 |
 | Texto         | Shape/raster/medición en runtime (DirectWrite); `font-weight`, `line-height`, `text-align`; sin wrapping todavía |
-| CSS           | Sin `position`, `transform`, `transition`, `animation`, `float`, `z-index`; borders/radius uniformes; una sombra no-inset |
+| CSS           | `position: relative/absolute` (blob v4) con insets px/%/auto; sin `fixed`/`sticky`/`z-index`/`inset`, `transform`, `transition`, `animation`, `float`; borders/radius uniformes; una sombra no-inset |
 | Layout        | Sin virtualización/culling; grids con `repeat(auto-fill, px)` pilot                                                       |
 | Host          | Una ventana por app; sin tray, diálogos, notificaciones ni drag & drop                                                    |
 | Renderer      | wgpu/D3D12 por defecto; D3D11 en curso; WARP lento y con RSS alto                                                         |

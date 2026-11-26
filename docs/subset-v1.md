@@ -43,6 +43,9 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 - `width`, `height` (px, %).
 - `padding`, `margin` (shorthand + longhands, px).
 - `box-sizing: border-box` (fijo en v1).
+- `position: static | relative | absolute` (v4; `static` es el default).
+- `top`, `right`, `bottom`, `left` en px, `%` o `auto` (los porcentajes se
+  resuelven en layout contra el containing block; no se hornean).
 
 > **Modelo de caja:** el motor calcula siempre *border-box*: `width`/`height`
 > incluyen padding y borde. CSS usa *content-box* por defecto, así que una
@@ -87,10 +90,10 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 
 ### Fuera de v1
 
-`position` (excepto `relative` futuro), `transform`, `transition`,
-`animation`, `gradient`, `@media`, `@font-face`, pseudo-elementos
+`position: fixed | sticky`, `z-index`, el shorthand `inset`, `transform`,
+`transition`, `animation`, `gradient`, `@media`, `@font-face`, pseudo-elementos
 (`::before/::after`), `calc()`, `float`, `table`, `filter`, `clip-path`,
-`z-index`, `columns`.
+`columns`.
 
 > `grid`, `box-shadow`, `em/rem/vh/vw`, per-side borders, per-corner radius y
 > `min/max` ya no están “fuera de v1” sin más: son **pilot v2/v3** y están en la
@@ -99,14 +102,18 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 
 ## Extensiones pilot (no v1)
 
-Estas features no forman parte del subset v1; se habilitan con `--pilot` y el
-frontend avisa (o falla con `--strict-subset`) si se usan sin él:
+Estas features no forman parte del subset v1 original. v2/v3 se habilitan con
+`--pilot` y el frontend avisa (o falla con `--strict-subset`) si se usan sin él;
+v4 (`position`) se acepta directamente en esta lane:
 
 - **v2:** `display:grid` con `repeat(auto-fill, px)`, `grid-auto-rows`, gap,
   `overflow: auto|scroll`, imágenes locales y `object-fit`.
 - **v3:** `input type="text"` de una línea (valor inicial ASCII, edición UTF-8
   en runtime); bordes por lado, `border-radius` por esquina, `box-shadow`,
   `min/max-*` y unidades `em/rem/vh/vw`.
+- **v4:** `position: relative | absolute` con `top/right/bottom/left` en
+  px/%/auto (blob v4). `fixed`, `sticky`, `z-index` y el shorthand `inset`
+  siguen fuera de esta lane.
 
 El detalle del contrato y de lo que el runtime ya implementa está en
 [`support.md`](support.md).
@@ -114,6 +121,8 @@ El detalle del contrato y de lo que el runtime ya implementa está en
 ## Diagnósticos
 
 - El frontend Rust emite `warning`/`error` con archivo, línea y propiedad.
+  `position: fixed/sticky`, valores de `position` desconocidos, unidades no
+  soportadas en insets, el shorthand `inset` y `z-index` se diagnostican.
 - `--strict-subset`: error y exit ≠ 0 ante cualquier feature fuera del subset.
 - Sin `--strict-subset`: warning y fallback (ignorar la propiedad).
 - Objetivo: que el diseñador sepa exactamente qué puede usar.

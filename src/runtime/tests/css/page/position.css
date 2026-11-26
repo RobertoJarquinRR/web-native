@@ -1,0 +1,109 @@
+/* Position fixture: 400x200. Flow children fill the top, relative boxes are
+   offset without moving their siblings, absolute boxes leave the flow. */
+html { height: 100%; }
+
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: #f0f0f0;
+}
+
+.flow {
+  width: 100px;
+  height: 30px;
+  background: #3366cc;
+}
+
+.rel {
+  width: 40px;
+  height: 30px;
+  background: #22aa66;
+  position: relative;
+  left: 20px;
+  top: 10px;
+}
+
+.rel2 {
+  width: 40px;
+  height: 30px;
+  margin-left: 100px;
+  background: #aa6622;
+  position: relative;
+  right: 10px;
+  bottom: 5px;
+}
+
+.abs {
+  position: absolute;
+  left: 150px;
+  top: 90px;
+  width: 60px;
+  height: 40px;
+  background: #cc3333;
+}
+
+.after {
+  width: 60px;
+  height: 20px;
+  background: #444444;
+}
+
+.absstretch {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  top: 150px;
+  bottom: 10px;
+  background: #9933cc;
+}
+
+.abspct {
+  position: absolute;
+  left: 25%;
+  top: 75%;
+  width: 20px;
+  height: 10px;
+  background: #0077aa;
+}
+
+.nested-host {
+  position: relative;
+  left: 200px;
+  top: 20px;
+  width: 80px;
+  height: 40px;
+  background: #dddddd;
+}
+
+.nested {
+  position: absolute;
+  left: 5px;
+  top: 5px;
+  width: 20px;
+  height: 15px;
+  background: #000000;
+}
+
+/* A fully clipped static ancestor (content box 0px high) must not hide an
+   absolute whose containing block is above it. */
+.escape-host {
+  height: 0;
+  overflow: hidden;
+}
+
+.escape-mid {
+  width: 20px;
+  height: 20px;
+}
+
+.escape {
+  position: absolute;
+  left: 300px;
+  top: 90px;
+  width: 30px;
+  height: 30px;
+  background: #cc9900;
+}
