@@ -7,6 +7,8 @@
  */
 #include "scroll.h"
 
+#include <math.h>
+
 #include "wn_core_internal.h"
 #include "wn_internal.h"
 
@@ -46,7 +48,9 @@ int wn_core_scroll_by(wn_core *c, int node, float dx, float dy)
     float *offset_y;
     float next_x;
     float next_y;
-    if (!wn_core_node_is_alive(c, node)) {
+    /* A NaN would poison the stored offset for the rest of the frame, and an
+     * infinity would only be clamped on one axis. Reject the whole call. */
+    if (!wn_core_node_is_alive(c, node) || !isfinite(dx) || !isfinite(dy)) {
         return -1;
     }
     offset_x = scroll_offset_axis(c, node, WN_SCROLL_X);

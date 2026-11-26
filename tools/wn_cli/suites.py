@@ -432,9 +432,11 @@ def run_fidelity() -> int:
     )
     scroll_text = _run(scroll_exe, [], out)
     _expect(scroll_text, ["scroll_test: PASS"], "scroll service test")
-    # 14 checks: vertical clamp/apply, the inert x delta, the forced x clamp
-    # and apply, the forced x into-view path, and the real-page wheel.
-    _expect_checks(scroll_text, "scroll service test", 14)
+    # 20 checks: direct vertical clamp bounds, vertical apply plus child
+    # geometry (-offset, repeated no-op at max), non-finite rejection, the
+    # inert x delta, the forced x clamp and apply, the forced x into-view
+    # path, and the synthetic-core wheel.
+    _expect_checks(scroll_text, "scroll service test", 20)
 
     log_step("fidelity: compile runtime + renders")
     runtime_exe = out / "runtime_fidelity.exe"

@@ -132,6 +132,8 @@ int main(void)
     size_t size = 0;
     wn_document *document;
     wn_core *core;
+    float nan_delta;
+    float inf_delta;
     int wheel;
 
     data = build_blob(&size);
@@ -154,6 +156,11 @@ int main(void)
         return 1;
     }
 
+    /* Read the deltas from strtof so the compiler cannot fold a NaN constant
+     * warning under /W4 /WX; the service must reject both. */
+    nan_delta = strtof("nan", NULL);
+    inf_delta = strtof("inf", NULL);
+
     /* ------------------------------------------- vertical: clamp and apply */
     check("layout computes vertical overflow only",
           near(wn_core_scroll_max(core, 0), 300.0f) &&
@@ -161,15 +168,52 @@ int main(void)
               near(core->scroll_max_x[0], 0.0f),
           "max_y=300, offset=0, max_x=0");
 
-    check("scroll_by moves y",
+    /* The geometry assertion is the other half of the contract: the offset is
+     * applied by translating the children during the layout re-run, so a
+     * service that only stores the offset (or translates with the wrong sign)
+     * must fail here. */
+    check("scroll_by moves y and translates the child by -offset",
           wn_core_scroll_by(core, 0, 0.0f, 100.0f) == 1 &&
-              near(wn_core_scroll_offset(core, 0), 100.0f),
-          "offset=100");
+              near(wn_core_scroll_offset(core, 0), 100.0f) &&
+              near(core->rects[1].y, -100.0f),
+          "offset=100, child y=-100");
 
-    check("scroll_by clamps to max_y",
+    check("scroll_by clamps to max_y and translates by -max",
           wn_core_scroll_by(core, 0, 0.0f, 1000000.0f) == 1 &&
-              near(wn_core_scroll_offset(core, 0), 300.0f),
-          "offset=scroll_max_y=300");
+              near(wn_core_scroll_offset(core, 0), 300.0f) &&
+              near(core->rects[1].y, -300.0f),
+          "offset=scroll_max_y=300, child y=-300");
+
+    check("a second identical clamp delta is a no-op",
+          wn_core_scroll_by(core, 0, 0.0f, 1000000.0f) == 0 &&
+              near(wn_core_scroll_offset(core, 0), 300.0f) &&
+              near(core->rects[1].y, -300.0f),
+          "returns 0, offset and geometry unchanged");
+
+    check("scroll_by at max_y with +10 is a no-op",
+          wn_core_scroll_by(core, 0, 0.0f, 10.0f) == 0 &&
+              near(wn_core_scroll_offset(core, 0), 300.0f) &&
+              near(core->rects[1].y, -300.0f),
+          "returns 0, offset and geometry unchanged");
+
+    /* Direct clamp assertions: layout re-clamps scroll_y after a service call,
+     * so only the pure function can show the service bound itself working. */
+    check("vertical clamp caps above max_y",
+          near(wn_core_scroll_clamp(core, 0, WN_SCROLL_Y, 1000000.0f), 300.0f),
+          "max=300");
+    check("vertical clamp floors below zero",
+          near(wn_core_scroll_clamp(core, 0, WN_SCROLL_Y, -5.0f), 0.0f),
+          "min=0");
+    check("vertical clamp keeps the exact max",
+          near(wn_core_scroll_clamp(core, 0, WN_SCROLL_Y, 300.0f), 300.0f),
+          "300 -> 300");
+
+    check("scroll_by rejects non-finite deltas",
+          wn_core_scroll_by(core, 0, nan_delta, 0.0f) == -1 &&
+              wn_core_scroll_by(core, 0, 0.0f, inf_delta) == -1 &&
+              near(wn_core_scroll_offset(core, 0), 300.0f) &&
+              near(core->rects[1].y, -300.0f),
+          "NaN/inf return -1 and leave the offset and geometry");
 
     check("scroll_by clamps negatives to 0",
           wn_core_scroll_by(core, 0, 0.0f, -1000000.0f) == 1 &&
@@ -189,6 +233,10 @@ int main(void)
           "x delta ignored, y unchanged");
 
     /* ---------------------------------------- reserved x clamp and apply */
+    /* Layout writes scroll_max_x = 0 for every node it visits, so forcing the
+     * bound here proves the clamp/apply state math only: scroll_by below
+     * re-runs layout and restores 0. Layout does not compute horizontal
+     * overflow in this lane. */
     core->scroll_max_x[0] = 500.0f;
     check("clamp uses the forced horizontal bound",
           near(wn_core_scroll_clamp(core, 0, WN_SCROLL_X, 1000000.0f), 500.0f) &&
@@ -221,7 +269,8 @@ int main(void)
               near(wn_core_scroll_offset(core, 0), 100.0f),
           "x=70 (right edge aligned), y stays 100");
 
-    /* Restore the lane invariant before the real-page wheel check. */
+    /* Restore the lane invariant before the synthetic-core wheel check; the
+     * pilot suite is the real-page wheel coverage. */
     core->scroll_x[0] = 0.0f;
     core->scroll_max_x[0] = 0.0f;
 

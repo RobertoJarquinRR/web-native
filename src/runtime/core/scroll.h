@@ -28,7 +28,8 @@ float wn_core_scroll_clamp(wn_core *c, int node, int axis, float value);
 /* Apply (dx, dy) through the clamp above. With scroll_max_x == 0 the x half is
  * a no-op, so callers can always pass both deltas. Returns 1 when either
  * offset moved, 0 when the position did not change, -1 for an invalid
- * core/node. Re-runs layout after a move, exactly like the wheel did. */
+ * core/node or a non-finite delta. Re-runs layout after a move, exactly like
+ * the wheel did. */
 int wn_core_scroll_by(wn_core *c, int node, float dx, float dy);
 
 #if defined(__cplusplus)
