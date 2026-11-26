@@ -1,17 +1,17 @@
-/* z-index fixture: 400x550. Eleven isolation regions exercise the CSS
+/* z-index fixture: 400x690. Fifteen isolation regions exercise the CSS
    stacking-context order: positioned siblings, swapped DOM order, z auto vs
    z 0, negative z behind in-flow content, a high-z child trapped inside a
    lower-z parent, opacity+z, nested contexts, z on a relative node, z on a
    static node (ignored), CSS step 8 (positioned z 0 before positioned z auto),
-   the equal-z tree-order tie-break, and a group clipped to nothing whose
-   absolute escapes the clip. */
+   the equal-z tree-order tie-break, a group clipped to nothing whose absolute
+   escapes the clip, and non-positioned opacity groups in the step-8 bucket. */
 * { box-sizing: border-box; }
 html { height: 100%; }
 body {
   margin: 0;
   padding: 0;
   width: 400px;
-  height: 550px;
+  height: 690px;
   background: #f0f0f0;
 }
 
@@ -30,6 +30,9 @@ body {
 .r3c0 { left: 10px;  top: 430px; }
 .r3c1 { left: 145px; top: 430px; }
 .r3c2 { left: 270px; top: 430px; }
+.r4c0 { left: 10px;  top: 560px; }
+.r4c1 { left: 145px; top: 560px; }
+.r4c2 { left: 270px; top: 560px; }
 
 .green  { background: #22aa66; }
 .red    { background: #cc3333; }
@@ -132,3 +135,19 @@ body {
 .f1-clip { height: 0; width: 100px; overflow: hidden; }
 .f1-group { width: 100px; height: 60px; background: #22aa66; opacity: 0.5; }
 .f1-escape { position: absolute; left: 10px; top: 20px; width: 40px; height: 40px; background: #3366cc; }
+
+/* Row 5: non-positioned `opacity < 1` groups belong to the CSS step-8 bucket
+   (CSS Color 3 §3.2), not to the in-flow content, so they paint above static
+   siblings and compose with positioned z auto boxes by tree order. */
+
+/* Row 5a: static group first, later overlapping static sibling. */
+#sgo-group { display: block; width: 70px; height: 70px; background: #ff0000; opacity: 0.5; }
+#sgo-late { display: block; width: 70px; height: 70px; margin-left: 40px; margin-top: -70px; background: #22aa66; }
+
+/* Row 5b: positioned z auto first, static opacity group later: the group wins. */
+#ag-abs { position: absolute; left: 10px; top: 10px; width: 70px; height: 70px; background: #22aa66; }
+#ag-group { display: block; width: 70px; height: 70px; margin-left: 30px; margin-top: 30px; background: #ff0000; opacity: 0.5; }
+
+/* Row 5c: static opacity group first, positioned z auto later: the absolute wins. */
+#ga-group { display: block; width: 70px; height: 70px; background: #ff0000; opacity: 0.5; }
+#ga-abs { position: absolute; left: 40px; top: 0; width: 70px; height: 70px; background: #22aa66; }

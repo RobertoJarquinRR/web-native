@@ -203,9 +203,10 @@ se descarta.
 - [x] El nodo absoluto no altera el flujo de sus hermanos (test de layout).
 - [x] Orden de pintado y hit-test coinciden en un fixture con solape y
       `z-index` negativo/0/positivo (blob v5, `zindex_test` + fixture de
-      píxeles 400x550 en D3D11 y wgpu). Contextos anidados: un hijo no escapa
-      del padre; `opacity + z` combina textura y orden; el paso 8 pinta los
-      posicionados `z: auto`/`0` juntos en orden de árbol, sobre el flujo.
+      píxeles 400x690 en D3D11 y wgpu). Contextos anidados: un hijo no escapa
+      del padre; `opacity + z` combina textura y orden; el paso 8 pinta todos
+      los grupos de `opacity < 1` (posicionados o no) y los posicionados
+      `z: auto`/`0` juntos en orden de árbol, sobre el flujo.
 - [x] Clip por `overflow: hidden` del ancestro correcto: el containing block
       recorta, y un `overflow` estático que no es el containing block no
       recorta al absoluto (verificado en `position_test`).

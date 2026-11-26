@@ -14,6 +14,9 @@
  *   same z     - equal-z siblings keep tree order, including reversed DOM.
  *   relative   - a first-in-DOM relative z node paints above a later in-flow
  *                sibling that overlaps it.
+ *   static group - a non-positioned `opacity < 1` group is a step-8 block, so
+ *                it paints above in-flow siblings and composes with a
+ *                positioned z auto box by tree order.
  *   static     - z-index on a static (non flex/grid) node is ignored, as CSS.
  *   empty clip - a group clipped to nothing allocates no texture, so an
  *                escaping absolute keeps painting (with and without an
@@ -509,6 +512,83 @@ static void run_relative_and_static(void)
     wn_document_destroy(document);
 }
 
+/* CSS Color 3 section 3.2: a non-positioned `opacity < 1` group lives in the
+ * same layer as a positioned `z: 0` box (CSS step 8), not in the in-flow
+ * content. e4b9c36 placed it there; ec15ce3 moved it into step 3 and broke
+ * these orders. A positioned z auto item is also step 8, so tree order decides
+ * between it and a static group. */
+static int texture_layer_count(const wn_core *core);
+
+static void run_static_group_step8(void)
+{
+    NodeSpec spec[3];
+    wn_document *document = NULL;
+    wn_core *core;
+    static const int group_after_late_sibling[] = { 0, 2, 1 };
+    static const int step8_tree_order[] = { 0, 1, 2 };
+
+    /* 1) Static group first, later in-flow sibling: the group is step 8, so it
+     * paints last. */
+    spec_init(&spec[0], -1, 400.0f, 200.0f);
+    spec_init(&spec[1], 0, 100.0f, 100.0f);
+    spec_init(&spec[2], 0, 100.0f, 100.0f);
+    spec[1].opacity = 0.5f;
+
+    core = build_core(spec, 3u, &document);
+    if (!check("static group: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        return;
+    }
+    nodes_order(core, group_after_late_sibling, 3,
+                "static group: paints after the later in-flow sibling");
+    check("static group: the group allocates a texture",
+          texture_layer_count(core) == 1, "one opacity target");
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+
+    /* 2) Positioned z auto first, static group later: both are step 8, so tree
+     * order puts the group above the absolute. */
+    spec_init(&spec[0], -1, 400.0f, 200.0f);
+    spec_init(&spec[1], 0, 100.0f, 100.0f);
+    spec_init(&spec[2], 0, 100.0f, 100.0f);
+    set_absolute(&spec[1], 0.0f, 0.0f, 100.0f, 100.0f);
+    spec[2].opacity = 0.5f;
+
+    document = NULL;
+    core = build_core(spec, 3u, &document);
+    if (!check("abs then group: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        return;
+    }
+    nodes_order(core, step8_tree_order, 3,
+                "abs then group: absolute z auto before the later group");
+    check("abs then group: the static group wins the overlap",
+          wn_core_node_at(core, 50.0f, 50.0f) == 2, "node_at(50,50)");
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+
+    /* 3) Static group first, positioned z auto later: tree order puts the
+     * absolute above the group. */
+    spec_init(&spec[0], -1, 400.0f, 200.0f);
+    spec_init(&spec[1], 0, 100.0f, 100.0f);
+    spec_init(&spec[2], 0, 100.0f, 100.0f);
+    set_absolute(&spec[2], 0.0f, 0.0f, 100.0f, 100.0f);
+    spec[1].opacity = 0.5f;
+
+    document = NULL;
+    core = build_core(spec, 3u, &document);
+    if (!check("group then abs: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        return;
+    }
+    nodes_order(core, step8_tree_order, 3,
+                "group then abs: the group before the later absolute z auto");
+    check("group then abs: the later absolute wins the overlap",
+          wn_core_node_at(core, 50.0f, 50.0f) == 2, "node_at(50,50)");
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+}
+
 static void run_same_z(void)
 {
     NodeSpec spec[3];
@@ -701,6 +781,7 @@ int main(void)
     run_nested();
     run_same_z();
     run_relative_and_static();
+    run_static_group_step8();
     run_empty_clip_group(0);
     run_empty_clip_group(1);
     run_flat_path();

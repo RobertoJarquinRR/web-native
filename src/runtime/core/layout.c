@@ -1350,13 +1350,13 @@ static void build_paint_items_dfs(wn_core *c, int node, int layer)
  *   1. the context root's own item (background/border/content and, when the
  *      root is an opacity group, its offscreen group);
  *   2. child contexts with negative z, ascending z (tree order breaks ties);
- *   3. in-flow content in tree order: non-positioned items and non-positioned
- *      contexts (a static `opacity < 1` group), painted at their tree
- *      position;
- *   4. positioned boxes with z 0/auto in tree order: positioned `z-index:
- *      auto` items, positioned `z-index: 0` contexts and positioned opacity
- *      groups. This is CSS step 8, which paints all of them together, above
- *      the in-flow content of step 3;
+ *   3. in-flow content in tree order: non-positioned, non-context items,
+ *      painted at their tree position;
+ *   4. z 0/auto blocks in tree order: every `opacity < 1` context (positioned
+ *      or not, CSS Color 3 section 3.2 puts both in the same layer), positioned
+ *      `z-index: 0` contexts and positioned `z-index: auto` items emitted as
+ *      atomic blocks. This is CSS step 8, which paints all of them together,
+ *      above the in-flow content of step 3;
  *   5. child contexts with positive z, ascending z (tree order breaks ties).
  *
  * A step 2/4/5 block is emitted as one unit, so its descendants can never
@@ -1409,11 +1409,11 @@ static void paint_ctx_info_walk(wn_core *c, WnPaintCtxInfo *info, int node,
     }
 }
 
-/* Blocks of `node` that are emitted by stacking level: the first positioned
- * node or context root of each branch, in tree order. A positioned
- * `z-index: auto` node is a block even though it is not a context (step 4).
- * A non-positioned context (static opacity group) is not a step block: step 3
- * emits it at its tree position, so the walk stops there without adding it. */
+/* Blocks of `node` that are emitted by stacking level: every context root and
+ * every positioned `z-index: auto` item of each branch, in tree order. An
+ * `opacity < 1` group is a context whether or not it is positioned; CSS Color
+ * 3 section 3.2 paints non-positioned opacity groups in the same layer as
+ * positioned z 0, so they belong to step 8 here, not to the in-flow walk. */
 static void paint_collect_step_blocks(wn_core *c, const WnPaintCtxInfo *info,
                                       int node, WnPaintChild *scratch,
                                       int *top)
@@ -1425,9 +1425,6 @@ static void paint_collect_step_blocks(wn_core *c, const WnPaintCtxInfo *info,
             continue;
         }
         if (info[child].is_context) {
-            if (!info[child].is_positioned) {
-                continue; /* step 3 */
-            }
             scratch[*top].z = info[child].z;
             scratch[*top].order = info[child].order;
             scratch[*top].node = child;
@@ -1447,9 +1444,9 @@ static void paint_emit_context(wn_core *c, const WnPaintCtxInfo *info, int node,
                                int parent_layer, int is_root,
                                WnPaintChild *scratch, int *top);
 
-/* Step 3: the in-flow content of the context in tree order. Non-positioned
- * contexts (static opacity groups) are emitted whole at their tree position;
- * positioned nodes are skipped because step 4 paints them above this content. */
+/* Step 3: the in-flow content of the context in tree order. Positioned nodes
+ * and context roots (including every `opacity < 1` group) are skipped because
+ * step 4 paints them above this content. */
 static void paint_emit_in_flow(wn_core *c, const WnPaintCtxInfo *info, int node,
                                int layer, WnPaintChild *scratch, int *top)
 {
@@ -1459,12 +1456,8 @@ static void paint_emit_in_flow(wn_core *c, const WnPaintCtxInfo *info, int node,
         if (!c->alive[child] || !c->visible_eff[child]) {
             continue;
         }
-        if (info[child].is_positioned) {
+        if (info[child].is_positioned || info[child].is_context) {
             continue; /* step 4 */
-        }
-        if (info[child].is_context) {
-            paint_emit_context(c, info, child, layer, 0, scratch, top);
-            continue;
         }
         if (!rect_is_empty(c->clips[child])) {
             append_paint_item(c, child, layer, paint_node_opacity(c, child));
@@ -1548,7 +1541,9 @@ static void paint_emit_context(wn_core *c, const WnPaintCtxInfo *info, int node,
     /* Step 3: in-flow content of this context in tree order. */
     paint_emit_in_flow(c, info, node, own_layer, scratch, top);
 
-    /* Step 4: positioned z 0/auto blocks in tree order (CSS step 8). */
+    /* Step 4: z 0/auto blocks in tree order (CSS step 8): every opacity
+     * group (positioned or not), positioned z 0 contexts and positioned
+     * z auto items. */
     for (i = 0; i < count; ++i) {
         if (scratch[start + i].z == 0) {
             paint_emit_context(c, info, scratch[start + i].node, own_layer, 0,

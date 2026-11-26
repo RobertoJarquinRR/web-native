@@ -124,9 +124,11 @@ resultantes; el clip del absoluto es el de los hijos de su containing block
 Un contexto lo crea la raíz, un nodo con `opacity < 1` o un nodo posicionado
 con `z-index != auto`. Dentro de cada contexto se pinta: su propio ítem,
 contextos hijos con `z < 0` (ascendente), contenido en flujo en orden de árbol
-(ítems y grupos de opacidad **no** posicionados), posicionados con `z == auto`/`0`
-en orden de árbol (paso 8 de CSS, por encima del flujo: ítems `z: auto`,
-contextos `z: 0` y grupos posicionados) y contextos con `z > 0` (ascendente). El
+(solo ítems **no** posicionados que no son contexto), bloques con `z == 0`/`auto`
+en orden de árbol (paso 8 de CSS, por encima del flujo: **todos** los grupos de
+`opacity < 1` —posicionados o no, CSS Color 3 §3.2 los pone en la capa de un
+posicionado con `z: 0`—, contextos posicionados `z: 0` e ítems `z: auto`) y
+contextos con `z > 0` (ascendente). El
 bloque de un contexto es contiguo: sus descendientes no escapan del padre.
 `z-index` en un nodo `static` se ignora (sin ítems flex/grid); un posicionado
 con `z: auto` se emite como bloque atómico del paso 8 (sus posicionados no se

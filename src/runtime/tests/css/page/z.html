@@ -73,5 +73,21 @@
       </div>
     </div>
   </div>
+
+  <!-- Row 5: non-positioned opacity groups are step-8 blocks (CSS Color 3
+       section 3.2), so they paint above in-flow siblings and order by tree
+       order against positioned z auto boxes. -->
+  <div class="region r4c0">
+    <div id="sgo-group"></div>
+    <div id="sgo-late"></div>
+  </div>
+  <div class="region r4c1">
+    <div id="ag-abs"></div>
+    <div id="ag-group"></div>
+  </div>
+  <div class="region r4c2">
+    <div id="ga-group"></div>
+    <div id="ga-abs"></div>
+  </div>
 </body>
 </html>

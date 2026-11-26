@@ -2,7 +2,7 @@
 """Pixel + layout acceptance for blob v5 `z-index` / stacking contexts.
 
 The fixture is a real HTML/CSS page compiled by `frontend-rust --emit-blob`.
-Eleven isolated regions exercise the CSS stacking order implemented by the
+Fifteen isolated regions exercise the CSS stacking order implemented by the
 runtime:
 
   * positioned siblings z 1/2 and the same pair in swapped DOM order;
@@ -12,7 +12,10 @@ runtime:
   * opacity + z (the group allocates a texture, the z box only ordering);
   * nested contexts; z on a relative node; z on a static node (ignored);
   * equal-z siblings, where tree order breaks the tie;
-  * a group clipped to nothing whose absolute escapes with the region clip.
+  * a group clipped to nothing whose absolute escapes with the region clip;
+  * non-positioned opacity groups in the step-8 bucket (CSS Color 3 section
+    3.2), against a later static sibling and against positioned z auto boxes
+    in both tree orders.
 
 Colors are analytic and probes are axis-aligned interior pixels, so the same
 script runs against D3D11 and wgpu.
@@ -42,6 +45,7 @@ YELLOW = (204, 170, 34)      # #ccaa22
 HOST = (221, 221, 221)       # #dddddd
 OPAQUE_BLUE = (0, 0, 255)    # #0000ff
 GROUP_RED = (248, 120, 120)  # red at 0.5 over the page
+GROUP_RED_GREEN = (145, 85, 51)  # red at 0.5 over green #22aa66
 
 
 def check(group: str, name: str, ok: bool, detail: str) -> bool:
@@ -103,6 +107,12 @@ EXPECTED_RECTS = {
     "f1-clip": (270, 430, 100, 0),
     "f1-group": (270, 430, 100, 60),
     "f1-escape": (280, 450, 40, 40),
+    "sgo-group": (10, 560, 70, 70),
+    "sgo-late": (50, 560, 70, 70),
+    "ag-abs": (155, 570, 70, 70),
+    "ag-group": (175, 590, 70, 70),
+    "ga-group": (270, 560, 70, 70),
+    "ga-abs": (310, 560, 70, 70),
 }
 
 EXPECTED_Z = {
@@ -127,6 +137,12 @@ EXPECTED_Z = {
     "tie-a": 1,
     "tie-b": 1,
     "f1-escape": "auto",
+    "sgo-group": "auto",
+    "sgo-late": "auto",
+    "ag-abs": "auto",
+    "ag-group": "auto",
+    "ga-group": "auto",
+    "ga-abs": "auto",
 }
 
 PROBES = (
@@ -181,6 +197,18 @@ PROBES = (
     ("empty-clip", "escaping absolute paints", 285, 455, BLUE, 0),
     ("empty-clip", "clipped group background is not painted", 275, 435, PAGE_BG, 0),
     ("empty-clip", "group area beside the absolute stays page", 350, 470, PAGE_BG, 0),
+    # Row 5a: static opacity group first, later overlapping static sibling.
+    ("static-group", "group only", 30, 590, GROUP_RED, 2),
+    ("static-group", "group over the later static sibling", 65, 590, GROUP_RED_GREEN, 2),
+    ("static-group", "later sibling outside the group", 100, 590, GREEN, 0),
+    # Row 5b: positioned z auto first, static opacity group later.
+    ("abs-then-group", "absolute only", 165, 580, GREEN, 0),
+    ("abs-then-group", "later group over the absolute", 200, 610, GROUP_RED_GREEN, 2),
+    ("abs-then-group", "group only", 235, 610, GROUP_RED, 2),
+    # Row 5c: static opacity group first, positioned z auto later.
+    ("group-then-abs", "group only", 285, 590, GROUP_RED, 2),
+    ("group-then-abs", "later absolute over the group", 320, 590, GREEN, 0),
+    ("group-then-abs", "absolute only", 365, 590, GREEN, 0),
 )
 
 
@@ -244,15 +272,15 @@ def main() -> int:
     ok = dump_checks(Path(args.dump), Path(args.blob))
     report = json.loads(Path(args.report).read_text(encoding="utf-8"))
     sizes = {f"{item['width']}x{item['height']}": item for item in report["sizes"]}
-    ok = check("report", "400x550 layout present", "400x550" in sizes,
+    ok = check("report", "400x690 layout present", "400x690" in sizes,
                f"sizes={sorted(sizes)}") and ok
-    if "400x550" in sizes:
-        ok = layout_checks(sizes["400x550"]["nodes"]) and ok
+    if "400x690" in sizes:
+        ok = layout_checks(sizes["400x690"]["nodes"]) and ok
 
     img = Image.open(args.png).convert("RGB")
-    ok = check(f"raster/{args.backend}", "PNG size", img.size == (400, 550),
+    ok = check(f"raster/{args.backend}", "PNG size", img.size == (400, 690),
                f"{img.size}") and ok
-    if img.size == (400, 550):
+    if img.size == (400, 690):
         ok = color_checks(img, args.backend) and ok
 
     failed = [item for item in CHECKS if not item["ok"]]

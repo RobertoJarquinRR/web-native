@@ -53,10 +53,10 @@ Un stream no toca los archivos de otro; se integra por contrato.
   stretch left+right/top+bottom, auto width/height, anidado, scroll/clip y
   hit-test. Fixture de píxeles en D3D11 + wgpu.
 - ✅ **Z-index / stacking contexts** (blob v5): orden CSS 2.1 simplificado
-  (contextos negativos, contenido en flujo, posicionados 0/auto en el paso 8 y
-  positivos), anidados que no escapan del padre, auto/0/negativos, opacidad+z,
-  hit-test por orden de pintado. Las capas z-only solo ordenan (sin textura);
-  fixture de píxeles 400x550 en D3D11 + wgpu.
+  (contextos negativos, contenido en flujo, grupos de opacidad y posicionados
+  0/auto en el paso 8, y positivos), anidados que no escapan del padre,
+  auto/0/negativos, opacidad+z, hit-test por orden de pintado. Las capas z-only
+  solo ordenan (sin textura); fixture de píxeles 400x690 en D3D11 + wgpu.
 - ✅ **SDK genérica**: `webnative.dll` (181 KiB con wgpu, 160 KiB sin él) +
   `app.wnui`; la galería (`C:\Proyects\gallery`) consume solo `sdk/` y su
   documento.

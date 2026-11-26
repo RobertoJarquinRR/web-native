@@ -110,13 +110,14 @@ ni cajas inline, que no existen en el subset):
 1. el ítem propio del nodo raíz del contexto (fondo/borde/contenido y, si es un
    grupo de opacidad, su capa offscreen);
 2. contextos hijos con `z < 0`, de menor a mayor `z` (empate: orden de árbol);
-3. contenido en flujo del contexto en orden de árbol: los ítems **no
-   posicionados** y los contextos **no posicionados** (un grupo `opacity < 1`
-   estático), cada uno en su posición del árbol;
-4. posicionados con `z == 0`/`auto` en orden de árbol: ítems posicionados con
-   `z-index: auto`, contextos posicionados con `z: 0` y grupos de opacidad
-   posicionados. Es el paso 8 de CSS 2.1, que pinta todos ellos juntos **por
-   encima** del contenido en flujo del paso 3;
+3. contenido en flujo del contexto en orden de árbol: solo los ítems **no
+   posicionados** que **no** son contexto, cada uno en su posición del árbol;
+4. bloques con `z == 0`/`auto` en orden de árbol: **todos** los grupos de
+   `opacity < 1` (posicionados o no; CSS Color 3 §3.2 los pinta en la misma capa
+   que un posicionado con `z: 0`), los contextos posicionados con `z: 0` y los
+   ítems posicionados con `z-index: auto`, que aquí se emiten como bloques
+   atómicos. Es el paso 8 de CSS 2.1, que pinta todos ellos juntos **por encima**
+   del contenido en flujo del paso 3;
 5. contextos hijos con `z > 0`, de menor a mayor `z` (empate: orden de árbol).
 
 El bloque completo de un bloque de los pasos 2/4/5 se emite como una unidad: sus
@@ -132,7 +133,9 @@ crea contextos de ítem flex/grid). No hay floats, cajas inline ni
 context en CSS, pero aquí se emite como un bloque atómico en el paso 4: sus
 descendientes posicionados no se unen al contexto abuelo como haría CSS. El
 caso normal (la caja y su subárbol sobre el contenido en flujo) coincide con el
-paso 8 de CSS.
+paso 8 de CSS. Por la misma regla, un grupo de `opacity < 1` **no posicionado**
+tampoco se pinta en el flujo: vive en el bucket del paso 8, en la misma capa que
+un posicionado con `z: 0`.
 
 **Capas:** un contexto de `z-index` **solo ordena**, no necesita textura. El
 modelo de comandos distingue `needs_texture` (grupo de opacidad → target
