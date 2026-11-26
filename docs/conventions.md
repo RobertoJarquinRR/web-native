@@ -33,7 +33,10 @@
 7. Un probe o harness temporal que descubra un contrato o un bug se convierte
    en test permanente de la suite antes de cerrar el hallazgo; el probe se
    borra. Los tests de contrato no dependen de un backend concreto: usan la
-   vtable o un backend falso; el backend real queda como smoke.
+   vtable o un backend falso; el backend real queda como smoke. Ejemplo:
+   `src/runtime/tests/text/contract_test.c` corre sobre `fake_text.c` y fija
+   que `max_width` sea solo una pista (el backend falso miente a propósito),
+   mientras `measure_test.c` queda como smoke del backend real.
 
 ## Mapa actual
 

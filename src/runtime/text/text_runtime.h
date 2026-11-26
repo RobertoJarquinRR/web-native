@@ -61,6 +61,12 @@ const char *wn_text_last_error(void);
 void wn_text_test_fail_next_lines(int count);
 void wn_text_test_fail_next_shapes(int count);
 
+/* Test-only: swap the backend and reset every text cache (lines, runs,
+ * measures, families) so tests start cold. Pass NULL to restore the
+ * unavailable state; the previously installed backend is destroyed. Not part
+ * of the ABI and never called by production code. */
+void wn_text_test_use_backend(const wn_text_ops *ops);
+
 #if defined(__cplusplus)
 }
 #endif

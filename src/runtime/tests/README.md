@@ -15,13 +15,23 @@ python tools\cli.py test suite <nombre>
 | `dynamic` | `dynamic/` | `set_visible`, clone/append/remove, demo ABI |
 | `input` | `input/` | caret, selección, clipboard, demo ABI |
 | `offscreen` | `offscreen/` | readback, caché de imágenes, D3D11 vs wgpu |
-| `text` | `text/` | medición DirectWrite, atlas, wrapping, documento |
+| `text` | `text/` | contrato de texto (backend falso), medición DirectWrite, atlas, wrapping, documento |
 | `blob` | `blob/` | loader `.wnui`, builtin vs archivo, píxeles (`max=0`) |
 | `dump` | `dump/` | `wnui-dump` texto/JSON, golden y errores de archivo |
 
 Todos los fixtures emiten el documento con `frontend-rust --emit-blob` desde
 HTML/CSS y lo embeben como `builtin_blob.h`. No hay árbol JSON intermedio ni
 cabeceras de nodos generadas.
+
+## `text`
+
+`contract_test.c` corre contra `fake_text.c`, un backend determinista instalado
+con `wn_text_test_use_backend()` (hook de test, fuera del ABI): sin DirectWrite y
+sin blob de fixture. Bloquea que `max_width` siga siendo solo una pista del
+backend, el corte greedy con slices exactos, `set_text` (medida + geometría
+pintada), el aislamiento de la caché de líneas por texto/familia/tamaño/peso/ancho
+y la supervivencia de entradas publicadas a una tormenta de fallos. `measure_test.c`
+es el smoke del backend real: si no hay backend, reporta `SKIP` en vez de fallar.
 
 ## `dump`
 
