@@ -730,9 +730,11 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
     }
 }
 
-/* Visible vertical scrollbar for `overflow:auto|scroll` boxes that really
- * overflow. Subtle track + rounded thumb; painted inside the node clip before
- * images/text. Wheel scrolling needs no hit test on the bar. */
+/* Visible scrollbars for `overflow:auto|scroll` boxes that really overflow.
+ * Subtle track + rounded thumb; painted inside the node clip before
+ * images/text. Wheel scrolling needs no hit test on the bar. The horizontal
+ * branch is reserved: scroll_max_x is always 0 today, so it never paints, but
+ * it keeps the same track/thumb style for when layout computes x overflow. */
 static void build_scrollbars(wn_core *c)
 {
     const float track_w = 8.0f;
@@ -742,47 +744,79 @@ static void build_scrollbars(wn_core *c)
         int node = c->paint_order[order];
         const UiNode *n = &c->nodes[node];
         const wn_rect *r;
-        float view_h;
-        float content_h;
-        float track_x, track_y, track_h;
-        float thumb_h, thumb_y, travel;
         if (!c->visible_eff[node] || n->overflow != R2_OVERFLOW_SCROLL) {
             continue;
         }
-        if (c->scroll_max[node] <= 0.5f || rect_is_empty(c->clips[node])) {
+        if (rect_is_empty(c->clips[node])) {
             continue;
         }
         r = &c->rects[node];
-        view_h = r->h - n->padding[0] - n->padding[2];
-        if (view_h <= track_w * 2.0f) {
-            continue;
+
+        if (c->scroll_max_y[node] > 0.5f) {
+            float view_h = r->h - n->padding[0] - n->padding[2];
+            if (view_h > track_w * 2.0f) {
+                float content_h = view_h + c->scroll_max_y[node];
+                float track_x = r->x + r->w - n->padding[1] - track_w - edge;
+                float track_y = r->y + n->padding[0] + edge;
+                float track_h = view_h - edge * 2.0f;
+                if (track_h > 0.0f) {
+                    float thumb_h = track_h * view_h / content_h;
+                    float thumb_y = track_y;
+                    float travel;
+                    if (thumb_h < 24.0f) {
+                        thumb_h = 24.0f;
+                    }
+                    if (thumb_h > track_h) {
+                        thumb_h = track_h;
+                    }
+                    travel = track_h - thumb_h;
+                    if (travel > 0.0f) {
+                        thumb_y += travel *
+                                   (c->scroll_y[node] / c->scroll_max_y[node]);
+                    }
+                    set_solid_clip(c, &c->clips[node]);
+                    push_rounded_quad(c, track_x, track_y, track_w, track_h,
+                                      track_w * 0.5f, (float)c->width,
+                                      (float)c->height, 0x33000000u);
+                    push_rounded_quad(c, track_x, thumb_y, track_w, thumb_h,
+                                      track_w * 0.5f, (float)c->width,
+                                      (float)c->height, 0x665A667Au);
+                }
+            }
         }
-        content_h = view_h + c->scroll_max[node];
-        track_x = r->x + r->w - n->padding[1] - track_w - edge;
-        track_y = r->y + n->padding[0] + edge;
-        track_h = view_h - edge * 2.0f;
-        if (track_h <= 0.0f) {
-            continue;
+
+        if (c->scroll_max_x[node] > 0.5f) {
+            float view_w = r->w - n->padding[1] - n->padding[3];
+            if (view_w > track_w * 2.0f) {
+                float content_w = view_w + c->scroll_max_x[node];
+                float track_x = r->x + n->padding[3] + edge;
+                float track_y = r->y + r->h - n->padding[2] - track_w - edge;
+                float track_len = view_w - edge * 2.0f;
+                if (track_len > 0.0f) {
+                    float thumb_w = track_len * view_w / content_w;
+                    float thumb_x = track_x;
+                    float travel;
+                    if (thumb_w < 24.0f) {
+                        thumb_w = 24.0f;
+                    }
+                    if (thumb_w > track_len) {
+                        thumb_w = track_len;
+                    }
+                    travel = track_len - thumb_w;
+                    if (travel > 0.0f) {
+                        thumb_x += travel *
+                                   (c->scroll_x[node] / c->scroll_max_x[node]);
+                    }
+                    set_solid_clip(c, &c->clips[node]);
+                    push_rounded_quad(c, track_x, track_y, track_len, track_w,
+                                      track_w * 0.5f, (float)c->width,
+                                      (float)c->height, 0x33000000u);
+                    push_rounded_quad(c, thumb_x, track_y, thumb_w, track_w,
+                                      track_w * 0.5f, (float)c->width,
+                                      (float)c->height, 0x665A667Au);
+                }
+            }
         }
-        thumb_h = track_h * view_h / content_h;
-        if (thumb_h < 24.0f) {
-            thumb_h = 24.0f;
-        }
-        if (thumb_h > track_h) {
-            thumb_h = track_h;
-        }
-        travel = track_h - thumb_h;
-        thumb_y = track_y;
-        if (c->scroll_max[node] > 0.0f && travel > 0.0f) {
-            thumb_y += travel * (c->scroll[node] / c->scroll_max[node]);
-        }
-        set_solid_clip(c, &c->clips[node]);
-        push_rounded_quad(c, track_x, track_y, track_w, track_h,
-                          track_w * 0.5f, (float)c->width, (float)c->height,
-                          0x33000000u);
-        push_rounded_quad(c, track_x, thumb_y, track_w, thumb_h,
-                          track_w * 0.5f, (float)c->width, (float)c->height,
-                          0x665A667Au);
     }
 }
 

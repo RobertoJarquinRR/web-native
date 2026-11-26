@@ -149,12 +149,15 @@ int wn_core_hit_test(const wn_core *core, float x, float y);
 int wn_core_node_at(const wn_core *core, float x, float y);
 
 /* Wheel/trackpad scroll: finds the nearest ancestor scroll container under the
- * pointer and applies (delta_x ignored in v2, delta_y in px; positive scrolls
- * content down). Re-runs layout and clamps to [0, content_h - view_h].
- * Returns the scroll container node when the offset changed, -1 otherwise. */
+ * pointer and applies (delta_x, delta_y in px; positive scrolls content right/
+ * down). Both axes go through one internal clamp, but layout computes only the
+ * vertical bound today, so horizontal delta_x is a no-op (ABI v6 keeps the
+ * vertical behaviour). Re-runs layout and clamps to the axis max.
+ * Returns the scroll container node when an offset changed, -1 otherwise. */
 int wn_core_wheel(wn_core *core, float x, float y, float delta_x, float delta_y);
 
-/* Scroll diagnostics. Return -1 for an invalid/non-scrollable node. */
+/* Scroll diagnostics (vertical offset/bound; the x pair is internal). Return
+ * -1 for an invalid/non-scrollable node. */
 float wn_core_scroll_offset(const wn_core *core, int node);
 float wn_core_scroll_max(const wn_core *core, int node);
 

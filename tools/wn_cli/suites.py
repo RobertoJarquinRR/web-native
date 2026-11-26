@@ -18,6 +18,7 @@ RUNTIME_SOURCES = (
     "core/paint.c",
     "core/input.c",
     "core/hit_test.c",
+    "core/scroll.c",
     "wn_common.c",
     "document/wn_blob.c",
     "wn_view.c",
@@ -35,8 +36,9 @@ RUNTIME_SOURCES_NO_WGPU = tuple(
     for source in RUNTIME_SOURCES
 )
 CORE_SOURCES = ("core/wn_core.c", "core/layout.c", "core/kind_ops.c", "core/paint.c",
-                "core/input.c", "core/hit_test.c", "wn_common.c", "document/wn_blob.c",
-                "text/text_runtime.c", "text/text_atlas.c", "text/text_directwrite.cpp")
+                "core/input.c", "core/hit_test.c", "core/scroll.c", "wn_common.c",
+                "document/wn_blob.c", "text/text_runtime.c", "text/text_atlas.c",
+                "text/text_directwrite.cpp")
 CORE_LIBS = ("dwrite.lib",)
 RUNTIME_LIBS = (
     "d3d11.lib",
@@ -419,6 +421,20 @@ def run_fidelity() -> int:
     pct_text = _run(pct_exe, [], out)
     _expect(pct_text, ["text_pct_height_test: PASS"], "TEXT percentage height test")
     _expect_checks(pct_text, "TEXT percentage height test", 9)
+
+    log_step("fidelity: scroll service (x/y clamp, wheel, into-view)")
+    scroll_exe = out / "scroll_test.exe"
+    _compile(
+        scroll_exe,
+        [_suite_dir("core") / "scroll_test.c", *[runtime / source for source in CORE_SOURCES]],
+        [get_paths().root / "include", runtime, out / "emit"],
+        CORE_LIBS,
+    )
+    scroll_text = _run(scroll_exe, [], out)
+    _expect(scroll_text, ["scroll_test: PASS"], "scroll service test")
+    # 14 checks: vertical clamp/apply, the inert x delta, the forced x clamp
+    # and apply, the forced x into-view path, and the real-page wheel.
+    _expect_checks(scroll_text, "scroll service test", 14)
 
     log_step("fidelity: compile runtime + renders")
     runtime_exe = out / "runtime_fidelity.exe"

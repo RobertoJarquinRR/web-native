@@ -98,8 +98,14 @@ struct wn_core {
     int *prev_sibling;
     int *last_child;
 
-    float *scroll;
-    float *scroll_max;
+    /* Wheel/trackpad offsets per axis. scroll_max_* is the bound the layout
+     * pass computes. Horizontal is reserved in this lane: layout keeps
+     * scroll_max_x at 0 for every node, so the x half of the scroll service is
+     * inert while the vertical behaviour stays exactly as it was. */
+    float *scroll_x;
+    float *scroll_y;
+    float *scroll_max_x;
+    float *scroll_max_y;
 
     int hover;
     int press;
@@ -146,7 +152,7 @@ struct wn_core {
     char **input_value;
     int *input_cursor;
     int *input_anchor;
-    float *input_scroll;
+    float *input_scroll;         /* editor-local text offset, not page scroll */
     int input_focus;
     int input_drag;
     double caret_blink_ms;

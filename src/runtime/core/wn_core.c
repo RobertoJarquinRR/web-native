@@ -506,8 +506,8 @@ wn_core *wn_core_create(const wn_document *document)
     c->free_list = (int *)calloc(bytes, sizeof(int));
     c->rects = (wn_rect *)calloc(bytes, sizeof(wn_rect));
     c->clips = (wn_rect *)calloc(bytes, sizeof(wn_rect));
-    c->scroll = (float *)calloc(bytes, sizeof(float));
-    c->scroll_max = (float *)calloc(bytes, sizeof(float));
+    c->scroll_y = (float *)calloc(bytes, sizeof(float));
+    c->scroll_max_y = (float *)calloc(bytes, sizeof(float));
     c->first_child = (int *)calloc(bytes, sizeof(int));
     c->next_sibling = (int *)calloc(bytes, sizeof(int));
     c->prev_sibling = (int *)calloc(bytes, sizeof(int));
@@ -522,6 +522,10 @@ wn_core *wn_core_create(const wn_document *document)
     c->input_scroll = (float *)calloc(bytes, sizeof(float));
     c->class_count = (unsigned char *)calloc(bytes, sizeof(unsigned char));
     c->classes = (char **)calloc(bytes * WN_MAX_CLASSES, sizeof(char *));
+    /* Reserved horizontal pair: allocated after the hot layout arrays so the
+     * vertical pair and the rest of the arena keep their historical layout. */
+    c->scroll_x = (float *)calloc(bytes, sizeof(float));
+    c->scroll_max_x = (float *)calloc(bytes, sizeof(float));
     c->vertex_capacity = count * 6;
     c->vertices = (wn_vertex *)calloc((size_t)c->vertex_capacity, sizeof(wn_vertex));
     c->solid_batch_capacity = count > 0 ? count : 1;
@@ -546,7 +550,9 @@ wn_core *wn_core_create(const wn_document *document)
         c->state == NULL ||
         c->parent == NULL || c->order_key == NULL ||
         c->free_list == NULL || c->rects == NULL || c->clips == NULL ||
-        c->scroll == NULL || c->scroll_max == NULL || c->first_child == NULL ||
+        c->scroll_x == NULL || c->scroll_y == NULL ||
+        c->scroll_max_x == NULL || c->scroll_max_y == NULL ||
+        c->first_child == NULL ||
         c->next_sibling == NULL || c->prev_sibling == NULL ||
         c->last_child == NULL || c->paint_order == NULL ||
         c->text_override == NULL || c->image_override == NULL ||
@@ -686,8 +692,8 @@ static int arena_reserve(wn_core *c, int minimum)
     WN_GROW_ARRAY(c, free_list, capacity);
     WN_GROW_ARRAY(c, rects, capacity);
     WN_GROW_ARRAY(c, clips, capacity);
-    WN_GROW_ARRAY(c, scroll, capacity);
-    WN_GROW_ARRAY(c, scroll_max, capacity);
+    WN_GROW_ARRAY(c, scroll_y, capacity);
+    WN_GROW_ARRAY(c, scroll_max_y, capacity);
     WN_GROW_ARRAY(c, first_child, capacity);
     WN_GROW_ARRAY(c, next_sibling, capacity);
     WN_GROW_ARRAY(c, prev_sibling, capacity);
@@ -702,6 +708,8 @@ static int arena_reserve(wn_core *c, int minimum)
     WN_GROW_ARRAY(c, input_scroll, capacity);
     WN_GROW_ARRAY(c, class_count, capacity);
     WN_GROW_ARRAY(c, classes, (size_t)capacity * WN_MAX_CLASSES);
+    WN_GROW_ARRAY(c, scroll_x, capacity);
+    WN_GROW_ARRAY(c, scroll_max_x, capacity);
 
     c->node_capacity = capacity;
     return 0;
@@ -742,8 +750,10 @@ static int arena_alloc(wn_core *c)
     c->rects[id].x = c->rects[id].y = 0.0f;
     c->rects[id].w = c->rects[id].h = 0.0f;
     c->clips[id] = c->rects[id];
-    c->scroll[id] = 0.0f;
-    c->scroll_max[id] = 0.0f;
+    c->scroll_x[id] = 0.0f;
+    c->scroll_y[id] = 0.0f;
+    c->scroll_max_x[id] = 0.0f;
+    c->scroll_max_y[id] = 0.0f;
     c->first_child[id] = -1;
     c->next_sibling[id] = -1;
     c->prev_sibling[id] = -1;
@@ -784,8 +794,10 @@ static void arena_release(wn_core *c, int node)
     c->rects[node].x = c->rects[node].y = 0.0f;
     c->rects[node].w = c->rects[node].h = 0.0f;
     c->clips[node] = c->rects[node];
-    c->scroll[node] = 0.0f;
-    c->scroll_max[node] = 0.0f;
+    c->scroll_x[node] = 0.0f;
+    c->scroll_y[node] = 0.0f;
+    c->scroll_max_x[node] = 0.0f;
+    c->scroll_max_y[node] = 0.0f;
     if (c->free_count < c->node_capacity) {
         c->free_list[c->free_count++] = node;
     }
@@ -1213,8 +1225,10 @@ void wn_core_destroy(wn_core *core)
     wn_free_(core->free_list);
     wn_free_(core->rects);
     wn_free_(core->clips);
-    wn_free_(core->scroll);
-    wn_free_(core->scroll_max);
+    wn_free_(core->scroll_x);
+    wn_free_(core->scroll_y);
+    wn_free_(core->scroll_max_x);
+    wn_free_(core->scroll_max_y);
     wn_free_(core->first_child);
     wn_free_(core->next_sibling);
     wn_free_(core->prev_sibling);
