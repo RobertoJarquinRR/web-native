@@ -58,7 +58,7 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 - `color`, `background`, `background-color`: hex 3/4/6/8, `rgb()`/`rgba()` y
   `hsl()`/`hsla()` (comas o sintaxis espacio/barra, 3–4 argumentos, alfa
   numérica o en `%`), nombres CSS3 y `rebeccapurple`/`transparent`. La misma
-  gramática vale para `border*`, `box-shadow` y `text-shadow`; una forma fuera
+  gramática vale para `border*` y `box-shadow`; una forma fuera
   de ella (`lab()`, `color-mix()`, …) se diagnostica en `--strict-subset`.
 - `opacity` (0–1).
 

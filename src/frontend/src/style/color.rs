@@ -228,7 +228,7 @@ enum Declared {
 }
 
 /// Browser-valid superset used by `background`, `color`, `border*` and
-/// `box-shadow`/`text-shadow`:
+/// `box-shadow`:
 ///
 /// * CSS3 names (147) plus `rebeccapurple` and `transparent`;
 /// * hex 3/4/6/8;

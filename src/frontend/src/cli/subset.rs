@@ -1496,7 +1496,7 @@ fn parse_css_number(text: &str) -> Option<f64> {
 }
 
 /// Exactly the declared-color grammar used by `background`, `color`,
-/// `border*`, `box-shadow` and `text-shadow`. Keeping this as a delegation (and
+/// `border*` and `box-shadow`. Keeping this as a delegation (and
 /// not a second list) is what guarantees a value the cascade drops (`lab()`,
 /// `color-mix()`, …) is always diagnosed by `--strict-subset`, while every
 /// accepted form stays silent.

@@ -57,7 +57,7 @@ Pendiente de la lista: B1, B7, B10, C2–C10 (C11 en revisión).
 | D7 | Errores | Varios fallos dejan `wn_last_error()` con el mensaje anterior (o NULL): OOM en `wn_core_create`, OOM del loader y fallo de `wn_view_replace_document`; `wn_view_set_state` devuelve `WN_OK` con un nodo muerto | `wn_core.c:396-503` no llama a `wn_set_error`; `wn_blob.c:212-218` tampoco; `wn_view.c:430-436` retorna 1 en silencio; `wn_view.c:456-464` ignora el nodo (`wn_core.c:218-237`) | setear error en cada salida y devolver `WN_ERR_*` si el nodo no existe (complementa C8). Aditivo |
 | D8 | Texto | Un texto de más de 4095 unidades UTF-16 se mide como 0×alto: el layout colapsa y no se pinta nada; `truncated` nunca se enciende | `text_directwrite.cpp:75` pide `-1` (todo o nada) y `:114-121` trata `length == 0` como cadena vacía; `:391` calcula `truncated` sobre un `length` ya fallido | medir por tramos o devolver error explícito y propagar `truncated` desde `measure`. Aditivo |
 
-| C11 | Color | `data-hover/press/selected` con alfa, `hsl()` o nombres CSS4 difieren entre Rust (`parse_color`, alfa descartada) y Python (tinycss2): `rgba(255,0,0,.5)` da `0xFFFF0000` vs `0x80FF0000` | normalización compartida por `ui_tree`/`blob`/`header` | unificar el parser o restringir `data-*` a hex opaco; bloquea retirar el emisor |
+| C11 | Color | **resuelto**: `argb()` replica tinycss2 1.5.1 (alfa, `hsl`, nombres CSS3) y los colores declarados usan un superset que normaliza a hex antes de `ui.json` | dos gramáticas separadas, corpus de 566 casos | cerrado; el emisor Python ya no diverge en color |
 
 ## P2 — tooling, proceso y contratos
 
@@ -67,7 +67,8 @@ Pendiente de la lista: B1, B7, B10, C2–C10 (C11 en revisión).
 | C2 | Paridad visual | `benchmarks/visual-parity/tools/render_native.py` apunta a `c-r2` y no hay runner | R1 retirado | retirar a `archive/` o reescribir sobre `wn-cli` |
 | C3 | Métricas | `engine-metrics` sin ejecutar desde que se quitó R1 | rama R1 eliminada sin re-baseline | correr `wn-cli bench metrics` y actualizar `BASELINE.md` |
 | C4 | Tests | `test all` regenera `tests/*/page/ui.json` trackeados y deja el árbol sucio | fixtures dentro del repo | generarlos en `out/` o commitearlos como golden y no regenerarlos |
-| C5 | Compilador | Rust ya escribe `.wnui` y `ui_data.h` (`--emit-header`, byte-idéntico en 4 páginas, con goldens); el emisor Python sigue en el pipeline | transición a medias | cambiar `wn-cli`/suites a `--emit-header` y retirar el emisor, **después** de C11 |
+| C5 | Compilador | Rust escribe `.wnui` y `ui_data.h`; el emisor Python sigue en el pipeline | transición a medias | **C12** retira el header y el emisor; hasta entonces `--emit-header` es temporal |
+| C12 | Documento | Dos formatos de documento (`ui_data.h` compilado y `.wnui`) y `ui.json` como etapa/schema: mantenimiento duplicado y deriva entre caminos | builtin en tablas C + pipeline JSON→emisor | **en curso**: blob único, builtin embebido, `wnui-dump`, retirar `--emit-ui`/`--emit-header`/emisor |
 | C6 | Blob | Solo hay versión exacta; sin política de compatibilidad | loader exige `version == 2` | aceptar versiones ≤ actual con secciones opcionales |
 | C7 | Hilos | `text_runtime` es singleton global con buffer estático | asume un hilo de UI | documentar o pasar contexto por core |
 | C8 | Errores | Mezcla de `-1/-2` y `wn_status`; no hay código estructurado | crecimiento histórico | normalizar a `wn_status` + `wn_last_error` |
