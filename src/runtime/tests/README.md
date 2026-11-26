@@ -15,13 +15,28 @@ python tools\cli.py test suite <nombre>
 | `dynamic` | `dynamic/` | `set_visible`, clone/append/remove, demo ABI |
 | `input` | `input/` | caret, selección, clipboard, demo ABI |
 | `offscreen` | `offscreen/` | readback, caché de imágenes, D3D11 vs wgpu |
-| `text` | `text/` | medición DirectWrite, atlas, wrapping, documento |
+| `text` | `text/` | contrato de texto (backend falso), medición DirectWrite, atlas, wrapping, documento |
 | `blob` | `blob/` | loader `.wnui`, builtin vs archivo, píxeles (`max=0`) |
 | `dump` | `dump/` | `wnui-dump` texto/JSON, golden y errores de archivo |
 
 Todos los fixtures emiten el documento con `frontend-rust --emit-blob` desde
 HTML/CSS y lo embeben como `builtin_blob.h`. No hay árbol JSON intermedio ni
 cabeceras de nodos generadas.
+
+## `text`
+
+`contract_test.c` corre sobre `fake_text.c`, un backend determinista instalado con
+`wn_text_test_use_backend()` (hook de test, fuera del ABI): la lógica de contrato
+no toca DirectWrite en tiempo de ejecución. El binario, en cambio, se compila como
+el resto de la suite: incluye `text_directwrite.cpp`, enlaza `dwrite.lib` y necesita
+`out/fixture/builtin_blob.h` porque `wn_core.c` lo incluye para
+`wn_document_builtin()`. Bloquea que `max_width` siga siendo solo una pista del
+backend, el corte greedy con slices exactos, `set_text` (medida + geometría
+pintada), el aislamiento de la caché de líneas por texto/tamaño/peso/ancho —todas
+las comprobaciones usan la familia `"fake"`, así que la separación por familia no
+se ejerce— y la supervivencia de entradas publicadas a una tormenta de fallos.
+`measure_test.c` es el smoke del backend real: en Windows debe pasar; fuera de
+Windows, donde no hay backend, reporta `SKIP`.
 
 ## `dump`
 

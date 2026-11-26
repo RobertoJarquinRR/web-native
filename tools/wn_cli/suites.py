@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Sequence
 
@@ -437,6 +438,34 @@ def _expect(text: str, needles: Sequence[str], label: str) -> None:
         raise CliError(f"{label} output is missing: {', '.join(repr(item) for item in missing)}")
 
 
+def _expect_measure_result(text: str, label: str) -> None:
+    """Real-backend smoke: PASS is required on Windows; SKIP is legal elsewhere."""
+    if "PASS" in text:
+        return
+    if sys.platform != "win32" and "SKIP" in text:
+        return
+    expected = "PASS" if sys.platform == "win32" else "PASS or SKIP"
+    raise CliError(f"{label} did not report {expected}")
+
+
+def _expect_checks(text: str, label: str, minimum: int) -> None:
+    """Requires `label: PASS (N checks)` with N >= minimum."""
+    marker = "PASS ("
+    start = text.find(marker)
+    if start < 0:
+        raise CliError(f"{label} did not report PASS")
+    start += len(marker)
+    end = text.find(" ", start)
+    if end < 0:
+        raise CliError(f"{label} PASS line has no check count")
+    try:
+        count = int(text[start:end])
+    except ValueError as exc:
+        raise CliError(f"{label} PASS line has an unreadable check count") from exc
+    if count < minimum:
+        raise CliError(f"{label} ran only {count} checks (expected at least {minimum})")
+
+
 def run_dynamic() -> int:
     suite = _suite_dir("dynamic")
     out = suite / "out"
@@ -696,7 +725,7 @@ def run_text() -> int:
         [get_paths().root / "include", runtime],
         ["dwrite.lib"],
     )
-    _expect(_run(exe, [], out), ["text_measure_test: PASS"], "text measure test")
+    _expect_measure_result(_run(exe, [], out), "text measure test")
 
     log_step("text: atlas")
     atlas_exe = out / "atlas_test.exe"
@@ -741,6 +770,19 @@ def run_text() -> int:
         CORE_LIBS,
     )
     _expect(_run(wrap_exe, [], out), ["wrap_test: PASS"], "text wrap test")
+
+    log_step("text: contracts (fake backend, no DirectWrite)")
+    contract_exe = out / "contract_test.exe"
+    _compile(
+        contract_exe,
+        [suite / "fake_text.c", suite / "contract_test.c",
+         *[runtime / item for item in CORE_SOURCES]],
+        [get_paths().root / "include", runtime, fixture],
+        CORE_LIBS,
+    )
+    contract_text = _run(contract_exe, [], out)
+    _expect(contract_text, ["contract_test: PASS"], "text contract test")
+    _expect_checks(contract_text, "text contract test", 45)
     log_info("runtime text v0: PASS")
     return 0
 
@@ -956,7 +998,7 @@ SUITES = {
     "dynamic": ("dynamic UI v0 (visibility, clone/append/remove, ABI demo)", run_dynamic),
     "input": ("text input v1 (caret, selection, clipboard, ABI demo)", run_input),
     "offscreen": ("offscreen vtable (d3d11 vs wgpu readback)", run_offscreen),
-    "text": ("runtime text v0 (DirectWrite measurement + cache)", run_text),
+    "text": ("runtime text v0 (contracts on the fake backend + DirectWrite smoke)", run_text),
     "blob": ("blob v2 (.wnui load, layout and pixels)", run_blob),
     "dump": ("wnui-dump debug projection (text/JSON/errors)", run_dump),
 }

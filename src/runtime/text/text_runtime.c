@@ -347,6 +347,47 @@ static void line_cache_reset(void)
     g_line_ready = 1;
 }
 
+/* Installs `ops` as the only backend and starts from cold caches: the previous
+ * context is destroyed (its measure/shape caches die with it), the line and
+ * family caches are cleared and the fault counters are disarmed. */
+void wn_text_test_use_backend(const wn_text_ops *ops)
+{
+    if (g_available && g_ops != NULL && g_ops->destroy != NULL) {
+        g_ops->destroy(g_context);
+    }
+    g_context = NULL;
+    g_ops = NULL;
+    g_available = 0;
+    g_initialized = 1;
+
+    line_cache_reset();
+    memset(g_family_cache, 0, sizeof(g_family_cache));
+    g_family_next = 0;
+    g_text_error[0] = '\0';
+    g_test_fail_lines = 0;
+    g_test_fail_shapes = 0;
+
+    if (ops == NULL) {
+        return;
+    }
+    g_ops = ops;
+    if (ops->init == NULL) {
+        g_ops = NULL;
+        g_context = NULL;
+        return;
+    }
+    if (ops->init(&g_context) != 0) {
+        /* A backend may assign a context before failing; do not leak it. */
+        if (g_context != NULL && ops->destroy != NULL) {
+            ops->destroy(g_context);
+        }
+        g_ops = NULL;
+        g_context = NULL;
+        return;
+    }
+    g_available = 1;
+}
+
 static void line_lru_unlink(int slot)
 {
     WnLineEntry *entry = &g_lines[slot];
