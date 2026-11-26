@@ -1,7 +1,7 @@
 //! Asset-base regression: intrinsic image sizes are baked from the document's
 //! directory, not from wherever the `.wnui` blob is written.
 //!
-//! Pre-consolidation the image `src` resolved against the `ui.json` directory;
+//! Pre-consolidation the image `src` resolved against the intermediate tree's directory;
 //! after the blob-only refactor the writer briefly used the blob's parent, so
 //! writing a fixture blob next to its `builtin_blob.h` (a different directory
 //! than the page) zeroed the intrinsic size. These tests pin the values that

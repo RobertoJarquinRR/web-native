@@ -1,9 +1,9 @@
 # Auditoría del SDK
 
-> **Nota (post fase 2a):** este documento es un snapshot del audit. Las filas
-> C5/C12/B1 describen el estado anterior: el frontend ya no emite `ui.json` ni
-> `ui_data.h`, `--emit-header` ya no existe y `wnui-dump` cubre la vista de
-> debug del blob. Se conserva como historia; el contrato vivo está en
+> **Nota:** este documento es un snapshot histórico del audit. C5 y C12 están
+> **resueltos** (fase 2b): el frontend Rust es el único compilador, todos los
+> fixtures —incluidos los CSS— producen `.wnui` directamente y `wnui-dump`
+> cubre la vista de debug del blob. El contrato vivo está en
 > `docs/wnui-format.md`.
 
 Inventario de deudas heredadas y límites que hoy bloquean madurar el motor.
@@ -21,9 +21,10 @@ D3D11 offline + job wgpu fijado) y D1–D19 salvo lo anotado en cada fila.
 
 **Ola 2:** A2 (refcount del documento), A9 (`wn_node_set_image_size`), B2
 (estado por nodo), B3 (getters/scroll/foco), B4 (botón/doble clic/rueda
-horizontal), B5 (tick público), C5 (`--emit-header` en Rust, con goldens).
+horizontal), B5 (tick público), C5 (compilador único `.wnui`), C11 (paridad de
+color), C12 (documento blob-only, fixtures CSS incluidos) y D11.
 
-Pendiente de la lista: B1, B7, B10, C2–C10 (C11 en revisión).
+Pendiente de la lista: B1, B7, B10, C2, C3, C6–C10.
 
 ## P0 — corrección y seguridad
 
@@ -63,7 +64,7 @@ Pendiente de la lista: B1, B7, B10, C2–C10 (C11 en revisión).
 | D7 | Errores | Varios fallos dejan `wn_last_error()` con el mensaje anterior (o NULL): OOM en `wn_core_create`, OOM del loader y fallo de `wn_view_replace_document`; `wn_view_set_state` devuelve `WN_OK` con un nodo muerto | `wn_core.c:396-503` no llama a `wn_set_error`; `wn_blob.c:212-218` tampoco; `wn_view.c:430-436` retorna 1 en silencio; `wn_view.c:456-464` ignora el nodo (`wn_core.c:218-237`) | setear error en cada salida y devolver `WN_ERR_*` si el nodo no existe (complementa C8). Aditivo |
 | D8 | Texto | Un texto de más de 4095 unidades UTF-16 se mide como 0×alto: el layout colapsa y no se pinta nada; `truncated` nunca se enciende | `text_directwrite.cpp:75` pide `-1` (todo o nada) y `:114-121` trata `length == 0` como cadena vacía; `:391` calcula `truncated` sobre un `length` ya fallido | medir por tramos o devolver error explícito y propagar `truncated` desde `measure`. Aditivo |
 
-| C11 | Color | **resuelto**: `argb()` replica tinycss2 1.5.1 (alfa, `hsl`, nombres CSS3) y los colores declarados usan un superset que normaliza a hex antes de `ui.json` | dos gramáticas separadas, corpus de 566 casos | cerrado; el emisor Python ya no diverge en color |
+| C11 | Color | **resuelto**: `argb()` replica tinycss2 1.5.1 (alfa, `hsl`, nombres CSS3) y los colores declarados usan un superset que normaliza a hex antes de emitir el blob | dos gramáticas separadas, corpus de 566 casos | cerrado; el frontend ya no diverge en color |
 
 ## P2 — tooling, proceso y contratos
 
@@ -73,8 +74,8 @@ Pendiente de la lista: B1, B7, B10, C2–C10 (C11 en revisión).
 | C2 | Paridad visual | `benchmarks/visual-parity/tools/render_native.py` apunta a `c-r2` y no hay runner | R1 retirado | retirar a `archive/` o reescribir sobre `wn-cli` |
 | C3 | Métricas | `engine-metrics` sin ejecutar desde que se quitó R1 | rama R1 eliminada sin re-baseline | correr `wn-cli bench metrics` y actualizar `BASELINE.md` |
 | C4 | Tests | **resuelto**: los suites emiten blobs en `out/` y no regeneran fixtures trackeados | fixtures dentro del repo | cerrado con la consolidación del documento |
-| C5 | Compilador | **resuelto**: el frontend Rust emite solo `.wnui`; `--emit-header` y `header.rs` ya no existen | había dos serializadores | cerrado; el emisor Python queda solo para los fixtures CSS hasta 2b |
-| C12 | Documento | **fase 1 y 2a hechas**: runtime blob-only (builtin embebido, loader por memoria), frontend `--emit-blob` único, `wnui-dump` y hashes fijados | quedaba `ui.json`/`ui_data.h` en build y tests | **2b**: migrar los fixtures CSS a HTML/CSS y borrar `emit_ui.py` |
+| C5 | Compilador | **resuelto**: el frontend Rust emite solo `.wnui`; no hay otro serializador | había dos serializadores | cerrado; el emisor Python se retiró en 2b |
+| C12 | Documento | **resuelto (2b)**: runtime blob-only (builtin embebido, loader por memoria), frontend `--emit-blob` único, `wnui-dump` y hashes fijados; fixtures CSS migrados a HTML/CSS | quedaba un árbol JSON intermedio en build y tests | cerrado; ya no existe ningún consumidor del pipeline anterior |
 | C6 | Blob | Solo hay versión exacta; sin política de compatibilidad | loader exige `version == 2` | aceptar versiones ≤ actual con secciones opcionales |
 | C7 | Hilos | `text_runtime` es singleton global con buffer estático | asume un hilo de UI | documentar o pasar contexto por core |
 | C8 | Errores | Mezcla de `-1/-2` y `wn_status`; no hay código estructurado | crecimiento histórico | normalizar a `wn_status` + `wn_last_error` |
@@ -82,7 +83,7 @@ Pendiente de la lista: B1, B7, B10, C2–C10 (C11 en revisión).
 | C10 | A11y | Sin UIA/ARIA, sin foco por teclado fuera del input, sin contraste alto | E3 pendiente | plan de accesibilidad |
 | D9 | Tests | `measure_test` y `atlas_test` imprimen `[FAIL]` pero siempre salen con 0 y el `PASS` es incondicional; `blob_test` tampoco falla si los display lists difieren | `measure_test.c:11-15,88-89` y `atlas_test.c:9-13,83-84` (su `check` no acumula); `blob_test.c:72-75` solo imprime; `suites.py:514,525,608` valida el código de salida y la cadena "PASS" | contador de fallos + exit != 0; comparar también los bytes de vértices, no solo los conteos |
 | D10 | Tests | `verify_d3d11.py` imprime FAIL por tamaño distinto pero sale 0, así que la comparación de backends y el blob pasan igual | `verify_d3d11.py:58-64` devuelve el resultado de `_write` y `:120-136` retorna 0 siempre | devolver 1 cuando `failures` no está vacío |
-| D11 | Tests | El paso "legacy header self-compare" compara el fixture consigo mismo: siempre pasa y no prueba nada | `suites.py:168-170` ejecuta `--compare legacy_ui_data.h legacy_ui_data.h` | comparar `out/emit/*/ui_data.h` contra el fixture (o el oráculo Python) |
+| D11 | Tests | **resuelto** con C12: el paso "legacy header self-compare" comparaba el fixture consigo mismo y se eliminó; la suite CSS fija el hash de cada blob y comprueba sus campos con `wnui-dump --json` | el fixture no probaba nada | cerrado |
 | D12 | Host/eventos | Al perder la captura (alt-tab, modal) `press` y `hover` quedan pegados: no se emite `POINTER_UP` ni `POINTER_LEAVE`, y nadie llama a `wn_core_pointer_leave` | `host_win32.c:158-165` hace `SetCapture`/`ReleaseCapture` sin `WM_CAPTURECHANGED`; `:153-157` convierte `WM_MOUSELEAVE` en `POINTER_MOVE` a (-1e6); `hit_test.c:180-185` queda sin uso y `:136-145` no marca `dirty` | manejar `WM_CAPTURECHANGED`/`WM_KILLFOCUS` emitiendo up+leave y marcar `dirty` en el state machine. Aditivo |
 | D13 | wgpu | El fallo de init filtra todo lo creado antes de fallar (shaders, pipelines, layouts, sampler, atlas) y no llama `CoUninitialize` | `renderer_wgpu.c:799-801` y el `fail:` de `:821-828` solo liberan surface/queue/device/adapter/instance | liberar cada recurso en `fail:` (o reutilizar un `destroy` parcial). Aditivo |
 | D14 | Texto/atlas | Un glifo que no cabe en el atlas queda cacheado como presente con UV (0,0)-(0,0): no se reintenta y pinta un quad degenerado | `text_atlas.c:238` marca `used` y `:244-246` retorna NULL si `pack_bitmap` falla; el lookup `:223-224` lo devuelve `&slot->metrics` para siempre | no marcar `used` hasta empaquetar y reportar el atlas lleno. Aditivo |
@@ -111,8 +112,8 @@ no son del motor (diálogo de carpeta, persistencia) están marcados P3 allí.
 ## Orden recomendado
 
 1. ~~A1, A3, A4~~ (hecho), ~~A6, A7~~ (hecho), ~~B2–B5~~ (hecho en v6).
-2. ~~C11~~ (color con tinycss2): hecho; el emisor ya no diverge en color.
-3. **C12 fase 2b**: migrar los fixtures CSS a HTML/CSS y borrar `emit_ui.py`; después C5/C4 quedan cerrados del todo.
+2. ~~C11~~ (color con tinycss2): hecho; el frontend ya no diverge en color.
+3. ~~C5/C12~~ (compilador único y fixtures CSS en HTML/CSS): hechos en la fase 2b.
 4. Input v2 (IME, multilínea, undo/redo) e imágenes (decode asíncrono, formatos).
 5. A2/A9 ~~hechos~~; quedan A5 (checksum del blob), B7 (DPI), B10 (async),
-   C2–C10 (tooling, accesibilidad, undo de UI).
+   C2, C3, C6–C10 (tooling, accesibilidad, undo de UI).

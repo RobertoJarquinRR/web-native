@@ -219,8 +219,8 @@ se descarta.
 
 - `docs/subset-v1.md` — features fuera de v1 y regla de versionado.
 - `docs/support.md` — matriz real de lo que el runtime aplica hoy.
-- `docs/ui-tree-v3.md` — forma del schema actual; una extensión CSS implica
-  `/4`.
+- `docs/wnui-format.md` — el contrato vigente; una extensión CSS se refleja en
+  el blob (los `docs/ui-tree-*.md` son históricos).
 - `docs/platform-v1.md` — reduced motion, DPI y foco, que condicionan animación.
 - `docs/visual-parity.md` — cómo se mide que transform/position no rompen los
   píxeles.

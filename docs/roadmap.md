@@ -48,16 +48,16 @@ Un stream no toca los archivos de otro; se integra por contrato.
 - ✅ ABI v4: dinámica, input de una línea, stats públicas; v5: identidad de
   nodos y navegación; **v6**: estado por nodo, getters/scroll/foco, botón y
   doble clic, tick, refcount del documento y tamaño de imagen.
-- ✅ CSS core v1 (41/41), E1 (23/23), dynamic (61/61), input (83 + 118/118),
+- ✅ CSS core v1 (52/52), E1 (23/23), dynamic (61/61), input (83 + 118/118),
   text (144), offscreen (100 % exacto), blob; `test all` 10/10 y piloto 48/48.
 - ✅ Frontend Rust por etapas (`parse/style/emit/cli`); R1 retirado y su
-  benchmark archivado (`archive/benchmarks-r1/`). `.wnui` se emite desde Rust;
-  `emit_ui.py` sobrevive solo para los fixtures CSS (retirada fase 2b).
+  benchmark archivado (`archive/benchmarks-r1/`). `.wnui` es la única salida:
+  HTML/CSS → blob, incluidos todos los fixtures de test. El emisor Python y su
+  árbol JSON intermedio ya no existen.
 - ✅ **E6**: CI de dos jobs — D3D11 offline y wgpu con artefacto fijado por
   SHA-256. La paridad visual sigue sin runner.
-- ⏭ Siguiente: C11 (paridad de color) y retirar el emisor Python, input v2
-  (IME, multilínea, undo), imágenes (async, formatos), escala (culling/DPI) y
-  migrar los fixtures CSS para borrar `emit_ui.py` (fase 2b).
+- ⏭ Siguiente: input v2 (IME, multilínea, undo), imágenes (async, formatos) y
+  escala (culling/DPI).
 
 Documentos de esta ola: [`e8-css-extensions.md`](e8-css-extensions.md),
 [`visual-parity.md`](visual-parity.md), [`release-checklist.md`](release-checklist.md)

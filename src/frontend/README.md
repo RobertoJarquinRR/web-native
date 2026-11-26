@@ -21,8 +21,8 @@ frontend-rust.exe --html app/index.html --width 1280 --height 800 \
 | `--strict-subset` | cualquier feature fuera de `docs/subset-v1.md` es error (exit != 0) |
 | `--pilot` | habilita grid, scroll, imágenes y `<input>` (extensiones v2/v3) |
 
-Sin `--emit-blob` el binario no escribe nada y devuelve error de uso. Ya no se
-generan `ui.json` ni `ui_data.h`: el blob es el contrato.
+Sin `--emit-blob` el binario no escribe nada y devuelve error de uso. El blob
+es la única salida y el contrato.
 
 ## Etapas
 
@@ -88,8 +88,8 @@ debug.
 
 ## Histórico
 
-El frontend también emitía el IR estático de R1 (`display_list.json`),
-`ui.json`/`ui_data.h` para el oráculo Python y horneaba texto con
-HarfBuzz/FreeType. El IR estático vive en `archive/r1-static/`; los documentos
+El frontend también emitía el IR estático de R1 (`display_list.json`), un árbol
+de estilos JSON intermedio y cabeceras C para el oráculo Python, y horneaba
+texto con HarfBuzz/FreeType. El IR estático vive en `archive/r1-static/`; los documentos
 `docs/ui-tree-v2.md`, `docs/ui-tree-v3.md` y `docs/ir-schema.md` describen el IR
 retirado y se conservan solo como historia.

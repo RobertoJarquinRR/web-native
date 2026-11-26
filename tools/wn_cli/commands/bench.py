@@ -113,21 +113,8 @@ def cmd_pilot(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_stress(args: argparse.Namespace) -> int:
-    paths = get_paths()
-    pilot_dir = paths.root / "benchmarks" / "pilot-media-library"
-    script = pilot_dir / "stress" / "run_stress.py"
-    if not script.is_file():
-        raise CliError(f"stress script not found: {script}")
-
-    extra = _clean_extra_args(args.extra_args)
-    log_step("running pilot stress benchmark")
-    run_cmd([_bench_python(pilot_dir), script, *extra], cwd=pilot_dir)
-    return 0
-
-
 def register_subcommands(subparsers: argparse._SubParsersAction) -> None:
-    p_bench = subparsers.add_parser("bench", help="Run performance metrics, pilot, and stress benchmarks")
+    p_bench = subparsers.add_parser("bench", help="Run performance metrics and pilot benchmarks")
     bench_sub = p_bench.add_subparsers(dest="bench_cmd", required=True)
 
     p_metrics = bench_sub.add_parser("metrics", help="Run engine-metrics measurement suite")
@@ -142,7 +129,3 @@ def register_subcommands(subparsers: argparse._SubParsersAction) -> None:
     p_pilot.add_argument("--no-wgpu", action="store_true",
                          help="Build the runtime with -DWN_WGPU=OFF (D3D11 only)")
     p_pilot.set_defaults(func=cmd_pilot)
-
-    p_stress = bench_sub.add_parser("stress", help="Run pilot stress benchmark suite")
-    p_stress.add_argument("extra_args", nargs=argparse.REMAINDER, help="Arguments passed to run_stress.py")
-    p_stress.set_defaults(func=cmd_stress)

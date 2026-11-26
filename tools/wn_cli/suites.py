@@ -49,11 +49,11 @@ RUNTIME_LIBS = (
 CFLAGS = ("/nologo", "/O2", "/W4", "/WX", "/D_CRT_SECURE_NO_WARNINGS", "/DWN_STATIC")
 CXX_SUFFIXES = (".cpp", ".cc", ".cxx")
 
-# Canonical blob hashes pinned by `wn-cli test suite blob` (and the dynamic /
-# offscreen suites for their own fixtures). The canonical SHA-256 is the
-# primary gate for the `.wnui` contract: a fresh emission must be byte-identical
-# to the reviewed artifact. `blob` also compares the builtin and file renders,
-# but that comparison alone is tautological (both sides use the same emission).
+# Blob hashes pinned by the suites that own each fixture (blob, dynamic,
+# offscreen, css). The SHA-256 is the primary gate for the `.wnui` contract: a
+# fresh emission must be byte-identical to the reviewed artifact. `blob` also
+# compares the builtin and file renders, but that comparison alone is
+# tautological (both sides use the same emission).
 PINNED_BLOBS = {
     "canonical": "eae247a4c3146d035078935b1f60b746ad0b1bd0871ced64c20e2b4726157e9f",
     "input": "a13e2b0a97aac6cad434c9e3340dd0d9db141e255500acb5ed9a297a0f31f916",
@@ -61,6 +61,10 @@ PINNED_BLOBS = {
     "pilot": "55279171e5a77e795a7cd1822383578a588774030a475158fbee2079ccaecf4d",
     "dynamic": "412a93f0fff9b25a54a5fd7954b4e15f90a55d28c5ca86e8cb4294fb92dfe8a2",
     "cache": "67d39833e128d832686f02f4ec1784fcdd02a95378e965d8e5da1031b607b0dd",
+    # CSS suite fixtures (HTML/CSS -> blob, same pinning rule as the corpus).
+    "css_card": "ffa1f754942ad82812d9b86259c376243e587c32b6abc093e088fc2fd7425335",
+    "css_control": "6d7f24e90cf1a0fe645006879a46309cb8d22082e487e41bab4e9db52182e798",
+    "css_none": "e55d9fba99b45742c723ea3414dc1446996a51cc46d193a2cec7d553f7ba11f0",
 }
 
 
@@ -248,25 +252,25 @@ def _embed_blob(blob: Path, header: Path) -> None:
     )
 
 
-def _emit_css_fixture(ui_json: Path, out_dir: Path) -> None:
-    """CSS-only legacy path (phase 2b removes it).
-
-    The CSS fixtures are still hand-authored `ui.json` files, so they keep
-    going through `emit_ui.py --ui-json`. Every other suite uses
-    `frontend-rust --emit-blob` and never touches the Python emitter.
-    """
-    out_dir.mkdir(parents=True, exist_ok=True)
-    _python(
-        get_paths().emitter,
-        [
-            "--ui-json", str(ui_json),
-            "--out", str(out_dir / "ui_data.h"),
-            "--meta", str(out_dir / "ui_meta.json"),
-            "--blob", str(out_dir / "app.wnui"),
-        ],
-        cwd=get_paths().root,
+def _emit_css_fixture(name: str, page_dir: Path, width: int, height: int,
+                      fixture: Path) -> Path:
+    """Emit one CSS fixture with the same HTML/CSS -> blob path as every suite."""
+    rust_exe = get_paths().frontend_rust / "target" / "release" / "frontend-rust.exe"
+    if not rust_exe.is_file():
+        raise CliError("frontend-rust.exe is missing; run: wn-cli frontend build")
+    fixture.mkdir(parents=True, exist_ok=True)
+    blob = fixture / "app.wnui"
+    run_cmd(
+        [rust_exe, "--html", str(page_dir / f"{name}.html"),
+         "--css", str(page_dir / f"{name}.css"),
+         "--width", str(width), "--height", str(height),
+         "--emit-blob", str(blob), "--pilot"],
+        cwd=page_dir,
     )
-    _embed_blob(out_dir / "app.wnui", out_dir / "builtin_blob.h")
+    if not blob.is_file():
+        raise CliError(f"frontend-rust did not write {name} app.wnui")
+    _embed_blob(blob, fixture / "builtin_blob.h")
+    return blob
 
 
 def run_css() -> int:
@@ -278,15 +282,24 @@ def run_css() -> int:
     log_step("css: deterministic poster")
     _python(suite / "make_images.py", [], cwd=suite)
 
-    for name in ("card", "control", "none"):
-        log_step(f"css: emit {name} ui_data.h + builtin blob (legacy JSON path)")
-        _emit_css_fixture(page / f"{name}.json", out / "emit" / name)
-
-    log_step("css: legacy header self-compare")
-    legacy = suite / "fixture" / "legacy_ui_data.h"
-    _python(get_paths().emitter, ["--compare", str(legacy), str(legacy)], cwd=suite)
+    for name, (width, height) in (("card", (400, 240)),
+                                  ("control", (400, 240)),
+                                  ("none", (120, 80))):
+        log_step(f"css: frontend-rust --emit-blob ({name}.html)")
+        blob = _emit_css_fixture(name, page, width, height, out / "emit" / name)
+        _assert_pinned_blob(f"css_{name}", blob)
 
     runtime = get_paths().runtime
+    log_step("css: compile wnui-dump")
+    dump_exe = out / "wnui-dump.exe"
+    _compile(
+        dump_exe,
+        [runtime / "tools" / "wn_dump.c",
+         *[runtime / source for source in CORE_SOURCES]],
+        [get_paths().root / "include", runtime, out / "emit" / "card"],
+        CORE_LIBS,
+    )
+
     for name in ("card", "control"):
         log_step(f"css: compile runtime_css_{name}.exe")
         emit_dir = out / "emit" / name
@@ -312,6 +325,7 @@ def run_css() -> int:
 
     log_step("css: verify")
     _python(suite / "verify_css.py", ["--dir", str(out), "--page", str(page),
+                                      "--dump", str(dump_exe),
                                       "--backend", backend], cwd=suite)
     log_info("css core v1: PASS")
     return 0

@@ -541,7 +541,7 @@ def main() -> int:
             "layout": "`--report` de R2 ejecuta el layout 100 veces por viewport e imprime "
                       "best/avg; se reporta la mediana entre ejecuciones del `layout_ms_avg`. "
                       "El escenario de ~100 nodos usa un fixture propio y un binario R2 variante "
-                      "(mismo runtime_r2.c, ui_data.h de 100 nodos).",
+                      "(mismo runtime_r2.c, árbol de 100 nodos).",
             "offscreen": "wall de `--render W H out.png` (proceso completo) más los tiempos "
                          "internos que imprime el runtime (layout/frame/gpu/readback/png).",
             "backend": "línea de adaptador del runtime; WARP es type=cpu + vendorID=0x1414",
@@ -675,7 +675,7 @@ def main() -> int:
                     "exe": str(args.layout100_exe),
                     "node_count": runs100[0]["node_count"],
                     "fixture": "benchmarks/engine-metrics/fixtures/layout-100/index.html",
-                    "note": "mismo runtime_r2.c recompilado contra un ui_data.h de 100 nodos; "
+                    "note": "mismo runtime_r2.c recompilado contra un árbol de 100 nodos; "
                             "solo mide layout, no forma parte del install/engine size",
                     "sizes": sizes100,
                     "runs": runs100,
@@ -880,7 +880,7 @@ def render_markdown(b: dict) -> str:
     if prov:
         lines.append(
             f"- Recompilación de control: `runtime_r2.c` del commit "
-            f"`{prov.get('source_commit') or snap.get('commit')}` + `build/ui_data.h` → "
+            f"`{prov.get('source_commit') or snap.get('commit')}` + árbol de nodos → "
             f"{prov.get('rebuild_exe_bytes', 'n/a'):,} B (mismo tamaño que el snapshot); "
             f"PNG 960×640 "
             f"{'idéntico' if prov.get('render_matches') else 'DISTINTO'} "
@@ -1065,7 +1065,7 @@ def render_markdown(b: dict) -> str:
     if l100 and l100.get("node_count"):
         lines.append(f"Layout ~100 nodos: fixture `{l100.get('fixture')}` con "
                      f"**{l100['node_count']} nodos**, mismo `runtime_r2.c` recompilado contra su "
-                     "`ui_data.h`. Solo mide layout; no entra en install/engine size.\n")
+                     "árbol de nodos. Solo mide layout; no entra en install/engine size.\n")
 
     lines.append("## Observaciones (derivadas de esta medición)\n")
     source_build = (b.get("snapshot", {}).get("source_build") or {})

@@ -44,7 +44,7 @@ reporte.
 
 - Windows 10/11.
 - Python 3.12 (`py -3.12`).
-- MSVC con `vcvars64.bat`, `frontend-rust.exe` ya compilado, `emit_ui.py` y
+- MSVC con `vcvars64.bat`, `frontend-rust.exe` ya compilado y
   `third_party/wgpu-native`. Cada fixture se emite y compila con
   `python tools\cli.py runtime emit --html ... --css ... --out-dir ...` y
   `python tools\cli.py runtime build`.
@@ -176,7 +176,7 @@ benchmarks/visual-parity/out/
   diff/<name>.overlay.png              # diff > 8 en rojo sobre gris
   diff/<name>.<region>.crop.png        # recorte + overlay de regiones FAIL/WARN
   logs/<run>/...                       # stdout/stderr de cada herramienta
-  build/r2-<name>/                     # runtime_r2.exe + ui_data.h del fixture
+  build/r2-<name>/                     # runtime_r2.exe + documento del fixture
 reports/<timestamp>/report.json|md     # archivo de la corrida (sin PNGs)
 ```
 

@@ -24,7 +24,7 @@ El contrato es el blob `.wnui` v2. El frontend Rust lo produce con
 El builtin del runtime es `generated/builtin.wnui` embebido como
 `generated/builtin_blob.h` (array de bytes). `wn_document_builtin()` lo parsea
 con el mismo loader que un archivo, una sola vez por proceso. Ya no existe
-`ui_data.h` ni una tabla `kUiNodes` en C.
+ninguna tabla de nodos generada en C.
 
 Para regenerar el builtin:
 
@@ -121,7 +121,7 @@ Suites de `tools/wn_cli/suites.py`:
 
 | Suite | Cubre |
 |---|---|
-| `css` | radios/borde/sombra e imagen; **única** que aún usa `emit_ui.py` sobre `ui.json` (fase 2b) |
+| `css` | radios/borde/sombra e imagen; HTML/CSS → blob, campos leídos con `wnui-dump --json` |
 | `fidelity` | E1: font-weight, text-align, line-height, margin auto, flex |
 | `dynamic` | visibilidad, clone/append/remove, demo ABI |
 | `input` | caret, selección, clipboard, demo ABI |

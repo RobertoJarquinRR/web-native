@@ -1,39 +1,41 @@
 #!/usr/bin/env python3
-"""Pixel + header acceptance for CSS core v1 (rounded bg, border, shadow).
+"""Pixel + document acceptance for CSS core v1 (rounded bg, border, shadow).
+
+The fixtures are real HTML/CSS pages compiled by `frontend-rust --emit-blob`;
+every field assertion reads the `.wnui` through `wnui-dump --json`, the same
+debug projection the `dump` suite pins, so this suite never parses a header.
 
 Two pages share the same layout and colours:
 
-  card.json    - card with border-radius 12, 2 px border, box-shadow; an
+  card.html    - card with border-radius 12, 2 px border, box-shadow; an
                  image card whose radius comes from a parent overflow:hidden;
                  a transparent card with a border (v1 skips the ring).
-  control.json - identical geometry with no CSS v1 fields at all. Every pixel
+  control.html - identical geometry with no CSS v1 fields at all. Every pixel
                  of the old square path is asserted, and the render must match
                  the pre-CSS-core reference PNG byte-for-byte (same pixels).
+  none.html    - border-style:none forces width/radius 0 in the document.
 
 Usage:
-  python verify_css.py --dir out --page page [--expected expected]
+  python verify_css.py --dir out --page page [--expected expected] \
+      [--dump out/wnui-dump.exe]
 """
 from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 from pathlib import Path
 
 from PIL import Image, ImageChops
 
 HERE = Path(__file__).resolve().parent
-REPO = HERE.parents[3]
-sys.path.insert(0, str(REPO / "src" / "emitter" / "python"))
-
-from emit_ui import parse_header  # noqa: E402
 
 PAGE_BG = (240, 240, 240)
 CARD = (51, 102, 204)
 BORDER = (255, 255, 255)
 IMAGE_QUADRANTS = ((204, 68, 51), (51, 170, 102),
                    (51, 85, 204), (221, 170, 34))
-SHADOW_ALPHA_RGB = 0x66000000
 CHECKS: list[dict] = []
 
 
@@ -84,49 +86,168 @@ def region_uniform(img: Image.Image, rect: tuple[int, int, int, int],
     return bad, first
 
 
-def header_checks(root: Path) -> bool:
+def dump_document(dump: Path, blob: Path) -> dict | None:
+    """`wnui-dump --json` of one blob, or None (the caller reports the failure)."""
+    completed = subprocess.run(
+        [str(dump), "--json", str(blob)],
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        print(f"FAIL: {dump.name} --json {blob}: "
+              f"{(completed.stdout + completed.stderr).strip()}")
+        return None
+    try:
+        return json.loads(completed.stdout)
+    except json.JSONDecodeError as error:
+        print(f"FAIL: {dump.name} --json {blob}: {error}")
+        return None
+
+
+def node_named(nodes: list[dict], suffix: str) -> dict | None:
+    for node in nodes:
+        if str(node.get("name", "")).endswith(suffix):
+            return node
+    return None
+
+
+CSS_NUMERIC_FIELDS = ("border_width", "border_radius", "shadow_x", "shadow_y",
+                      "shadow_blur", "shadow_spread")
+CSS_COLOR_FIELDS = ("border_color", "shadow_color")
+ZERO_COLOR = "#00000000"
+
+
+def fields_zero(node: dict) -> bool:
+    return (all(node.get(key) == 0 for key in CSS_NUMERIC_FIELDS)
+            and all(node.get(key) == ZERO_COLOR for key in CSS_COLOR_FIELDS))
+
+
+def document_checks(dump: Path, root: Path) -> bool:
+    """Same relevant fields as the old header check, read from each blob."""
     ok = True
-    card_header = parse_header(root / "emit" / "card" / "ui_data.h")
-    control_header = parse_header(root / "emit" / "control" / "ui_data.h")
-    none_header = parse_header(root / "emit" / "none" / "ui_data.h")
-    legacy_header = parse_header(HERE / "fixture" / "legacy_ui_data.h")
+    documents: dict[str, dict] = {}
+    for name in ("card", "control", "none"):
+        blob = root / "emit" / name / "app.wnui"
+        document = dump_document(dump, blob)
+        if document is None:
+            ok = check(f"doc/{name}", "wnui-dump --json", False, f"cannot read {blob}") and ok
+            continue
+        documents[name] = document
+        ok = check(f"doc/{name}", "wnui-dump --json", True,
+                   f"{document.get('node_count')} nodes, viewport={document.get('viewport')}") and ok
 
-    card = card_header["nodes"][1]
-    expected = {
-        "border_width": 2.0,
-        "border_color": 0xFFFFFFFF,
-        "border_radius": 12.0,
-        "shadow_x": 0.0,
-        "shadow_y": 10.0,
-        "shadow_blur": 6.0,
-        "shadow_spread": 0.0,
-        "shadow_color": SHADOW_ALPHA_RGB,
-    }
-    for key, value in expected.items():
-        ok = check("emit/card", key, card[key] == value,
-                   f"{card[key]!r} == {value!r}") and ok
-    ok = check("emit/card", "node count", card_header["node_count"] == 5,
-               f"{card_header['node_count']} nodes") and ok
+    card_document = documents.get("card")
+    if card_document is not None:
+        nodes = card_document.get("nodes") or []
+        ok = check("doc/card", "node count", card_document.get("node_count") == 5,
+                   f"{card_document.get('node_count')} nodes") and ok
+        card = node_named(nodes, "/div.card")
+        if card is None:
+            ok = check("doc/card", "div.card present", False, "missing node") and ok
+        else:
+            ok = check("doc/card", "div.card is a block", card["kind"] == "block",
+                       f"kind={card['kind']} name={card['name']}") and ok
+            expected = {
+                "border_width": 2.0,
+                "border_color": "#ffffffff",
+                "border_radius": 12.0,
+                "shadow_x": 0.0,
+                "shadow_y": 10.0,
+                "shadow_blur": 6.0,
+                "shadow_spread": 0.0,
+                "shadow_color": "#66000000",
+            }
+            for key, value in expected.items():
+                ok = check("doc/card", key, card[key] == value,
+                           f"{card[key]!r} == {value!r}") and ok
 
-    control = control_header["nodes"][1]
-    zeros = all(control[key] == 0 for key in
-                ("border_width", "border_color", "border_radius", "shadow_x",
-                 "shadow_y", "shadow_blur", "shadow_spread", "shadow_color"))
-    ok = check("emit/control", "missing fields default to 0", zeros,
-               f"border_radius={control['border_radius']} shadow=0x{control['shadow_color']:08x}") and ok
+        image_card = node_named(nodes, "/div.image-card")
+        if image_card is None:
+            ok = check("doc/card", "div.image-card present", False, "missing node") and ok
+        else:
+            ok = check("doc/card", "image card clips overflow",
+                       image_card["kind"] == "block"
+                       and image_card["overflow"] == "hidden"
+                       and image_card["border_radius"] == 14.0,
+                       f"kind={image_card['kind']} overflow={image_card['overflow']} "
+                       f"radius={image_card['border_radius']}") and ok
 
-    none_node = none_header["nodes"][1]
-    ok = check("emit/none", "border_style none forces width 0",
-               none_node["border_width"] == 0.0 and none_node["border_radius"] == 0.0,
-               f"width={none_node['border_width']} radius={none_node['border_radius']}") and ok
+        image = node_named(nodes, "/img.poster")
+        if image is None:
+            ok = check("doc/card", "img.poster present", False, "missing node") and ok
+        else:
+            ok = check("doc/card", "image node and asset",
+                       image["kind"] == "image"
+                       and image["image_src"] == "poster.png"
+                       and image["image_alt"] == "poster"
+                       and image["object_fit"] == "fill"
+                       and image["image_width"] == 2.0
+                       and image["image_height"] == 2.0
+                       and image["width"] == 120.0 and image["height"] == 120.0,
+                       f"kind={image['kind']} src={image['image_src']} "
+                       f"intrinsic={image['image_width']}x{image['image_height']} "
+                       f"fit={image['object_fit']}") and ok
 
-    legacy = legacy_header["nodes"][1]
-    legacy_zero = all(legacy[key] == 0 for key in
-                      ("border_width", "border_color", "border_radius", "shadow_x",
-                       "shadow_y", "shadow_blur", "shadow_spread", "shadow_color"))
-    ok = check("emit/legacy", "old header parses with CSS fields = 0",
-               legacy_header["node_count"] == 2 and legacy_zero,
-               f"{legacy_header['node_count']} nodes, css fields zero={legacy_zero}") and ok
+        ghost = node_named(nodes, "/div.ghost-card")
+        if ghost is None:
+            ok = check("doc/card", "div.ghost-card present", False, "missing node") and ok
+        else:
+            ok = check("doc/card", "transparent card keeps its border",
+                       ghost["kind"] == "block"
+                       and ghost["border_width"] == 4.0
+                       and ghost["border_color"] == "#ffff00ff"
+                       and ghost["border_radius"] == 8.0,
+                       f"kind={ghost['kind']} width={ghost['border_width']} "
+                       f"color={ghost['border_color']} radius={ghost['border_radius']}") and ok
+
+    control_document = documents.get("control")
+    if control_document is not None:
+        nodes = control_document.get("nodes") or []
+        ok = check("doc/control", "node count", control_document.get("node_count") == 5,
+                   f"{control_document.get('node_count')} nodes") and ok
+        control = node_named(nodes, "/div.card")
+        if control is None:
+            ok = check("doc/control", "div.card present", False, "missing node") and ok
+        else:
+            ok = check("doc/control", "no CSS v3 fields",
+                       control["kind"] == "block" and fields_zero(control),
+                       f"kind={control['kind']} radius={control['border_radius']} "
+                       f"shadow={control['shadow_color']}") and ok
+        image_card = node_named(nodes, "/div.image-card")
+        if image_card is None:
+            ok = check("doc/control", "div.image-card present", False, "missing node") and ok
+        else:
+            ok = check("doc/control", "image card is square and unclipped",
+                       image_card["overflow"] == "visible"
+                       and image_card["border_radius"] == 0.0,
+                       f"overflow={image_card['overflow']} radius={image_card['border_radius']}") and ok
+        ghost = node_named(nodes, "/div.ghost-card")
+        if ghost is None:
+            ok = check("doc/control", "div.ghost-card present", False, "missing node") and ok
+        else:
+            ok = check("doc/control", "ghost card has no border", fields_zero(ghost),
+                       f"width={ghost['border_width']} color={ghost['border_color']}") and ok
+
+    none_document = documents.get("none")
+    if none_document is not None:
+        nodes = none_document.get("nodes") or []
+        ok = check("doc/none", "node count", none_document.get("node_count") == 2,
+                   f"{none_document.get('node_count')} nodes") and ok
+        none_node = node_named(nodes, "/div.none")
+        if none_node is None:
+            ok = check("doc/none", "div.none present", False, "missing node") and ok
+        else:
+            ok = check("doc/none", "border_style none forces width 0",
+                       none_node["kind"] == "block"
+                       and none_node["border_width"] == 0.0
+                       and none_node["border_radius"] == 0.0,
+                       f"kind={none_node['kind']} width={none_node['border_width']} "
+                       f"radius={none_node['border_radius']}") and ok
+            ok = check("doc/none", "box keeps its background",
+                       none_node["background"] == "#ff000000"
+                       and none_node["margin"] == [20.0, 20.0, 0.0, 20.0],
+                       f"background={none_node['background']} margin={none_node['margin']}") and ok
+
     return ok
 
 
@@ -272,14 +393,20 @@ def main() -> int:
     parser.add_argument("--dir", default=str(HERE / "out"))
     parser.add_argument("--page", default=str(HERE / "page"))
     parser.add_argument("--expected", default=str(HERE / "expected"))
+    parser.add_argument("--dump", default=str(HERE / "out" / "wnui-dump.exe"),
+                        help="wnui-dump binary built by the suite")
     parser.add_argument("--backend", choices=("wgpu", "d3d11"), default="wgpu")
     args = parser.parse_args()
     global RASTER_BACKEND
     RASTER_BACKEND = args.backend
     root = Path(args.dir).resolve()
     expected_dir = Path(args.expected).resolve()
+    dump = Path(args.dump).resolve()
 
-    ok = header_checks(root)
+    if not dump.is_file():
+        print(f"FAIL: missing wnui-dump binary: {dump}")
+        return 1
+    ok = document_checks(dump, root)
 
     report_path = root / "layout_card.json"
     if not report_path.is_file():

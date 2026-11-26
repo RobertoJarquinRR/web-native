@@ -596,12 +596,12 @@ def resolve_runtime(arg: str | None) -> tuple[Path | None, str]:
     candidates = (
         (HERE / "build" / "runtime_r2_pilot.exe", "pilot build"),
         (HERE / "build" / "runtime_r2.exe", "pilot build"),
-        (REPO / "src" / "runtime" / "c-r2" / "build" / "runtime_r2.exe", "shared R2 build"),
+        (REPO / "src" / "runtime" / "build" / "release" / "runtime_r2.exe", "shared R2 build"),
     )
     for path, label in candidates:
         if path.is_file():
             return path, label
-    return None, "no runtime found (looked for build/runtime_r2_pilot.exe and src/runtime/c-r2/build/runtime_r2.exe)"
+    return None, "no runtime found (looked for build/runtime_r2_pilot.exe and src/runtime/build/release/runtime_r2.exe)"
 
 
 def nodes_for_size(report: dict | None, key: str, dump_nodes: list[dict]) -> list[dict]:
@@ -1165,7 +1165,7 @@ def finish(result: str, out: Path, runtime_info: dict | None) -> int:
             print(f"  - {item['feature']}: {item['detail']}")
         print()
         print("Runtime must expose (docs/ui-tree-v2.md, pilot contract):")
-        print("  * ui-tree/2 nodes kind=grid and kind=image from frontend + emit_ui")
+        print("  * .wnui nodes kind=grid and kind=image emitted from HTML/CSS")
         print("  * grid layout: auto_fill 180px, grid_auto_rows 320px, gap 16px,")
         print("    overflow:auto clipped to the grid content box")
         print("  * local PNG decode/cache (WIC -> RGBA8) + object-fit:cover")
