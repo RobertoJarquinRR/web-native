@@ -185,19 +185,22 @@ static float input_prefix_width(const wn_core *c, int node, const char *text, in
 static int input_line_metrics(const wn_core *c, int node, float *ascent, float *line_height)
 {
     const UiNode *n = &c->nodes[node];
-    wn_text_metrics metrics;
-    if (wn_text_measure_string("Mg", n->font_family, n->font_size, n->font_weight, 0.0f,
-                               &metrics) != 0) {
+    wn_text_block block;
+    /* The editor line is the unconstrained single-line block for the same
+     * ascender/descender sample layout uses ("Mg"). One line model, one cache
+     * key. When the backend measure failed, the block still builds a synthetic
+     * line box; the editor keeps its historical 1.35*size fallback for that
+     * path (input_line_height), so report the block as unavailable. */
+    if (wn_text_block_get("Mg", n->font_family, n->font_size, n->font_weight,
+                          0.0f, 0.0f, &block) != 0 ||
+        !block.measured) {
         return 1;
     }
     if (ascent != NULL) {
-        *ascent = metrics.ascent;
+        *ascent = block.ascent;
     }
     if (line_height != NULL) {
-        *line_height = metrics.ascent + metrics.descent;
-        if (*line_height <= 0.0f) {
-            *line_height = metrics.height;
-        }
+        *line_height = block.line_height;
     }
     return 0;
 }

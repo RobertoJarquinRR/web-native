@@ -522,10 +522,12 @@ static int build_lines(WnLineEntry *entry)
     wn_text_metrics whole;
     float line_height;
     int have_whole;
+    int measured;
 
     memset(&whole, 0, sizeof(whole));
     have_whole = wn_text_measure_string(text, entry->family, entry->size, entry->weight,
                                         0.0f, &whole) == 0;
+    measured = have_whole && (whole.ascent + whole.descent > 0.0f || whole.height > 0.0f);
     line_height = have_whole && whole.ascent + whole.descent > 0.0f
                       ? whole.ascent + whole.descent
                       : (have_whole && whole.height > 0.0f
@@ -537,6 +539,7 @@ static int build_lines(WnLineEntry *entry)
     entry->layout.ascent = have_whole ? whole.ascent : line_height;
     entry->layout.descent = have_whole ? whole.descent : 0.0f;
     entry->layout.line_height = line_height;
+    entry->layout.measured = measured;
 
     entry->lines = (wn_text_line *)calloc((size_t)length + 1u, sizeof(wn_text_line));
     if (entry->lines == NULL) {
@@ -732,6 +735,38 @@ const wn_text_line_layout *wn_text_line_layout_get(const char *utf8, const char 
     line_bucket_push(slot);
     line_lru_push(slot);
     return &g_lines[slot].layout;
+}
+
+int wn_text_block_get(const char *utf8, const char *family, float size, int weight,
+                      float wrap_width, float line_height_override, wn_text_block *out)
+{
+    const wn_text_line_layout *layout;
+    float natural;
+    float line_height;
+
+    if (out == NULL) {
+        return -1;
+    }
+    layout = wn_text_line_layout_get(utf8, family, size, weight, wrap_width);
+    if (layout == NULL) {
+        memset(out, 0, sizeof(*out));
+        return -1;
+    }
+    /* Same float order layout and paint used: natural first, the override
+     * replaces it when positive, then the line count scales it. */
+    natural = layout->line_height;
+    line_height = line_height_override > 0.0f ? line_height_override : natural;
+    out->layout = layout;
+    out->line_count = layout->line_count;
+    out->natural = natural;
+    out->line_height = line_height;
+    out->box_height = (float)layout->line_count * line_height;
+    out->half_leading = (line_height - natural) * 0.5f;
+    out->ascent = layout->ascent;
+    out->descent = layout->descent;
+    out->measured_height = layout->measured_height;
+    out->measured = layout->measured;
+    return 0;
 }
 
 /* --------------------------------------------------------------- backend */

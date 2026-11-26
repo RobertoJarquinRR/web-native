@@ -44,10 +44,10 @@ static float text_node_width(const wn_core *c, int node, float max_width)
     /* A constrained width picks the widest greedy line; unconstrained keeps
      * the backend's single-line advance width. */
     if (max_width > 0.0f) {
-        const wn_text_line_layout *layout = wn_text_line_layout_get(
-            text, n->font_family, n->font_size, n->font_weight, max_width);
-        if (layout != NULL) {
-            return ceilf(layout->width) + WN_DECL_W(n);
+        wn_text_block block;
+        if (wn_text_block_get(text, n->font_family, n->font_size, n->font_weight,
+                              max_width, 0.0f, &block) == 0) {
+            return ceilf(block.layout->width) + WN_DECL_W(n);
         }
     }
     measure_text_node(c, node, 0.0f, &metrics);
@@ -58,26 +58,24 @@ static float text_node_height(const wn_core *c, int node, float max_width)
 {
     const UiNode *n = &c->nodes[node];
     const char *text = node_text(c, node);
-    const wn_text_line_layout *layout = wn_text_line_layout_get(
-        text, n->font_family, n->font_size, n->font_weight,
-        max_width > 0.0f ? max_width : 0.0f);
+    wn_text_block block;
     wn_text_metrics metrics;
-    float line_height;
 
-    if (layout == NULL) {
+    if (wn_text_block_get(text, n->font_family, n->font_size, n->font_weight,
+                          max_width > 0.0f ? max_width : 0.0f,
+                          WN_LINE_HEIGHT(n), &block) != 0) {
         /* The backend measure with a max_width is a hint only: constrained
          * nodes are sized by the engine breaker above. */
         measure_text_node(c, node, 0.0f, &metrics);
         return ceilf(metrics.height) + WN_DECL_H(n);
     }
-    if (layout->line_count <= 1 && WN_LINE_HEIGHT(n) <= 0.0f && max_width <= 0.0f) {
+    if (block.line_count <= 1 && WN_LINE_HEIGHT(n) <= 0.0f && max_width <= 0.0f) {
         /* Unconstrained single-line text keeps the backend's exact box. A
          * constrained node always follows the engine breaker, even at one
          * line. */
-        return ceilf(layout->measured_height) + WN_DECL_H(n);
+        return ceilf(block.measured_height) + WN_DECL_H(n);
     }
-    line_height = WN_LINE_HEIGHT(n) > 0.0f ? WN_LINE_HEIGHT(n) : layout->line_height;
-    return ceilf((float)layout->line_count * line_height) + WN_DECL_H(n);
+    return ceilf(block.box_height) + WN_DECL_H(n);
 }
 
 /* ------------------------------------------------------------ width hooks */
