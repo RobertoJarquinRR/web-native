@@ -60,5 +60,5 @@ fn build_tree_from_dom(
         &rules,
         (f64::from(viewport.0), f64::from(viewport.1)),
     );
-    emit::ui_tree::emit_tree(document, &styles, viewport, rules.len())
+    emit::ui_tree::emit_tree(document, &styles, viewport, base_dir, rules.len())
 }

@@ -1,8 +1,8 @@
 //! v3 CSS style extensions: borders, radius, shadows and relative units.
 //!
 //! The frontend **parses, cascades and emits** them in the `.wnui` blob
-//! (`webnative.ui-tree/2`); layout and painting remain the runtime's
-//! responsibility. This module only resolves the px the document carries.
+//! (`wnui/2`); layout and painting remain the runtime's responsibility. This
+//! module only resolves the px the document carries.
 //!
 //! Supported relative units: `em`, `rem`, `vh`, `vw`. Resolution to px uses
 //! the build context (`LengthCtx`): the node's computed font-size, the root
@@ -32,7 +32,7 @@ pub enum Unit {
 }
 
 impl Unit {
-    /// Suffix used in the JSON fields (`width_em`, `width_rem`, ...).
+    /// Suffix used by the relative-unit fields (`width_em`, `width_rem`, ...).
     pub fn suffix(self) -> &'static str {
         match self {
             Unit::Px => "px",
@@ -590,7 +590,7 @@ pub fn box_shadow_is_valid(value: &str) -> bool {
     parse_box_shadows(value, &LengthCtx::default(), "#000000").is_some()
 }
 
-/// v3 style fields that accompany `webnative.ui-tree/2`.
+/// v3 style fields that accompany the `wnui/2` blob.
 ///
 /// The resolved px (`width_px`, `margin`, ...) still live in `ComputedStyle`;
 /// this block keeps what the runtime needs to re-resolve when the viewport

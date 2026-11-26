@@ -15,7 +15,7 @@
 //! to keep v1 pages byte-identical.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::parse::dom::{Dom, Node, NodeId};
 use crate::style::cascade::ComputedStyle;
@@ -613,6 +613,11 @@ fn nodes_use_v2(nodes: &[NodeOut]) -> bool {
 pub struct Tree {
     pub nodes: Vec<NodeOut>,
     pub viewport: (u32, u32),
+    /// Directory the document's asset references (image `src`) resolve
+    /// against. It comes from the pipeline input (the HTML file's directory),
+    /// not from where the blob is written: moving the output never changes the
+    /// baked intrinsic sizes.
+    pub asset_dir: PathBuf,
     pub rule_count: usize,
     pub text_run_count: usize,
     /// `true` when the blob carries the v2 sections (grid, scroll, images and
@@ -622,9 +627,16 @@ pub struct Tree {
 }
 
 impl Tree {
-    /// Writes the canonical `.wnui` v2 document for this tree.
+    /// Writes the canonical `.wnui` v2 document for this tree. Assets resolve
+    /// from [`Tree::asset_dir`], so `path` may live anywhere.
     pub fn write_blob(&self, path: &Path) -> Result<(), String> {
-        crate::emit::blob::write_blob(path, &self.nodes, self.viewport, self.detailed)
+        crate::emit::blob::write_blob(
+            path,
+            &self.nodes,
+            self.viewport,
+            self.detailed,
+            &self.asset_dir,
+        )
     }
 }
 
@@ -633,6 +645,7 @@ pub(crate) fn emit_tree(
     dom: &Dom,
     styles: &[Option<ComputedStyle>],
     viewport: (u32, u32),
+    asset_dir: &Path,
     rule_count: usize,
 ) -> Result<Tree, String> {
     let body = dom
@@ -659,6 +672,7 @@ pub(crate) fn emit_tree(
     Ok(Tree {
         nodes,
         viewport,
+        asset_dir: asset_dir.to_path_buf(),
         rule_count,
         text_run_count: run_count,
         detailed,

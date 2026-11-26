@@ -270,8 +270,9 @@ WN_API int wn_app_get_stats(const wn_app *app, wn_app_stats *stats);
  * paint. There is no separate commit call.
  *
  * Node handles are opaque (see wn_node_id). Lookup by name only resolves
- * compiled node names (the generated ui_data.h table); clone handles are
- * returned by wn_node_clone() and are not addressable by name in v0.
+ * compiled node names (the names in the embedded `.wnui` document); clone
+ * handles are returned by wn_node_clone() and are not addressable by name in
+ * v0.
  */
 
 /* ------------------------------------------------- tree navigation (ABI v5) */

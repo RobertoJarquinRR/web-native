@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -47,6 +48,48 @@ RUNTIME_LIBS = (
 )
 CFLAGS = ("/nologo", "/O2", "/W4", "/WX", "/D_CRT_SECURE_NO_WARNINGS", "/DWN_STATIC")
 CXX_SUFFIXES = (".cpp", ".cc", ".cxx")
+
+# Canonical blob hashes pinned by `wn-cli test suite blob` (and the dynamic /
+# offscreen suites for their own fixtures). The canonical SHA-256 is the
+# primary gate for the `.wnui` contract: a fresh emission must be byte-identical
+# to the reviewed artifact. `blob` also compares the builtin and file renders,
+# but that comparison alone is tautological (both sides use the same emission).
+PINNED_BLOBS = {
+    "canonical": "eae247a4c3146d035078935b1f60b746ad0b1bd0871ced64c20e2b4726157e9f",
+    "input": "a13e2b0a97aac6cad434c9e3340dd0d9db141e255500acb5ed9a297a0f31f916",
+    "fidelity": "c71dad3835d3c130a5085ce37c637ab5b312a6b69566c946b1a66bf6214fd8df",
+    "pilot": "55279171e5a77e795a7cd1822383578a588774030a475158fbee2079ccaecf4d",
+    "dynamic": "412a93f0fff9b25a54a5fd7954b4e15f90a55d28c5ca86e8cb4294fb92dfe8a2",
+    "cache": "67d39833e128d832686f02f4ec1784fcdd02a95378e965d8e5da1031b607b0dd",
+}
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _assert_pinned_blob(name: str, blob: Path) -> None:
+    """Fails when a freshly emitted blob differs from the reviewed artifact."""
+    expected = PINNED_BLOBS.get(name)
+    if expected is None:
+        raise CliError(f"no pinned hash for corpus {name!r}")
+    if not blob.is_file():
+        raise CliError(f"cannot pin {name}: blob not found at {blob}")
+    actual = _sha256(blob)
+    if actual != expected:
+        raise CliError(
+            f"blob hash drift for {name}:\n"
+            f"  expected {expected}\n"
+            f"  actual   {actual}\n"
+            f"  file     {blob}\n"
+            "If the new blob is intended, update PINNED_BLOBS in "
+            "tools/wn_cli/suites.py."
+        )
+    log_info(f"blob hash {name}: {actual}")
 
 
 def _language_flags(source: Path) -> list[str]:
@@ -286,7 +329,11 @@ def run_fidelity() -> int:
         run_cmd(["cargo", "build", "--release"], cwd=rust)
 
     log_step("fidelity: deterministic ratio image")
+    # `out/images` is what the runtime render loads at run time.
     _python(suite / "make_images.py", [], cwd=suite)
+    # The blob bakes intrinsic sizes from the HTML directory, so the same asset
+    # must also exist next to the page.
+    _python(suite / "make_images.py", [str(suite / "page" / "images")], cwd=suite)
 
     log_step("fidelity: frontend-rust --emit-blob")
     run_cmd(
@@ -389,7 +436,8 @@ def run_dynamic() -> int:
             break
 
     log_step("dynamic: fixture blob")
-    _emit_fixture(suite, page, 400, 300, fixture)
+    dynamic_blob = _emit_fixture(suite, page, 400, 300, fixture)
+    _assert_pinned_blob("dynamic", dynamic_blob)
 
     runtime = get_paths().runtime
     includes = runtime_includes(fixture)
@@ -597,7 +645,8 @@ def run_offscreen() -> int:
 
     log_step("offscreen: image cache fixture blob")
     _python(suite / "make_posters.py", [], cwd=suite)
-    _blob_emit(suite / "cache_page", cache_fixture, 800, 300, False)
+    cache_blob = _blob_emit(suite / "cache_page", cache_fixture, 800, 300, False)
+    _assert_pinned_blob("cache", cache_blob)
     cache_exe = out / "image_cache_test.exe"
     _compile(
         cache_exe,
@@ -712,6 +761,25 @@ def run_blob() -> int:
     rust_exe = get_paths().frontend_rust / "target" / "release" / "frontend-rust.exe"
     if not rust_exe.is_file():
         raise CliError("frontend-rust.exe is missing; run: wn-cli frontend build")
+
+    log_step("blob: pinned corpus hashes (canonical, input, fidelity, pilot)")
+    root = get_paths().root
+    fidelity_page = root / "src" / "runtime" / "tests" / "fidelity" / "page"
+    # The fidelity blob bakes a 20x10 intrinsic size from the HTML directory.
+    _python(
+        root / "src" / "runtime" / "tests" / "fidelity" / "make_images.py",
+        [str(fidelity_page / "images")],
+        cwd=root / "src" / "runtime" / "tests" / "fidelity",
+    )
+    corpora = (
+        ("canonical", root / "src" / "runtime" / "page", 960, 640, False),
+        ("input", root / "src" / "runtime" / "tests" / "input" / "page", 480, 240, True),
+        ("fidelity", fidelity_page, 480, 560, True),
+        ("pilot", root / "benchmarks" / "pilot-media-library" / "page", 1280, 800, True),
+    )
+    for name, page, width, height, pilot in corpora:
+        pinned = _blob_emit(page, out / "pinned" / name, width, height, pilot)
+        _assert_pinned_blob(name, pinned)
 
     log_step("blob: canonical document")
     page = runtime / "page"

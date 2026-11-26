@@ -256,7 +256,7 @@ def register_subcommands(subparsers: argparse._SubParsersAction) -> None:
     p_build = rt_sub.add_parser("build", help="Configure and build C runtime via CMake/Ninja")
     p_build.add_argument("--config", choices=["Release", "Debug"], default="Release")
     p_build.add_argument("--clean", action="store_true", help="Remove build directory before configuring")
-    p_build.add_argument("--generated-dir", type=str, default=None, help="Directory containing builtin.wnui + builtin_blob.h")
+    p_build.add_argument("--generated-dir", type=str, default=None, help="Directory containing builtin_blob.h (from runtime emit)")
     p_build.add_argument("--no-wgpu", action="store_true",
                          help="Configure with -DWN_WGPU=OFF (D3D11 only, no wgpu-native link)")
     p_build.set_defaults(func=cmd_build)

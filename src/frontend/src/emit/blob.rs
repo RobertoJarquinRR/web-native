@@ -228,7 +228,20 @@ pub(crate) fn image_size(source: Option<&str>, base_dir: &Path) -> (f64, f64) {
     let path = if path.is_absolute() {
         path.to_path_buf()
     } else {
-        base_dir.join(path)
+        // Assets are rooted at the document's directory: a relative source may
+        // not escape it. The pilot page references `../posters/...`, outside
+        // its asset root, so those intrinsic sizes stay unresolved (0,0); the
+        // pilot CSS fixes explicit sizes.
+        let Ok(root) = fs::canonicalize(base_dir) else {
+            return (0.0, 0.0);
+        };
+        let Ok(path) = fs::canonicalize(root.join(path)) else {
+            return (0.0, 0.0);
+        };
+        if !path.starts_with(&root) {
+            return (0.0, 0.0);
+        }
+        path
     };
     let Ok(data) = fs::read(&path) else {
         return (0.0, 0.0);
@@ -245,7 +258,7 @@ fn push_node_record(
     node: &NodeOut,
     pool: &mut StringPool,
     detailed: bool,
-    ui_dir: &Path,
+    asset_dir: &Path,
 ) {
     let style = &node.style;
     let is_text = node.kind == KIND_TEXT;
@@ -276,7 +289,7 @@ fn push_node_record(
     };
     let image_src = node.image.as_ref().and_then(|image| image.src.as_deref());
     let image_alt = node.image.as_ref().and_then(|image| image.alt.as_deref());
-    let (image_width, image_height) = image_size(image_src, ui_dir);
+    let (image_width, image_height) = image_size(image_src, asset_dir);
     let object_fit = node
         .image
         .as_ref()
@@ -357,24 +370,21 @@ fn push_node_record(
     push_i32(out, font_weight_code(&style.font_weight));
 }
 
-/// Writes the v2 `.wnui` document. `base_dir` is the directory the asset
-/// references (image sources) resolve against; the caller passes the output
-/// directory, matching the previous output location.
+/// Writes the v2 `.wnui` document. `asset_dir` is the directory the document's
+/// asset references (image sources) resolve against; it comes from the
+/// pipeline input, never from `path`, so the blob may be written anywhere.
 pub(crate) fn write_blob(
     path: &Path,
     nodes: &[NodeOut],
     viewport: (u32, u32),
     detailed: bool,
+    asset_dir: &Path,
 ) -> Result<(), String> {
-    let base_dir = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
     let mut pool = StringPool::new();
 
     let mut node_records = Vec::with_capacity(nodes.len() * 220);
     for node in nodes {
-        push_node_record(&mut node_records, node, &mut pool, detailed, base_dir);
+        push_node_record(&mut node_records, node, &mut pool, detailed, asset_dir);
     }
 
     let mut name_records = Vec::with_capacity(nodes.len() * 4);

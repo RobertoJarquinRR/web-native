@@ -32,10 +32,12 @@ Las secciones empiezan alineadas a 8 bytes:
 | 4 | inputs | registros `WnBlobInput` (20 bytes); ausente si no hay inputs |
 
 El registro de nodo guarda `parent`, `kind`, dirección/justify/align/wrap,
-geometría declarada, márgenes/padding, colores ARGB, offsets de texto/imagen/
-familia, `data-*`, grid, overflow, borde/radius/sombra, alineación de texto,
-`line-height`, `margin-auto`, `box-sizing`, flex y peso de fuente. El orden y
-ancho de los campos están en `src/runtime/document/wn_blob.h`.
+geometría declarada, márgenes/padding, colores ARGB resueltos, offsets de
+texto/imagen/familia, la acción resuelta (`action`), grid, overflow,
+borde/radius/sombra, alineación de texto, `line-height`, `margin-auto`,
+`box-sizing`, flex y peso de fuente. No guarda los atributos `data-*` crudos: la
+cascada ya los convirtió en ARGB y código de acción. El orden y ancho de los
+campos están en `src/runtime/document/wn_blob.h`.
 
 El runtime no tiene parser HTML/CSS. Carga el blob con
 `wn_document_load_blob()` (archivo mapeado) o
@@ -68,8 +70,8 @@ format=wnui/2 viewport=960x640 nodes=28 inputs=0
 Una línea por nodo, con nombres simbólicos estables para `kind` (`block`,
 `flex`, `text`, `grid`, `image`, `input`), `direction`, `justify`, `align`,
 `wrap`, `overflow`, `object_fit`, `text_align`, `action` y `grid`. Los colores
-salen como `#rrggbbaa` (ARGB) y los floats con cuatro decimales (`%.4f`, sin
-`-0.0000`), igual que el emisor. Ejemplo recortado:
+salen como `#AARRGGBB` (`#ff0b0e14`) y los floats con cuatro decimales (`%.4f`,
+sin `-0.0000`), igual que el emisor. Ejemplo recortado:
 
 ```
 node 0 parent=-1 kind=flex name="body.root" direction=row justify=start align=stretch wrap=nowrap width=-1.0000 height=-1.0000 ... background=#ff0b0e14 ... text=""
@@ -113,5 +115,8 @@ Mismas claves y valores, orden fijo:
 `wn-cli test suite dump` emite el blob canónico, lo proyecta con `wnui-dump` y
 compara el texto contra `src/runtime/tests/dump/canonical.txt`. El golden existe
 para detectar regresiones silenciosas del dump; si el formato cambia a
-propósito, se actualiza con el blob correspondiente. El test del suite `blob`
-sigue siendo el gate primario: hash del `app.wnui` y `blob-vs-builtin max=0`.
+propósito, se actualiza con el blob correspondiente. El gate primario es el hash
+SHA-256 fijado en `PINNED_BLOBS` (`canonical`, `input`, `fidelity`, `pilot`, más
+`dynamic` y `cache` en sus suites): una emisión nueva que difiera falla con el
+hash esperado, el real y la ruta del archivo. El suite `blob` sigue comparando
+además píxel a píxel (`blob-vs-builtin max=0`).
