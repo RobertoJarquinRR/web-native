@@ -32,11 +32,10 @@ HTML/CSS → parse (dom, css) → cascade → style_ext (grid/scroll/imágenes)
         → ui_tree (nodos pre-orden) → ui.json
 ```
 
-Con `--emit-blob` el binario escribe el `.wnui` v2; el emisor solo hace falta
-para `ui_data.h`.
-
-Con `--emit-header` también escribe `ui_data.h` idéntico al de
-`src/emitter/python/emit_ui.py --ui-json`, sin atlas ni tablas de glifos.
+Con `--emit-blob` el binario escribe el `.wnui` v2 y con `--emit-header`
+escribe `ui_data.h` idéntico al de `src/emitter/python/emit_ui.py --ui-json`
+(sin atlas ni tablas de glifos): el emisor Python ya no hace falta para
+compilar una página.
 
 ## Contrato `ui.json`
 

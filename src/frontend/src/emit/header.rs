@@ -375,6 +375,10 @@ pub(crate) fn render_header(
 
     // Same predicate as `write_header()`: only pages that use one of the E1
     // fields define `UI_STYLE_EXTRAS` and append the seven values.
+    //
+    // Python reads `float(node.get("flex_basis") or -1.0) >= 0.0`: a zero basis
+    // is falsy, so `flex-basis: 0` / `flex: 0 1 0` does *not* enable extras.
+    // The printer, however, uses `is not None` and would write a zero basis.
     let extras = out_nodes.iter().any(|node| {
         node.text_align != 0
             || node.line_height > 0.0
@@ -382,7 +386,7 @@ pub(crate) fn render_header(
             || node.box_sizing != 0
             || node.flex_grow != 0.0
             || node.flex_shrink != 1.0
-            || node.flex_basis >= 0.0
+            || node.flex_basis > 0.0
     });
 
     let mut lines: Vec<String> = Vec::with_capacity(64 + out_nodes.len() * 2);
