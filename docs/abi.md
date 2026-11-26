@@ -1,4 +1,4 @@
-# ABI C v6
+# ABI C v7
 
 Referencia de la superficie pública. El contrato compilable y comentado está
 en `include/webnative.h`; este documento explica uso y límites.
@@ -13,17 +13,19 @@ en `include/webnative.h`; este documento explica uso y límites.
 6. **Strings copiadas** por el engine; el caller conserva ownership.
 7. **Sin excepciones**: todo devuelve `wn_status`; error legible en `wn_last_error`.
 8. **Versionado**: `WN_ABI_VERSION` + `wn_version()`; breaking bump de major.
-   v2 (wheel), v3 (UI dinámica), v4 (text input), v5 (identidad de nodos) y
-   v6 (estado, lecturas, eventos, timer, ownership) son aditivas.
+   v2 (wheel), v3 (UI dinámica), v4 (text input), v5 (identidad de nodos),
+   v6 (estado, lecturas, eventos, timer, ownership) y **v7** (bits de foco y
+   deshabilitado) son aditivas. v7 no cambia el tamaño ni el layout de ningún
+   struct público.
 
-## Superficie v6
+## Superficie v7
 
 ### Común
 
 | Función | Uso |
 |---|---|
 | `wn_version()` | versión legible |
-| `wn_abi_version()` | `WN_ABI_VERSION` (6) |
+| `wn_abi_version()` | `WN_ABI_VERSION` (7) |
 | `wn_last_error()` | último error del hilo |
 
 ### Documentos
@@ -117,19 +119,40 @@ pinta. No hay `commit` separado.
 - La búsqueda por nombre solo resuelve nodos compilados; los clones se alcanzan
   por handle o por navegación.
 
-### Estado por nodo (v6)
+### Estado por nodo (v6, bits v7)
 
 | Función | Uso |
 |---|---|
-| `wn_node_set_state(app, node, mask, enabled)` | enciende/apaga `WN_STATE_HOVER/PRESS/SELECTED` |
+| `wn_node_set_state(app, node, mask, enabled)` | enciende/apaga `WN_STATE_HOVER/PRESS/SELECTED/FOCUSED/DISABLED` |
 | `wn_node_get_state(app, node)` | máscara activa; 0 si el handle está muerto |
 
-- `selected` es por nodo: el host puede marcar varias tarjetas. Hover y press
-  siguen siendo exclusivos (un cursor).
+- `selected` y `focused` son por nodo: el host puede marcar varios nodos.
+  Hover y press siguen siendo exclusivos (un cursor).
+- **v7:** `WN_STATE_FOCUSED` (0x08) y `WN_STATE_DISABLED` (0x10) son aditivos.
+  `wn_app_focus_input`/`wn_app_blur_input` encienden/apagan el bit de foco en el
+  input; el host puede marcar cualquier nodo con `set_state`.
+- Un nodo deshabilitado (o dentro de un subárbol deshabilitado) es **inerte** al
+  puntero: no recibe hover, press ni selección, y no puede enfocarse. El blob
+  v6 siembra el bit desde el atributo `disabled` de `button`/`input`; el host
+  puede cambiarlo con `wn_node_set_state`. El
+  hit-test de interacción lo omite; `wn_node_get_rect` y el hit-test de
+  diagnóstico (`wn_core_node_at`) siguen viéndolo. Al habilitar `DISABLED` se
+  limpian hover/press/focus del nodo **y de todo su subárbol**, y se hace blur
+  del input enfocado dentro de él (caret, selección y edición se detienen); el
+  path de tecla/char/paste también rechaza ediciones si el nodo o un ancestro
+  está deshabilitado. Mientras un nodo está deshabilitado,
+  `set_state(HOVER|PRESS|FOCUSED, enabled=1)` se rechaza (no-op); apagar bits
+  siempre se permite.
+- **Prioridad de color** (por campo background/text/border):
+  `disabled > press > hover > focus > base`. `selected` es el color base de la
+  app: se ve si ningún estado superior define ese campo, así que
+  `selected + hover` muestra hover. Los estilos CSS del blob v6 ganan a
+  `data-hover`/`data-press`/`data-selected`; estos quedan como fallback.
 - El click de selección sigue reemplazando la selección para conservar el
   comportamiento y los píxeles de la v5.
 - `wn_app_set_class` sigue siendo por nombre y solo para clases compiladas; no
-  hay clases por handle (limitación de v6).
+  hay clases por handle. `"hover"`, `"press"`, `"selected"`, `"focus"` y
+  `"disabled"` se interpretan como los bits de estado.
 
 ### Lecturas y navegación (v6)
 
@@ -261,7 +284,7 @@ private static partial nint wn_node_get_value(nint app, ulong node);
 - Sin tipos de UI de .NET expuestos a la ABI.
 - `wn_node_get_value` se convierte inmediatamente con `Marshal.PtrToStringUTF8`.
 
-## Limitaciones de v6 (importante)
+## Limitaciones de v7 (importante)
 
 - `wn_app_load` / `wn_view_load` **copian** HTML/CSS por compatibilidad de
   host, pero el runtime renderiza el documento `.wnui` compilado. **No hay
@@ -273,8 +296,13 @@ private static partial nint wn_node_get_value(nint app, ulong node);
   `wn_node_set_image_size`; no hay probe WIC automático.
 - Input: una línea UTF-8 (shapeada en runtime), sin IME/bidi/CJK/emoji, sin
   multilínea, sin password, sin undo/redo; drag-select y caret blink incluidos.
-- `selected` ya es por nodo, pero las clases siguen siendo por nombre compilado
-  (no hay `set_class` por handle).
+- `selected` y `focused` ya son por nodo, pero las clases siguen siendo por
+  nombre compilado (no hay `set_class` por handle).
+- Los estilos de estado (blob v6) sólo cubren `background`, `color` y el color
+  de borde uniforme. No hay transiciones, `:checked`, `:focus-visible`,
+  `:focus-within`, `:nth-*` ni cambios de layout/opacidad por estado. Una regla
+  de estado con otras propiedades, o con el estado en un compuesto ancestro
+  (`.card:hover .label`), se diagnostica y no se compila.
 - `scroll_into_view` es vertical y mueve solo el ancestro scrollable más cercano.
 - Sin virtualización, culling de sólidos, accesibilidad/UIA, DPI/multi-monitor
   ni cross-platform todavía.
@@ -282,7 +310,7 @@ private static partial nint wn_node_get_value(nint app, ulong node);
 - Sin bindings WPF/WinForms; el host C# es consola/WinExe.
 - `wn_app_run`/`wn_view_render` son single-thread; no reentrar.
 
-## Fuera de v6
+## Fuera de v7
 
 - Motor de texto en Linux (HarfBuzz/FreeType detrás de la misma vtable).
 - IME, bidi, CJK, emoji.

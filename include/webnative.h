@@ -1,5 +1,5 @@
 /*
- * webnative.h — C ABI v6
+ * webnative.h — C ABI v7
  *
  * Public contract between the webnative engine and host applications.
  *
@@ -35,6 +35,12 @@
  *        wn_event.node is now also reported for right/middle buttons and for
  *        left clicks on non-interactive nodes; hosts that act on POINTER_UP
  *        must gate on `button` (0 is reserved for non-pointer events).
+ *  - v7: additive focus/disabled state bits: WN_STATE_FOCUSED and
+ *        WN_STATE_DISABLED. wn_node_set_state() accepts them and
+ *        wn_node_get_state() returns them. Input focus sets/clears the focused
+ *        bit; a disabled node (or a descendant of one) is inert to the pointer
+ *        state machine (no hover, press or selection) while wn_node_get_rect()
+ *        and the diagnostic hit test still see it. No struct layout changed.
  */
 #ifndef WEBNATIVE_H
 #define WEBNATIVE_H
@@ -58,7 +64,7 @@ extern "C" {
 #  define WN_API __attribute__((visibility("default")))
 #endif
 
-#define WN_ABI_VERSION 6u
+#define WN_ABI_VERSION 7u
 
 /* Modifier bits for wn_event.modifiers. */
 #define WN_MOD_SHIFT 0x01u
@@ -70,11 +76,18 @@ extern "C" {
  * more of these OR-ed together; wn_node_get_state() returns the active mask.
  * Hover and press stay single-node (the pointer has one cursor); selected is a
  * per-node bit, so a host may keep several nodes selected at once. Text input
- * focus is NOT part of this mask: it is exclusive and lives in
- * wn_app_focus_input()/wn_app_blur_input(). */
+ * focus is tracked by wn_app_focus_input()/wn_app_blur_input(), which also
+ * set/clear WN_STATE_FOCUSED (ABI v7) on the focused node.
+ *
+ * ABI v7: WN_STATE_FOCUSED lets a host mark any node as focused (CSS `:focus`
+ * styles). WN_STATE_DISABLED makes the node and its subtree inert to the
+ * pointer machine; :disabled styles stored by the frontend start applying.
+ * Both are additive bits, accepted by set_state and returned by get_state. */
 #define WN_STATE_HOVER    0x01u
 #define WN_STATE_PRESS    0x02u
 #define WN_STATE_SELECTED 0x04u
+#define WN_STATE_FOCUSED  0x08u
+#define WN_STATE_DISABLED 0x10u
 
 /* Reserved flags; must be 0 in v0. */
 #define WN_FLAG_NONE 0u
@@ -227,9 +240,10 @@ WN_API wn_status wn_app_load_document(wn_app *app, const char *path_utf8);
 WN_API wn_status wn_app_set_text(wn_app *app, const char *id, const char *text_utf8);
 /* Class toggles stay name-based in v6: they resolve compiled document ids only
  * (clones have no document name). The baked style values are fixed, so
- * "hover"/"press"/"selected" are interpreted as the per-node state bits; other
- * names are remembered per node but do not recompute CSS. Use
- * wn_node_set_state() to drive state on an arbitrary handle. */
+ * "hover"/"press"/"selected"/"focus"/"disabled" are interpreted as the
+ * per-node state bits; other names are remembered per node but do not
+ * recompute CSS. Use wn_node_set_state() to drive state on an arbitrary
+ * handle. */
 WN_API wn_status wn_app_set_class(wn_app *app, const char *id, const char *class_name, int enabled);
 WN_API wn_status wn_app_on_event(wn_app *app, wn_event_cb callback, void *userdata);
 
@@ -341,15 +355,24 @@ WN_API wn_status wn_node_clear_children(wn_app *app, wn_node_id node);
  * document root cannot be moved and `parent` must not be inside `child`. */
 WN_API wn_status wn_node_append(wn_app *app, wn_node_id parent, wn_node_id child);
 
-/* --------------------------------------------------- node state (ABI v6) */
+/* --------------------------------------------- node state (ABI v6, v7 bits) */
 /*
  * Per-node interaction state. `state` is a non-zero mask of WN_STATE_* bits
- * (hover, press, selected); `enabled` sets or clears those bits on `node`.
- * Hover and press remain exclusive (the pointer has a single cursor), but
- * selected is per-node: a host may mark several nodes selected. Painting uses
- * the compiled hover_bg/press_bg/selected_bg colors with the same
- * press > hover > selected priority as before, so the existing single-selection
- * visuals are unchanged.
+ * (hover, press, selected, focused, disabled); `enabled` sets or clears those
+ * bits on `node`. Hover and press remain exclusive (the pointer has a single
+ * cursor); selected and focused are per-node: a host may mark several nodes
+ * selected or focused. Input focus drives WN_STATE_FOCUSED automatically.
+ *
+ * Painting resolves each color field independently with the documented
+ * priority disabled > press > hover > focus > base. Selected is the app's base
+ * color and only shows when no higher-priority state overrides that field, so
+ * "selected + hover" shows the hover color. CSS state colors (blob v6) win over
+ * the compiled data-* hover/press/selected colors; data-* remains the fallback
+ * for nodes without CSS state styles.
+ *
+ * A disabled node (and its subtree) is inert to the pointer machine: no hover,
+ * press or selection, and it cannot be focused. wn_node_get_rect() and the
+ * diagnostic hit test still see it.
  * Returns WN_ERR_INVALID_ARGUMENT for a dead handle, a zero mask or an unknown
  * bit. wn_node_get_state() returns the active mask, or 0 for a dead handle.
  */

@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 #define WN_BLOB_MAGIC 0x49554E57u /* "WNUI" */
-#define WN_BLOB_VERSION 5u
+#define WN_BLOB_VERSION 6u
 #define WN_BLOB_HEADER_SIZE 32u
 
 /* Blob v5: `z_index` uses INT32_MIN as the "auto" sentinel, so every other
@@ -32,7 +32,9 @@ typedef enum {
     WN_BLOB_SECTION_NODES = 1,
     WN_BLOB_SECTION_NAMES = 2,
     WN_BLOB_SECTION_STRINGS = 3,
-    WN_BLOB_SECTION_INPUTS = 4
+    WN_BLOB_SECTION_INPUTS = 4,
+    /* Blob v6: optional per-node state styles. Absent when no node has one. */
+    WN_BLOB_SECTION_STATES = 5
 } wn_blob_section_id;
 
 typedef struct {
@@ -130,6 +132,33 @@ typedef struct {
     int32_t max_length;
     int32_t password;
 } WnBlobInput;
+
+/* Blob v6 optional states section. A sequence of records:
+ *
+ *   WnBlobStateRecord { int32 node; uint8 state_count; uint8 initial_state;
+ *                        uint8 reserved[2]; }
+ *   followed by `state_count` WnBlobStateStyle entries (16 bytes each).
+ *
+ * Only nodes with at least one non-default state carry a record. The loader
+ * validates the node index, the state mask (1..4 unique states), the presence
+ * bits and the record boundaries.
+ */
+typedef struct {
+    uint8_t state;       /* 0 hover, 1 press, 2 focus, 3 disabled */
+    uint8_t present;     /* bit0 background, bit1 text, bit2 border */
+    uint16_t reserved;
+    uint32_t background; /* ARGB, valid when present bit 0 */
+    uint32_t text;       /* ARGB, valid when present bit 1 */
+    uint32_t border_color; /* ARGB, valid when present bit 2 */
+} WnBlobStateStyle;
+
+typedef struct {
+    int32_t node;
+    uint8_t state_count;    /* 0..4 style entries */
+    uint8_t initial_state;  /* runtime bits seeded at load (disabled = 0x10) */
+    uint8_t reserved[2];
+    /* WnBlobStateStyle entries follow in the section. */
+} WnBlobStateRecord;
 
 struct wn_document;
 

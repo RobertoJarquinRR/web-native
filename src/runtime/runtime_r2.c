@@ -1564,6 +1564,21 @@ int main(int argc, char **argv)
             set_state_from_arg(WN_STATE_PRESS, atoi(argv[++i]));
         } else if (strcmp(argv[i], "--selected") == 0 && i + 1 < argc) {
             set_state_from_arg(WN_STATE_SELECTED, atoi(argv[++i]));
+        } else if (strcmp(argv[i], "--focused") == 0 && i + 1 < argc) {
+            set_state_from_arg(WN_STATE_FOCUSED, atoi(argv[++i]));
+        } else if (strcmp(argv[i], "--disabled") == 0 && i + 1 < argc) {
+            set_state_from_arg(WN_STATE_DISABLED, atoi(argv[++i]));
+        } else if (strcmp(argv[i], "--force-state") == 0 && i + 1 < argc) {
+            /* Offscreen fixture hook: N:MASK, repeatable, no exclusivity. */
+            char spec[64];
+            char *colon;
+            snprintf(spec, sizeof(spec), "%s", argv[++i]);
+            colon = strchr(spec, ':');
+            if (colon != NULL) {
+                *colon = '\0';
+                wn_core_force_state_mask(g_core, atoi(spec),
+                                         (unsigned int)strtoul(colon + 1, NULL, 0));
+            }
         } else if (strcmp(argv[i], "--size") == 0 && i + 1 < argc) {
             if (parse_size(argv[++i], &render_w, &render_h) != 0) {
                 fprintf(stderr, "error: bad --size\n");

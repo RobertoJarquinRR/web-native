@@ -440,14 +440,17 @@ int wn_core_focus_input(wn_core *core, int node, float pointer_x)
         return -1;
     }
     record = input_record(core, node);
-    if (record == NULL) {
+    if (record == NULL || wn_core_node_disabled(core, node)) {
         return -1;
     }
     ensure_layout_for_hit(core);
     if (core->input_focus >= 0 && core->input_focus != node) {
         core->input_anchor[core->input_focus] = -1;
+        core->state[core->input_focus] =
+            WN_STATE_CLEAR(core->state[core->input_focus], WN_STATE_FOCUSED);
     }
     core->input_focus = node;
+    core->state[node] |= (unsigned char)WN_STATE_FOCUSED;
     core->input_anchor[node] = -1;
     input_update_scroll(core, node);
     core->input_cursor[node] = input_caret_from_x(core, node, pointer_x);
@@ -485,6 +488,7 @@ int wn_core_blur_input(wn_core *core)
         return -1;
     }
     core->input_anchor[node] = -1;
+    core->state[node] = WN_STATE_CLEAR(core->state[node], WN_STATE_FOCUSED);
     core->input_focus = -1;
     core->dirty = 1;
     return 0;
@@ -509,6 +513,11 @@ int wn_core_input_char(wn_core *core, uint32_t codepoint,
     node = core->input_focus;
     if (input_record(core, node) == NULL || core->input_value == NULL ||
         core->input_value[node] == NULL) {
+        return -1;
+    }
+    /* A disabled node/ancestor rejects edits even if a state bit or focus
+     * leaked through another path. */
+    if (wn_core_node_disabled(core, node)) {
         return -1;
     }
     if (input_has_selection(core, node)) {
@@ -562,6 +571,9 @@ int wn_core_input_key(wn_core *core, int key, uint32_t modifiers,
     node = core->input_focus;
     record = input_record(core, node);
     if (record == NULL || core->input_value == NULL || core->input_value[node] == NULL) {
+        return -1;
+    }
+    if (wn_core_node_disabled(core, node)) {
         return -1;
     }
     len = input_length(core, node);
@@ -729,6 +741,13 @@ int wn_core_input_cut(wn_core *core, char *out, int capacity,
     if (visual_changed != NULL) {
         *visual_changed = 0;
     }
+    if (core == NULL) {
+        return -1;
+    }
+    node = core->input_focus;
+    if (input_record(core, node) == NULL || wn_core_node_disabled(core, node)) {
+        return -1;
+    }
     copied = wn_core_input_copy(core, out, capacity);
     if (copied <= 0) {
         return copied;
@@ -768,6 +787,9 @@ int wn_core_input_paste(wn_core *core, const char *text,
     node = core->input_focus;
     if (input_record(core, node) == NULL || core->input_value == NULL ||
         core->input_value[node] == NULL) {
+        return -1;
+    }
+    if (wn_core_node_disabled(core, node)) {
         return -1;
     }
     if (input_has_selection(core, node)) {
@@ -948,7 +970,8 @@ void build_input_text_geometry(wn_core *c, float viewport_w, float viewport_h)
         if (text[0] == '\0') {
             continue;
         }
-        color = use_placeholder ? WN_INPUT_PLACEHOLDER_COLOR : n->text_color;
+        color = use_placeholder ? WN_INPUT_PLACEHOLDER_COLOR
+                                : wn_core_node_text_color(c, node);
         a = (uint8_t)((color >> 24) & 0xFFu);
         if (a == 0u) {
             continue;

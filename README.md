@@ -3,7 +3,7 @@
 Motor experimental de **HTML + CSS a UI nativa GPU**, sin navegador, sin
 WebView, sin Skia y sin Electron.
 
-El contrato central es el **documento `.wnui`** (blob v5): el frontend Rust lo
+El contrato central es el **documento `.wnui`** (blob v6): el frontend Rust lo
 produce en build time desde HTML/CSS, y el motor calcula layout, estado y
 pintado en runtime sobre una vtable de backend: **D3D11** en Windows y
 **wgpu-native** (D3D12 / Vulkan / Metal) como alternativa y fallback. La página
@@ -84,10 +84,10 @@ no les obligan a seguirlas. Los resultados se versionan en
 | Frontend **Rust** (canónico)  | ✅ paridad byte-idéntica, ~10 ms wall, 1.05 MB                              |
 | Frontend Python (oráculo)     | ✅ test-only en `archive/frontends-legacy/python`; no sigue features nuevas |
 | Frontend C++/C# (frozen)      | ✅ referencias congeladas en `archive/frontends-legacy`                     |
-| Documento `.wnui` (blob v5)   | ✅ schema binario + hash canónico                                            |
+| Documento `.wnui` (blob v6)   | ✅ schema binario + hash canónico                                            |
 | Debug del blob                | ✅ `wnui-dump` (texto/JSON; proyección, no contrato)                        |
 | Runtime C                     | ✅ `src/runtime` — layout, grid, scroll, imágenes y eventos (69/69)         |
-| ABI C v6                      | ✅ standalone/embedded; v3 dinámica + v4 input + v5 nodos + v6 estado/lecturas |
+| ABI C v7                      | ✅ standalone/embedded; v3 dinámica + v4 input + v5 nodos + v6 estado/lecturas + v7 foco/disabled |
 | Dynamic UI (v3)               | ✅ `set_visible`, `set_image`, `set_text`, clone/append/remove (61/61)      |
 | Text input (v4)               | ✅ UTF-8 single-line, caret/selección/drag/blink, `WN_EVENT_INPUT` (80+118) |
 | Texto en runtime              | ✅ DirectWrite, wrapping, atlas dinámico y cachés (66/34/4/40)              |

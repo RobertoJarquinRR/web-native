@@ -22,10 +22,11 @@ Leyenda:
 | Contrato                | Versión                    | Estado                   |
 | ----------------------- | -------------------------- | ------------------------ |
 | Display list R1         | `webnative.display-list/1` | archivado, ya no se emite |
-| Documento `.wnui`       | blob v5                    | ✅                       |
+| Documento `.wnui`       | blob v6                    | ✅                       |
 | Grid, scroll e imágenes | campos v2 del blob         | ✅ pilot                 |
 | Text input              | sección `inputs` del blob  | ✅ pilot                 |
-| ABI C                   | `WN_ABI_VERSION 6`         | ✅ standalone + embedded |
+| ABI C                   | `WN_ABI_VERSION 7`         | ✅ standalone + embedded |
+| Estados CSS             | sección `states` del blob  | ✅ hover/press/focus/disabled (color; `disabled` en HTML siembra el bit) |
 
 ## HTML
 
@@ -104,7 +105,7 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | Scroll vertical + clip                       | ✅  | scrollbar track+thumb (sin drag); thumb sigue el wheel   |
 | Imágenes WIC + cache                         | ✅  | LRU con presupuesto (`WN_IMAGE_CACHE_MB`, 256 MB)        |
 | Tamaño intrínseco tras `set_image`            | ✅  | `wn_node_set_image_size` re-layout y `object-fit` (A9)   |
-| Hover / press / selected                     | ✅  | bitset por nodo; varias selecciones, hover/press exclusivos |
+| Hover / press / selected / focus / disabled  | ✅  | bitset por nodo (v7); selección/foco múltiples, hover/press exclusivos; disabled inerte |
 | Lecturas y navegación                        | ✅  | `get_text`, `get_rect`, `scroll_into_view`, foco/blur     |
 | Resize                                       | ✅  | re-layout                                                |
 | Wheel                                        | ✅  | `WN_EVENT_WHEEL`; `delta_x` horizontal llega, el core no lo usa |

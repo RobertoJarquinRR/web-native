@@ -473,7 +473,9 @@ wn_status wn_node_set_state(wn_app *app, wn_node_id node, uint32_t state,
         return WN_ERR_INVALID_ARGUMENT;
     }
     if (state == 0u || (state & ~(uint32_t)(WN_STATE_HOVER | WN_STATE_PRESS |
-                                            WN_STATE_SELECTED)) != 0u) {
+                                            WN_STATE_SELECTED |
+                                            WN_STATE_FOCUSED |
+                                            WN_STATE_DISABLED)) != 0u) {
         wn_set_error("wn_node_set_state: unknown state mask 0x%X",
                      (unsigned)state);
         return WN_ERR_INVALID_ARGUMENT;

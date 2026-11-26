@@ -20,7 +20,7 @@
 #include "document/wn_document_internal.h"
 #include "wn_internal.h"
 
-#define FORMAT_NAME "wnui/5"
+#define FORMAT_NAME "wnui/6"
 
 static const char *kind_name(int kind)
 {
@@ -116,6 +116,28 @@ static const char *position_name(int value)
     }
 }
 
+static const char *state_style_name(int value)
+{
+    switch (value) {
+    case R2_STATE_STYLE_HOVER: return "hover";
+    case R2_STATE_STYLE_PRESS: return "press";
+    case R2_STATE_STYLE_FOCUS: return "focus";
+    case R2_STATE_STYLE_DISABLED: return "disabled";
+    default: return "unknown";
+    }
+}
+
+static const UiStateStyle *state_style_at(const UiNode *node, int code)
+{
+    unsigned char i;
+    for (i = 0; i < node->state_style_count; ++i) {
+        if (node->state_styles[i].state == (unsigned char)code) {
+            return &node->state_styles[i];
+        }
+    }
+    return NULL;
+}
+
 /* Emitter style: four decimals, never "-0.0000". */
 static const char *fmt_float(char *buffer, size_t size, float value)
 {
@@ -181,6 +203,85 @@ static void text_box4(FILE *out, const char *key, const float values[4])
             fmt_float(d, sizeof(d), values[3]));
 }
 
+static void text_state_styles(FILE *out, const UiNode *node)
+{
+    int code;
+    int first = 1;
+    fprintf(out, " states=");
+    for (code = 0; code < R2_STATE_STYLE_COUNT; ++code) {
+        const UiStateStyle *style = state_style_at(node, code);
+        if (style == NULL) {
+            continue;
+        }
+        if (!first) {
+            fputc(',', out);
+        }
+        first = 0;
+        fprintf(out, "%s(", state_style_name(code));
+        if ((style->present & R2_STATE_FIELD_BACKGROUND) != 0u) {
+            fprintf(out, "bg=#%08x", style->background);
+        }
+        if ((style->present & R2_STATE_FIELD_TEXT) != 0u) {
+            fprintf(out, "%stext=#%08x", (style->present & R2_STATE_FIELD_BACKGROUND) != 0u ? "," : "",
+                    style->text);
+        }
+        if ((style->present & R2_STATE_FIELD_BORDER) != 0u) {
+            fprintf(out, "%sborder=#%08x",
+                    (style->present & (R2_STATE_FIELD_BACKGROUND | R2_STATE_FIELD_TEXT)) != 0u ? "," : "",
+                    style->border_color);
+        }
+        fputc(')', out);
+    }
+    if (first) {
+        fputs("none", out);
+    }
+}
+
+/* Debug names for the bits in `WnBlobStateRecord.initial_state`. Today the
+ * loader only accepts WN_STATE_DISABLED, but the projection stays a bit list so
+ * a future seeded state is not hidden. */
+static const char *initial_state_name(const UiNode *node, char *buffer, size_t size)
+{
+    static const struct {
+        unsigned int bit;
+        const char *name;
+    } names[] = {
+        { WN_STATE_HOVER, "hover" },
+        { WN_STATE_PRESS, "press" },
+        { WN_STATE_SELECTED, "selected" },
+        { WN_STATE_FOCUSED, "focused" },
+        { WN_STATE_DISABLED, "disabled" },
+    };
+    size_t used = 0;
+    size_t i;
+    buffer[0] = '\0';
+    for (i = 0; i < sizeof(names) / sizeof(names[0]); ++i) {
+        int written;
+        if ((node->initial_state & names[i].bit) == 0u) {
+            continue;
+        }
+        written = snprintf(buffer + used, size - used, "%s%s",
+                           used > 0 ? "," : "", names[i].name);
+        if (written < 0) {
+            break;
+        }
+        used += (size_t)written;
+        if (used >= size) {
+            break;
+        }
+    }
+    if (buffer[0] == '\0') {
+        snprintf(buffer, size, "none");
+    }
+    return buffer;
+}
+
+static void text_initial_state(FILE *out, const UiNode *node)
+{
+    char buffer[64];
+    fprintf(out, " initial-state=%s", initial_state_name(node, buffer, sizeof(buffer)));
+}
+
 static void text_node(FILE *out, int index, const UiNode *node, const char *name)
 {
     fprintf(out, "node %d", index);
@@ -243,6 +344,8 @@ static void text_node(FILE *out, int index, const UiNode *node, const char *name
     } else {
         fprintf(out, "%d", (int)node->z_index);
     }
+    text_state_styles(out, node);
+    text_initial_state(out, node);
     text_string(out, "text", node->text);
     fputc('\n', out);
 }
@@ -273,6 +376,33 @@ static void json_box4(FILE *out, const char *key, const float values[4])
 static void json_color(FILE *out, const char *key, unsigned int argb)
 {
     fprintf(out, "      \"%s\": \"#%08x\",\n", key, argb);
+}
+
+static void json_state_styles(FILE *out, const UiNode *node)
+{
+    int code;
+    int first = 1;
+    fprintf(out, "      \"state_styles\": [");
+    for (code = 0; code < R2_STATE_STYLE_COUNT; ++code) {
+        const UiStateStyle *style = state_style_at(node, code);
+        if (style == NULL) {
+            continue;
+        }
+        fprintf(out, "%s\n        { \"state\": \"%s\"",
+                first ? "" : ",", state_style_name(code));
+        first = 0;
+        if ((style->present & R2_STATE_FIELD_BACKGROUND) != 0u) {
+            fprintf(out, ", \"background\": \"#%08x\"", style->background);
+        }
+        if ((style->present & R2_STATE_FIELD_TEXT) != 0u) {
+            fprintf(out, ", \"text\": \"#%08x\"", style->text);
+        }
+        if ((style->present & R2_STATE_FIELD_BORDER) != 0u) {
+            fprintf(out, ", \"border\": \"#%08x\"", style->border_color);
+        }
+        fputc('}', out);
+    }
+    fprintf(out, "%s],\n", node->state_style_count > 0 ? "\n      " : "");
 }
 
 static void json_node(FILE *out, int index, const UiNode *node, const char *name)
@@ -343,6 +473,12 @@ static void json_node(FILE *out, int index, const UiNode *node, const char *name
         fprintf(out, "      \"z_index\": \"auto\",\n");
     } else {
         fprintf(out, "      \"z_index\": %d,\n", (int)node->z_index);
+    }
+    json_state_styles(out, node);
+    {
+        char buffer[64];
+        fprintf(out, "      \"initial_state\": \"%s\",\n",
+                initial_state_name(node, buffer, sizeof(buffer)));
     }
     fprintf(out, "      \"text\": ");
     json_string(out, node->text);

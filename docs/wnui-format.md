@@ -1,6 +1,6 @@
 # Formato `.wnui` y `wnui-dump`
 
-> **No es un contrato.** El documento `.wnui` v5 es el contrato *runtime* entre
+> **No es un contrato.** El documento `.wnui` v6 es el contrato *runtime* entre
 > el frontend y el loader. `wnui-dump` es una **proyección de debug** de ese
 > blob: su texto y su JSON pueden cambiar cuando cambia la versión del blob.
 > La invariante estable es el hash SHA-256 del blob canónico y la comparación
@@ -17,7 +17,7 @@ Cabecera de 32 bytes, little-endian:
 | Campo | Tipo | Notas |
 |---|---|---|
 | `magic` | `u32` | `0x49554E57` (`WNUI`) |
-| `version` | `u32` | `5` |
+| `version` | `u32` | `6` |
 | `section_count` | `u32` | secciones en la tabla |
 | `file_size` | `u32` | tamaño total; el loader lo exige exacto |
 | `node_count` | `u32` | nodos del árbol (máx. 65536) |
@@ -34,6 +34,7 @@ Las secciones empiezan alineadas a 8 bytes:
 | 2 | nombres | `node_count` offsets `u32` al pool de strings |
 | 3 | strings | pool NUL-terminado; offset 0 = NULL |
 | 4 | inputs | registros `WnBlobInput` (20 bytes); ausente si no hay inputs |
+| 5 | states | estilos de estado CSS (v6); **ausente** si ningún nodo tiene estados |
 
 El registro de nodo guarda `parent`, `kind`, dirección/justify/align/wrap,
 geometría declarada, márgenes/padding, colores ARGB resueltos, offsets de
@@ -47,7 +48,77 @@ documentado `INT32_MIN` (=-2147483648) para `auto`; cualquier otro int32 es un
 nivel de apilado explícito (negativo, 0 o positivo). No guarda los atributos
 `data-*` crudos:
 la cascada ya los convirtió en ARGB y código de acción. El orden y ancho de los
-campos están en `src/runtime/document/wn_blob.h`.
+campos están en `src/runtime/document/wn_blob.h`. **v6 no cambia el registro de
+nodo** (sigue en 252 bytes): los estilos de estado viajan en la sección opcional
+5, sólo para los nodos que los necesitan.
+
+### Sección `states` (v6)
+
+La sección 5 es una secuencia de registros variables, en orden estricto de
+índice de nodo (creciente, sin duplicados):
+
+```
+WnBlobStateRecord (8 bytes)   int32 node; uint8 state_count (0..4);
+                              uint8 initial_state; uint8 reserved[2]
+  WnBlobStateStyle (16 bytes) uint8 state; uint8 present; uint16 reserved;
+                              uint32 background; uint32 text; uint32 border_color
+  ... state_count entradas ...
+```
+
+- `initial_state`: bits con los que arranca el nodo. Hoy sólo se siembra
+  `WN_STATE_DISABLED` (0x10) desde el atributo `disabled` de `button`/`input`;
+  el loader rechaza cualquier otro bit. Un nodo con `disabled` y sin reglas
+  `:disabled` igualmente lleva registro (`state_count = 0`).
+- `state`: `0` hover, `1` press, `2` focus, `3` disabled.
+- `present`: bit 0 = background, bit 1 = text color, bit 2 = border color. Sólo
+  los campos presentes se aplican; el resto conserva el valor base.
+- Los colores son ARGB. Un campo presente con color `0x00000000` se rechaza:
+  esta lane no representa `transparent` como override de estado (el frontend
+  normaliza a `#rrggbb` opaco, descarta alfa ≤ 0 y **diagnostica** ese color en
+  una regla de estado, para que no quede una declaración silenciosa).
+- El loader valida índice de nodo, orden, `state_count`, `initial_state`,
+  códigos de estado, máscara `present`, colores y límites de la sección. Lleva
+  registro todo nodo con algún estilo no-default **o** un `initial_state`
+  distinto de cero (p. ej. `disabled` sin reglas `:disabled`). Un documento sin
+  estados no lleva la sección y conserva el coste anterior.
+
+**Combinación (build time).** El frontend resuelve cuatro estilos efectivos por
+nodo aplicando la cascada normal (especificidad, `!important`, orden) con un
+conjunto de estados activo:
+
+| Estilo | Estados activos | Contenido |
+|---|---|---|
+| hover | `:hover` | sólo reglas `:hover` (más base/inline que ganen) |
+| press | `:hover` + `:active` | press **incluye** hover: una regla `:active` pisa a `:hover` por orden/especificidad |
+| focus | `:focus` | sólo focus |
+| disabled | `:disabled` | sólo en nodos que pueden deshabilitarse (`button`/`input`) |
+
+Un estilo de estado sólo guarda un campo si la declaración ganadora proviene de
+una regla con pseudo-clase de estado (o si el nodo no tiene `color` propio y
+hereda el color de estado de su ancestro). Por eso un `:hover` que sólo cambia
+texto no pisa el `selected_bg` de la app con el fondo base.
+
+**Prioridad de pintado (runtime).** Por campo, en este orden:
+
+```
+disabled > press > hover > focus > base
+```
+
+`selected` es el color base de la app (`data-selected`), no un estado de la
+tabla: se ve cuando ningún estado superior define ese campo. Así
+`selected + hover` muestra el color de hover. Los `data-hover`/`data-press`
+siguen funcionando como azúcar para variantes sin CSS; los estilos CSS tienen
+precedencia. `:disabled` gana siempre y suprime hover/press/selected.
+
+**Diferido:** `:checked`, `:focus-visible`, `:focus-within`, `:nth-*`,
+transiciones/animaciones, opacidad o layout por estado, y combinaciones de más
+de un estado salvo `:hover:active` (el subset las diagnostica). Un estado en un
+compuesto **ancestro** (`.card:hover .label`) tampoco se compila: el estado sólo
+se aplica al compuesto sujeto y el subset lo diagnostica. Una regla de estado
+sólo transporta colores (`background`, `color` y color de borde uniforme); las
+demás propiedades de la regla se diagnostican y no se aplican. El color de
+borde de estado es uniforme (recolorea los lados visibles); no cambia
+ancho/estilo por lado.
 
 ### Semántica de `position` e insets (v4)
 
@@ -205,7 +276,7 @@ stderr y sale con código distinto de cero.
 Primera línea:
 
 ```
-format=wnui/5 viewport=960x640 nodes=28 inputs=0
+format=wnui/6 viewport=960x640 nodes=28 inputs=0
 ```
 
 Una línea por nodo, con nombres simbólicos estables para `kind` (`block`,
@@ -223,7 +294,10 @@ node 4 parent=1 kind=block name="body.root/div.sidebar/div.nav" ... action=selec
 `position` se imprime como nombre (`static`, `relative`, `absolute`); `inset`
 conserva el orden top/right/bottom/left y el valor crudo (un porcentaje se ve
 como su número, con el bit de porcentaje en `inset-mask`). `z-index` se imprime
-como `auto` o como el entero explícito.
+como `auto` o como el entero explícito. `states` lista los estilos v6 como
+`hover(bg=#ff…,text=#ff…,border=#ff…)` separados por comas, o `none`. Sólo se
+imprimen los campos presentes en el blob. `initial-state` lista los bits con los
+que arranca el nodo (`disabled`, o `none`), p. ej. `initial-state=disabled`.
 
 Si hay inputs se añade una línea por input:
 
@@ -237,7 +311,7 @@ Mismas claves y valores, orden fijo:
 
 ```json
 {
-  "format": "wnui/5",
+  "format": "wnui/6",
   "viewport": { "width": 960, "height": 640 },
   "node_count": 28,
   "input_count": 0,
@@ -256,6 +330,9 @@ Mismas claves y valores, orden fijo:
 ```
 
 `inputs[]` lleva `node`, `value`, `placeholder`, `max_length` y `password`.
+`state_styles[]` lleva `state` (`hover`/`press`/`focus`/`disabled`) y los campos
+presentes (`background`, `text`, `border`) como `#AARRGGBB`. `initial_state`
+lleva la misma lista que el texto (`"disabled"` o `"none"`).
 
 ### Invariante del test
 
@@ -265,7 +342,7 @@ para detectar regresiones silenciosas del dump; si el formato cambia a
 propósito, se actualiza con el blob correspondiente. El gate primario es el hash
 SHA-256 fijado en `PINNED_BLOBS` (`canonical`, `input`, `fidelity`, `pilot`, más
 `dynamic`, `cache`, `css_card`/`css_control`/`css_none`,
-`opacity`/`opacity_deep`, `position` y `z` en sus suites): una
+`opacity`/`opacity_deep`, `position`, `z` y `state` en sus suites): una
 emisión nueva que difiera falla con el hash esperado, el real y la ruta del
 archivo. El suite `blob` sigue comparando
 además píxel a píxel (`blob-vs-builtin max=0`).

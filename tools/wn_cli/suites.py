@@ -59,23 +59,25 @@ CXX_SUFFIXES = (".cpp", ".cc", ".cxx")
 # compares the builtin and file renders, but that comparison alone is
 # tautological (both sides use the same emission).
 PINNED_BLOBS = {
-    "canonical": "dfa46359705934515e4e948024f32a78c9213ea14c544c26223a3c4659c2625e",
-    "input": "7b3958d025cf925bb68314fff3a971f4eb421ae790f27bfb2812c28de29f639b",
-    "fidelity": "a2b3482d8a428a8e0116a44ff1f565bb958fb41db12fe7f5bd38288a5f1f6590",
-    "pilot": "e161d59042d47a23c4ac51a0f11166551da3bed706b6a89bd137c4619a6311fa",
-    "dynamic": "b0f27f4ac9ed7b5a6299bd599ee3ec680d965baac78bdca58babe4f561930b5d",
-    "cache": "6ace803d5a913ff019d84ce927b037fbbd937cbbc2a6bdf7a7e19daf99c6f637",
+    "canonical": "f9b86be6d1fffdf129102156e508f83e931a7f01bce6e6bb6dfb4ffaca50a3f1",
+    "input": "e26d72c3ce8110af24a708e88a7f8d4ed16bcc59deaa984e5dc035018a39fa3c",
+    "fidelity": "c8137243834022da0228cef1e78fefe781b5367124b896e5706b7e2395628f4e",
+    "pilot": "7fe91d46956f89022d743f8654e92038cb9b5278277f3eb3cc0265cce689adaa",
+    "dynamic": "22cb06405270930f39eb5939dc1945a2fd18f3476341e5cafef2dd06c36dbba7",
+    "cache": "bcd4b52bc784a4ef2118dc21cf643d3296b9564cb2518f1f7d930500a604c8b0",
     # CSS suite fixtures (HTML/CSS -> blob, same pinning rule as the corpus).
-    "css_card": "5a46f54aaa4f55634c1056a554f26b6f79a2ce93c5772423e37939891c764362",
-    "css_control": "a1c2ca56614a59778f118b79347ec37b58d18a30efb2f7a3a7cb6fec9757a452",
-    "css_none": "948f1edce0ef81e34c5c91e709f61596c9b9554bf3006427c9c13f13bd340d87",
+    "css_card": "91bc9c02d5791e978c2c0d91d6d61c17320758b9e6a5cbf678e87c8a5ecf0a8d",
+    "css_control": "e7dadee52703f3510dc8f83694cc68f74d6c766d25ed5b20c1e21946c4ac4d00",
+    "css_none": "090f40034a8c89b93bcf87bfbaf8c4b84ef998f52f72ff65f159f5e4eb3c8085",
     # Group-opacity pixel fixtures (emitted by the css suite, verified there).
-    "opacity": "2e8cf1307329d8041fa992ad1e56dd11553a566cd1204d8e53b4250856ad850e",
-    "opacity_deep": "01375814b629e6a5dd449e6a39194142ea94d35581073099bd1ac75ba4cd9a5c",
+    "opacity": "c082d65ae837a9a18e5b30425ab7d564af362eb07784b2d857c8cbc6024bd445",
+    "opacity_deep": "3e472dea5654ff8824c702c099d951c0e5f608cb9ce4824538350ba8c4a99623",
     # Position fixture (relative/absolute boxes, verified on d3d11 + wgpu).
-    "position": "0d87b7001091c0b0289cb00307f2e33eae8fe4daa6fe35d94a38185636da39a4",
+    "position": "9035f7d1c56b7a53e7a236f1247052d870b6f293bdb1151f4b1205751778be5d",
     # z-index / stacking-context fixture (blob v5, d3d11 + wgpu).
-    "z": "f9674ee14826a9fa682fc25b4113a09a5d24697a82012d9a0e1b80ffa4e05fac",
+    "z": "58ccea5f399d9084afddb65f88fdac1ace96faeb5a7bc6cc0566fabc5d2872e1",
+    # CSS state fixture (blob v6, d3d11 + wgpu).
+    "state": "ccdeb8aead50cbcefab324b71db07e5fe71b88a638002b2316d2db1bfaf0067f",
 }
 
 
@@ -480,7 +482,7 @@ def run_css() -> int:
         _run(card_exe, ["--document", str(z_blob),
                         "--render", "400", "690", str(png)],
              page, environment)
-        # 110 checks: format wnui/5, twenty-seven z-index dump values, the
+        # 110 checks: format wnui/6, twenty-seven z-index dump values, the
         # layout report, thirty-three exact rects, the PNG size and
         # forty-seven analytic color probes (siblings, swapped order, auto/0,
         # step 8, equal z, negative, trapped child, opacity+z, nested,
@@ -513,6 +515,80 @@ def run_css() -> int:
                 log_info(line.rstrip())
         if completed.returncode != 0:
             raise CliError("z-index pixel comparison failed")
+
+    log_step("states: CSS state pixel fixture (d3d11" +
+             (" + wgpu)" if wgpu_available() else ")"))
+    state_blob = _emit_css_fixture("state", page, 400, 450,
+                                   out / "emit" / "state")
+    _assert_pinned_blob("state", state_blob)
+    state_backends = ["d3d11"] + (["wgpu"] if wgpu_available() else [])
+    for state_backend in state_backends:
+        png = out / f"render_state_{state_backend}.png"
+        report = out / f"layout_state_{state_backend}.json"
+        environment = {"WN_RENDERER": state_backend}
+        _run(card_exe, ["--document", str(state_blob),
+                        "--report", str(report), "--sizes", "400x450"],
+             page, environment)
+        ids = {}
+        report_json = json.loads(report.read_text(encoding="utf-8"))
+        for item in report_json["sizes"][0]["nodes"]:
+            for element_id in ("base", "hover", "press", "focus", "disabled",
+                               "selected", "selected-hover", "sugar",
+                               "css-wins"):
+                if (f"#{element_id}." in item["name"] or
+                        item["name"].endswith(f"#{element_id}")):
+                    ids[element_id] = item["id"]
+        missing = [name for name in ("base", "hover", "press", "focus",
+                                     "disabled", "selected", "selected-hover",
+                                     "sugar", "css-wins")
+                   if name not in ids]
+        if missing:
+            raise CliError(f"state fixture is missing nodes: {missing}")
+        force = [
+            (ids["hover"], 0x01),
+            (ids["press"], 0x02),
+            (ids["focus"], 0x08),
+            (ids["disabled"], 0x10),
+            (ids["selected"], 0x04),
+            (ids["selected-hover"], 0x04 | 0x01),
+            (ids["sugar"], 0x01),
+            (ids["css-wins"], 0x01),
+        ]
+        arguments = ["--document", str(state_blob),
+                     "--render", "400", "450", str(png)]
+        for node_id, mask in force:
+            arguments += ["--force-state", f"{node_id}:{mask}"]
+        _run(card_exe, arguments, page, environment)
+        # 31 checks: capture size, the wnui/6 dump + four state styles, the
+        # text/JSON initial_state (disabled/none), and background+border for
+        # nine nodes on each backend.
+        _expect_reported_checks(
+            _python(suite / "verify_state.py",
+                    ["--png", str(png), "--report", str(report),
+                     "--blob", str(state_blob), "--dump", str(dump_exe),
+                     "--backend", state_backend], cwd=suite),
+            f"state verify ({state_backend})", 31)
+    if wgpu_available():
+        log_step("states: compare d3d11 and wgpu")
+        compare = out / "state_compare.json"
+        completed = subprocess.run(
+            [
+                str(get_python_exe()),
+                str(runtime / "tests" / "d3d11" / "verify_d3d11.py"),
+                "--capture", str(out / "render_state_d3d11.png"),
+                "--reference", str(out / "render_state_wgpu.png"),
+                "--report", str(compare),
+                "--label", "state-d3d11-vs-wgpu",
+            ],
+            cwd=out,
+            capture_output=True,
+            text=True,
+        )
+        for line in (completed.stdout + completed.stderr).splitlines():
+            if line.strip():
+                log_info(line.rstrip())
+        if completed.returncode != 0:
+            raise CliError("state pixel comparison failed")
 
     log_info("css core v1: PASS")
     return 0
@@ -578,6 +654,17 @@ def run_fidelity() -> int:
         CORE_LIBS,
     )
     _expect(_run(abi_exe, [], out), ["abi_v6_core_test: PASS"], "ABI v6 core test")
+
+    log_step("fidelity: ABI v7 header (focus/disabled bits)")
+    header_exe = out / "abi_v7_header_check.exe"
+    _compile(
+        header_exe,
+        [runtime / "examples" / "abi_header_check.c"],
+        [get_paths().root / "include", runtime],
+        CORE_LIBS,
+    )
+    _run(header_exe, [], out)
+    log_info("ABI v7 header check: PASS")
 
     log_step("fidelity: kind capability table")
     kind_exe = out / "kind_ops_test.exe"
@@ -659,6 +746,23 @@ def run_fidelity() -> int:
     # empty-clip group with and without an unrelated group, the flat
     # no-context path, and the v5 loader sentinel/range roundtrip.
     _expect_checks(zindex_text, "zindex_test", 64)
+
+    log_step("fidelity: CSS state styles + ABI v7 focus/disabled")
+    states_exe = out / "states_test.exe"
+    _compile(
+        states_exe,
+        [_suite_dir("core") / "states_test.c",
+         *[runtime / source for source in CORE_SOURCES]],
+        [get_paths().root / "include", runtime, out / "emit"],
+        CORE_LIBS,
+    )
+    states_text = _run(states_exe, [], out)
+    _expect(states_text, ["states_test: PASS"], "state styles test")
+    # 53 checks: the v6 colors/priority/selected/data-sugar/loader set plus the
+    # disabled-subtree cases (bits cleared across the subtree, input blurred,
+    # char/key/paste rejected even with a leaked focus, interactive set_state
+    # refused while disabled) and the initial-disabled seed.
+    _expect_checks(states_text, "state styles test", 53)
 
     log_step("fidelity: paint item list (identity, transform, opacity, layers)")
     paint_exe = out / "paint_list_test.exe"
@@ -822,10 +926,14 @@ def run_dynamic() -> int:
     _compile(abi_exe, runtime_sources(skip_main=True) + [runtime / "examples" / "dynamic.c"], includes, libs)
     abi_text = _run(abi_exe, ["--frames", "8", "--image-b", str(page / "images" / "b.png")], page)
     _expect(abi_text, [
-        "ABI 6",
+        "ABI 7",
         "dynamic: PASS",
         "set_text(Omega) -> WN_OK",
         "set_image(text) -> WN_ERR_UNSUPPORTED",
+        "set_state(unknown bit) -> WN_ERR_INVALID_ARGUMENT",
+        "set_state(zero mask) -> WN_ERR_INVALID_ARGUMENT",
+        "set_state(disabled) -> WN_OK",
+        "set_state(disabled off) -> WN_OK",
         "remove(root) -> WN_ERR_INVALID_ARGUMENT",
         "clear_children -> nodes=9",
         "dynamic: nav clone=",
@@ -895,7 +1003,7 @@ def run_input() -> int:
     _compile(abi_exe, runtime_sources(skip_main=True) + [runtime / "examples" / "input.c"], includes, libs)
     abi_text = _run_logged(abi_exe, ["--frames", "8"], page, out / "abi_input.log")
     _expect(abi_text, [
-        "ABI 6",
+        "ABI 7",
         "input: PASS",
         "set_value(abc) -> WN_OK",
         "set_value(Omega) -> WN_OK",
@@ -1236,7 +1344,7 @@ def run_blob() -> int:
         CORE_LIBS,
     )
     _expect(_run(input_exe, [str(input_blob)], out), ["blob_test: PASS"], "input blob test")
-    log_info("blob v5: PASS")
+    log_info("blob v6: PASS")
     return 0
 
 
@@ -1279,7 +1387,7 @@ def run_dump() -> int:
 
     log_step("dump: canonical JSON projection")
     document = json.loads(_run(exe, ["--json", str(canonical)], out))
-    if document.get("format") != "wnui/5":
+    if document.get("format") != "wnui/6":
         raise CliError(f"unexpected dump format: {document.get('format')!r}")
     if document.get("viewport") != {"width": 960, "height": 640}:
         raise CliError(f"unexpected dump viewport: {document.get('viewport')!r}")
@@ -1329,7 +1437,7 @@ SUITES = {
     "input": ("text input v1 (caret, selection, clipboard, ABI demo)", run_input),
     "offscreen": ("offscreen vtable (d3d11 vs wgpu readback)", run_offscreen),
     "text": ("runtime text v0 (contracts on the fake backend + DirectWrite smoke)", run_text),
-    "blob": ("blob v5 (.wnui load, layout and pixels)", run_blob),
+    "blob": ("blob v6 (.wnui load, layout and pixels)", run_blob),
     "dump": ("wnui-dump debug projection (text/JSON/errors)", run_dump),
 }
 

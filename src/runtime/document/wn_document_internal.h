@@ -26,6 +26,8 @@ struct wn_document {
     UiNode *owned_nodes;
     const char **owned_names;
     UiInput *owned_inputs;
+    /* Blob v6 state styles; UiNode.state_styles points into this block. */
+    UiStateStyle *owned_states;
 
     int refs;
 };

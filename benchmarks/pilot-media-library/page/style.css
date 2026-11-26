@@ -86,6 +86,15 @@ body {
   color: #ffffff;
 }
 
+/* Blob v6: CSS state styles replace data-hover/data-press. */
+.nav-item:hover {
+  background: #263248;
+}
+
+.nav-item:active {
+  background: #2e3c55;
+}
+
 .divider {
   height: 1px;
   background: #232c3d;
@@ -158,6 +167,14 @@ body {
   background: #171d29;
   border-radius: 10px;
   overflow: hidden;
+}
+
+.poster-card:hover {
+  background: #1f2735;
+}
+
+.poster-card:active {
+  background: #263043;
 }
 
 /* [pilot-extension: image] local PNG, decoded by the runtime (WIC).

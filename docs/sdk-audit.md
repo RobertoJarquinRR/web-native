@@ -107,8 +107,8 @@ pre-alfa el formato rompe libremente; C6 se decide al congelar 1.0.
 ## Lo que ya está maduro
 
 - Texto: medición, shaping y raster en runtime; atlas dinámico; sin glifos en el documento.
-- Documento: blob v5 versionado, loader con mmap y por memoria, builtin embebido, hashes fijados por suite, escritor Rust byte-idéntico al de referencia.
-- ABI v6: identidad de nodo, estado por nodo, getters, eventos con botón, tick y refcount.
+- Documento: blob v6 versionado, loader con mmap y por memoria, builtin embebido, hashes fijados por suite, escritor Rust byte-idéntico al de referencia.
+- ABI v7: identidad de nodo, estado por nodo (foco/deshabilitado incluidos), getters, eventos con botón, tick y refcount.
 - Suites: 10/10 con comparación de píxeles exacta (blob/offscreen), dump y piloto 48/48.
 
 ## Validado por la app

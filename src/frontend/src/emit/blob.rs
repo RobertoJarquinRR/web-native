@@ -17,7 +17,7 @@ use crate::style::color::argb;
 use crate::style::grid::{GridAutoRows, GridTemplateColumns};
 
 const BLOB_MAGIC: u32 = 0x4955_4E57; // "WNUI"
-const BLOB_VERSION: u32 = 5;
+const BLOB_VERSION: u32 = 6;
 
 /// Blob v5: `z-index: auto` sentinel (INT32_MIN). Every other int32 is an
 /// explicit stacking level.
@@ -29,6 +29,12 @@ const SECTION_NODES: u32 = 1;
 const SECTION_NAMES: u32 = 2;
 const SECTION_STRINGS: u32 = 3;
 const SECTION_INPUTS: u32 = 4;
+const SECTION_STATES: u32 = 5;
+
+/// Blob v6 state style presence bits.
+const STATE_FIELD_BACKGROUND: u8 = 1 << 0;
+const STATE_FIELD_TEXT: u8 = 1 << 1;
+const STATE_FIELD_BORDER: u8 = 1 << 2;
 
 /// Blob string pool: byte 0 is NUL, deduped in first-use order.
 struct StringPool {
@@ -430,6 +436,45 @@ pub(crate) fn write_blob(
         push_i32(&mut input_records, i32::from(input.password));
     }
 
+    // Blob v6: compact optional `states` section. Only nodes with at least one
+    // non-default state carry a record; each record is a node header (8 bytes)
+    // followed by one 16-byte entry per present state.
+    let mut state_records = Vec::new();
+    for (index, node) in nodes.iter().enumerate() {
+        if node.states.is_empty() && node.initial_state == 0 {
+            continue;
+        }
+        let entries: Vec<(u8, &crate::style::state::StateStyle)> = node
+            .states
+            .entries()
+            .into_iter()
+            .filter_map(|(_, code, state)| state.as_ref().map(|state| (code, state)))
+            .collect();
+        push_i32(&mut state_records, index as i32);
+        state_records.push(entries.len() as u8);
+        // Reserved[0] is the initial runtime state mask (`disabled` from HTML).
+        state_records.push(node.initial_state);
+        state_records.extend_from_slice(&[0, 0]);
+        for (code, state) in entries {
+            state_records.push(code);
+            let mut present = 0u8;
+            if state.background.is_some() {
+                present |= STATE_FIELD_BACKGROUND;
+            }
+            if state.text.is_some() {
+                present |= STATE_FIELD_TEXT;
+            }
+            if state.border.is_some() {
+                present |= STATE_FIELD_BORDER;
+            }
+            state_records.push(present);
+            state_records.extend_from_slice(&[0, 0]);
+            push_u32(&mut state_records, argb(state.background.as_deref()));
+            push_u32(&mut state_records, argb(state.text.as_deref()));
+            push_u32(&mut state_records, argb(state.border.as_deref()));
+        }
+    }
+
     let mut sections: Vec<(u32, Vec<u8>)> = vec![
         (SECTION_NODES, node_records),
         (SECTION_NAMES, name_records),
@@ -437,6 +482,9 @@ pub(crate) fn write_blob(
     ];
     if !input_records.is_empty() {
         sections.push((SECTION_INPUTS, input_records));
+    }
+    if !state_records.is_empty() {
+        sections.push((SECTION_STATES, state_records));
     }
 
     let table_size = BLOB_HEADER_SIZE + sections.len() * BLOB_SECTION_SIZE;

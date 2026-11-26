@@ -62,6 +62,33 @@ typedef enum {
     R2_POSITION_ABSOLUTE = 2
 } PositionMode;
 
+/* Blob v6: per-state color overrides, keyed by the node. The order matches the
+ * blob state codes. The runtime chooses fields by the state priority documented
+ * in docs/wnui-format.md: disabled > press > hover > focus > base. */
+enum {
+    R2_STATE_STYLE_HOVER = 0,
+    R2_STATE_STYLE_PRESS = 1,
+    R2_STATE_STYLE_FOCUS = 2,
+    R2_STATE_STYLE_DISABLED = 3,
+    R2_STATE_STYLE_COUNT = 4
+};
+
+/* Presence bits of one UiStateStyle. A zero bit means "keep the base value". */
+enum {
+    R2_STATE_FIELD_BACKGROUND = 1u << 0,
+    R2_STATE_FIELD_TEXT = 1u << 1,
+    R2_STATE_FIELD_BORDER = 1u << 2
+};
+
+typedef struct {
+    unsigned char state;       /* R2_STATE_STYLE_* */
+    unsigned char present;     /* R2_STATE_FIELD_* bits */
+    unsigned short reserved;
+    unsigned int background;   /* 0xAARRGGBB */
+    unsigned int text;
+    unsigned int border_color; /* uniform recolor of the visible border */
+} UiStateStyle;
+
 typedef struct {
     int parent;                 /* -1 root */
     int kind;
@@ -121,6 +148,13 @@ typedef struct {
      * with an explicit value is a stacking context (paint order only, no
      * offscreen texture). Ignored on a static non-flex/grid node. */
     int z_index;
+    /* Blob v6: optional state style table for this node (borrowed from the
+     * document; `state_style_count` is 0 when the node has none). A clone
+     * copies the pointer, which stays valid while the document is alive. */
+    const UiStateStyle *state_styles;
+    unsigned char state_style_count;
+    /* Blob v6: runtime state bits the node starts with (HTML `disabled`). */
+    unsigned char initial_state;
 } UiNode;
 
 typedef struct {

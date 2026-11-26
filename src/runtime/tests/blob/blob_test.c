@@ -356,6 +356,24 @@ static int strings_equal(const char *a, const char *b)
     return strcmp(a, b) == 0;
 }
 
+static int state_styles_equal(const UiNode *a, const UiNode *b)
+{
+    unsigned char i;
+    if (a->state_style_count != b->state_style_count) {
+        return 0;
+    }
+    for (i = 0; i < a->state_style_count; ++i) {
+        const UiStateStyle *left = &a->state_styles[i];
+        const UiStateStyle *right = &b->state_styles[i];
+        if (left->state != right->state || left->present != right->present ||
+            left->background != right->background || left->text != right->text ||
+            left->border_color != right->border_color) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /* Field-by-field comparison: pointers differ when the same document is parsed
  * from two buffers, so string contents are compared instead of addresses. */
 static int node_equal(const UiNode *a, const UiNode *b)
@@ -401,7 +419,8 @@ static int node_equal(const UiNode *a, const UiNode *b)
            a->opacity == b->opacity &&
            a->position == b->position &&
            memcmp(a->inset, b->inset, sizeof(a->inset)) == 0 &&
-           a->inset_mask == b->inset_mask;
+           a->inset_mask == b->inset_mask && a->z_index == b->z_index &&
+           state_styles_equal(a, b);
 }
 
 static int documents_equal(const wn_document *a, const wn_document *b)

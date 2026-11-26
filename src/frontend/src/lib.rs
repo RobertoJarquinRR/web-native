@@ -23,6 +23,7 @@ pub use emit::ui_tree::{
     KIND_GRID, KIND_IMAGE, KIND_INPUT, KIND_TEXT,
 };
 pub use style::grid::{GridAutoRows, GridTemplateColumns};
+pub use style::state::{StateStyle, StateStyles};
 pub use style::style_ext::{BorderOut, BorderSide, BoxShadow, RelLength, StyleV3, Unit};
 
 /// Parses `html` and its inline/`<link>` stylesheets, runs the cascade and

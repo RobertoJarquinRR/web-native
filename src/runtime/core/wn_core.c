@@ -279,10 +279,79 @@ int wn_core_node_state(const wn_core *core, int node)
     return core->state[node];
 }
 
+/* A disabled node makes its whole subtree inert, like a disabled form control.
+ * wn_core_node_at() (diagnostic hit test) still reports the node; the
+ * interactive hit test and the focus path call this helper first. */
+int wn_core_node_disabled(const wn_core *core, int node)
+{
+    if (core == NULL || core->state == NULL || node < 0 ||
+        node >= core->node_count || !core->alive[node]) {
+        return 0;
+    }
+    while (node >= 0) {
+        if ((core->state[node] & WN_STATE_DISABLED) != 0u) {
+            return 1;
+        }
+        node = core->parent[node];
+    }
+    return 0;
+}
+
+/* Drops hover/press/focused from `node` and every descendant and blurs the
+ * input focus when it points inside. Disabling a container must not leave a
+ * focused (blinking, editable) input behind in its subtree. */
+static void clear_interaction_subtree(wn_core *c, int node)
+{
+    int child;
+    if (c == NULL || c->state == NULL || node < 0 || node >= c->node_count ||
+        !c->alive[node]) {
+        return;
+    }
+    c->state[node] = WN_STATE_CLEAR(c->state[node], WN_STATE_HOVER);
+    c->state[node] = WN_STATE_CLEAR(c->state[node], WN_STATE_PRESS);
+    c->state[node] = WN_STATE_CLEAR(c->state[node], WN_STATE_FOCUSED);
+    if (c->hover == node) {
+        c->hover = -1;
+    }
+    if (c->press == node) {
+        c->press = -1;
+    }
+    if (c->input_focus == node) {
+        if (c->input_anchor != NULL) {
+            c->input_anchor[node] = -1;
+        }
+        c->input_focus = -1;
+    }
+    for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
+        clear_interaction_subtree(c, child);
+    }
+}
+
+/* Test/debug hook: OR a mask without the single-hover/press rule. The
+ * offscreen fixture driver uses it to render several state combinations in one
+ * frame; the public ABI keeps the exclusive pointer semantics. */
+void wn_core_force_state_mask(wn_core *core, int node, unsigned int mask)
+{
+    if (core == NULL || core->state == NULL || node < 0 ||
+        node >= core->node_count || !core->alive[node]) {
+        return;
+    }
+    core->state[node] |= (unsigned char)(mask & 0x1Fu);
+    core->dirty = 1;
+}
+
 void wn_core_set_state(wn_core *core, int node, int state, int enabled)
 {
     if (core == NULL || core->state == NULL || node < 0 ||
         node >= core->node_count || !core->alive[node]) {
+        return;
+    }
+    /* A disabled node (or one inside a disabled subtree) refuses the
+     * interactive bits: hosts may keep driving state, but it must not make the
+     * node look hovered/focused. Clearing is always allowed. */
+    if (enabled && (state == WN_STATE_HOVER || state == WN_STATE_PRESS ||
+                    state == WN_STATE_FOCUSED) &&
+        wn_core_node_disabled(core, node)) {
         return;
     }
     if (state == WN_STATE_HOVER) {
@@ -317,6 +386,27 @@ void wn_core_set_state(wn_core *core, int node, int state, int enabled)
         } else {
             core->state[node] = WN_STATE_CLEAR(core->state[node], WN_STATE_SELECTED);
         }
+    } else if (state == WN_STATE_FOCUSED) {
+        /* Per-node, like selected: the host may mark any node focused. Input
+         * focus is the only engine-driven producer. */
+        if (enabled) {
+            core->state[node] |= (unsigned char)WN_STATE_FOCUSED;
+        } else {
+            core->state[node] = WN_STATE_CLEAR(core->state[node], WN_STATE_FOCUSED);
+        }
+    } else if (state == WN_STATE_DISABLED) {
+        if (enabled) {
+            /* A node that becomes disabled cannot stay hovered/pressed/focused,
+             * and neither can its subtree: a focused input inside it would keep
+             * its caret and accept edits. Clear both and blur the input focus
+             * when it points inside. The pointer machine also refuses disabled
+             * targets; this keeps the reported mask consistent for hosts that
+             * drive states directly. */
+            clear_interaction_subtree(core, node);
+            core->state[node] |= (unsigned char)WN_STATE_DISABLED;
+        } else {
+            core->state[node] = WN_STATE_CLEAR(core->state[node], WN_STATE_DISABLED);
+        }
     } else {
         return;
     }
@@ -344,6 +434,14 @@ int wn_core_set_class(wn_core *core, int node, const char *class_name, int enabl
     }
     if (strcmp(class_name, "selected") == 0) {
         wn_core_set_state(core, node, WN_STATE_SELECTED, enabled);
+        return 0;
+    }
+    if (strcmp(class_name, "focus") == 0) {
+        wn_core_set_state(core, node, WN_STATE_FOCUSED, enabled);
+        return 0;
+    }
+    if (strcmp(class_name, "disabled") == 0) {
+        wn_core_set_state(core, node, WN_STATE_DISABLED, enabled);
         return 0;
     }
 
@@ -575,6 +673,8 @@ wn_core *wn_core_create(const wn_document *document)
         c->alive[i] = 1;
         c->visible[i] = 1;
         c->visible_eff[i] = 1;
+        /* Blob v6: `disabled` on button/input seeds WN_STATE_DISABLED. */
+        c->state[i] = c->nodes[i].initial_state;
         c->parent[i] = c->nodes[i].parent;
         c->order_key[i] = i;
         c->first_child[i] = -1;

@@ -499,7 +499,8 @@ wn_status wn_view_set_state(wn_view *view, int node, int state, int enabled)
         return WN_ERR_INVALID_ARGUMENT;
     }
     if (state <= 0 || (state & ~(WN_STATE_HOVER | WN_STATE_PRESS |
-                                 WN_STATE_SELECTED)) != 0) {
+                                 WN_STATE_SELECTED | WN_STATE_FOCUSED |
+                                 WN_STATE_DISABLED)) != 0) {
         wn_set_error("wn_view_set_state: unknown state 0x%X", (unsigned)state);
         return WN_ERR_INVALID_ARGUMENT;
     }
@@ -515,6 +516,12 @@ wn_status wn_view_set_state(wn_view *view, int node, int state, int enabled)
     }
     if ((state & WN_STATE_SELECTED) != 0) {
         wn_core_set_state(view->core, node, WN_STATE_SELECTED, enabled);
+    }
+    if ((state & WN_STATE_FOCUSED) != 0) {
+        wn_core_set_state(view->core, node, WN_STATE_FOCUSED, enabled);
+    }
+    if ((state & WN_STATE_DISABLED) != 0) {
+        wn_core_set_state(view->core, node, WN_STATE_DISABLED, enabled);
     }
     view->geometry_dirty = 1;
     view->upload_dirty = 1;
@@ -1587,7 +1594,8 @@ wn_status wn_view_focus_input(wn_view *view, wn_node_id node)
         return WN_ERR_INVALID_ARGUMENT;
     }
     if (wn_core_focus_input_at_end(view->core, index) < 0) {
-        wn_set_error("wn_app_focus_input: node handle %llu is not a text input",
+        wn_set_error("wn_app_focus_input: node handle %llu is not a focused-capable "
+                     "text input (missing, disabled or not an input)",
                      (unsigned long long)node);
         return WN_ERR_INVALID_ARGUMENT;
     }

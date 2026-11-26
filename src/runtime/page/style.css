@@ -38,6 +38,15 @@ body {
   color: #ffffff;
 }
 
+/* Blob v6: CSS state styles replace data-hover/data-press for these nodes. */
+.nav:hover {
+  background: #2a3140;
+}
+
+.nav:active {
+  background: #3a4a5c;
+}
+
 .content {
   width: 70%;
   display: flex;

@@ -58,6 +58,7 @@ int wn_core_hit_test(const wn_core *core, float px, float py)
         int node = core->paint_items[i].node;
         if ((core->nodes[node].action != ACTION_NONE ||
              core->nodes[node].kind == R2_NODE_INPUT) &&
+            !wn_core_node_disabled(core, node) &&
             point_in_rect(px, py, &core->rects[node]) &&
             point_in_rect(px, py, &core->paint_items[i].clip)) {
             return node;

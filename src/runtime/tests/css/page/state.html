@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>webnative state fixture</title>
+  <link rel="stylesheet" href="state.css">
+</head>
+<body>
+  <!-- Blob v6 fixture: each button shows one effective CSS state. The driver
+       forces the state bits per node without pointer exclusivity. -->
+  <button id="base" class="btn"></button>
+  <button id="hover" class="btn"></button>
+  <button id="press" class="btn"></button>
+  <button id="focus" class="btn"></button>
+  <button id="disabled" class="btn" disabled></button>
+  <button id="selected" class="btn" data-selected="#ff00ff" data-action="select"></button>
+  <button id="selected-hover" class="btn" data-selected="#ff00ff" data-action="select"></button>
+  <!-- data-hover sugar: no CSS hover rule on .sugar, so the data color wins. -->
+  <div id="sugar" class="sugar" data-hover="#abcdef" data-action="select"></div>
+  <!-- A CSS hover rule must beat data-hover on the same node. -->
+  <button id="css-wins" class="btn" data-hover="#abcdef" data-action="select"></button>
+</body>
+</html>
