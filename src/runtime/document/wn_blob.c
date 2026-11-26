@@ -178,10 +178,10 @@ static void document_free(wn_document *document)
 
 void wn_document_retain(wn_document *document)
 {
-    if (document == NULL || document == wn_document_builtin()) {
+    if (wn_document_is_builtin(document)) {
         return; /* the builtin document has a static refcount */
     }
-    if (!document_live(document)) {
+    if (document == NULL || !document_live(document)) {
         return;
     }
     if (document->refs < WN_DOCUMENT_STATIC_REFS - 1) {
@@ -191,10 +191,10 @@ void wn_document_retain(wn_document *document)
 
 void wn_document_release(wn_document *document)
 {
-    if (document == NULL || document == wn_document_builtin()) {
+    if (wn_document_is_builtin(document)) {
         return;
     }
-    if (!document_live(document)) {
+    if (document == NULL || !document_live(document)) {
         return; /* double release: clamp instead of touching freed memory */
     }
     if (document->refs > 0) {
@@ -509,13 +509,15 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
         if (inputs == NULL) {
             wn_set_error("wn_document_load_blob: %s: out of memory for %u inputs",
                          origin, count);
-            wn_document_destroy(document);
+            /* Internal free: the failure path must not re-enter the public
+             * release path (and through it the builtin identity check). */
+            document_free(document);
             return NULL;
         }
         if (inputs_size % sizeof(WnBlobInput) != 0) {
             free(inputs);
             wn_set_error("wn_document_load_blob: %s: bad inputs section", origin);
-            wn_document_destroy(document);
+            document_free(document);
             return NULL;
         }
         for (i = 0; i < count; ++i) {

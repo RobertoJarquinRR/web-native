@@ -6,6 +6,7 @@
 #include "document/wn_document_internal.h"
 #include "webnative.h"
 #include "wn_core.h"
+#include "wn_internal.h"
 
 static int checks = 0;
 static int failures = 0;
@@ -418,7 +419,7 @@ static int memory_rejected(const unsigned char *data, size_t size, const char *n
 int main(int argc, char **argv)
 {
     const char *path = argc > 1 ? argv[1] : "fixture/app.wnui";
-    const wn_document *builtin = wn_document_builtin();
+    const wn_document *builtin;
     wn_document *loaded;
     wn_core *core_builtin;
     wn_core *core_blob;
@@ -430,6 +431,46 @@ int main(int argc, char **argv)
     const wn_display_list *list_builtin;
     const wn_display_list *list_blob;
 
+    /* F1: retain/release must not lazily parse the builtin. This runs in a
+     * fresh process, before wn_document_builtin() is called below. */
+    check("builtin is not parsed at startup", wn_document_builtin_parsed() == 0);
+    {
+        wn_document *file_probe = wn_document_load_blob(path);
+        long memory_length = 0;
+        unsigned char *memory = read_whole_file(path, &memory_length);
+        wn_document *memory_probe = NULL;
+
+        check("file probe loads before the builtin", file_probe != NULL);
+        if (file_probe != NULL) {
+            wn_clear_error();
+            wn_set_error("release sentinel");
+            wn_document_destroy(file_probe);
+            check("releasing a file document does not parse the builtin",
+                  wn_document_builtin_parsed() == 0);
+            check("releasing a file document leaves wn_last_error() untouched",
+                  wn_last_error() != NULL &&
+                      strcmp(wn_last_error(), "release sentinel") == 0);
+        }
+
+        check("memory probe read", memory != NULL && memory_length > 0);
+        if (memory != NULL && memory_length > 0) {
+            memory_probe = wn_document_load_blob_memory(memory, (size_t)memory_length);
+            check("memory probe loads before the builtin", memory_probe != NULL);
+            if (memory_probe != NULL) {
+                wn_clear_error();
+                wn_set_error("release sentinel");
+                wn_document_destroy(memory_probe);
+                check("releasing a memory document does not parse the builtin",
+                      wn_document_builtin_parsed() == 0);
+                check("releasing a memory document leaves wn_last_error() untouched",
+                      wn_last_error() != NULL &&
+                          strcmp(wn_last_error(), "release sentinel") == 0);
+            }
+        }
+        free(memory);
+    }
+
+    builtin = wn_document_builtin();
     /* The builtin must come from the embedded blob alone: no file is open yet
      * and the fixture path is only used below. */
     check("builtin document parses without an external file",
@@ -440,6 +481,23 @@ int main(int argc, char **argv)
         printf("blob_test: FAIL (%s)\n", wn_last_error() != NULL ? wn_last_error() : "builtin");
         return 1;
     }
+
+    /* F2: a stale pending error must not become the reported reason. The
+     * builtin parsed above, so there is no cached loader failure to preserve. */
+    {
+        wn_core *null_core;
+        const char *error;
+        wn_clear_error();
+        wn_set_error("stale");
+        null_core = wn_core_create(NULL);
+        error = wn_last_error();
+        check("wn_core_create(NULL) reports a core error, not a stale one",
+              null_core == NULL && error != NULL &&
+                  strstr(error, "wn_core_create") != NULL &&
+                  strstr(error, "stale") == NULL);
+        wn_core_destroy(null_core);
+    }
+
     loaded = wn_document_load_blob(path);
     if (loaded == NULL) {
         printf("blob_test: FAIL (%s)\n", wn_last_error() != NULL ? wn_last_error() : "load");

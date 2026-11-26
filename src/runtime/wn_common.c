@@ -20,8 +20,6 @@
 #  define WN_THREAD_LOCAL _Thread_local
 #endif
 
-#define WN_ERROR_CAP 1024
-
 static WN_THREAD_LOCAL char g_error[WN_ERROR_CAP];
 static WN_THREAD_LOCAL int g_has_error;
 

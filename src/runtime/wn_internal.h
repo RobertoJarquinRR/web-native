@@ -14,6 +14,7 @@ extern "C" {
 
 /* Thread-local readable error. wn_set_error() copies/formats; wn_clear_error()
  * resets it at the start of every public engine call. */
+#define WN_ERROR_CAP 1024
 void wn_clear_error(void);
 void wn_set_error(const char *fmt, ...);
 void wn_set_error_raw(const char *text);

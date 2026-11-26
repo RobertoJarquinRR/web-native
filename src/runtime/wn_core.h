@@ -91,6 +91,12 @@ typedef struct {
 typedef struct wn_document wn_document;
 
 const wn_document *wn_document_builtin(void);
+/* Identity check against the cached builtin pointer. Allocation-free: unlike
+ * wn_document_builtin() it never triggers the lazy parse. */
+int wn_document_is_builtin(const wn_document *document);
+/* Test/diagnostic hook: 1 once the embedded builtin has been parsed. Never
+ * triggers a parse. */
+int wn_document_builtin_parsed(void);
 int wn_document_node_count(const wn_document *document);
 
 typedef struct wn_core wn_core;
