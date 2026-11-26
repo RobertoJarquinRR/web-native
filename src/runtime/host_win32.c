@@ -26,13 +26,18 @@ typedef struct {
     int running;
     int continuous;
     int mouse_tracking;
-    int button_down;
+    int button_down;      /* 0 none, else 1 left, 2 right, 3 middle */
+    int click_count;      /* 2 while a double click release is pending */
     int caret_blink;
+    int tick_ms;
     char *title;
     wn_host_event_fn on_event;
     wn_host_frame_fn on_frame;
     void *userdata;
 } WnHostWin32;
+
+#define WN_TIMER_CARET 1
+#define WN_TIMER_TICK  2
 
 static int g_class_registered;
 
@@ -71,6 +76,25 @@ static void emit_pointer(WnHostWin32 *host, wn_event_type type, LPARAM lparam)
     int x = (int)(short)LOWORD(lparam);
     int y = (int)(short)HIWORD(lparam);
     emit_event(host, type, NULL, (float)x, (float)y, 0, 0, 0, 0);
+}
+
+/* ABI v6: button pointer events carry which button and the click count. */
+static void emit_pointer_button(WnHostWin32 *host, wn_event_type type,
+                                LPARAM lparam, uint8_t button,
+                                uint8_t click_count)
+{
+    wn_event event;
+    if (host == NULL || host->on_event == NULL) {
+        return;
+    }
+    memset(&event, 0, sizeof(event));
+    event.type = type;
+    event.x = (float)(int)(short)LOWORD(lparam);
+    event.y = (float)(int)(short)HIWORD(lparam);
+    event.modifiers = current_modifiers();
+    event.button = button;
+    event.click_count = click_count;
+    host->on_event(host->userdata, &event);
 }
 
 /* WM_MOUSEWHEEL/MOUSEHWHEEL carry screen coordinates. One notch is mapped to
@@ -164,16 +188,52 @@ static LRESULT CALLBACK host_wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
         return 0;
     case WM_LBUTTONDOWN:
         host->button_down = 1;
+        host->click_count = 1;
         SetCapture(hwnd);
-        emit_pointer(host, WN_EVENT_POINTER_DOWN, lparam);
+        emit_pointer_button(host, WN_EVENT_POINTER_DOWN, lparam, 1, 1);
         return 0;
-    case WM_LBUTTONUP:
+    case WM_LBUTTONDBLCLK:
+        /* CS_DBLCLKS turns the second press into this message. */
+        host->button_down = 1;
+        host->click_count = 2;
+        SetCapture(hwnd);
+        emit_pointer_button(host, WN_EVENT_POINTER_DOWN, lparam, 1, 2);
+        return 0;
+    case WM_LBUTTONUP: {
+        uint8_t clicks = (uint8_t)(host->click_count > 0 ? host->click_count : 1);
         host->button_down = 0;
-        emit_pointer(host, WN_EVENT_POINTER_UP, lparam);
+        host->click_count = 0;
+        emit_pointer_button(host, WN_EVENT_POINTER_UP, lparam, 1, clicks);
+        ReleaseCapture();
+        return 0;
+    }
+    case WM_RBUTTONDOWN:
+        host->button_down = 2;
+        host->click_count = 1;
+        SetCapture(hwnd);
+        emit_pointer_button(host, WN_EVENT_POINTER_DOWN, lparam, 2, 1);
+        return 0;
+    case WM_RBUTTONUP:
+        host->button_down = 0;
+        host->click_count = 0;
+        emit_pointer_button(host, WN_EVENT_POINTER_UP, lparam, 2, 1);
+        ReleaseCapture();
+        return 0;
+    case WM_MBUTTONDOWN:
+        host->button_down = 3;
+        host->click_count = 1;
+        SetCapture(hwnd);
+        emit_pointer_button(host, WN_EVENT_POINTER_DOWN, lparam, 3, 1);
+        return 0;
+    case WM_MBUTTONUP:
+        host->button_down = 0;
+        host->click_count = 0;
+        emit_pointer_button(host, WN_EVENT_POINTER_UP, lparam, 3, 1);
         ReleaseCapture();
         return 0;
     case WM_TIMER:
-        /* Caret blink: the core derives the on/off phase from wn_now_ms(). */
+        /* Caret blink and the host tick both only ask for a repaint; the app
+         * frame callback decides whether the core needs to be marked dirty. */
         InvalidateRect(hwnd, NULL, FALSE);
         return 0;
     case WM_CAPTURECHANGED:
@@ -181,7 +241,18 @@ static LRESULT CALLBACK host_wnd_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM
          * nothing sticks. A normal button-up clears button_down first. */
         host->mouse_tracking = 0;
         if (host->button_down) {
+            int held = host->button_down;
+            POINT point;
+            LPARAM where;
+            point.x = 0;
+            point.y = 0;
+            GetCursorPos(&point);
+            ScreenToClient(hwnd, &point);
+            where = MAKELPARAM((short)point.x, (short)point.y);
             host->button_down = 0;
+            host->click_count = 0;
+            emit_pointer_button(host, WN_EVENT_POINTER_UP, where,
+                                (uint8_t)held, 1);
             emit_event(host, WN_EVENT_POINTER_MOVE, NULL,
                        -1000000.0f, -1000000.0f, 0, 0, 0, 0);
         }
@@ -261,7 +332,7 @@ static int host_create(void **context, const wn_host_config *config,
     if (!g_class_registered) {
         memset(&wc, 0, sizeof(wc));
         wc.cbSize = sizeof(wc);
-        wc.style = CS_HREDRAW | CS_VREDRAW;
+        wc.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
         wc.lpfnWndProc = host_wnd_proc;
         wc.hInstance = instance;
         wc.hCursor = LoadCursorA(NULL, IDC_ARROW);
@@ -420,13 +491,29 @@ static void host_set_caret_blink(void *context, int enabled)
     }
     if (enabled != 0) {
         if (!host->caret_blink) {
-            SetTimer(host->hwnd, 1, 530, NULL);
+            SetTimer(host->hwnd, WN_TIMER_CARET, 530, NULL);
             host->caret_blink = 1;
         }
     } else if (host->caret_blink) {
-        KillTimer(host->hwnd, 1);
+        KillTimer(host->hwnd, WN_TIMER_CARET);
         host->caret_blink = 0;
     }
+}
+
+/* ABI v6: periodic frame timer. The app frame callback marks the core dirty
+ * while a tick is active; here we only own the OS timer. */
+static void host_set_tick(void *context, int ms)
+{
+    WnHostWin32 *host = (WnHostWin32 *)context;
+    if (host == NULL || host->hwnd == NULL) {
+        return;
+    }
+    KillTimer(host->hwnd, WN_TIMER_TICK);
+    host->tick_ms = ms > 0 ? ms : 0;
+    if (ms > 0) {
+        SetTimer(host->hwnd, WN_TIMER_TICK, (UINT)ms, NULL);
+    }
+    InvalidateRect(host->hwnd, NULL, FALSE);
 }
 
 static void host_destroy(void *context)
@@ -437,8 +524,12 @@ static void host_destroy(void *context)
     }
     if (host->hwnd != NULL) {
         if (host->caret_blink) {
-            KillTimer(host->hwnd, 1);
+            KillTimer(host->hwnd, WN_TIMER_CARET);
             host->caret_blink = 0;
+        }
+        if (host->tick_ms > 0) {
+            KillTimer(host->hwnd, WN_TIMER_TICK);
+            host->tick_ms = 0;
         }
         DestroyWindow(host->hwnd);
         host->hwnd = NULL;
@@ -458,6 +549,7 @@ static const wn_host_ops g_host_win32_ops = {
     host_set_client_size,
     host_set_continuous,
     host_set_caret_blink,
+    host_set_tick,
     host_destroy
 };
 

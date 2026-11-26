@@ -17,6 +17,8 @@
 #  include <windows.h>
 #endif
 
+static int view_node_index(const wn_view *view, wn_node_id node);
+
 struct wn_view {
     wn_core *core;
     const wn_renderer_ops *ops;
@@ -38,6 +40,7 @@ struct wn_view {
     char *base_url;
     char *css;
     char *value_scratch;      /* wn_view_get_value result, freed on next call */
+    char *text_scratch;       /* wn_view_get_text result, freed on next call */
     wn_event_cb callback;
     void *userdata;
     /* Re-entrancy guard: a callback may destroy this view while it is still
@@ -65,12 +68,13 @@ static void view_free(wn_view *view)
         wn_core_destroy(view->core);
     }
     if (view->document != NULL) {
-        wn_document_destroy((wn_document *)view->document);
+        wn_document_release((wn_document *)view->document);
     }
     wn_free_(view->html);
     wn_free_(view->base_url);
     wn_free_(view->css);
     wn_free_(view->value_scratch);
+    wn_free_(view->text_scratch);
     free(view);
 }
 
@@ -451,8 +455,9 @@ wn_view *wn_view_create_offscreen(int32_t width, int32_t height)
 }
 
 /* Replaces the compiled document: a fresh core is built from it and the
- * previous one is released. The view takes ownership of `document`. Passing the
- * current document again rebuilds the core but keeps the single reference. */
+ * previous one is released. The view retains its own reference to `document`
+ * (the caller keeps theirs); passing the current document again rebuilds the
+ * core without destroying a document the new core already holds. */
 int wn_view_replace_document(wn_view *view, wn_document *document)
 {
     wn_core *core;
@@ -472,9 +477,10 @@ int wn_view_replace_document(wn_view *view, wn_document *document)
     if (view->owns_core && view->core != NULL) {
         wn_core_destroy(view->core);
     }
-    if (view->document != NULL && view->document != document) {
-        wn_document_destroy((wn_document *)view->document);
+    if (view->document != NULL) {
+        wn_document_release((wn_document *)view->document);
     }
+    wn_document_retain(document);
     view->core = core;
     view->document = document;
     view->owns_core = 1;
@@ -492,18 +498,58 @@ wn_status wn_view_set_state(wn_view *view, int node, int state, int enabled)
         wn_set_error("wn_view_set_state: view is NULL");
         return WN_ERR_INVALID_ARGUMENT;
     }
-    if (state < WN_STATE_HOVER || state > WN_STATE_SELECTED) {
-        wn_set_error("wn_view_set_state: unknown state %d", state);
+    if (state <= 0 || (state & ~(WN_STATE_HOVER | WN_STATE_PRESS |
+                                 WN_STATE_SELECTED)) != 0) {
+        wn_set_error("wn_view_set_state: unknown state 0x%X", (unsigned)state);
         return WN_ERR_INVALID_ARGUMENT;
     }
     if (!wn_core_node_is_alive(view->core, node)) {
         wn_set_error("wn_view_set_state: node %d is not alive", node);
         return WN_ERR_INVALID_ARGUMENT;
     }
-    wn_core_set_state(view->core, node, state, enabled);
+    if ((state & WN_STATE_HOVER) != 0) {
+        wn_core_set_state(view->core, node, WN_STATE_HOVER, enabled);
+    }
+    if ((state & WN_STATE_PRESS) != 0) {
+        wn_core_set_state(view->core, node, WN_STATE_PRESS, enabled);
+    }
+    if ((state & WN_STATE_SELECTED) != 0) {
+        wn_core_set_state(view->core, node, WN_STATE_SELECTED, enabled);
+    }
     view->geometry_dirty = 1;
     view->upload_dirty = 1;
     return WN_OK;
+}
+
+wn_status wn_view_set_state_handle(wn_view *view, wn_node_id node, uint32_t state,
+                                   int enabled)
+{
+    int index;
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_node_set_state: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    index = view_node_index(view, node);
+    if (index < 0) {
+        wn_set_error("wn_node_set_state: invalid node handle %llu",
+                     (unsigned long long)node);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_set_state(view, index, (int)state, enabled);
+}
+
+uint32_t wn_view_get_state_handle(const wn_view *view, wn_node_id node)
+{
+    int index;
+    if (view == NULL) {
+        return 0;
+    }
+    index = view_node_index(view, node);
+    if (index < 0) {
+        return 0;
+    }
+    return (uint32_t)wn_core_node_state(view->core, index);
 }
 
 int wn_view_wheel_node(wn_view *view, float x, float y, float delta_x, float delta_y)
@@ -662,9 +708,11 @@ wn_status wn_view_event(wn_view *view, const wn_event *event)
     wn_event out;
     const char *target = NULL;
     int hit = -1;
+    int event_node = -1;
     int changed = 0;
     int input_value_changed = 0;
     int input_visual_changed = 0;
+    uint8_t button = 0;
 
     wn_clear_error();
     if (view == NULL) {
@@ -682,6 +730,7 @@ wn_status wn_view_event(wn_view *view, const wn_event *event)
     out = *event;
     out.target_id = NULL;
     out.node = WN_NODE_INVALID;
+    button = event->button;
 
     switch (event->type) {
     case WN_EVENT_POINTER_MOVE: {
@@ -694,30 +743,48 @@ wn_status wn_view_event(wn_view *view, const wn_event *event)
             break;
         }
         hit = wn_core_pointer_move(view->core, event->x, event->y);
+        event_node = hit;
         changed = hit != previous_hover;
         break;
     }
     case WN_EVENT_POINTER_DOWN:
-        hit = wn_core_pointer_down(view->core, event->x, event->y);
-        changed = 1;
+        if (button == 0 || button == 1) {
+            hit = wn_core_pointer_down(view->core, event->x, event->y);
+            changed = 1;
+        } else {
+            /* Secondary buttons do not press/select, but the event still
+             * targets the interactive node (or the topmost node) under it. */
+            hit = wn_core_hit_test(view->core, event->x, event->y);
+        }
+        event_node = hit >= 0 ? hit
+                              : wn_core_node_at(view->core, event->x, event->y);
         break;
     case WN_EVENT_POINTER_UP:
-        hit = wn_core_pointer_up(view->core, event->x, event->y);
-        changed = 1;
+        if (button == 0 || button == 1) {
+            hit = wn_core_pointer_up(view->core, event->x, event->y);
+            changed = 1;
+        } else {
+            hit = wn_core_hit_test(view->core, event->x, event->y);
+        }
+        event_node = hit >= 0 ? hit
+                              : wn_core_node_at(view->core, event->x, event->y);
         break;
     case WN_EVENT_WHEEL:
         hit = wn_core_wheel(view->core, event->x, event->y,
                             event->delta_x, event->delta_y);
+        event_node = hit;
         changed = hit >= 0;
         break;
     case WN_EVENT_CHAR:
         hit = wn_core_input_char(view->core, event->codepoint,
                                  &input_value_changed, &input_visual_changed);
+        event_node = hit;
         changed = input_visual_changed;
         break;
     case WN_EVENT_KEY_DOWN:
         hit = view_input_key(view, event, &input_value_changed,
                              &input_visual_changed);
+        event_node = hit;
         changed = input_visual_changed;
         break;
     case WN_EVENT_FOCUS_OUT:
@@ -736,13 +803,13 @@ wn_status wn_view_event(wn_view *view, const wn_event *event)
     default:
         break;
     }
-    if (hit >= 0) {
+    if (event_node >= 0) {
         /* ABI v5: the handle is the identity for every node, clones included.
          * target_id keeps exposing compiled element ids only: clones carry
          * synthetic arena names ("clone#N") that are not document ids. */
-        out.node = wn_view_handle(view, hit);
-        if (!wn_core_node_is_dynamic(view->core, hit)) {
-            target = wn_core_node_name(view->core, hit);
+        out.node = wn_view_handle(view, event_node);
+        if (!wn_core_node_is_dynamic(view->core, event_node)) {
+            target = wn_core_node_name(view->core, event_node);
         }
     }
     out.target_id = target;
@@ -1426,4 +1493,159 @@ const char *wn_view_get_value(wn_view *view, wn_node_id node)
         return NULL;
     }
     return view->value_scratch;
+}
+
+/* ---------------------------------------------------- node reads (ABI v6) */
+
+const char *wn_view_get_text(wn_view *view, wn_node_id node)
+{
+    int index;
+    const char *text;
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_node_get_text: view is NULL");
+        return NULL;
+    }
+    index = view_node_index(view, node);
+    if (index < 0) {
+        wn_set_error("wn_node_get_text: invalid node handle %llu",
+                     (unsigned long long)node);
+        return NULL;
+    }
+    text = wn_core_node_text(view->core, index);
+    if (text == NULL) {
+        wn_set_error("wn_node_get_text: node handle %llu has no text",
+                     (unsigned long long)node);
+        return NULL;
+    }
+    wn_free_(view->text_scratch);
+    view->text_scratch = wn_strdup_(text);
+    if (view->text_scratch == NULL) {
+        wn_set_error("wn_node_get_text: out of memory");
+        return NULL;
+    }
+    return view->text_scratch;
+}
+
+wn_status wn_view_get_rect(wn_view *view, wn_node_id node, wn_rect *out)
+{
+    int index;
+    wn_clear_error();
+    if (view == NULL || out == NULL) {
+        wn_set_error("wn_node_get_rect: view and out are required");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    index = view_node_index(view, node);
+    if (index < 0) {
+        wn_set_error("wn_node_get_rect: invalid node handle %llu",
+                     (unsigned long long)node);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    if (wn_core_node_rect(view->core, index, out) != 0) {
+        wn_set_error("wn_node_get_rect: cannot lay out node %llu",
+                     (unsigned long long)node);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return WN_OK;
+}
+
+wn_status wn_view_scroll_into_view(wn_view *view, wn_node_id node, float margin)
+{
+    int index;
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_node_scroll_into_view: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    index = view_node_index(view, node);
+    if (index < 0) {
+        wn_set_error("wn_node_scroll_into_view: invalid node handle %llu",
+                     (unsigned long long)node);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    if (wn_core_scroll_node_into_view(view->core, index, margin) != 0) {
+        wn_set_error("wn_node_scroll_into_view: cannot scroll node %llu",
+                     (unsigned long long)node);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    view_mark_geometry(view);
+    return WN_OK;
+}
+
+wn_status wn_view_focus_input(wn_view *view, wn_node_id node)
+{
+    int index;
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_app_focus_input: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    index = view_node_index(view, node);
+    if (index < 0) {
+        wn_set_error("wn_app_focus_input: invalid node handle %llu",
+                     (unsigned long long)node);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    if (wn_core_focus_input_at_end(view->core, index) < 0) {
+        wn_set_error("wn_app_focus_input: node handle %llu is not a text input",
+                     (unsigned long long)node);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    view_mark_geometry(view);
+    return WN_OK;
+}
+
+wn_status wn_view_blur_input(wn_view *view)
+{
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_app_blur_input: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    (void)wn_core_blur_input(view->core);
+    view_mark_geometry(view);
+    return WN_OK;
+}
+
+wn_status wn_view_set_image_size(wn_view *view, wn_node_id node,
+                                 float width, float height)
+{
+    int index;
+    int result;
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_node_set_image_size: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    index = view_node_index(view, node);
+    if (index < 0) {
+        wn_set_error("wn_node_set_image_size: invalid node handle %llu",
+                     (unsigned long long)node);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    result = wn_core_set_image_size(view->core, index, width, height);
+    if (result == 1) {
+        wn_set_error("wn_node_set_image_size: node handle %llu is not an image node",
+                     (unsigned long long)node);
+        return WN_ERR_UNSUPPORTED;
+    }
+    if (result != 0) {
+        wn_set_error("wn_node_set_image_size: invalid size %.2fx%.2f",
+                     (double)width, (double)height);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    view_mark_geometry(view);
+    return WN_OK;
+}
+
+wn_status wn_view_tick(wn_view *view)
+{
+    wn_clear_error();
+    if (view == NULL || view->core == NULL) {
+        wn_set_error("wn_view_tick: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    wn_core_mark_dirty(view->core);
+    view->geometry_dirty = 1;
+    return WN_OK;
 }

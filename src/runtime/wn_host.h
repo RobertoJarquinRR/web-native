@@ -39,6 +39,8 @@ typedef struct wn_host_ops {
     void (*set_continuous)(void *context, int enabled);
     /* Caret blink: start/stop the host timer while an input owns the focus. */
     void (*set_caret_blink)(void *context, int enabled);
+    /* ABI v6: periodic frame timer (ms <= 0 stops it). */
+    void (*set_tick)(void *context, int ms);
     void (*destroy)(void *context);
 } wn_host_ops;
 

@@ -114,16 +114,17 @@ static void ensure_image_batch_capacity(wn_core *c, int needed)
 static unsigned int node_color(const wn_core *c, int node)
 {
     const UiNode *n = &c->nodes[node];
+    unsigned char state = c->state[node];
     if (n->action == ACTION_NONE) {
         return n->background;
     }
-    if (c->press == node && n->press_bg != 0) {
+    if ((state & WN_STATE_PRESS) != 0u && n->press_bg != 0) {
         return n->press_bg;
     }
-    if (c->hover == node && n->hover_bg != 0) {
+    if ((state & WN_STATE_HOVER) != 0u && n->hover_bg != 0) {
         return n->hover_bg;
     }
-    if (c->selected == node && n->selected_bg != 0) {
+    if ((state & WN_STATE_SELECTED) != 0u && n->selected_bg != 0) {
         return n->selected_bg;
     }
     return n->background;

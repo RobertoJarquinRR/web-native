@@ -126,7 +126,7 @@ int main(int argc, char **argv)
     printf("dynamic: webnative %s ABI %u\n", wn_version(), wn_abi_version());
 
     memset(&config, 0, sizeof(config));
-    config.title = "webnative dynamic UI (ABI v5)";
+    config.title = "webnative dynamic UI (ABI v6)";
     config.width = 400;
     config.height = 300;
     config.flags = WN_FLAG_NONE;

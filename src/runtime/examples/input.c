@@ -159,7 +159,7 @@ int main(int argc, char **argv)
     }
 
     memset(&config, 0, sizeof(config));
-    config.title = "webnative text input (ABI v5)";
+    config.title = "webnative text input (ABI v6)";
     config.width = 480;
     config.height = 240;
     config.flags = WN_FLAG_NONE;
@@ -249,7 +249,7 @@ int main(int argc, char **argv)
      * window. Post a real WM_KEYDOWN so host_win32 -> wn_app decides. */
     inject_click(16.0f + 160.0f, 16.0f + 17.0f);
     {
-        HWND hwnd = FindWindowW(NULL, L"webnative text input (ABI v5)");
+        HWND hwnd = FindWindowW(NULL, L"webnative text input (ABI v6)");
         if (hwnd != NULL) {
             PostMessageW(hwnd, WM_KEYDOWN, VK_ESCAPE, 0);
             printf("input: queued WM_KEYDOWN Esc with focus\n");

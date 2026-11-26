@@ -5,6 +5,10 @@
 #include "ui_data.h"
 #include "wn_core.h"
 
+/* ABI v6: documents are reference counted. The builtin compiled document uses
+ * this sentinel so retain/release never touch its storage. */
+#define WN_DOCUMENT_STATIC_REFS 0x7FFFFFFF
+
 struct wn_document {
     const UiNode *nodes;
     int node_count;
@@ -20,6 +24,8 @@ struct wn_document {
     UiNode *owned_nodes;
     const char **owned_names;
     UiInput *owned_inputs;
+
+    int refs;
 };
 
 #endif

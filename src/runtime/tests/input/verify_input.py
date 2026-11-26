@@ -277,7 +277,7 @@ def main() -> int:
     abi_log = root / "abi_input.log"
     abi_text = abi_log.read_text(encoding="utf-8") if abi_log.is_file() else ""
     for needle in (
-        "ABI 5",
+        "ABI 6",
         "input: PASS",
         "set_value(abc) -> WN_OK",
         "set_value(Omega) -> WN_OK",
