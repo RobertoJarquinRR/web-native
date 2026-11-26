@@ -14,7 +14,9 @@
  *      reports a taller measured box.
  *   3. Paint advances each line by the block line height and vertically centers
  *      the block (node leading + half leading) inside the node box.
- *   4. INPUT auto height is padding + the single-line block line height.
+ *   4. INPUT auto height is padding + the single-line block line height, and
+ *      keeps the legacy padding + 1.35*size fallback when the backend measure
+ *      fails even though the line build succeeds.
  */
 #include <math.h>
 #include <stdio.h>
@@ -27,6 +29,7 @@
 /* Provided by fake_text.c. */
 const wn_text_ops *wn_text_fake(void);
 const wn_text_ops *wn_text_fake_measured(void);
+const wn_text_ops *wn_text_fake_broken_measure(void);
 
 #define FAKE "fake"
 #define FAKE_SIZE 16.0f
@@ -124,6 +127,7 @@ int main(void)
     check("wrapped block exposes the layout descent", near(block.descent, FAKE_SIZE * 0.25f));
     check("wrapped block keeps the backend measured height",
           near(block.measured_height, FAKE_LINE));
+    check("wrapped block reports backend metrics", block.measured != 0);
     check("wrapped block points at the cached layout",
           block.layout != NULL && block.layout->line_count == 2 &&
               near(block.layout->width, 40.0f));
@@ -146,7 +150,8 @@ int main(void)
     check("a failed block get zeroes the output",
           wn_text_block_get("zero-check", FAKE, FAKE_SIZE, 400, 0.0f, 0.0f, &block) != 0 &&
               block.layout == NULL && block.line_count == 0 && block.natural == 0.0f &&
-              block.box_height == 0.0f && block.measured_height == 0.0f);
+              block.box_height == 0.0f && block.measured_height == 0.0f &&
+              !block.measured);
 
     /* ------------------------------- 2. layout consumes the same block */
     core = make_leaf_core(R2_NODE_TEXT, "aa bb cc", 45.0f, -1.0f, 0.0f, 0.0f);
@@ -253,6 +258,7 @@ int main(void)
     check("measured backend reports a taller measured box",
           near(measured_block.measured_height, FAKE_SIZE * 1.4f) &&
               near(measured_block.natural, FAKE_LINE));
+    check("measured backend reports backend metrics", measured_block.measured != 0);
     check("measured backend keeps the line box as block height",
           near(measured_block.box_height, FAKE_LINE));
 
@@ -288,8 +294,26 @@ int main(void)
         wn_text_block editor;
         check("input editor block builds",
               wn_text_block_get("Mg", FAKE, FAKE_SIZE, 400, 0.0f, 0.0f, &editor) == 0);
+        check("input editor block reports backend metrics", editor.measured != 0);
         check("input auto height is padding plus the block line height",
               near(rects[1].h, 12.0f + editor.line_height) && near(rects[1].h, 32.0f));
+        wn_core_destroy(core);
+    }
+
+    /* ----------- 6. input keeps the 1.35 fallback when measure breaks */
+    wn_text_test_use_backend(wn_text_fake_broken_measure());
+    core = make_leaf_core(R2_NODE_INPUT, "", 120.0f, -1.0f, 0.0f, 6.0f);
+    check("broken-measure input core created", core != NULL);
+    if (core != NULL) {
+        const wn_rect *rects = wn_core_rects(core, NULL);
+        wn_text_block editor;
+        check("broken-measure line still builds from the breaker",
+              wn_text_block_get("Mg", FAKE, FAKE_SIZE, 400, 0.0f, 0.0f, &editor) == 0 &&
+                  editor.line_count == 1);
+        check("broken-measure block reports no backend metrics",
+              editor.measured == 0 && near(editor.natural, FAKE_SIZE * 1.2f));
+        check("broken-measure input auto height is padding plus 1.35 * size",
+              near(rects[1].h, 12.0f + FAKE_SIZE * 1.35f) && near(rects[1].h, 33.6f));
         wn_core_destroy(core);
     }
 

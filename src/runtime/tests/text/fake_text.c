@@ -20,6 +20,9 @@ typedef struct {
      * 0 keeps the 1.25 line box. The measured-height variant raises it so the
      * block can be exercised where the backend box and the line box differ. */
     float measured_scale;
+    /* The broken-measure variant fails every measure while shape/rasterize
+     * keep working, so the synthetic line-box / fallback paths are reachable. */
+    int fail_measure;
 } WnFakeState;
 
 static WnFakeState g_fake;
@@ -101,6 +104,9 @@ static int fake_measure(void *context, const char *utf8, const wn_text_style *st
     }
     if (state != NULL) {
         state->measure_calls += 1;
+        if (state->fail_measure) {
+            return 1;
+        }
     }
     codepoints = fake_codepoints(utf8);
     memset(out, 0, sizeof(*out));
@@ -299,6 +305,39 @@ const wn_text_ops *wn_text_fake(void)
 const wn_text_ops *wn_text_fake_measured(void)
 {
     return &g_fake_measured_ops;
+}
+
+/* Deterministic backend whose measure always fails: shape and rasterize still
+ * succeed, so build_lines falls back to its synthetic 1.2 line box and callers
+ * (input) can exercise their pre-block 1.35 fallback. */
+static WnFakeState g_fake_broken_measure;
+
+static int fake_broken_measure_init(void **context)
+{
+    if (context == NULL) {
+        return 1;
+    }
+    memset(&g_fake_broken_measure, 0, sizeof(g_fake_broken_measure));
+    g_fake_broken_measure.fail_measure = 1;
+    *context = &g_fake_broken_measure;
+    return 0;
+}
+
+static const wn_text_ops g_fake_broken_measure_ops = {
+    "fake-broken-measure",
+    fake_broken_measure_init,
+    fake_destroy,
+    fake_measure,
+    fake_shape,
+    fake_rasterize,
+    fake_cache_misses,
+    fake_has_family,
+    fake_cache_stats,
+};
+
+const wn_text_ops *wn_text_fake_broken_measure(void)
+{
+    return &g_fake_broken_measure_ops;
 }
 
 const wn_text_ops *wn_text_fake_failing_init(void)

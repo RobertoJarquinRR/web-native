@@ -522,10 +522,12 @@ static int build_lines(WnLineEntry *entry)
     wn_text_metrics whole;
     float line_height;
     int have_whole;
+    int measured;
 
     memset(&whole, 0, sizeof(whole));
     have_whole = wn_text_measure_string(text, entry->family, entry->size, entry->weight,
                                         0.0f, &whole) == 0;
+    measured = have_whole && (whole.ascent + whole.descent > 0.0f || whole.height > 0.0f);
     line_height = have_whole && whole.ascent + whole.descent > 0.0f
                       ? whole.ascent + whole.descent
                       : (have_whole && whole.height > 0.0f
@@ -537,6 +539,7 @@ static int build_lines(WnLineEntry *entry)
     entry->layout.ascent = have_whole ? whole.ascent : line_height;
     entry->layout.descent = have_whole ? whole.descent : 0.0f;
     entry->layout.line_height = line_height;
+    entry->layout.measured = measured;
 
     entry->lines = (wn_text_line *)calloc((size_t)length + 1u, sizeof(wn_text_line));
     if (entry->lines == NULL) {
@@ -762,6 +765,7 @@ int wn_text_block_get(const char *utf8, const char *family, float size, int weig
     out->ascent = layout->ascent;
     out->descent = layout->descent;
     out->measured_height = layout->measured_height;
+    out->measured = layout->measured;
     return 0;
 }
 

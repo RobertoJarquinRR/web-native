@@ -34,6 +34,7 @@ typedef struct {
     float ascent;
     float descent;
     float line_height;    /* natural line box (ascent + descent) */
+    int measured;         /* backend measure succeeded with positive metrics */
 } wn_text_line_layout;
 
 /* Derived block metrics shared by layout, paint and the input editor. It is
@@ -41,7 +42,9 @@ typedef struct {
  * `natural` is the backend line box (ascent + descent), `line_height` the style
  * override when positive or `natural`, and `box_height` the line count times
  * `line_height`. `measured_height` is the backend's one-line height, which
- * unconstrained single-line TEXT keeps as its auto height. Internal only: no
+ * unconstrained single-line TEXT keeps as its auto height. `measured` is
+ * nonzero only when that measure returned positive metrics, so consumers that
+ * had a pre-block fallback (the input editor) can keep it. Internal only: no
  * public header, no exported symbol. */
 typedef struct {
     const wn_text_line_layout *layout; /* cached line layout */
@@ -53,6 +56,7 @@ typedef struct {
     float ascent;
     float descent;
     float measured_height;/* one-line height reported by the backend */
+    int measured;         /* backend measure produced positive metrics */
 } wn_text_block;
 
 /* Fills `out` from wn_text_line_layout_get(..., wrap_width). `line_height_override`

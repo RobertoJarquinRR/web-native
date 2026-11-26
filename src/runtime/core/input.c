@@ -188,9 +188,12 @@ static int input_line_metrics(const wn_core *c, int node, float *ascent, float *
     wn_text_block block;
     /* The editor line is the unconstrained single-line block for the same
      * ascender/descender sample layout uses ("Mg"). One line model, one cache
-     * key. */
+     * key. When the backend measure failed, the block still builds a synthetic
+     * line box; the editor keeps its historical 1.35*size fallback for that
+     * path (input_line_height), so report the block as unavailable. */
     if (wn_text_block_get("Mg", n->font_family, n->font_size, n->font_weight,
-                          0.0f, 0.0f, &block) != 0) {
+                          0.0f, 0.0f, &block) != 0 ||
+        !block.measured) {
         return 1;
     }
     if (ascent != NULL) {

@@ -822,7 +822,7 @@ def run_text() -> int:
     )
     block_text = _run(block_exe, [], out)
     _expect(block_text, ["text_block_test: PASS"], "text block test")
-    _expect_checks(block_text, "text block test", 44)
+    _expect_checks(block_text, "text block test", 51)
     log_info("runtime text v0: PASS")
     return 0
 
