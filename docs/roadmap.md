@@ -40,7 +40,7 @@ Un stream no toca los archivos de otro; se integra por contrato.
   lleva glifos, runs ni atlas, tampoco para inputs.
 - ✅ **Blob v2 `.wnui`**: escritor en Rust (`--emit-blob`, byte-idéntico al
   emisor) y loader C con mmap; `wn_app_load_document` en la ABI.
-- ✅ **SDK genérica**: `webnative.dll` (212 KB con wgpu, 190 KB sin él) +
+- ✅ **SDK genérica**: `webnative.dll` (217 KB con wgpu, 195 KB sin él) +
   `app.wnui`; la galería (`C:\Proyects\gallery`) consume solo `sdk/` y su
   documento.
 - ✅ ABI v4: dinámica, input de una línea, stats públicas; v5: identidad de
