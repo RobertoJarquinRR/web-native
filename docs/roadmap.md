@@ -24,14 +24,15 @@ Un stream no toca los archivos de otro; se integra por contrato.
 | **E3** | Plataforma y accesibilidad | foco/tab order, DPI per-monitor, IME, clipboard/DnD, UIA, high contrast, reduced motion | E1, E6 | Pendiente (P1 `platform-v1.md`) |
 | **E4** | Texto e i18n | shaping runtime **(hecho)**, wrapping/line breaking **(hecho)**, bloque de línea único **(hecho)**; faltan bidi, CJK/emoji y re-raster de atlas | E1, E3 | **En curso**: falta bidi/CJK |
 | **E5** | Rendimiento y escala | dirty rects, culling/virtualización, 100/1k/10k nodos, presupuestos en CI | E1, E2 | Pendiente |
-| **E6** | Contratos y tooling | subset diagnostics, schemas IR/ui-tree, ABI v4, blob v5, SDK genérica, suites, paridad, métricas | — | **En curso**: falta CI |
+| **E6** | Contratos y tooling | subset diagnostics, schemas IR/ui-tree, ABI v7, blob v6, SDK genérica, suites, paridad, métricas | - | **En curso**: falta CI |
 | **E7** | Release y packaging | versión, artefactos, licencias, installer, signing, smoke de release | E1–E3, E6 | Pendiente |
-| **E8** | Extensiones CSS | transition limitada (P1 post-E1); **position rel/abs (hecho, blob v4)**; **z-index y stacking contexts (hecho, blob v5)**; transform 2D (P2); `fixed`/`sticky` (P2/P3); animation/float futuro/no-go | E1, E6 (schema `/5`), reloj del `wn_host` | **En curso**; ver `e8-css-extensions.md` |
+| **E8** | Extensiones CSS | transition limitada (P1 post-E1); **position rel/abs (hecho, blob v4)**; **z-index y stacking contexts (hecho, blob v5)**; **estados CSS `:hover/:active/:focus/:disabled` (hecho, blob v6 + ABI v7)**; transform 2D (P2); `fixed`/`sticky` (P2/P3); animation/float futuro/no-go | E1, E6 (schema `/6`), reloj del `wn_host` | **En curso**; ver `e8-css-extensions.md` |
 
-> **Orden de ejecución:** CI y contratos (E6) → ABI v6 (estado/lecturas) →
+> **Orden de ejecución:** CI y contratos (E6) → ABI v7 (estado/lecturas) →
 > documento blob-only y retirada del emisor (C5/C12) → enablers (capabilities,
 > textblock, scroll, paintlist) → **opacity (blob v3, capas offscreen)** →
-> **position relative/absolute (blob v4)** → **z-index (blob v5)** → transform
+> **position relative/absolute (blob v4)** → **z-index (blob v5)** →
+> **estados CSS (blob v6, ABI v7)** → transform
 > → E4 input v2
 > → E5 escala → E3 plataforma → E7 release. E2 va en paralelo. La
 > compatibilidad del blob (C6) se decide al congelar 1.0, no en pre-alfa. E8
@@ -42,12 +43,13 @@ Un stream no toca los archivos de otro; se integra por contrato.
 - ✅ Runtime C en módulos (`core/`, `document/`, `text/`), grid/scroll/imágenes.
 - ✅ **Texto en runtime**: medición, shaping y atlas dinámico; el documento no
   lleva glifos, runs ni atlas, tampoco para inputs.
-- ✅ **Blob v5 `.wnui`**: escritor en Rust (byte-idéntico al emisor), loader C
+- ✅ **Blob v6 `.wnui`**: escritor en Rust (byte-idéntico al emisor), loader C
   con mmap y **loader por memoria**; el builtin de la DLL es un blob embebido
   parseado por el mismo loader. `wn_app_load_document` en la ABI. v3 añadió
   `float opacity` y capas de grupo; v4 añadió `position` + `inset[4]`/`inset_mask`
-  (relative/absolute); v5 añade `int32 z_index` (sentinel `INT32_MIN` = auto)
-  al final del registro (252 bytes).
+  (relative/absolute); v5 añadió `int32 z_index` (sentinel `INT32_MIN` = auto)
+  al final del registro (252 bytes); v6 añade la sección opcional 5 `states`
+  (estilos de color hover/press/focus/disabled por nodo), sin tocar el registro.
 - ✅ **Position relative/absolute** (blob v4): relative offsets sin mover
   hermanos, absolute fuera de flujo con containing block posicionado/root,
   stretch left+right/top+bottom, auto width/height, anidado, scroll/clip y
@@ -57,12 +59,20 @@ Un stream no toca los archivos de otro; se integra por contrato.
   0/auto en el paso 8, y positivos), anidados que no escapan del padre,
   auto/0/negativos, opacidad+z, hit-test por orden de pintado. Las capas z-only
   solo ordenan (sin textura); fixture de píxeles 400x690 en D3D11 + wgpu.
+- ✅ **Estados CSS** (blob v6, ABI v7): `:hover`, `:active` (press incluye
+  hover), `:focus` y `:disabled` se compilan a cuatro estilos efectivos de
+  `background`/`color`/borde; prioridad runtime
+  `disabled > press > hover > focus > base`, con `selected` como base y los
+  `data-*` como fallback. Bits `WN_STATE_FOCUSED`/`WN_STATE_DISABLED`; los nodos
+  deshabilitados son inertes al puntero. Fixture de píxeles 400x450 en D3D11 +
+  wgpu y páginas canónica/dynamic/pilot migradas a reglas CSS.
 - ✅ **SDK genérica**: `webnative.dll` (181 KiB con wgpu, 160 KiB sin él) +
   `app.wnui`; la galería (`C:\Proyects\gallery`) consume solo `sdk/` y su
   documento.
 - ✅ ABI v4: dinámica, input de una línea, stats públicas; v5: identidad de
-  nodos y navegación; **v6**: estado por nodo, getters/scroll/foco, botón y
-  doble clic, tick, refcount del documento y tamaño de imagen.
+  nodos y navegación; v6: estado por nodo, getters/scroll/foco, botón y doble
+  clic, tick, refcount del documento y tamaño de imagen; **v7**: bits de foco y
+  deshabilitado (aditivos).
 - ✅ CSS core v1 (52/52), E1 (23/23), dynamic (61/61), input (83 + 118/118),
   text (144), offscreen (100 % exacto), blob; `test all` 10/10 y piloto 48/48.
 - ✅ Frontend Rust por etapas (`parse/style/emit/cli`); R1 retirado y su

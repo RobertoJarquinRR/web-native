@@ -21,6 +21,7 @@ use crate::parse::dom::{Dom, Node, NodeId};
 use crate::style::cascade::ComputedStyle;
 use crate::style::color::argb;
 use crate::style::grid::{GridAutoRows, GridTemplateColumns};
+use crate::style::state::StateStyles;
 use crate::style::style_ext::StyleV3;
 
 /// Node kinds stored in the blob and exposed by the library tree.
@@ -33,6 +34,9 @@ pub const KIND_INPUT: u32 = 5;
 
 /// Hard cap of the edit buffer; the HTML `maxlength` may be lower.
 pub const INPUT_MAX_BYTES: usize = 255;
+
+/// Runtime state bit seeded from HTML (`disabled` on button/input).
+pub const STATE_BIT_DISABLED: u8 = 0x10;
 
 const DEFAULT_FAMILY: &str = "Segoe UI";
 const DEFAULT_SIZE: f64 = 16.0;
@@ -211,6 +215,10 @@ pub struct NodeOut {
     pub element_id: Option<String>,
     pub style: StyleOut,
     pub data: DataOut,
+    /// Blob v6: effective CSS state colors (only non-default states).
+    pub states: StateStyles,
+    /// Blob v6: state bits the node starts with (`disabled` attribute).
+    pub initial_state: u8,
     pub argb: ArgbOut,
     pub text: Option<TextOut>,
     pub image: Option<ImageOut>,
@@ -424,6 +432,12 @@ impl<'a> Builder<'a> {
                 selected: style.data_selected.clone(),
                 action,
             },
+            states: style.states.clone(),
+            initial_state: if style.initial_disabled {
+                STATE_BIT_DISABLED
+            } else {
+                0
+            },
             argb: ArgbOut {
                 // `background`/`color` are already normalized to `#rrggbb`;
                 // `data-*` travel raw so alpha and every tinycss2 form survive.
@@ -568,6 +582,10 @@ impl<'a> Builder<'a> {
                 selected: None,
                 action: None,
             },
+            // Generated text runs follow their owning element's state; only
+            // the text color of each state is relevant.
+            states: style.states.text_only(),
+            initial_state: 0,
             argb: ArgbOut {
                 background: 0,
                 text: text_color(style),

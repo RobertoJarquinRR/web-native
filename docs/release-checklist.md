@@ -17,7 +17,7 @@ Principios:
 - [ ] Elegir versión **semver** `vX.Y.Z`; pre-1.0 mientras la API no sea estable.
 - [ ] Confirmar que `wn_version()` devuelve exactamente `X.Y.Z`
       (`src/runtime/wn_common.c`; hoy `0.1.0`).
-- [ ] Confirmar `WN_ABI_VERSION` (`include/webnative.h`; hoy `4`) y que el bump,
+- [ ] Confirmar `WN_ABI_VERSION` (`include/webnative.h`; hoy `7`) y que el bump,
       si lo hay, está justificado y documentado en `docs/abi.md`.
 - [ ] Declarar en las notas: versión de subset (`v1`), schema de UI tree
       (`/1`, `/2`, `/3`, o el nuevo), y versión de `benchmarks/frontend-parity/SPEC.md`.
@@ -70,11 +70,11 @@ Construir y conservar (nombres reales del repo):
 | ----------------------------------------- | -------------------------------- | ----------------------------------------------- |
 | `build/release/wgpu_native.dll`           | `python tools\cli.py setup wgpu` | Runtime GPU opcional (`--no-wgpu` no lo necesita) |
 | `build/release/runtime_r2.exe`            | `python tools\cli.py build`      | Layout runtime, eventos, `--render`, `--frames` |
-| `build/release/standalone.exe`            | `python tools\cli.py build`      | Demo standalone (ABI v6)                        |
-| `build/release/embedded.exe`              | `python tools\cli.py build`      | Demo embedded (ABI v6)                          |
+| `build/release/standalone.exe`            | `python tools\cli.py build`      | Demo standalone (ABI v7)                        |
+| `build/release/embedded.exe`              | `python tools\cli.py build`      | Demo embedded (ABI v7)                          |
 | `build/release/webnative.dll` (+ `.lib`)  | `python tools\cli.py build`      | Motor como DLL (ABI C)                          |
 | `src/runtime/build/release/abi_smoke.exe` | `python tools\cli.py build`      | Smoke de la ABI                                 |
-| `include/webnative.h`                     | repo                             | Contrato C v6 (SDK)                             |
+| `include/webnative.h`                     | repo                             | Contrato C v7 (SDK)                             |
 | `src/ir/schema.json`                      | repo                             | Contrato del display list                       |
 
 - [ ] Build reproducible desde el tag: `python tools\cli.py build` (R1 queda
@@ -173,7 +173,7 @@ Estado real según `docs/support.md`; no prometer lo que no hay:
 | IME / i18n    | Sin IME; input UTF-8 de una línea; sin bidi, CJK ni emoji                                                                      |
 | DPI           | System-aware básico; sin `WM_DPICHANGED` ni multi-monitor                                                                 |
 | Texto         | Shape/raster/medición en runtime (DirectWrite); `font-weight`, `line-height`, `text-align`; sin wrapping todavía |
-| CSS           | `position: relative/absolute` (blob v4) con insets px/%/auto y `z-index` + stacking contexts (blob v5); sin `fixed`/`sticky`/`inset`, `transform`, `transition`, `animation`, `float`; borders/radius uniformes; una sombra no-inset |
+| CSS           | `position: relative/absolute` (blob v4) con insets px/%/auto y `z-index` + stacking contexts (blob v5) + estados CSS (blob v6, ABI v7); sin `fixed`/`sticky`/`inset`, `transform`, `transition`, `animation`, `float`; borders/radius uniformes; una sombra no-inset |
 | Layout        | Sin virtualización/culling; grids con `repeat(auto-fill, px)` pilot                                                       |
 | Host          | Una ventana por app; sin tray, diálogos, notificaciones ni drag & drop                                                    |
 | Renderer      | wgpu/D3D12 por defecto; D3D11 en curso; WARP lento y con RSS alto                                                         |

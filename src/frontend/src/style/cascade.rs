@@ -5,12 +5,15 @@
 
 use std::collections::HashMap;
 
-use crate::parse::css::{parse_declarations, Rule};
+use crate::parse::css::{
+    parse_declarations, Rule, STATE_ACTIVE, STATE_DISABLED, STATE_FOCUS, STATE_HOVER,
+};
 use crate::parse::dom::{ua_display, Dom, NodeId};
 use crate::style::color::{length, parse_color, percentage};
 use crate::style::grid::{
     parse_grid_auto_rows, parse_grid_template_columns, GridAutoRows, GridTemplateColumns,
 };
+use crate::style::state::{StateStyle, StateStyles};
 use crate::style::style_ext::{
     parse_box_shadows, parse_number, parse_rel_length, resolve_border_radius, resolve_border_side,
     BorderOut, LengthCtx, RelLength, StyleV3,
@@ -100,6 +103,11 @@ pub(crate) struct ComputedStyle {
     pub(crate) data_action: Option<String>,
     /// v3 CSS extensions (borders, radius, shadows, relative units).
     pub(crate) css3: StyleV3,
+    /// Blob v6: effective `:hover`/`:active`/`:focus`/`:disabled` colors.
+    pub(crate) states: StateStyles,
+    /// `disabled` attribute on a `button`/`input`: the initial runtime
+    /// WN_STATE_DISABLED bit (blob v6 states record).
+    pub(crate) initial_disabled: bool,
 }
 
 pub(crate) fn compute_styles(
@@ -133,41 +141,14 @@ pub(crate) fn compute_styles(
             }
         }
 
-        let mut winners: HashMap<String, (Key, String)> = HashMap::new();
-        for (order, rule) in rules.iter().enumerate() {
-            if !rule.selector.matches(dom, id) {
-                continue;
-            }
-            let specificity = rule.selector.specificity();
-            for (declaration_index, declaration) in rule.declarations.iter().enumerate() {
-                let key: Key = (
-                    declaration.important as u8,
-                    0,
-                    specificity,
-                    order as u32,
-                    declaration_index as u32,
-                );
-                offer(&mut winners, &declaration.name, &declaration.value, key);
-            }
-        }
-
-        if let Some(inline) = dom.attr(id, "style") {
-            for (declaration_index, declaration) in parse_declarations(inline).iter().enumerate() {
-                let key: Key = (
-                    declaration.important as u8,
-                    1,
-                    (0, 0, 0),
-                    0,
-                    declaration_index as u32,
-                );
-                offer(&mut winners, &declaration.name, &declaration.value, key);
-            }
-        }
-
-        for (name, (_, value)) in winners {
+        // Base cascade: no state pseudo-class is active.
+        let winners = collect_winners(dom, id, rules, 0);
+        for (name, (_, value, _)) in winners {
             raw.insert(name, value);
         }
-        let style = resolve(dom, id, raw, parent_font_size, root_font_size, viewport);
+        let mut style = resolve(dom, id, raw, parent_font_size, root_font_size, viewport);
+        let parent_style = dom.nodes[id].parent.and_then(|parent| styles[parent].as_ref());
+        style.states = compute_state_styles(dom, id, rules, &style, parent_style);
         if dom.nodes[id].tag == "html" {
             root_font_size = style.font_size;
         }
@@ -176,13 +157,188 @@ pub(crate) fn compute_styles(
     styles
 }
 
-fn offer(map: &mut HashMap<String, (Key, String)>, name: &str, value: &str, key: Key) {
-    match map.get(name) {
-        Some((current, _)) if *current > key => {}
-        _ => {
-            map.insert(name.to_string(), (key, value.to_string()));
+/// Winner map for one state mask. `bool` is true when the winning declaration
+/// comes from a rule with a state pseudo-class, so the value is a state
+/// override (and not just the base/inline value re-evaluated for the state).
+type Winners = HashMap<String, (Key, String, bool)>;
+
+fn collect_winners(dom: &Dom, id: NodeId, rules: &[Rule], state_mask: u8) -> Winners {
+    let mut winners: Winners = HashMap::new();
+    for (order, rule) in rules.iter().enumerate() {
+        if !rule.selector.matches_with_state(dom, id, state_mask) {
+            continue;
+        }
+        let specificity = rule.selector.specificity();
+        let from_state = rule.selector.has_state_pseudo();
+        for (declaration_index, declaration) in rule.declarations.iter().enumerate() {
+            let key: Key = (
+                declaration.important as u8,
+                0,
+                specificity,
+                order as u32,
+                declaration_index as u32,
+            );
+            offer(
+                &mut winners,
+                &declaration.name,
+                &declaration.value,
+                key,
+                from_state,
+            );
         }
     }
+    if let Some(inline) = dom.attr(id, "style") {
+        for (declaration_index, declaration) in parse_declarations(inline).iter().enumerate() {
+            let key: Key = (
+                declaration.important as u8,
+                1,
+                (0, 0, 0),
+                0,
+                declaration_index as u32,
+            );
+            offer(
+                &mut winners,
+                &declaration.name,
+                &declaration.value,
+                key,
+                false,
+            );
+        }
+    }
+    winners
+}
+
+fn offer(
+    map: &mut Winners,
+    name: &str,
+    value: &str,
+    key: Key,
+    from_state: bool,
+) {
+    match map.get(name) {
+        Some((current, _, _)) if *current > key => {}
+        _ => {
+            map.insert(name.to_string(), (key, value.to_string(), from_state));
+        }
+    }
+}
+
+/// Builds the four effective state styles for one node.
+///
+/// Combination rule (documented in `docs/wnui-format.md`):
+/// - hover: `:hover` only.
+/// - press: `:hover` and `:active` active together, so press includes the
+///   hover declarations through the normal cascade.
+/// - focus: `:focus` only.
+/// - disabled: `:disabled` only, and only for nodes that can be disabled
+///   (`button`/`input`); the runtime bit decides when it applies.
+fn compute_state_styles(
+    dom: &Dom,
+    id: NodeId,
+    rules: &[Rule],
+    base: &ComputedStyle,
+    parent: Option<&ComputedStyle>,
+) -> StateStyles {
+    let tag = dom.nodes[id].tag.as_str();
+    let can_disable = tag == "button" || tag == "input";
+    StateStyles {
+        hover: compute_state(dom, id, rules, base, parent, STATE_HOVER),
+        press: compute_state(
+            dom,
+            id,
+            rules,
+            base,
+            parent,
+            STATE_HOVER | STATE_ACTIVE,
+        ),
+        focus: compute_state(dom, id, rules, base, parent, STATE_FOCUS),
+        disabled: if can_disable {
+            compute_state(dom, id, rules, base, parent, STATE_DISABLED)
+        } else {
+            None
+        },
+    }
+}
+
+fn compute_state(
+    dom: &Dom,
+    id: NodeId,
+    rules: &[Rule],
+    base: &ComputedStyle,
+    parent: Option<&ComputedStyle>,
+    state_mask: u8,
+) -> Option<StateStyle> {
+    let winners = collect_winners(dom, id, rules, state_mask);
+    let parent_text = parent.and_then(|style| parent_state_text(style, state_mask));
+    let background = state_color(&winners, "background-color")
+        .or_else(|| state_color(&winners, "background"));
+    // `color` is inherited. A node with no own color declaration follows the
+    // parent's effective color for the same state; a node with its own base
+    // color keeps it (no override is needed).
+    let text = if let Some(value) = state_color(&winners, "color") {
+        Some(value)
+    } else if !winners.contains_key("color") {
+        parent_text.map(str::to_string)
+    } else {
+        None
+    };
+    let border = state_border(&winners, base, text.as_deref());
+    let style = StateStyle {
+        background,
+        text,
+        border,
+    };
+    if style.is_empty() {
+        None
+    } else {
+        Some(style)
+    }
+}
+
+/// Color override declared by an *active state rule*; `None` for base/inline
+/// winners (those are already part of the base style).
+fn state_color(winners: &Winners, name: &str) -> Option<String> {
+    let (_, value, from_state) = winners.get(name)?;
+    if !from_state {
+        return None;
+    }
+    parse_color(Some(value))
+}
+
+fn parent_state_text(style: &ComputedStyle, state_mask: u8) -> Option<&str> {
+    let states = &style.states;
+    let state = match state_mask {
+        STATE_HOVER => states.hover.as_ref(),
+        mask if mask == (STATE_HOVER | STATE_ACTIVE) => states.press.as_ref(),
+        STATE_FOCUS => states.focus.as_ref(),
+        STATE_DISABLED => states.disabled.as_ref(),
+        _ => None,
+    };
+    state.and_then(|state| state.text.as_deref())
+}
+
+/// Recolors the first visible base border side when a state rule changes it.
+/// Only the color travels: state rules do not change border width/style in
+/// this lane.
+fn state_border(winners: &Winners, base: &ComputedStyle, state_text: Option<&str>) -> Option<String> {
+    for (side, border) in base.css3.border.sides() {
+        if !border.visible() {
+            continue;
+        }
+        let name = format!("border-{side}-color");
+        let Some((_, value, true)) = winners.get(&name) else {
+            continue;
+        };
+        if value.trim().eq_ignore_ascii_case("currentcolor") {
+            return Some(
+                state_text
+                    .map(str::to_string)
+                    .unwrap_or_else(|| base.color.clone()),
+            );
+        }
+        return parse_color(Some(value));
+    }
+    None
 }
 
 fn resolve(
@@ -320,6 +476,9 @@ fn resolve(
     // declarations stay `auto` (CSS drops an unsupported value). The subset
     // reports malformed values separately.
     let z_index = raw.get("z-index").and_then(|value| parse_z_index(value));
+    let states = StateStyles::default();
+    let initial_disabled = (tag == "button" || tag == "input")
+        && dom.attr(id, "disabled").is_some();
 
     // E1: text-align is discrete and inherited; line-height resolves to px
     // (`normal` -> 0.0 so the runtime uses ascender + descender).
@@ -399,6 +558,8 @@ fn resolve(
             border_radius_rel,
             box_shadow,
         },
+        states,
+        initial_disabled,
         raw,
     }
 }

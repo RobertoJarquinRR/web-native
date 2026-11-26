@@ -119,6 +119,17 @@ resultantes; el clip del absoluto es el de los hijos de su containing block
 (un `overflow` estático intermedio que no es containing block no lo recorta).
 `fixed` y `sticky` quedan fuera de esta lane.
 
+### Estados CSS (blob v6, ABI v7)
+
+El frontend compila `:hover`, `:active` (press incluye hover), `:focus` y
+`:disabled` a cuatro estilos efectivos de `background`, `color` y color de
+borde. `disabled`/`focus` del nodo son bits (`WN_STATE_DISABLED`,
+`WN_STATE_FOCUSED`); el input enciende el foco al editar y lo apaga al hacer
+blur. La prioridad por campo es `disabled > press > hover > focus > base`, con
+`selected` como base de la app y `data-*` como fallback. Un nodo deshabilitado
+(o su subárbol) es inerte al puntero pero sigue visible en `wn_node_at` y
+`wn_node_get_rect`.
+
 ### Z-index y stacking contexts (blob v5)
 
 Un contexto lo crea la raíz, un nodo con `opacity < 1` o un nodo posicionado

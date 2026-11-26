@@ -440,14 +440,17 @@ int wn_core_focus_input(wn_core *core, int node, float pointer_x)
         return -1;
     }
     record = input_record(core, node);
-    if (record == NULL) {
+    if (record == NULL || wn_core_node_disabled(core, node)) {
         return -1;
     }
     ensure_layout_for_hit(core);
     if (core->input_focus >= 0 && core->input_focus != node) {
         core->input_anchor[core->input_focus] = -1;
+        core->state[core->input_focus] =
+            WN_STATE_CLEAR(core->state[core->input_focus], WN_STATE_FOCUSED);
     }
     core->input_focus = node;
+    core->state[node] |= (unsigned char)WN_STATE_FOCUSED;
     core->input_anchor[node] = -1;
     input_update_scroll(core, node);
     core->input_cursor[node] = input_caret_from_x(core, node, pointer_x);
@@ -485,6 +488,7 @@ int wn_core_blur_input(wn_core *core)
         return -1;
     }
     core->input_anchor[node] = -1;
+    core->state[node] = WN_STATE_CLEAR(core->state[node], WN_STATE_FOCUSED);
     core->input_focus = -1;
     core->dirty = 1;
     return 0;
@@ -948,7 +952,8 @@ void build_input_text_geometry(wn_core *c, float viewport_w, float viewport_h)
         if (text[0] == '\0') {
             continue;
         }
-        color = use_placeholder ? WN_INPUT_PLACEHOLDER_COLOR : n->text_color;
+        color = use_placeholder ? WN_INPUT_PLACEHOLDER_COLOR
+                                : wn_core_node_text_color(c, node);
         a = (uint8_t)((color >> 24) & 0xFFu);
         if (a == 0u) {
             continue;

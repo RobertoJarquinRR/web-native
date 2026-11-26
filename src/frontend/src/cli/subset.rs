@@ -61,6 +61,22 @@ const ALLOWED_PSEUDO_CLASSES: [&str; 8] = [
     "only-child",
 ];
 
+/// State pseudo-classes supported by blob v6, local to the diagnostic.
+const HOOK_STATE_HOVER: u8 = 1 << 0;
+const HOOK_STATE_ACTIVE: u8 = 1 << 1;
+const HOOK_STATE_FOCUS: u8 = 1 << 2;
+const HOOK_STATE_DISABLED: u8 = 1 << 3;
+
+fn hook_state_bit(name: &str) -> Option<u8> {
+    match name {
+        "hover" => Some(HOOK_STATE_HOVER),
+        "active" => Some(HOOK_STATE_ACTIVE),
+        "focus" => Some(HOOK_STATE_FOCUS),
+        "disabled" => Some(HOOK_STATE_DISABLED),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Diagnostic {
     pub file: String,
@@ -727,8 +743,18 @@ fn check_selector(
     let bytes = selector.as_bytes();
     let mut unsupported = false;
     let mut index = 0usize;
+    let mut state_bits = 0u8;
     while index < bytes.len() {
         match bytes[index] {
+            b',' => {
+                // One state per rule is the supported contract; `:hover:active`
+                // is the press combination and is therefore allowed.
+                if report_state_combination(selector, path, line, state_bits, diagnostics) {
+                    unsupported = true;
+                }
+                state_bits = 0;
+                index += 1;
+            }
             b'\\' => index += 2,
             b'"' | b'\'' => {
                 let quote = bytes[index];
@@ -788,6 +814,8 @@ fn check_selector(
                         format!("pseudo-clase ':{name}' no soportada por subset v1"),
                     ));
                     unsupported = true;
+                } else if let Some(bit) = hook_state_bit(&name) {
+                    state_bits |= bit;
                 }
                 if index < bytes.len() && bytes[index] == b'(' {
                     index = skip_balanced(bytes, index);
@@ -809,7 +837,31 @@ fn check_selector(
             _ => index += 1,
         }
     }
+    if report_state_combination(selector, path, line, state_bits, diagnostics) {
+        unsupported = true;
+    }
     unsupported
+}
+
+fn report_state_combination(
+    selector: &str,
+    path: &Path,
+    line: u32,
+    state_bits: u8,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> bool {
+    if state_bits.count_ones() <= 1 || state_bits == (HOOK_STATE_HOVER | HOOK_STATE_ACTIVE) {
+        return false;
+    }
+    diagnostics.push(Diagnostic::new(
+        path,
+        line,
+        Some(format!("selector '{selector}'")),
+        "combinacion de pseudo-clases de estado no soportada en esta lane \
+         (solo una por regla; :hover:active forma el estilo press)"
+            .to_string(),
+    ));
+    true
 }
 
 fn is_ident_byte(byte: u8) -> bool {

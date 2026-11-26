@@ -19,6 +19,9 @@ typedef struct {
     size_t size;
 } WnBlobMap;
 
+_Static_assert(sizeof(WnBlobStateRecord) == 8, "WnBlobStateRecord must stay 8 bytes");
+_Static_assert(sizeof(WnBlobStateStyle) == 16, "WnBlobStateStyle must stay 16 bytes");
+
 static int blob_map_open(WnBlobMap *map, const char *path)
 {
     memset(map, 0, sizeof(*map));
@@ -165,6 +168,7 @@ static void document_free(wn_document *document)
     free(document->owned_nodes);
     free(document->owned_names);
     free(document->owned_inputs);
+    free(document->owned_states);
     if (document->owns_mapping &&
         (document->mapping != NULL || document->mapping_handle != NULL)) {
         WnBlobMap map;
@@ -255,10 +259,14 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
     const WnBlobSection *names_section;
     const WnBlobSection *strings_section;
     const WnBlobSection *inputs_section = NULL;
+    const WnBlobSection *states_section = NULL;
     uint32_t nodes_size = 0;
     uint32_t names_size = 0;
     uint32_t strings_size = 0;
     uint32_t inputs_size = 0;
+    uint32_t states_size = 0;
+    uint32_t state_total = 0;
+    UiStateStyle *states = NULL;
     const char *strings;
     wn_document *document;
     UiNode *nodes;
@@ -312,6 +320,11 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
                                   header->file_size, &inputs_size);
     if (inputs_section == NULL) {
         inputs_size = 0;
+    }
+    states_section = find_section(sections, header->section_count, WN_BLOB_SECTION_STATES,
+                                  header->file_size, &states_size);
+    if (states_section == NULL) {
+        states_size = 0;
     }
     if ((uint64_t)header->node_count * sizeof(WnBlobNode) != nodes_size ||
         (uint64_t)header->node_count * sizeof(uint32_t) != names_size ||
@@ -369,18 +382,130 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
             }
         }
     }
+    if (states_section != NULL && states_size > 0) {
+        /* First pass: validate the variable-length records and count the
+         * entries so the per-node pointers can be carved from one block. */
+        const unsigned char *state_data = data + states_section->offset;
+        uint32_t offset = 0;
+        int32_t previous_node = -1;
+        while (offset < states_size) {
+            WnBlobStateRecord record;
+            uint8_t seen = 0;
+            uint32_t entry;
+            if (states_size - offset < (uint32_t)sizeof(WnBlobStateRecord)) {
+                wn_set_error("wn_document_load_blob: %s: truncated states record",
+                             origin);
+                return NULL;
+            }
+            memcpy(&record, state_data + offset, sizeof(record));
+            offset += (uint32_t)sizeof(record);
+            if (record.node < 0 ||
+                (uint32_t)record.node >= header->node_count) {
+                wn_set_error("wn_document_load_blob: %s: state record references "
+                             "node %d", origin, (int)record.node);
+                return NULL;
+            }
+            /* Records are written in node order; requiring it rejects
+             * duplicates and keeps the carve-out single pass. */
+            if (record.node <= previous_node) {
+                wn_set_error("wn_document_load_blob: %s: state records are not in "
+                             "strictly increasing node order (%d after %d)",
+                             origin, (int)record.node, (int)previous_node);
+                return NULL;
+            }
+            previous_node = record.node;
+            if (record.state_count > 4) {
+                wn_set_error("wn_document_load_blob: %s: node %d has %u state "
+                             "entries (expected 0..4)", origin, (int)record.node,
+                             (unsigned)record.state_count);
+                return NULL;
+            }
+            if ((record.initial_state & ~(uint8_t)WN_STATE_DISABLED) != 0u) {
+                wn_set_error("wn_document_load_blob: %s: node %d has initial state "
+                             "0x%x (only WN_STATE_DISABLED is seeded by the "
+                             "document)", origin, (int)record.node,
+                             (unsigned)record.initial_state);
+                return NULL;
+            }
+            if ((states_size - offset) / (uint32_t)sizeof(WnBlobStateStyle) <
+                (uint32_t)record.state_count) {
+                wn_set_error("wn_document_load_blob: %s: truncated state entries "
+                             "for node %d", origin, (int)record.node);
+                return NULL;
+            }
+            for (entry = 0; entry < (uint32_t)record.state_count; ++entry) {
+                WnBlobStateStyle style;
+                uint8_t mask;
+                memcpy(&style, state_data + offset + entry * sizeof(style),
+                       sizeof(style));
+                if (style.state >= R2_STATE_STYLE_COUNT) {
+                    wn_set_error("wn_document_load_blob: %s: node %d has state "
+                                 "code %u", origin, (int)record.node,
+                                 (unsigned)style.state);
+                    return NULL;
+                }
+                mask = (uint8_t)(1u << style.state);
+                if ((seen & mask) != 0u) {
+                    wn_set_error("wn_document_load_blob: %s: node %d repeats "
+                                 "state %u", origin, (int)record.node,
+                                 (unsigned)style.state);
+                    return NULL;
+                }
+                seen |= mask;
+                if (style.present == 0u ||
+                    (style.present & ~(uint8_t)(R2_STATE_FIELD_BACKGROUND |
+                                                R2_STATE_FIELD_TEXT |
+                                                R2_STATE_FIELD_BORDER)) != 0u) {
+                    wn_set_error("wn_document_load_blob: %s: node %d state %u has "
+                                 "invalid present mask 0x%x", origin,
+                                 (int)record.node, (unsigned)style.state,
+                                 (unsigned)style.present);
+                    return NULL;
+                }
+                if (((style.present & R2_STATE_FIELD_BACKGROUND) != 0u &&
+                     style.background == 0u) ||
+                    ((style.present & R2_STATE_FIELD_TEXT) != 0u &&
+                     style.text == 0u) ||
+                    ((style.present & R2_STATE_FIELD_BORDER) != 0u &&
+                     style.border_color == 0u)) {
+                    wn_set_error("wn_document_load_blob: %s: node %d state %u has "
+                                 "a zero color (transparent is not representable in "
+                                 "a blob v6 state style)", origin,
+                                 (int)record.node, (unsigned)style.state);
+                    return NULL;
+                }
+            }
+            offset += (uint32_t)record.state_count * (uint32_t)sizeof(WnBlobStateStyle);
+            state_total += (uint32_t)record.state_count;
+        }
+        if (offset != states_size) {
+            wn_set_error("wn_document_load_blob: %s: states section has trailing bytes",
+                         origin);
+            return NULL;
+        }
+        if (state_total > header->node_count * 4u) {
+            wn_set_error("wn_document_load_blob: %s: too many state entries (%u)",
+                         origin, state_total);
+            return NULL;
+        }
+    }
 
     document = (wn_document *)calloc(1, sizeof(*document));
     nodes = (UiNode *)calloc(header->node_count, sizeof(UiNode));
     names = (const char **)calloc(header->node_count, sizeof(char *));
     depth = (int *)calloc(header->node_count, sizeof(int));
-    if (document == NULL || nodes == NULL || names == NULL || depth == NULL) {
+    if (state_total > 0) {
+        states = (UiStateStyle *)calloc(state_total, sizeof(UiStateStyle));
+    }
+    if (document == NULL || nodes == NULL || names == NULL || depth == NULL ||
+        (state_total > 0 && states == NULL)) {
         wn_set_error("wn_document_load_blob: %s: out of memory for %u nodes",
                      origin, header->node_count);
         free(document);
         free(nodes);
         free(names);
         free(depth);
+        free(states);
         return NULL;
     }
     document->refs = 1;
@@ -391,6 +516,7 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
         free(nodes);
         free(names);
         free(depth);
+        free(states);
         return NULL;
     }
 
@@ -524,6 +650,29 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
             names[i] = name != NULL ? name : "";
         }
     }
+    if (states_section != NULL && states_size > 0) {
+        const unsigned char *state_data = data + states_section->offset;
+        uint32_t offset = 0;
+        uint32_t entry = 0;
+        while (offset < states_size) {
+            WnBlobStateRecord record;
+            uint32_t index;
+            memcpy(&record, state_data + offset, sizeof(record));
+            offset += (uint32_t)sizeof(record);
+            nodes[record.node].initial_state = record.initial_state;
+            if (record.state_count > 0) {
+                nodes[record.node].state_styles = &states[entry];
+                nodes[record.node].state_style_count = record.state_count;
+            }
+            for (index = 0; index < (uint32_t)record.state_count; ++index) {
+                memcpy(&states[entry], state_data + offset + index * sizeof(states[entry]),
+                       sizeof(states[entry]));
+                ++entry;
+            }
+            offset += (uint32_t)record.state_count * (uint32_t)sizeof(WnBlobStateStyle);
+        }
+        document->owned_states = states;
+    }
     free(depth);
     depth = NULL;
 
@@ -579,6 +728,7 @@ fail:
     free(nodes);
     free(names);
     free(depth);
+    free(states);
     document_untrack(document);
     free(document);
     return NULL;

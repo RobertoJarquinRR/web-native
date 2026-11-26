@@ -22,15 +22,22 @@ formularios web: sin `form`, `action`, validación ni `submit`.
 | Estado | Se expresa con | Regla |
 |---|---|---|
 | Normal | — | Base. |
-| Hover | `:hover` | Solo puntero; no mueve el foco. |
-| Press | `:active` | Entre down y up sobre el mismo nodo. |
-| Focus | `:focus` | Anillo visible con teclado; en text input, caret. |
-| Disabled | `disabled` + `:disabled` | No recibe foco, eventos ni activación; UIA lo marca no disponible. |
-| Selected | `data-selected` / `aria-selected` | Estado de selección, no estilo; lo gobierna el host. |
+| Hover | `:hover` | Solo puntero; no mueve el foco. Estilo CSS compilado (v6). |
+| Press | `:active` | Entre down y up sobre el mismo nodo. El estilo press incluye hover. |
+| Focus | `:focus` | Bit `WN_STATE_FOCUSED` (v7); input focus lo enciende. Anillo/caret del editor. |
+| Disabled | `disabled` + `:disabled` | Bit `WN_STATE_DISABLED` (v7): inerte al puntero y al foco; UIA lo marcará no disponible. |
+| Selected | `data-selected` / `aria-selected` | Color base de la app; los estados CSS componen encima. Lo gobierna el host. |
 | Checked | `checked` / `aria-checked` | Alternancia binaria (checkbox, radio, toggle). |
 
 Estados específicos (`readonly`, `error`, `loading`, `indeterminado`) se suman a
 esta base y se documentan en la fila del widget.
+
+**Implementado (blob v6 / ABI v7):** `:hover`, `:active`, `:focus` y
+`:disabled` se compilan a cuatro estilos efectivos por nodo y el runtime elige
+por campo con `disabled > press > hover > focus > base`. Sólo viajan
+`background`, `color` y el color de borde uniforme; `:disabled` se guarda para
+`button`/`input` y el bit del host decide cuándo aplica. `:checked`,
+`:focus-visible`, `:focus-within`, `:nth-*` y transiciones siguen diferidos.
 
 ### Foco y teclado
 

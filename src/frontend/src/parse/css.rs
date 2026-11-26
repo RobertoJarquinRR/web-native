@@ -23,6 +23,24 @@ pub(crate) struct Rule {
     pub(crate) declarations: Vec<Declaration>,
 }
 
+/// State pseudo-classes are semantic in blob v6: the cascade matches them
+/// against a state mask instead of dropping the rule. Bits are local to this
+/// module; the blob/runtime use their own state ordering.
+pub(crate) const STATE_HOVER: u8 = 1 << 0;
+pub(crate) const STATE_ACTIVE: u8 = 1 << 1;
+pub(crate) const STATE_FOCUS: u8 = 1 << 2;
+pub(crate) const STATE_DISABLED: u8 = 1 << 3;
+
+fn pseudo_state(name: &str) -> Option<u8> {
+    match name {
+        "hover" => Some(STATE_HOVER),
+        "active" => Some(STATE_ACTIVE),
+        "focus" => Some(STATE_FOCUS),
+        "disabled" => Some(STATE_DISABLED),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 enum Simple {
     Type(String),
@@ -59,25 +77,47 @@ impl Selector {
         self.spec
     }
 
-    pub(crate) fn matches(&self, dom: &Dom, node: usize) -> bool {
-        self.matches_at(dom, node, self.parts.len() - 1)
+    /// Matches with the given state bits active. A rule only matches when
+    /// every state pseudo-class in the selector is present in `state_mask`:
+    /// `:hover:active` needs both bits, so it is part of the press style.
+    pub(crate) fn matches_with_state(&self, dom: &Dom, node: usize, state_mask: u8) -> bool {
+        self.matches_at(dom, node, self.parts.len() - 1, state_mask)
     }
 
-    fn matches_at(&self, dom: &Dom, node: usize, index: usize) -> bool {
-        if !compound_matches(dom, node, &self.parts[index].1) {
+    /// State pseudo-classes present in the selector (OR of `STATE_*`).
+    pub(crate) fn state_mask(&self) -> u8 {
+        let mut mask = 0u8;
+        for (_, compound) in &self.parts {
+            for simple in &compound.simples {
+                if let Simple::Pseudo(name) = simple {
+                    if let Some(bit) = pseudo_state(name) {
+                        mask |= bit;
+                    }
+                }
+            }
+        }
+        mask
+    }
+
+    pub(crate) fn has_state_pseudo(&self) -> bool {
+        self.state_mask() != 0
+    }
+
+    fn matches_at(&self, dom: &Dom, node: usize, index: usize, state_mask: u8) -> bool {
+        if !compound_matches(dom, node, &self.parts[index].1, state_mask) {
             return false;
         }
         if index == 0 {
             return true;
         }
         match self.parts[index].0 {
-            Combinator::Child => dom.nodes[node]
-                .parent
-                .map_or(false, |parent| self.matches_at(dom, parent, index - 1)),
+            Combinator::Child => dom.nodes[node].parent.map_or(false, |parent| {
+                self.matches_at(dom, parent, index - 1, state_mask)
+            }),
             Combinator::Descendant => {
                 let mut cursor = dom.nodes[node].parent;
                 while let Some(parent) = cursor {
-                    if self.matches_at(dom, parent, index - 1) {
+                    if self.matches_at(dom, parent, index - 1, state_mask) {
                         return true;
                     }
                     cursor = dom.nodes[parent].parent;
@@ -88,7 +128,7 @@ impl Selector {
     }
 }
 
-fn compound_matches(dom: &Dom, node: usize, compound: &Compound) -> bool {
+fn compound_matches(dom: &Dom, node: usize, compound: &Compound, state_mask: u8) -> bool {
     let element = &dom.nodes[node];
     for simple in &compound.simples {
         let ok = match simple {
@@ -102,7 +142,7 @@ fn compound_matches(dom: &Dom, node: usize, compound: &Compound) -> bool {
                     .as_ref()
                     .map_or(true, |expected| actual == expected.as_str()),
             },
-            Simple::Pseudo(name) => pseudo_matches(dom, node, name),
+            Simple::Pseudo(name) => pseudo_matches(dom, node, name, state_mask),
             Simple::Never => false,
         };
         if !ok {
@@ -112,7 +152,10 @@ fn compound_matches(dom: &Dom, node: usize, compound: &Compound) -> bool {
     true
 }
 
-fn pseudo_matches(dom: &Dom, node: usize, name: &str) -> bool {
+fn pseudo_matches(dom: &Dom, node: usize, name: &str, state_mask: u8) -> bool {
+    if let Some(bit) = pseudo_state(name) {
+        return state_mask & bit != 0;
+    }
     match name {
         "root" => dom.nodes[node].parent.is_none(),
         "first-child" => match dom.nodes[node].parent {
@@ -593,7 +636,14 @@ fn parse_compound(chars: &[char], mut index: usize) -> Option<(Compound, usize)>
                 } else if doubled
                     || !matches!(
                         name.as_str(),
-                        "root" | "first-child" | "last-child" | "only-child"
+                        "root"
+                            | "first-child"
+                            | "last-child"
+                            | "only-child"
+                            | "hover"
+                            | "active"
+                            | "focus"
+                            | "disabled"
                     )
                 {
                     simples.push(Simple::Never);

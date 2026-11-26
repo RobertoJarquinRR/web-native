@@ -111,23 +111,142 @@ static void ensure_image_batch_capacity(wn_core *c, int needed)
     }
 }
 
-static unsigned int node_color(const wn_core *c, int node)
+/* ------------------------------------------------------- state colors */
+
+/* Generated text runs follow the state of their owning element (their parent
+ * in the runtime tree); every other node uses its own mask. */
+static unsigned char effective_state(const wn_core *c, int node)
 {
     const UiNode *n = &c->nodes[node];
-    unsigned char state = c->state[node];
-    if (n->action == ACTION_NONE) {
+    if (n->kind == R2_NODE_TEXT && c->parent[node] >= 0) {
+        return c->state[c->parent[node]];
+    }
+    return c->state[node];
+}
+
+static const UiStateStyle *state_entry(const UiNode *n, int code)
+{
+    unsigned char i;
+    for (i = 0; i < n->state_style_count; ++i) {
+        if (n->state_styles[i].state == (unsigned char)code) {
+            return &n->state_styles[i];
+        }
+    }
+    return NULL;
+}
+
+static int state_color(const UiNode *n, int code, unsigned char field,
+                       unsigned int *out)
+{
+    const UiStateStyle *style = state_entry(n, code);
+    if (style == NULL || (style->present & field) == 0u) {
+        return 0;
+    }
+    switch (field) {
+    case R2_STATE_FIELD_BACKGROUND:
+        *out = style->background;
+        break;
+    case R2_STATE_FIELD_TEXT:
+        *out = style->text;
+        break;
+    default:
+        *out = style->border_color;
+        break;
+    }
+    return 1;
+}
+
+/* CSS state styles take precedence; data-* attributes remain the sugar for
+ * variants without CSS. Selected is the app's base color: it shows when no
+ * higher-priority state overrides the field. */
+unsigned int wn_core_node_background(const wn_core *c, int node)
+{
+    const UiNode *n = &c->nodes[node];
+    unsigned char state = effective_state(c, node);
+    unsigned int color;
+    if ((state & WN_STATE_DISABLED) != 0u) {
+        if (state_color(n, R2_STATE_STYLE_DISABLED, R2_STATE_FIELD_BACKGROUND,
+                        &color)) {
+            return color;
+        }
         return n->background;
     }
-    if ((state & WN_STATE_PRESS) != 0u && n->press_bg != 0) {
-        return n->press_bg;
+    if ((state & WN_STATE_PRESS) != 0u &&
+        state_color(n, R2_STATE_STYLE_PRESS, R2_STATE_FIELD_BACKGROUND, &color)) {
+        return color;
     }
-    if ((state & WN_STATE_HOVER) != 0u && n->hover_bg != 0) {
-        return n->hover_bg;
+    if ((state & WN_STATE_HOVER) != 0u &&
+        state_color(n, R2_STATE_STYLE_HOVER, R2_STATE_FIELD_BACKGROUND, &color)) {
+        return color;
     }
-    if ((state & WN_STATE_SELECTED) != 0u && n->selected_bg != 0) {
-        return n->selected_bg;
+    if ((state & WN_STATE_FOCUSED) != 0u &&
+        state_color(n, R2_STATE_STYLE_FOCUS, R2_STATE_FIELD_BACKGROUND, &color)) {
+        return color;
+    }
+    if (n->action != ACTION_NONE) {
+        if ((state & WN_STATE_PRESS) != 0u && n->press_bg != 0) {
+            return n->press_bg;
+        }
+        if ((state & WN_STATE_HOVER) != 0u && n->hover_bg != 0) {
+            return n->hover_bg;
+        }
+        if ((state & WN_STATE_SELECTED) != 0u && n->selected_bg != 0) {
+            return n->selected_bg;
+        }
     }
     return n->background;
+}
+
+unsigned int wn_core_node_text_color(const wn_core *c, int node)
+{
+    const UiNode *n = &c->nodes[node];
+    unsigned char state = effective_state(c, node);
+    unsigned int color;
+    if ((state & WN_STATE_DISABLED) != 0u) {
+        if (state_color(n, R2_STATE_STYLE_DISABLED, R2_STATE_FIELD_TEXT, &color)) {
+            return color;
+        }
+        return n->text_color;
+    }
+    if ((state & WN_STATE_PRESS) != 0u &&
+        state_color(n, R2_STATE_STYLE_PRESS, R2_STATE_FIELD_TEXT, &color)) {
+        return color;
+    }
+    if ((state & WN_STATE_HOVER) != 0u &&
+        state_color(n, R2_STATE_STYLE_HOVER, R2_STATE_FIELD_TEXT, &color)) {
+        return color;
+    }
+    if ((state & WN_STATE_FOCUSED) != 0u &&
+        state_color(n, R2_STATE_STYLE_FOCUS, R2_STATE_FIELD_TEXT, &color)) {
+        return color;
+    }
+    return n->text_color;
+}
+
+unsigned int wn_core_node_border_color(const wn_core *c, int node)
+{
+    const UiNode *n = &c->nodes[node];
+    unsigned char state = effective_state(c, node);
+    unsigned int color;
+    if ((state & WN_STATE_DISABLED) != 0u) {
+        if (state_color(n, R2_STATE_STYLE_DISABLED, R2_STATE_FIELD_BORDER, &color)) {
+            return color;
+        }
+        return n->border_color;
+    }
+    if ((state & WN_STATE_PRESS) != 0u &&
+        state_color(n, R2_STATE_STYLE_PRESS, R2_STATE_FIELD_BORDER, &color)) {
+        return color;
+    }
+    if ((state & WN_STATE_HOVER) != 0u &&
+        state_color(n, R2_STATE_STYLE_HOVER, R2_STATE_FIELD_BORDER, &color)) {
+        return color;
+    }
+    if ((state & WN_STATE_FOCUSED) != 0u &&
+        state_color(n, R2_STATE_STYLE_FOCUS, R2_STATE_FIELD_BORDER, &color)) {
+        return color;
+    }
+    return n->border_color;
 }
 
 /* ---------------------------------------------------------------- geometry */
@@ -741,7 +860,7 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
             continue;
         }
         r = &c->rects[node];
-        color = n->text_color;
+        color = wn_core_node_text_color(c, node);
         a = (uint8_t)((color >> 24) & 0xFFu);
         if (a == 0) {
             continue;
@@ -993,6 +1112,7 @@ void wn_core_build_display_list(wn_core *core)
         int node = item->node;
         const UiNode *n = &core->nodes[node];
         unsigned int color;
+        unsigned int border_color;
         const wn_rect *r;
         wn_paint_draw *draw = wn_core_draw_for_item(core, i);
         int solid_first = core->vertex_count;
@@ -1002,7 +1122,8 @@ void wn_core_build_display_list(wn_core *core)
             set_solid_clip(core, &item->clip);
             push_box_shadow(core, n, r);
         }
-        color = node_color(core, node);
+        color = wn_core_node_background(core, node);
+        border_color = wn_core_node_border_color(core, node);
         if (color == 0) {
             if (draw != NULL) {
                 paint_range_set(&draw->solid, solid_first, core->vertex_count,
@@ -1011,7 +1132,7 @@ void wn_core_build_display_list(wn_core *core)
             continue;
         }
         set_solid_clip(core, &item->clip);
-        if (n->border_width > 0.0f && ((n->border_color >> 24) & 0xFFu) != 0u &&
+        if (n->border_width > 0.0f && ((border_color >> 24) & 0xFFu) != 0u &&
             ((color >> 24) & 0xFFu) == 0xFFu) {
             /* Opaque fill: border ring first, then the background inset by the
              * uniform border width. Children still paint over the border box
@@ -1021,7 +1142,7 @@ void wn_core_build_display_list(wn_core *core)
             float inner_h = r->h - bw * 2.0f;
             float inner_r = n->border_radius - bw;
             push_box_shape(core, r->x, r->y, r->w, r->h,
-                           n->border_radius, n->border_color);
+                           n->border_radius, border_color);
             push_box_shape(core, r->x + bw, r->y + bw, inner_w, inner_h,
                            inner_r > 0.0f ? inner_r : 0.0f, color);
         } else {
