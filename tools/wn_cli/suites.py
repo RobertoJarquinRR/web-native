@@ -69,6 +69,9 @@ PINNED_BLOBS = {
     "css_card": "31ab1c766520935e243160e2d672e9dbb9bb367df270703d4f1b7c04af637f9c",
     "css_control": "5379156f84b8a9a6f0292f3201a3f81ab021583d0a686fb8682f88bebe43cd44",
     "css_none": "a148ca02ad727f4e49719ed4daf546e77ec8931095211e612609d8e0e43eec11",
+    # Group-opacity pixel fixtures (emitted by the css suite, verified there).
+    "opacity": "98cbe11d799cfcfc38d360975348ddcfd900908dd37fdc8780b8041eb0cec591",
+    "opacity_deep": "f70a6054be05a70ac958314f70cb8a0a50f822429c75c9d26f8a103931511fa1",
 }
 
 
@@ -347,6 +350,7 @@ def run_css() -> int:
          "--width", "400", "--height", "500", "--emit-blob", str(opacity_blob)],
         cwd=opacity_page,
     )
+    _assert_pinned_blob("opacity", opacity_blob)
     opacity_backends = ["d3d11"] + (["wgpu"] if wgpu_available() else [])
     for opacity_backend in opacity_backends:
         png = out / f"render_opacity_{opacity_backend}.png"
@@ -372,9 +376,14 @@ def run_css() -> int:
                         "--render", "400", "500", str(png),
                         "--focus", str(input_id), "--select-all"],
              opacity_page, environment)
-        _python(opacity_suite / "verify_opacity.py",
-                ["--png", str(png), "--report", str(report),
-                 "--backend", opacity_backend], cwd=opacity_suite)
+        # 21 checks: capture size, the group overlap trio, nested 0.5-in-0.5,
+        # solid/text/image leaf alpha, the bordered/border-pair/shadow/input/
+        # text-bg/image-bg multi-pass leaves, and the opacity-0 region.
+        _expect_reported_checks(
+            _python(opacity_suite / "verify_opacity.py",
+                    ["--png", str(png), "--report", str(report),
+                     "--backend", opacity_backend], cwd=opacity_suite),
+            f"opacity verify ({opacity_backend})", 21)
 
     log_step("opacity: deep nesting (10 groups) on d3d11" +
              (" + wgpu" if wgpu_available() else ")"))
@@ -389,6 +398,7 @@ def run_css() -> int:
          "--width", "400", "--height", "300", "--emit-blob", str(deep_blob)],
         cwd=deep_page,
     )
+    _assert_pinned_blob("opacity_deep", deep_blob)
     for deep_backend in opacity_backends:
         png = out / f"render_opacity_deep_{deep_backend}.png"
         report = out / f"layout_opacity_deep_{deep_backend}.json"
@@ -399,9 +409,13 @@ def run_css() -> int:
         _run(card_exe, ["--document", str(deep_blob),
                         "--render", "400", "300", str(png)],
              deep_page, environment)
-        _python(deep_suite / "verify_opacity_deep.py",
-                ["--png", str(png), "--report", str(report),
-                 "--backend", deep_backend], cwd=deep_suite)
+        # 4 checks: capture size, the ten nested groups, the 0.9^10 pixel and
+        # the untouched page background outside the stack.
+        _expect_reported_checks(
+            _python(deep_suite / "verify_opacity_deep.py",
+                    ["--png", str(png), "--report", str(report),
+                     "--backend", deep_backend], cwd=deep_suite),
+            f"opacity deep verify ({deep_backend})", 4)
 
     log_info("css core v1: PASS")
     return 0
@@ -603,6 +617,34 @@ def _expect_checks(text: str, label: str, minimum: int) -> None:
         raise CliError(f"{label} PASS line has an unreadable check count") from exc
     if count < minimum:
         raise CliError(f"{label} ran only {count} checks (expected at least {minimum})")
+
+
+def _expect_reported_checks(text: str, label: str, minimum: int) -> None:
+    """Requires the `<label>: N/M passed` summary with N == M and M >= minimum.
+
+    The pixel verifiers count probes themselves instead of printing the
+    `PASS (N checks)` line `_expect_checks` reads. The floor makes a deleted
+    probe fail the suite instead of shrinking it silently.
+    """
+    prefix = f"{label}: "
+    summary = None
+    for line in text.splitlines():
+        if line.startswith(prefix) and line.endswith(" passed"):
+            summary = line
+    if summary is None:
+        raise CliError(f"{label} did not report a `/N passed` summary")
+    counts = summary[len(prefix):-len(" passed")]
+    try:
+        passed_text, total_text = counts.split("/", 1)
+        passed, total = int(passed_text), int(total_text)
+    except ValueError as exc:
+        raise CliError(
+            f"{label} summary has an unreadable check count: {summary!r}"
+        ) from exc
+    if passed != total:
+        raise CliError(f"{label} reported {passed}/{total} passing checks")
+    if total < minimum:
+        raise CliError(f"{label} ran only {total} checks (expected at least {minimum})")
 
 
 def run_dynamic() -> int:

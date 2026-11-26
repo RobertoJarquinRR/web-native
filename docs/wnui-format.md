@@ -152,7 +152,8 @@ compara el texto contra `src/runtime/tests/dump/canonical.txt`. El golden existe
 para detectar regresiones silenciosas del dump; si el formato cambia a
 propósito, se actualiza con el blob correspondiente. El gate primario es el hash
 SHA-256 fijado en `PINNED_BLOBS` (`canonical`, `input`, `fidelity`, `pilot`, más
-`dynamic`, `cache` y `css_card`/`css_control`/`css_none` en sus suites): una
+`dynamic`, `cache`, `css_card`/`css_control`/`css_none` y
+`opacity`/`opacity_deep` en sus suites): una
 emisión nueva que difiera falla con el hash esperado, el real y la ruta del
 archivo. El suite `blob` sigue comparando
 además píxel a píxel (`blob-vs-builtin max=0`).
