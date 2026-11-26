@@ -20,7 +20,9 @@ typedef struct WnKindOps {
     const char *name;
     int is_leaf;
     /* Border-box width used only when the node has no forced/declared width.
-     * `available` is the parent content width the node is resolved against. */
+     * NULL means the default rule: fill the parent minus the margins (every
+     * kind except TEXT and IMAGE). `available` is the parent content width the
+     * node is resolved against. */
     float (*auto_width)(wn_core *c, int node, float available, float parent_content_h);
     /* Border-box height of a leaf when neither a declared px height nor a
      * percentage height applies. `width` is the resolved border-box width and
@@ -36,10 +38,21 @@ typedef struct WnKindOps {
                              float content_w, float content_h);
 } WnKindOps;
 
-/* Entry for `kind`, or NULL outside R2_NODE_BLOCK..R2_NODE_INPUT. Callers that
- * need to keep the historical behaviour for a corrupt kind fall back to
- * R2_NODE_BLOCK (see layout_node). */
-const WnKindOps *wn_kind_ops(int kind);
+/* One entry per R2_NODE_*, in enum order; core/kind_ops.c defines it. */
+enum { WN_KIND_COUNT = R2_NODE_INPUT + 1 };
+extern const WnKindOps wn_kind_table[WN_KIND_COUNT];
+
+/* Entry for `kind`, or NULL outside R2_NODE_BLOCK..R2_NODE_INPUT. Inline
+ * because layout_node asks once per node and the cost is visible in the pilot.
+ * Callers that need to keep the historical behaviour for a corrupt kind fall
+ * back to R2_NODE_BLOCK (see layout_node). */
+static inline const WnKindOps *wn_kind_ops(int kind)
+{
+    if (kind < R2_NODE_BLOCK || kind > R2_NODE_INPUT) {
+        return NULL;
+    }
+    return &wn_kind_table[kind];
+}
 
 /* Max-content width: the caller's declared px/% rule, then the kind hook.
  * Recursive so parent hooks ask their children the same question. */

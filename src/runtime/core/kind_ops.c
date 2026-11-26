@@ -82,14 +82,6 @@ static float text_node_height(const wn_core *c, int node, float max_width)
 
 /* ------------------------------------------------------------ width hooks */
 
-/* BLOCK, FLEX, GRID and INPUT share the fill-the-parent width rule. */
-static float fill_auto_width(wn_core *c, int node, float available, float parent_content_h)
-{
-    const UiNode *n = &c->nodes[node];
-    (void)parent_content_h;
-    return fmaxf(available - n->margin[1] - n->margin[3], 0.0f);
-}
-
 static float text_auto_width(wn_core *c, int node, float available, float parent_content_h)
 {
     const UiNode *n = &c->nodes[node];
@@ -237,30 +229,20 @@ static float input_intrinsic_width(wn_core *c, int node, float available)
 /* ------------------------------------------------------------------ table */
 
 /* One entry per R2_NODE_*, in enum order. */
-enum { WN_KIND_COUNT = R2_NODE_INPUT + 1 };
-
-static const WnKindOps g_kind_ops[WN_KIND_COUNT] = {
+const WnKindOps wn_kind_table[WN_KIND_COUNT] = {
     /* R2_NODE_BLOCK */
-    { "block", 0, fill_auto_width, NULL, block_intrinsic_width, wn_layout_block_children },
+    { "block", 0, NULL, NULL, block_intrinsic_width, wn_layout_block_children },
     /* R2_NODE_FLEX */
-    { "flex", 0, fill_auto_width, NULL, flex_intrinsic_width, wn_layout_flex_children },
+    { "flex", 0, NULL, NULL, flex_intrinsic_width, wn_layout_flex_children },
     /* R2_NODE_TEXT */
     { "text", 1, text_auto_width, text_auto_height, text_intrinsic_width, NULL },
     /* R2_NODE_GRID */
-    { "grid", 0, fill_auto_width, NULL, grid_intrinsic_width, wn_layout_grid_children },
+    { "grid", 0, NULL, NULL, grid_intrinsic_width, wn_layout_grid_children },
     /* R2_NODE_IMAGE */
     { "image", 1, image_auto_width, image_auto_height, image_intrinsic_width, NULL },
     /* R2_NODE_INPUT */
-    { "input", 1, fill_auto_width, input_auto_height, input_intrinsic_width, NULL },
+    { "input", 1, NULL, input_auto_height, input_intrinsic_width, NULL },
 };
-
-const WnKindOps *wn_kind_ops(int kind)
-{
-    if (kind < R2_NODE_BLOCK || kind > R2_NODE_INPUT) {
-        return NULL;
-    }
-    return &g_kind_ops[kind];
-}
 
 float wn_intrinsic_width(wn_core *c, int node, float available)
 {

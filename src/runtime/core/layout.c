@@ -724,8 +724,11 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
         w = n->width + WN_DECL_W(n);
     } else if (n->width_pct > 0.0f) {
         w = available_w * n->width_pct * 0.01f + WN_DECL_W(n);
-    } else {
+    } else if (ops->auto_width != NULL) {
         w = ops->auto_width(c, node, available_w, parent_content_h);
+    } else {
+        /* No kind-specific rule: fill the parent minus the margins. */
+        w = fmaxf(available_w - n->margin[1] - n->margin[3], 0.0f);
     }
 
     float x = origin_x + n->margin[3];

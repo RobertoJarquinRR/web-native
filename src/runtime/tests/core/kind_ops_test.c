@@ -82,8 +82,8 @@ int main(void)
         snprintf(label, sizeof(label), "kind %d layout_children is null exactly for leaves", kind);
         check(label, (ops->layout_children == NULL) == (ops->is_leaf != 0));
 
-        snprintf(label, sizeof(label), "kind %d has an auto_width hook", kind);
-        check(label, ops->auto_width != NULL);
+        snprintf(label, sizeof(label), "kind %d auto_width is the TEXT/IMAGE special case", kind);
+        check(label, (ops->auto_width != NULL) == (kind == R2_NODE_TEXT || kind == R2_NODE_IMAGE));
 
         snprintf(label, sizeof(label), "kind %d has an intrinsic_width hook", kind);
         check(label, ops->intrinsic_width != NULL);
