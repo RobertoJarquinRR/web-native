@@ -112,6 +112,8 @@ static const char *position_name(int value)
     switch (value) {
     case R2_POSITION_RELATIVE: return "relative";
     case R2_POSITION_ABSOLUTE: return "absolute";
+    case R2_POSITION_FIXED: return "fixed";
+    case R2_POSITION_STICKY: return "sticky";
     default: return "static";
     }
 }

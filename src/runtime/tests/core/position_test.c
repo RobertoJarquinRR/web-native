@@ -9,9 +9,14 @@
  *   absolute   - out of flow (siblings advance as if removed), nearest
  *                positioned ancestor, root containing block, stretch, auto
  *                width/height, nested absolute and bottom-only placement.
+ *   fixed      - out of flow, always the viewport containing block, ignores
+ *                ancestor scroll and clips, nested fixed/absolute.
+ *   sticky     - stays in flow, pins to the nearest scroll container's
+ *                scrollport by top/bottom inset, clamped by its parent block.
  *   scroll/hit - absolute nodes scroll with their containing block and are
  *                hittable at the placed rect; overflow clips them.
- *   loader     - the v4 position enum and inset mask are validated.
+ *   loader     - the v4 position enum (through sticky) and inset mask are
+ *                validated.
  *
  *   position_test.exe
  */
@@ -859,6 +864,345 @@ static int load_rejected(unsigned char *data, size_t size, const char *needle)
     return ok;
 }
 
+static void run_fixed_positioning(void)
+{
+    NodeSpec spec[5];
+    unsigned char *data;
+    size_t size = 0;
+    wn_document *document = NULL;
+    wn_core *core;
+
+    /* Root smaller than the viewport: fixed always uses the 400x300 viewport,
+     * not the root box. */
+    spec_init(&spec[0], -1, R2_NODE_BLOCK, 200.0f, 100.0f);
+    spec_init(&spec[1], 0, R2_NODE_BLOCK, -1.0f, -1.0f);
+    spec_init(&spec[2], 0, R2_NODE_BLOCK, 20.0f, 10.0f);
+    spec_init(&spec[3], 0, R2_NODE_BLOCK, 40.0f, 20.0f);
+    spec_init(&spec[4], 0, R2_NODE_BLOCK, 100.0f, 20.0f);
+
+    spec[1].position = R2_POSITION_FIXED;
+    spec[1].inset[0] = 10.0f;  /* top */
+    spec[1].inset[1] = 10.0f;  /* right */
+    spec[1].inset[2] = 10.0f;  /* bottom */
+    spec[1].inset[3] = 10.0f;  /* left */
+    spec[1].inset_mask = 0b1111u;
+
+    spec[2].position = R2_POSITION_FIXED;
+    spec[2].inset[0] = 50.0f;  /* top 50% */
+    spec[2].inset[3] = 25.0f;  /* left 25% */
+    spec[2].inset_mask = 0x99u;
+
+    spec[3].position = R2_POSITION_FIXED;
+    spec[3].inset[1] = 0.0f;   /* right */
+    spec[3].inset[2] = 0.0f;   /* bottom */
+    spec[3].inset_mask = 0b0110u;
+
+    data = build_blob(spec, 5u, 400u, 300u, &size);
+    core = data != NULL ? load_core(data, size, &document) : NULL;
+    if (!check("fixed: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        free(data);
+        return;
+    }
+
+    check("fixed: left+right/top+bottom stretch against the viewport",
+          rect_is(core, 1, 10, 10, 380, 280), "node 1 (10,10,380,280)");
+    check("fixed: percentage insets resolve against the viewport",
+          rect_is(core, 2, 100, 150, 20, 10), "node 2 (100,150)");
+    check("fixed: right/bottom anchor to the viewport corner",
+          rect_is(core, 3, 360, 280, 40, 20), "node 3 (360,280)");
+    check("fixed: an in-flow sibling keeps the root flow",
+          rect_is(core, 4, 0, 0, 100, 20), "node 4 at the root origin");
+    check("fixed: the topmost viewport box wins the hit",
+          wn_core_node_at(core, 380.0f, 290.0f) == 3, "node_at(380,290)");
+    check("fixed: the stretch box is hittable away from the corner",
+          wn_core_node_at(core, 50.0f, 50.0f) == 1, "node_at(50,50)");
+
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+    free(data);
+}
+
+static void run_fixed_scroll_independence(void)
+{
+    NodeSpec spec[6];
+    unsigned char *data;
+    size_t size = 0;
+    wn_document *document = NULL;
+    wn_core *core;
+
+    /* A scroller with tall content and two fixed badges inside it. Fixed
+     * ignores the scroller: no clip and no scroll translation. */
+    spec_init(&spec[0], -1, R2_NODE_BLOCK, 400.0f, 300.0f);
+    spec_init(&spec[1], 0, R2_NODE_BLOCK, 200.0f, 100.0f);
+    spec_init(&spec[2], 1, R2_NODE_BLOCK, 200.0f, 400.0f);
+    spec_init(&spec[3], 1, R2_NODE_BLOCK, 20.0f, 20.0f);
+    spec_init(&spec[4], 1, R2_NODE_BLOCK, 20.0f, 20.0f);
+    spec_init(&spec[5], 3, R2_NODE_BLOCK, 10.0f, 10.0f);
+    spec[1].overflow = R2_OVERFLOW_SCROLL;
+
+    spec[3].position = R2_POSITION_FIXED;
+    spec[3].inset[0] = 10.0f;
+    spec[3].inset[3] = 10.0f;
+    spec[3].inset_mask = 0b1001u;
+
+    spec[4].position = R2_POSITION_FIXED;
+    spec[4].inset[1] = 0.0f;
+    spec[4].inset[2] = 0.0f;
+    spec[4].inset_mask = 0b0110u;
+
+    /* Nested fixed: still viewport-anchored, not relative to node 3. */
+    spec[5].position = R2_POSITION_FIXED;
+    spec[5].inset[1] = 5.0f;
+    spec[5].inset[2] = 5.0f;
+    spec[5].inset_mask = 0b0110u;
+
+    data = build_blob(spec, 6u, 400u, 300u, &size);
+    core = data != NULL ? load_core(data, size, &document) : NULL;
+    if (!check("fixed scroll: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        free(data);
+        return;
+    }
+    check("fixed scroll: badge starts at the viewport inset",
+          rect_is(core, 3, 10, 10, 20, 20), "node 3 (10,10)");
+    check("fixed scroll: nested badge is viewport-anchored",
+          rect_is(core, 5, 385, 285, 10, 10), "node 5 (385,285)");
+    check("fixed scroll: the scroller clips its flow content",
+          core->clips[2].y == 0.0f && core->clips[2].h == 100.0f,
+          "node 2 clip starts at the scrollport");
+    check("fixed scroll: the fixed badge uses the viewport clip",
+          core->clips[3].x == 0.0f && core->clips[3].y == 0.0f &&
+              core->clips[3].w == 400.0f && core->clips[3].h == 300.0f,
+          "node 3 clip is the viewport");
+
+    check("fixed scroll: scroll_by(100) succeeds",
+          wn_core_scroll_by(core, 1, 0.0f, 100.0f) > 0, "scroll y=100");
+    check("fixed scroll: the flow content scrolls",
+          rect_is(core, 2, 0, -100, 200, 400), "node 2 y=-100");
+    check("fixed scroll: the fixed badge does not move",
+          rect_is(core, 3, 10, 10, 20, 20), "node 3 stays (10,10)");
+    check("fixed scroll: the corner badge does not move",
+          rect_is(core, 4, 380, 280, 20, 20), "node 4 stays (380,280)");
+    check("fixed scroll: the nested badge does not move",
+          rect_is(core, 5, 385, 285, 10, 10), "node 5 stays (385,285)");
+    check("fixed scroll: the badge is hittable over scrolled content",
+          wn_core_node_at(core, 15.0f, 15.0f) == 3, "node_at(15,15)");
+
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+    free(data);
+}
+
+static void run_fixed_nested_absolute(void)
+{
+    NodeSpec spec[3];
+    unsigned char *data;
+    size_t size = 0;
+    wn_document *document = NULL;
+    wn_core *core;
+
+    /* A fixed node is the containing block of its absolute descendants, even
+     * though the absolute pass runs before the fixed pass. */
+    spec_init(&spec[0], -1, R2_NODE_BLOCK, 400.0f, 300.0f);
+    spec_init(&spec[1], 0, R2_NODE_BLOCK, 100.0f, 80.0f);
+    spec_init(&spec[2], 1, R2_NODE_BLOCK, 20.0f, 15.0f);
+    spec[1].position = R2_POSITION_FIXED;
+    spec[1].inset[0] = 20.0f;
+    spec[1].inset[3] = 30.0f;
+    spec[1].inset_mask = 0b1001u;
+    spec[2].position = R2_POSITION_ABSOLUTE;
+    spec[2].inset[0] = 5.0f;
+    spec[2].inset[3] = 6.0f;
+    spec[2].inset_mask = 0b1001u;
+
+    data = build_blob(spec, 3u, 400u, 300u, &size);
+    core = data != NULL ? load_core(data, size, &document) : NULL;
+    if (!check("fixed nested absolute: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        free(data);
+        return;
+    }
+    check("fixed nested absolute: the fixed box resolves against the viewport",
+          rect_is(core, 1, 30, 20, 100, 80), "node 1 (30,20)");
+    check("fixed nested absolute: the absolute child uses the fixed box",
+          rect_is(core, 2, 36, 25, 20, 15), "node 2 (36,25)");
+    check("fixed nested absolute: the child wins the hit",
+          wn_core_node_at(core, 40.0f, 30.0f) == 2, "node_at(40,30)");
+
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+    free(data);
+}
+
+static void run_sticky_top(void)
+{
+    NodeSpec spec[5];
+    unsigned char *data;
+    size_t size = 0;
+    wn_document *document = NULL;
+    wn_core *core;
+
+    spec_init(&spec[0], -1, R2_NODE_BLOCK, 400.0f, 300.0f);
+    spec_init(&spec[1], 0, R2_NODE_BLOCK, 200.0f, 100.0f);
+    spec_init(&spec[2], 1, R2_NODE_BLOCK, 200.0f, 300.0f);
+    spec_init(&spec[3], 2, R2_NODE_BLOCK, 200.0f, 20.0f);
+    spec_init(&spec[4], 2, R2_NODE_BLOCK, 200.0f, 280.0f);
+    spec[1].overflow = R2_OVERFLOW_SCROLL;
+    spec[3].position = R2_POSITION_STICKY;
+    spec[3].inset[0] = 10.0f;
+    spec[3].inset_mask = 0b0001u;
+
+    data = build_blob(spec, 5u, 400u, 300u, &size);
+    core = data != NULL ? load_core(data, size, &document) : NULL;
+    if (!check("sticky top: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        free(data);
+        return;
+    }
+    check("sticky top: stays in flow at the threshold",
+          rect_is(core, 3, 0, 10, 200, 20), "node 3 pinned at y=10");
+    check("sticky top: the sibling content keeps its flow slot",
+          rect_is(core, 4, 0, 20, 200, 280), "node 4 y=20");
+
+    check("sticky top: scroll_by(50) succeeds",
+          wn_core_scroll_by(core, 1, 0.0f, 50.0f) > 0, "scroll y=50");
+    check("sticky top: pinned to scrollport top + inset",
+          rect_is(core, 3, 0, 10, 200, 20), "node 3 stays y=10");
+    check("sticky top: flow content scrolled under it",
+          rect_is(core, 4, 0, -30, 200, 280), "node 4 y=-30");
+    check("sticky top: hit-test at the pinned rect",
+          wn_core_node_at(core, 50.0f, 15.0f) == 3, "node_at(50,15)");
+
+    check("sticky top: scroll_by(150) to the end",
+          wn_core_scroll_by(core, 1, 0.0f, 150.0f) > 0, "scroll y=200");
+    check("sticky top: still pinned at max scroll",
+          rect_is(core, 3, 0, 10, 200, 20), "node 3 stays y=10");
+    check("sticky top: flow content reached the end",
+          rect_is(core, 4, 0, -180, 200, 280), "node 4 y=-180");
+
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+    free(data);
+}
+
+static void run_sticky_clamp(void)
+{
+    NodeSpec spec[5];
+    unsigned char *data;
+    size_t size = 0;
+    wn_document *document = NULL;
+    wn_core *core;
+
+    /* Short containing block: once its bottom reaches the scrollport, the
+     * sticky box is clamped and scrolls away with the parent. */
+    spec_init(&spec[0], -1, R2_NODE_BLOCK, 400.0f, 300.0f);
+    spec_init(&spec[1], 0, R2_NODE_BLOCK, 200.0f, 100.0f);
+    spec_init(&spec[2], 1, R2_NODE_BLOCK, 200.0f, 40.0f);
+    spec_init(&spec[3], 2, R2_NODE_BLOCK, 200.0f, 20.0f);
+    spec_init(&spec[4], 1, R2_NODE_BLOCK, 200.0f, 300.0f);
+    spec[1].overflow = R2_OVERFLOW_SCROLL;
+    spec[3].position = R2_POSITION_STICKY;
+    spec[3].inset[0] = 10.0f;
+    spec[3].inset_mask = 0b0001u;
+
+    data = build_blob(spec, 5u, 400u, 300u, &size);
+    core = data != NULL ? load_core(data, size, &document) : NULL;
+    if (!check("sticky clamp: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        free(data);
+        return;
+    }
+    check("sticky clamp: pinned at scroll 0",
+          rect_is(core, 3, 0, 10, 200, 20), "node 3 y=10");
+    wn_core_scroll_by(core, 1, 0.0f, 10.0f);
+    check("sticky clamp: still pinned while the block fits",
+          rect_is(core, 3, 0, 10, 200, 20), "node 3 y=10");
+    wn_core_scroll_by(core, 1, 0.0f, 10.0f);
+    check("sticky clamp: bottom edge reaches the block bottom",
+          rect_is(core, 3, 0, 0, 200, 20), "node 3 y=0 at scroll 20");
+    wn_core_scroll_by(core, 1, 0.0f, 10.0f);
+    check("sticky clamp: clamped box scrolls away with its parent",
+          rect_is(core, 3, 0, -10, 200, 20), "node 3 y=-10 at scroll 30");
+    check("sticky clamp: the tall sibling still drives the scroll range",
+          rect_is(core, 4, 0, 10, 200, 300), "node 4 y=10 at scroll 30");
+
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+    free(data);
+}
+
+static void run_sticky_bottom(void)
+{
+    NodeSpec spec[6];
+    unsigned char *data;
+    size_t size = 0;
+    wn_document *document = NULL;
+    wn_core *core;
+
+    spec_init(&spec[0], -1, R2_NODE_BLOCK, 400.0f, 300.0f);
+    spec_init(&spec[1], 0, R2_NODE_BLOCK, 200.0f, 100.0f);
+    spec_init(&spec[2], 1, R2_NODE_BLOCK, 200.0f, 220.0f);
+    spec_init(&spec[3], 2, R2_NODE_BLOCK, 200.0f, 150.0f);
+    spec_init(&spec[4], 2, R2_NODE_BLOCK, 200.0f, 20.0f);
+    spec_init(&spec[5], 2, R2_NODE_BLOCK, 200.0f, 50.0f);
+    spec[1].overflow = R2_OVERFLOW_SCROLL;
+    spec[4].position = R2_POSITION_STICKY;
+    spec[4].inset[2] = 10.0f; /* bottom */
+    spec[4].inset_mask = 0b0100u;
+
+    data = build_blob(spec, 6u, 400u, 300u, &size);
+    core = data != NULL ? load_core(data, size, &document) : NULL;
+    if (!check("sticky bottom: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        free(data);
+        return;
+    }
+    check("sticky bottom: pulled up to the bottom inset",
+          rect_is(core, 4, 0, 70, 200, 20), "node 4 stays (0,70)");
+    wn_core_scroll_by(core, 1, 0.0f, 50.0f);
+    check("sticky bottom: pinned while flow is below the threshold",
+          rect_is(core, 4, 0, 70, 200, 20), "node 4 y=70 at scroll 50");
+    wn_core_scroll_by(core, 1, 0.0f, 50.0f);
+    check("sticky bottom: returns to flow once it clears the threshold",
+          rect_is(core, 4, 0, 50, 200, 20), "node 4 y=50 at scroll 100");
+
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+    free(data);
+}
+
+static void run_sticky_without_scroller(void)
+{
+    NodeSpec spec[2];
+    unsigned char *data;
+    size_t size = 0;
+    wn_document *document = NULL;
+    wn_core *core;
+
+    spec_init(&spec[0], -1, R2_NODE_BLOCK, 400.0f, 300.0f);
+    spec_init(&spec[1], 0, R2_NODE_BLOCK, 100.0f, 20.0f);
+    spec[1].position = R2_POSITION_STICKY;
+    spec[1].inset[0] = 10.0f;
+    spec[1].inset_mask = 0b0001u;
+
+    data = build_blob(spec, 2u, 400u, 300u, &size);
+    core = data != NULL ? load_core(data, size, &document) : NULL;
+    if (!check("sticky no scroller: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        free(data);
+        return;
+    }
+    check("sticky no scroller: behaves as in-flow content",
+          rect_is(core, 1, 0, 0, 100, 20), "node 1 (0,0)");
+    check("sticky no scroller: still hittable",
+          wn_core_node_at(core, 50.0f, 10.0f) == 1, "node_at(50,10)");
+
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+    free(data);
+}
+
 static void run_loader_validation(void)
 {
     NodeSpec spec[2];
@@ -899,9 +1243,9 @@ static void run_loader_validation(void)
         return;
     }
     memcpy(copy, original, size);
-    ((WnBlobNode *)(copy + nodes_section->offset))[0].position = 3;
+    ((WnBlobNode *)(copy + nodes_section->offset))[0].position = 5;
     check("loader: position enum is validated",
-          load_rejected(copy, size, "position"), "position 3 rejected");
+          load_rejected(copy, size, "position"), "position 5 rejected");
 
     memcpy(copy, original, size);
     ((WnBlobNode *)(copy + nodes_section->offset))[0].position = -1;
@@ -960,6 +1304,38 @@ static void run_loader_validation(void)
         }
     }
 
+    memcpy(copy, original, size);
+    {
+        WnBlobNode *first = (WnBlobNode *)(copy + nodes_section->offset);
+        wn_document *document;
+        first->position = R2_POSITION_FIXED;
+        first->inset[0] = 4.0f;
+        first->inset_mask = 0x1u;
+        document = wn_document_load_blob_memory(copy, size);
+        check("loader: fixed survives the extended enum",
+              document != NULL && document->nodes[0].position == R2_POSITION_FIXED,
+              document != NULL ? NULL : wn_last_error());
+        if (document != NULL) {
+            wn_document_destroy(document);
+        }
+    }
+
+    memcpy(copy, original, size);
+    {
+        WnBlobNode *first = (WnBlobNode *)(copy + nodes_section->offset);
+        wn_document *document;
+        first->position = R2_POSITION_STICKY;
+        first->inset[0] = 6.0f;
+        first->inset_mask = 0x1u;
+        document = wn_document_load_blob_memory(copy, size);
+        check("loader: sticky survives the extended enum",
+              document != NULL && document->nodes[0].position == R2_POSITION_STICKY,
+              document != NULL ? NULL : wn_last_error());
+        if (document != NULL) {
+            wn_document_destroy(document);
+        }
+    }
+
     free(copy);
     free(original);
 }
@@ -977,6 +1353,13 @@ int main(void)
     run_scroll_max_exclusion();
     run_clipped_ancestor_escape();
     run_viewport_containing_block();
+    run_fixed_positioning();
+    run_fixed_scroll_independence();
+    run_fixed_nested_absolute();
+    run_sticky_top();
+    run_sticky_clamp();
+    run_sticky_bottom();
+    run_sticky_without_scroller();
     run_loader_validation();
 
     if (failures != 0) {

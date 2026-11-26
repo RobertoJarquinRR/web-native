@@ -209,7 +209,7 @@ static float layout_flex_children(wn_core *c, int parent, float content_x,
 
     for (child = c->first_child[parent]; child >= 0; child = c->next_sibling[child]) {
         if (!c->alive[child] || !c->visible[child] ||
-            WN_IS_ABSOLUTE(&c->nodes[child])) {
+            WN_IS_OUT_OF_FLOW(&c->nodes[child])) {
             continue;
         }
         ++count;
@@ -232,7 +232,7 @@ static float layout_flex_children(wn_core *c, int parent, float content_x,
     count = 0;
     for (child = c->first_child[parent]; child >= 0; child = c->next_sibling[child]) {
         if (!c->alive[child] || !c->visible[child] ||
-            WN_IS_ABSOLUTE(&c->nodes[child])) {
+            WN_IS_OUT_OF_FLOW(&c->nodes[child])) {
             continue;
         }
         items[count] = child;
@@ -585,7 +585,7 @@ static float layout_grid_children(wn_core *c, int parent, float content_x,
 
     for (child = c->first_child[parent]; child >= 0; child = c->next_sibling[child]) {
         if (!c->alive[child] || !c->visible[child] ||
-            WN_IS_ABSOLUTE(&c->nodes[child])) {
+            WN_IS_OUT_OF_FLOW(&c->nodes[child])) {
             continue;
         }
         ++count;
@@ -600,7 +600,7 @@ static float layout_grid_children(wn_core *c, int parent, float content_x,
             if (!c->alive[child] || !c->visible[child]) {
                 continue;
             }
-            if (WN_IS_ABSOLUTE(&c->nodes[child])) {
+            if (WN_IS_OUT_OF_FLOW(&c->nodes[child])) {
                 continue;
             }
             cursor += layout_node(c, child, content_x, cursor, content_w, content_h, 0, -1.0f, -1.0f);
@@ -632,7 +632,7 @@ static float layout_grid_children(wn_core *c, int parent, float content_x,
     k = 0;
     for (child = c->first_child[parent]; child >= 0; child = c->next_sibling[child]) {
         if (!c->alive[child] || !c->visible[child] ||
-            WN_IS_ABSOLUTE(&c->nodes[child])) {
+            WN_IS_OUT_OF_FLOW(&c->nodes[child])) {
             continue;
         }
         items[k] = child;
@@ -710,10 +710,10 @@ float wn_layout_block_children(wn_core *c, int node, float content_x, float cont
             mark_subtree_hidden(c, child);
             continue;
         }
-        /* Absolute children leave the flow: no cursor advance, no size
-         * contribution. The absolute pass lays them out once the containing
-         * block is final. */
-        if (WN_IS_ABSOLUTE(&c->nodes[child])) {
+        /* Out-of-flow children (absolute/fixed) leave the flow: no cursor
+         * advance, no size contribution. Their own pass lays them out once the
+         * containing block is final. */
+        if (WN_IS_OUT_OF_FLOW(&c->nodes[child])) {
             continue;
         }
         used = layout_node(c, child, content_x, cursor, content_w, content_h, 0, -1.0f, -1.0f);
@@ -980,7 +980,8 @@ static void absolute_scroll_offset(const wn_core *c, int node, int cb_node,
     }
 }
 
-static void layout_absolute_node(wn_core *c, int node, const WnContainingBlock *cb)
+static void layout_absolute_node(wn_core *c, int node, const WnContainingBlock *cb,
+                                 int apply_scroll)
 {
     const UiNode *n = &c->nodes[node];
     const float cb_w = cb->padding.w;
@@ -999,8 +1000,8 @@ static void layout_absolute_node(wn_core *c, int node, const WnContainingBlock *
     float forced_h = -1.0f;
     float bx;
     float by;
-    float scroll_dx;
-    float scroll_dy;
+    float scroll_dx = 0.0f;
+    float scroll_dy = 0.0f;
     int position_by_bottom = 0;
 
     if (width_auto && has_left && has_right) {
@@ -1036,7 +1037,9 @@ static void layout_absolute_node(wn_core *c, int node, const WnContainingBlock *
         position_by_bottom = !has_top && has_bottom;
     }
 
-    absolute_scroll_offset(c, node, cb->node, &scroll_dx, &scroll_dy);
+    if (apply_scroll) {
+        absolute_scroll_offset(c, node, cb->node, &scroll_dx, &scroll_dy);
+    }
 
     layout_node(c, node, bx - n->margin[3], by - n->margin[0], cb_w, cb_h, 0,
                 w_outer, forced_h);
@@ -1053,7 +1056,9 @@ static void layout_absolute_node(wn_core *c, int node, const WnContainingBlock *
 
 /* Recursive second pass: lay out absolute nodes in tree order once normal flow
  * (and relative offsets) has settled every containing block. Nested absolute
- * children use the absolute node itself as their containing block. */
+ * children use the absolute node itself as their containing block. Fixed
+ * subtrees are a boundary: the fixed pass owns them, so an absolute inside a
+ * fixed node is laid out once that fixed node has its viewport rect. */
 static void layout_absolute_children(wn_core *c, int node,
                                      const WnContainingBlock *inherited)
 {
@@ -1067,10 +1072,180 @@ static void layout_absolute_children(wn_core *c, int node,
         if (!c->alive[child] || !c->visible[child]) {
             continue;
         }
+        if (WN_IS_FIXED(&c->nodes[child])) {
+            continue;
+        }
         if (WN_IS_ABSOLUTE(&c->nodes[child])) {
-            layout_absolute_node(c, child, &cb);
+            layout_absolute_node(c, child, &cb, 1);
         }
         layout_absolute_children(c, child, &cb);
+    }
+}
+
+/* ----------------------------------------------------- fixed positioning */
+
+/* A fixed node leaves normal flow, always resolves its insets against the
+ * viewport and ignores every ancestor scroll offset. It is laid out after the
+ * absolute pass so a scrolled document has already settled; an absolute
+ * descendant inside it uses the fixed node as its containing block. */
+static void layout_fixed_children(wn_core *c, int node, float viewport_w,
+                                  float viewport_h)
+{
+    int child;
+    for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
+        if (!c->alive[child] || !c->visible[child]) {
+            continue;
+        }
+        if (WN_IS_FIXED(&c->nodes[child])) {
+            WnContainingBlock cb = containing_block_viewport(viewport_w, viewport_h);
+            WnContainingBlock fixed_cb;
+            layout_absolute_node(c, child, &cb, 0);
+            fixed_cb = containing_block_from_node(c, child);
+            layout_absolute_children(c, child, &fixed_cb);
+        }
+        layout_fixed_children(c, child, viewport_w, viewport_h);
+    }
+}
+
+/* ------------------------------------------------------ sticky positioning */
+
+/* Content box of a node: its padding box (layout ignores borders, so this is
+ * the rect the engine uses for both). */
+static wn_rect content_box(const wn_core *c, int node)
+{
+    const UiNode *n = &c->nodes[node];
+    const wn_rect *r = &c->rects[node];
+    wn_rect out;
+    out.x = r->x + n->padding[3];
+    out.y = r->y + n->padding[0];
+    out.w = fmaxf(r->w - n->padding[1] - n->padding[3], 0.0f);
+    out.h = fmaxf(r->h - n->padding[0] - n->padding[2], 0.0f);
+    return out;
+}
+
+static int nearest_scroll_ancestor(const wn_core *c, int node)
+{
+    int walk;
+    for (walk = c->parent[node]; walk >= 0; walk = c->parent[walk]) {
+        if (c->nodes[walk].overflow == R2_OVERFLOW_SCROLL) {
+            return walk;
+        }
+    }
+    return -1;
+}
+
+/* A sticky shift moves the node and its normal-flow subtree. Fixed descendants
+ * ignore ancestor offsets in CSS, and the fixed pass already gave them their
+ * viewport rect, so they (and their subtrees) stay put. */
+static void translate_subtree_flow(wn_core *c, int node, float dx, float dy)
+{
+    int child;
+    if (!c->alive[node] || !c->visible_eff[node] || WN_IS_FIXED(&c->nodes[node])) {
+        return;
+    }
+    c->rects[node].x += dx;
+    c->rects[node].y += dy;
+    for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
+        translate_subtree_flow(c, child, dx, dy);
+    }
+}
+
+/* Simplified vertical sticky:
+ *   - `top` pins the sticky box to the scrollport top + inset when normal flow
+ *     has scrolled it above that threshold; `bottom` pins it to the scrollport
+ *     bottom - inset when it would fall below. `top` wins when both are set.
+ *   - The shift is clamped so the box never leaves its containing block (the
+ *     parent's content box), which is how a sticky item scrolls away with its
+ *     parent at the end.
+ *   - Horizontal left/right follow the same rule. Horizontal page scroll is
+ *     reserved (scroll_max_x is always 0), so the x half is inert today.
+ *   - No scroll container above means no shift (the root does not scroll). */
+static void apply_sticky_node(wn_core *c, int node)
+{
+    const UiNode *n = &c->nodes[node];
+    int scroller = nearest_scroll_ancestor(c, node);
+    int parent = c->parent[node];
+    wn_rect scrollport;
+    wn_rect cb;
+    const wn_rect *r = &c->rects[node];
+    float dx = 0.0f;
+    float dy = 0.0f;
+
+    if (scroller < 0 || parent < 0) {
+        return;
+    }
+    scrollport = content_box(c, scroller);
+    cb = content_box(c, parent);
+
+    if (WN_INSET_SET(n, 0)) {
+        float threshold = scrollport.y + inset_value(n, 0, scrollport.h);
+        if (r->y < threshold) {
+            dy = threshold - r->y;
+        }
+    } else if (WN_INSET_SET(n, 2)) {
+        float threshold = scrollport.y + scrollport.h -
+                          inset_value(n, 2, scrollport.h);
+        if (r->y + r->h > threshold) {
+            dy = threshold - (r->y + r->h);
+        }
+    }
+    if (WN_INSET_SET(n, 3)) {
+        float threshold = scrollport.x + inset_value(n, 3, scrollport.w);
+        if (r->x < threshold) {
+            dx = threshold - r->x;
+        }
+    } else if (WN_INSET_SET(n, 1)) {
+        float threshold = scrollport.x + scrollport.w -
+                          inset_value(n, 1, scrollport.w);
+        if (r->x + r->w > threshold) {
+            dx = threshold - (r->x + r->w);
+        }
+    }
+
+    if (dy != 0.0f) {
+        float min_dy = cb.y - r->y;
+        float max_dy = cb.y + cb.h - r->h - r->y;
+        if (min_dy <= max_dy) {
+            if (dy < min_dy) {
+                dy = min_dy;
+            } else if (dy > max_dy) {
+                dy = max_dy;
+            }
+        } else {
+            dy = 0.0f;
+        }
+    }
+    if (dx != 0.0f) {
+        float min_dx = cb.x - r->x;
+        float max_dx = cb.x + cb.w - r->w - r->x;
+        if (min_dx <= max_dx) {
+            if (dx < min_dx) {
+                dx = min_dx;
+            } else if (dx > max_dx) {
+                dx = max_dx;
+            }
+        } else {
+            dx = 0.0f;
+        }
+    }
+    if (dx != 0.0f || dy != 0.0f) {
+        translate_subtree_flow(c, node, dx, dy);
+    }
+}
+
+/* Pre-order so an outer sticky shifts an inner sticky before the inner one is
+ * resolved against the same scrollport. */
+static void apply_sticky_positions(wn_core *c, int node)
+{
+    int child;
+    if (!c->alive[node] || !c->visible_eff[node]) {
+        return;
+    }
+    if (WN_IS_STICKY(&c->nodes[node])) {
+        apply_sticky_node(c, node);
+    }
+    for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
+        apply_sticky_positions(c, child);
     }
 }
 
@@ -1100,19 +1275,28 @@ int rect_is_empty(wn_rect r)
  *
  * Absolute nodes use the clip of their containing block's children instead of
  * the DOM parent's clip: CSS does not clip an out-of-flow descendant by an
- * `overflow` ancestor that is not its containing block (or inside it). The
+ * `overflow` ancestor that is not its containing block (or inside it). Fixed
+ * nodes ignore every ancestor clip and use the viewport clip: CSS fixes them
+ * to the viewport (the subset has no transforms that would change that). The
  * fallback root acts as a containing block too, so a static overflow ancestor
  * below the root does not clip an absolute node whose containing block is the
  * root. `cb_child_clip` is the child clip of the nearest positioned ancestor
  * (or the root), passed down through static ancestors. */
 static void compute_clips(wn_core *c, int node, wn_rect inherited_clip,
-                          wn_rect cb_child_clip)
+                          wn_rect cb_child_clip, wn_rect viewport_clip)
 {
     const UiNode *n = &c->nodes[node];
-    wn_rect clip = WN_IS_ABSOLUTE(n) ? cb_child_clip : inherited_clip;
-    wn_rect child_clip = clip;
+    wn_rect clip = inherited_clip;
+    wn_rect child_clip;
     int child;
     const int is_containing_block = c->parent[node] < 0 || WN_IS_POSITIONED(n);
+
+    if (WN_IS_FIXED(n)) {
+        clip = viewport_clip;
+    } else if (WN_IS_ABSOLUTE(n)) {
+        clip = cb_child_clip;
+    }
+    child_clip = clip;
 
     c->clips[node] = clip;
     if (n->overflow != R2_OVERFLOW_VISIBLE) {
@@ -1129,7 +1313,8 @@ static void compute_clips(wn_core *c, int node, wn_rect inherited_clip,
             continue;
         }
         compute_clips(c, child, child_clip,
-                      is_containing_block ? child_clip : cb_child_clip);
+                      is_containing_block ? child_clip : cb_child_clip,
+                      viewport_clip);
     }
 }
 
@@ -1158,15 +1343,30 @@ static int paint_group_root(const wn_core *c, int node)
     return c->nodes[node].opacity < 1.0f;
 }
 
-/* Blob v5: a positioned node with `z-index != auto` is a stacking context.
- * The root is a context too (handled by paint_context_root). z-index on a
- * static node is ignored: CSS only applies it to positioned boxes and to
- * flex/grid items, and this subset does not create flex/grid item contexts. */
+/* Blob v5: z-index applies to a positioned node and to a static flex/grid
+ * item (CSS Flexbox §5.4 / Grid §5.4). Any other static node ignores it. */
+static int paint_static_item_z_applies(const wn_core *c, int node)
+{
+    int parent = c->parent[node];
+    const UiNode *n = &c->nodes[node];
+    if (parent < 0 || WN_IS_POSITIONED(n) || WN_IS_OUT_OF_FLOW(n)) {
+        return 0;
+    }
+    return c->nodes[parent].kind == R2_NODE_FLEX ||
+           c->nodes[parent].kind == R2_NODE_GRID;
+}
+
+/* A positioned node with `z-index != auto` is a stacking context, and so is a
+ * static flex/grid item with an explicit z (it paints as if positioned). The
+ * root is a context too (handled by paint_context_root). */
 static int paint_z_context(const wn_core *c, int node)
 {
     const UiNode *n = &c->nodes[node];
-    return c->parent[node] >= 0 && WN_IS_POSITIONED(n) &&
-           n->z_index != R2_Z_INDEX_AUTO;
+    if (n->z_index == R2_Z_INDEX_AUTO) {
+        return 0;
+    }
+    return c->parent[node] >= 0 &&
+           (WN_IS_POSITIONED(n) || paint_static_item_z_applies(c, node));
 }
 
 static int paint_context_root(const wn_core *c, int node)
@@ -1176,12 +1376,14 @@ static int paint_context_root(const wn_core *c, int node)
 }
 
 /* Stacking level inside the parent context. An opacity group that is not
- * positioned is a z-auto context, so it sorts as 0; a positioned context with
- * an explicit z uses that integer (negative included). */
+ * positioned is a z-auto context, so it sorts as 0; a positioned context or a
+ * static flex/grid item context with an explicit z uses that integer
+ * (negative included). */
 static int paint_context_z(const wn_core *c, int node)
 {
     const UiNode *n = &c->nodes[node];
-    if (WN_IS_POSITIONED(n) && n->z_index != R2_Z_INDEX_AUTO) {
+    if (n->z_index != R2_Z_INDEX_AUTO &&
+        (WN_IS_POSITIONED(n) || paint_static_item_z_applies(c, node))) {
         return n->z_index;
     }
     return 0;
@@ -1856,7 +2058,12 @@ void layout_page(wn_core *c, float viewport_w, float viewport_h)
                     ? containing_block_from_node(c, root)
                     : containing_block_viewport(viewport_w, viewport_h);
             layout_absolute_children(c, root, &root_cb);
-            compute_clips(c, root, viewport, viewport);
+            /* Fixed nodes resolve against the viewport and ignore scroll, so
+             * they run after every scroll translation has settled. Sticky is
+             * in flow and shifts inside its nearest scroll container last. */
+            layout_fixed_children(c, root, viewport_w, viewport_h);
+            apply_sticky_positions(c, root);
+            compute_clips(c, root, viewport, viewport, viewport);
         }
         layered = paint_layers_begin(c, viewport);
         if (layered) {

@@ -27,7 +27,7 @@ coherente; este documento no lo cambia por su cuenta.
 | Feature | Prioridad | Dónde se nota hoy | Qué pasa si no está |
 |---|---|---|---|
 | `transition` | **Muy alta** | hover/press de botones y cards, chips de filtro, paneles que aparecen, foco | La UI se siente brusca y “de laboratorio”; es la diferencia más barata entre demo y producto |
-| `position` | **Muy alta** | dropdowns, tooltips, badges, overlays/modales, toasts, cabeceras sticky, FAB | Todo overlay se resuelve con trucos de layout o se queda fuera del piloto. `relative`/`absolute` **ya implementados (blob v4)**; `fixed`/`sticky` pendientes |
+| `position` | **Muy alta** | dropdowns, tooltips, badges, overlays/modales, toasts, cabeceras sticky, FAB | Todo overlay se resuelve con trucos de layout o se queda fuera del piloto. `relative`/`absolute`/`fixed`/`sticky` **ya implementados (blob v4, enum extendido)** |
 | `z-index` | **Alta (con overlays)** | orden de modal/toast/tooltip sobre el contenido, sombras y foco | Sin `position` no tiene sentido; con overlays es obligatorio |
 | `transform` | **Alta** | elevación en hover (`translateY`), press (`scale`), paneles deslizantes, spinners | Interacciones planas; además es el target barato de animar (no relayout) |
 | `animation` | **Media-alta** | skeleton/shimmer, spinners, progreso indeterminado | Se puede cubrir casi todo con `transition` + un caso concreto de rotación en bucle |
@@ -48,8 +48,8 @@ propiedad, es el modelo que exige.
 |---|---|---|---|
 | `transition` | Cualquier propiedad animable, `all`, listas, `cubic-bezier()`/`steps()`, delays, reversa, interrupción/retarget, eventos `transitionrun/start/end/cancel`, unidades mezcladas, interpolación de color en varios espacios | Necesita reloj, scheduler de frames, interrupción, invalidación selectiva y semántica de valores para cada propiedad | **Solo `opacity`, `background-color` y `border-color`** en v1 (transform se suma cuando exista transform 2D); duración y `ease`, `linear`, `ease-in`, `ease-out`; sin `all`, sin delays, sin eventos; interrupción = saltar al valor actual y re-interpolar |
 | `transform` | Matriz 2D/3D, `transform-origin`, funciones múltiples, `perspective`, anidamiento, interacción con `position: fixed`, `backface-visibility` | Cambia el espacio de pintado, el hit-test, el clip, el rasterizado de texto y sombras; 3D añade proyección y composición | **Solo 2D**: `translate`, `scale`, `rotate` alrededor del centro; una matriz por nodo; sin 3D ni perspectiva; texto solo en nodos sin rotación (o re-raster limitado) |
-| `position` | `static`, `relative`, `absolute`, `fixed`, `sticky`, `inset`, `auto` resuelto contra containing block, containing blocks por transform/filter/contain, interacción con scroll y `overflow` | Exige sacar nodos del flujo, calcular containing blocks, clipping por ancestro, scroll y orden de pintado | **`relative` + `absolute`** contra el ancestro posicionado más cercano (o raíz); `inset` en px; `fixed` y `sticky` en una fase posterior |
-| `z-index` | Contextos de apilamiento completos (position, transform, opacity, filter, isolation), orden entre contextos, enteros y `auto` | Es un árbol de contextos, no un número: paint order, hit-test y clipping deben compartir el mismo orden | **Implementado (blob v5)**: contextos anidados (raíz, `opacity < 1`, posicionado con `z != auto`), pasos negativos/0/positivos, hit-test en orden inverso; capas z-only sin textura |
+| `position` | `static`, `relative`, `absolute`, `fixed`, `sticky`, `inset`, `auto` resuelto contra containing block, containing blocks por transform/filter/contain, interacción con scroll y `overflow` | Exige sacar nodos del flujo, calcular containing blocks, clipping por ancestro, scroll y orden de pintado | **`relative` + `absolute` + `fixed` + `sticky`** contra el containing block correcto (ancestro posicionado, viewport para fixed, scroll container para sticky); `inset` en px/%/auto; `inset` shorthand sigue pendiente |
+| `z-index` | Contextos de apilamiento completos (position, transform, opacity, filter, isolation), orden entre contextos, enteros y `auto` | Es un árbol de contextos, no un número: paint order, hit-test y clipping deben compartir el mismo orden | **Implementado (blob v5)**: contextos anidados (raíz, `opacity < 1`, posicionado o ítem flex/grid static con `z != auto`), pasos negativos/0/positivos, hit-test en orden inverso; capas z-only sin textura |
 | `animation` | `@keyframes`, múltiples animaciones, `%` arbitrarios, `iteration-count`, `direction`, `fill-mode`, `delay`, `play-state`, eventos, composición con transitions | Es una línea de tiempo por nodo con su propio modelo de estados y eventos; equivale a un mini WAAPI | **Un `@keyframes` por nodo**, `transform`/`opacity`, `linear`/`ease`, `infinite`, sin eventos ni `fill-mode`; o directamente **no-go v1** y cubrir spinners en el host |
 | `float` | `left`, `right`, `clear`, block formatting contexts, margin collapsing alrededor, line boxes, shrink-to-fit, interacción con flex/grid | Reimplementa el modelo de flujo históricamente más frágil de CSS, incluido el texto que rodea | **No-go**. Si un target real pide texto alrededor de imagen, se evalúa un contrato propio y estrecho, no `float` |
 
@@ -162,7 +162,8 @@ revisable solo con un target real que lo exija.
    después de transition y de que E1 estabilice layout/pintado. Al llegar
    `transform`, se añade como propiedad animable a la transición limitada.
    Forman el paquete de overlays y microinteracción.
-3. **`fixed` y `sticky`: P2/P3** por separado; dependen de scroll y viewport.
+3. **`fixed` y `sticky`: hechos** en la lane de position, sobre el scroll
+   existente (ver `wnui-format.md`).
 4. **`animation` keyframes: futuro**; solo si un target concreto (spinner,
    skeleton) no se cubre con transition.
 5. **`float`: no-go**.
@@ -210,8 +211,9 @@ se descarta.
 - [x] Clip por `overflow: hidden` del ancestro correcto: el containing block
       recorta, y un `overflow` estático que no es el containing block no
       recorta al absoluto (verificado en `position_test`).
-- [x] `fixed`/`sticky` quedan explícitamente fuera hasta su propio go
-      (diagnosticados por el subset).
+- [x] `fixed` y `sticky` implementados: fixed usa el viewport e ignora el
+      scroll/clip de los ancestros; sticky sigue en flujo y se ancla al
+      scroll container más cercano. `inset` shorthand sigue pendiente.
 
 ### Animation keyframes
 

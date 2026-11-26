@@ -109,19 +109,19 @@ typedef struct {
     uint32_t font_family;
     int32_t font_weight;
     float opacity;
-    /* Blob v4: positioning. `position` is 0 static, 1 relative, 2 absolute.
-     * `inset` is top,right,bottom,left; `inset_mask` bit 0..3 marks a declared
-     * side and bit 4..7 marks that side as a percentage (value stays a
-     * percentage number; the runtime resolves it against the containing
-     * block). Mask 0 = all four insets are `auto`. */
+    /* Blob v4: positioning. `position` is 0 static, 1 relative, 2 absolute,
+     * 3 fixed, 4 sticky. `inset` is top,right,bottom,left; `inset_mask` bit
+     * 0..3 marks a declared side and bit 4..7 marks that side as a percentage
+     * (value stays a percentage number; the runtime resolves it against the
+     * containing block). Mask 0 = all four insets are `auto`. */
     int32_t position;
     float inset[4];
     uint32_t inset_mask;
     /* Blob v5: CSS `z-index`. WN_BLOB_Z_INDEX_AUTO (INT32_MIN) means `auto`;
-     * every other int32 is an explicit stacking level. Only a positioned node
-     * (relative/absolute) with a value other than auto creates a stacking
-     * context; z-index on a static non-flex/grid node is ignored by the
-     * runtime, matching CSS for the subset this engine supports. */
+     * every other int32 is an explicit stacking level. A positioned node
+     * (relative/absolute/fixed/sticky) or a static flex/grid item with a value
+     * other than auto creates a stacking context; z-index on any other static
+     * node is ignored by the runtime, matching CSS. */
     int32_t z_index;
 } WnBlobNode;
 

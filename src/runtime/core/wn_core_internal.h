@@ -104,6 +104,11 @@ typedef struct {
 /* Blob v4 positioning. `inset` order is top,right,bottom,left. */
 #define WN_POSITION(n) ((n)->position)
 #define WN_IS_ABSOLUTE(n) ((n)->position == R2_POSITION_ABSOLUTE)
+#define WN_IS_FIXED(n) ((n)->position == R2_POSITION_FIXED)
+#define WN_IS_STICKY(n) ((n)->position == R2_POSITION_STICKY)
+/* absolute and fixed both leave normal flow; sticky does not. */
+#define WN_IS_OUT_OF_FLOW(n) \
+    ((n)->position == R2_POSITION_ABSOLUTE || (n)->position == R2_POSITION_FIXED)
 #define WN_IS_POSITIONED(n) ((n)->position != R2_POSITION_STATIC)
 #define WN_INSET_SET(n, side) ((((n)->inset_mask) >> (side)) & 1u)
 #define WN_INSET_PCT(n, side) ((((n)->inset_mask) >> (4u + (side))) & 1u)

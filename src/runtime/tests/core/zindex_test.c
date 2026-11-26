@@ -17,7 +17,9 @@
  *   static group - a non-positioned `opacity < 1` group is a step-8 block, so
  *                it paints above in-flow siblings and composes with a
  *                positioned z auto box by tree order.
- *   static     - z-index on a static (non flex/grid) node is ignored, as CSS.
+ *   static     - z-index on a static (non flex/grid) node is ignored, as CSS;
+ *                on a static flex/grid item it creates a context and orders
+ *                over siblings (including a trapped nested context).
  *   empty clip - a group clipped to nothing allocates no texture, so an
  *                escaping absolute keeps painting (with and without an
  *                unrelated group on the page).
@@ -61,6 +63,12 @@ typedef struct {
     int z_index;
     int overflow;
     float opacity;
+    float margin[4];    /* top,right,bottom,left */
+    int direction;      /* 0 row, 1 column */
+    float gap;
+    int grid_mode;
+    float grid_column_px;
+    float grid_auto_rows;
 } NodeSpec;
 
 static uint32_t align_up8(uint32_t value)
@@ -122,11 +130,16 @@ static unsigned char *build_blob(const NodeSpec *spec, uint32_t count,
         nodes[i].inset_mask = spec[i].inset_mask;
         nodes[i].z_index = spec[i].z_index;
         nodes[i].overflow = spec[i].overflow;
+        memcpy(nodes[i].margin, spec[i].margin, sizeof(nodes[i].margin));
+        nodes[i].direction = spec[i].direction;
+        nodes[i].gap = spec[i].gap;
+        nodes[i].grid_mode = spec[i].grid_mode;
+        nodes[i].grid_column_px = spec[i].grid_column_px;
+        nodes[i].grid_auto_rows = spec[i].grid_auto_rows;
         nodes[i].font_size = 16.0f;
         nodes[i].flex_shrink = 1.0f;
         nodes[i].flex_basis = -1.0f;
         nodes[i].opacity = spec[i].opacity;
-        nodes[i].grid_auto_rows = -1.0f;
     }
     memset(data + names_offset, 0, names_bytes);
     memcpy(data + strings_offset, kStrings, sizeof(kStrings));
@@ -144,6 +157,7 @@ static void spec_init(NodeSpec *spec, int parent, float width, float height)
     spec->position = R2_POSITION_STATIC;
     spec->z_index = R2_Z_INDEX_AUTO;
     spec->opacity = 1.0f;
+    spec->grid_auto_rows = -1.0f;
 }
 
 static void set_absolute(NodeSpec *spec, float left, float top, float width,
@@ -512,6 +526,104 @@ static void run_relative_and_static(void)
     wn_document_destroy(document);
 }
 
+/* CSS Flexbox/Grid: an explicit z-index on a static item creates a stacking
+ * context, unlike the same value on an ordinary static block. */
+static void run_static_flex_grid_items(void)
+{
+    NodeSpec spec[4];
+    wn_document *document = NULL;
+    wn_core *core;
+    static const int forward[] = { 0, 1, 2 };
+    static const int swapped[] = { 0, 2, 1 };
+
+    /* Flex row: z 1 then z 2. The negative left margin makes the boxes
+     * overlap so the hit-test is meaningful. */
+    spec_init(&spec[0], -1, 200.0f, 100.0f);
+    spec_init(&spec[1], 0, 100.0f, 100.0f);
+    spec_init(&spec[2], 0, 100.0f, 100.0f);
+    spec[0].kind = R2_NODE_FLEX;
+    spec[1].z_index = 1;
+    spec[1].margin[3] = 0.0f;
+    spec[2].z_index = 2;
+    spec[2].margin[3] = -50.0f;
+
+    core = build_core(spec, 3u, &document);
+    if (!check("flex item z: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        return;
+    }
+    nodes_order(core, forward, 3, "flex item z: z 1 paints before z 2");
+    check("flex item z: the higher static item wins the hit",
+          wn_core_node_at(core, 60.0f, 10.0f) == 2, "node_at(60,10)");
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+
+    /* Swapped z: the earlier flex item is now on top despite DOM order. */
+    spec[1].z_index = 2;
+    spec[2].z_index = 1;
+    document = NULL;
+    core = build_core(spec, 3u, &document);
+    if (!check("flex item z swapped: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        return;
+    }
+    nodes_order(core, swapped, 3,
+                "flex item z swapped: z 2 paints after z 1 despite DOM order");
+    check("flex item z swapped: the earlier item wins the hit",
+          wn_core_node_at(core, 60.0f, 10.0f) == 1, "node_at(60,10)");
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+
+    /* Nested context: a z 100 absolute inside the z 1 flex item is trapped
+     * below the sibling flex item with z 2. */
+    spec_init(&spec[0], -1, 200.0f, 100.0f);
+    spec_init(&spec[1], 0, 100.0f, 100.0f);
+    spec_init(&spec[2], 1, 80.0f, 80.0f);
+    spec_init(&spec[3], 0, 100.0f, 100.0f);
+    spec[0].kind = R2_NODE_FLEX;
+    spec[1].z_index = 1;
+    set_absolute(&spec[2], 0.0f, 0.0f, 80.0f, 80.0f);
+    spec[2].z_index = 100;
+    spec[3].z_index = 2;
+    spec[3].margin[3] = -50.0f;
+    document = NULL;
+    core = build_core(spec, 4u, &document);
+    if (!check("flex item nested z: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        return;
+    }
+    {
+        static const int trapped[] = { 0, 1, 2, 3 };
+        nodes_order(core, trapped, 4,
+                    "flex item nested z: the z 100 child cannot escape z 1");
+    }
+    check("flex item nested z: the sibling z 2 wins the hit",
+          wn_core_node_at(core, 60.0f, 10.0f) == 3, "node_at(60,10)");
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+
+    /* Grid items: same rule, and z orders them even though tracks do not
+     * overlap. z 2 then z 1 in the DOM paints z 1 first. */
+    spec_init(&spec[0], -1, 200.0f, 50.0f);
+    spec_init(&spec[1], 0, 100.0f, 50.0f);
+    spec_init(&spec[2], 0, 100.0f, 50.0f);
+    spec[0].kind = R2_NODE_GRID;
+    spec[0].grid_mode = R2_GRID_AUTO_FILL;
+    spec[0].grid_column_px = 100.0f;
+    spec[1].z_index = 2;
+    spec[2].z_index = 1;
+    document = NULL;
+    core = build_core(spec, 3u, &document);
+    if (!check("grid item z: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        return;
+    }
+    nodes_order(core, swapped, 3,
+                "grid item z: z 1 paints before the earlier z 2");
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+}
+
 /* CSS Color 3 section 3.2: a non-positioned `opacity < 1` group lives in the
  * same layer as a positioned `z: 0` box (CSS step 8), not in the in-flow
  * content. e4b9c36 placed it there; ec15ce3 moved it into step 3 and broke
@@ -781,6 +893,7 @@ int main(void)
     run_nested();
     run_same_z();
     run_relative_and_static();
+    run_static_flex_grid_items();
     run_static_group_step8();
     run_empty_clip_group(0);
     run_empty_clip_group(1);
