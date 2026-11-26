@@ -187,6 +187,129 @@ fn state_combinations_and_unsupported_pseudos_are_diagnosed() {
     );
 }
 
+const ANCESTOR_STATE_PAGE: &str = r##"<!doctype html>
+<html><head><style>
+  body { display: block; background: #000000; }
+  .card {
+    display: block;
+    width: 160px;
+    height: 40px;
+    background: #101010;
+  }
+  .label { display: block; color: #ffffff; }
+  .card:hover { background: #222222; }
+  .card:hover .label { color: #ff0000; }
+</style></head><body>
+  <div id="card" class="card"><div id="label" class="label">Label</div></div>
+</body></html>
+"##;
+
+#[test]
+fn ancestor_state_pseudo_is_diagnosed_and_not_compiled() {
+    let report = diagnostics(ANCESTOR_STATE_PAGE, "states-ancestor");
+    assert!(
+        report.iter().any(|line| line.contains(".card:hover .label")
+            && line.contains("ancestro")),
+        "missing ancestor state diagnostic: {report:#?}"
+    );
+
+    let dir = temp_dir("states-ancestor-tree");
+    let tree = build(&dir, ANCESTOR_STATE_PAGE);
+    // The subject state still works...
+    let card = node_with_id(&tree, "card");
+    assert_eq!(
+        card.states
+            .hover
+            .as_ref()
+            .expect("card hover")
+            .background
+            .as_deref(),
+        Some("#222222")
+    );
+    // ...but the label is not silently given a hover style that would only
+    // fire if the label itself were hovered.
+    let label = node_with_id(&tree, "label");
+    assert!(
+        label.states.hover.is_none(),
+        "ancestor state must not compile a label hover style: {:#?}",
+        label.states
+    );
+}
+
+const UNSUPPORTED_STATE_PAGE: &str = r##"<!doctype html>
+<html><head><style>
+  body { display: block; background: #000000; }
+  .btn {
+    display: block;
+    width: 120px;
+    height: 30px;
+    padding: 2px;
+    background: #101010;
+    color: #ffffff;
+    border: 2px solid #202020;
+  }
+  .btn:hover {
+    opacity: 0.5;
+    padding: 8px;
+    width: 40px;
+    font-size: 20px;
+    z-index: 3;
+    border: 2px solid #ff0000;
+    border-width: 4px;
+    background: transparent;
+    color: rgba(0, 0, 0, 0);
+  }
+  .btn:active {
+    background-color: #3a4a5c;
+    border-color: #00ff00;
+  }
+</style></head><body>
+  <button id="btn" class="btn">Go</button>
+</body></html>
+"##;
+
+#[test]
+fn unsupported_state_declarations_and_zero_alpha_are_diagnosed() {
+    let report = diagnostics(UNSUPPORTED_STATE_PAGE, "states-unsupported");
+    for needle in [
+        "'opacity'",
+        "'padding'",
+        "'width'",
+        "'font-size'",
+        "'z-index'",
+        "'border'",
+        "'border-width'",
+        "alfa 0",
+    ] {
+        assert!(
+            report
+                .iter()
+                .any(|line| line.contains(needle) && line.contains("estado")),
+            "missing state diagnostic for {needle}: {report:#?}"
+        );
+    }
+
+    let dir = temp_dir("states-unsupported-tree");
+    let tree = build(&dir, UNSUPPORTED_STATE_PAGE);
+    let button = node_with_id(&tree, "btn");
+    // Unsupported declarations do not leak into the base style...
+    assert_eq!(button.style.padding, [2.0, 2.0, 2.0, 2.0]);
+    assert_eq!(button.style.width_px, 120.0);
+    assert_eq!(button.style.font_size, 16.0);
+    assert_eq!(button.style.opacity, 1.0);
+    assert_eq!(button.style.z_index, None);
+
+    // ...and the state style only carries the supported colors. The `border`
+    // shorthand contributes its color; its width/style are diagnosed.
+    let hover = button.states.hover.as_ref().expect("hover style");
+    assert_eq!(hover.background, None, "transparent has no state override");
+    assert_eq!(hover.text, None, "zero-alpha text has no override");
+    assert_eq!(hover.border.as_deref(), Some("#ff0000"));
+    let press = button.states.press.as_ref().expect("press style");
+    assert_eq!(press.background.as_deref(), Some("#3a4a5c"));
+    assert_eq!(press.border.as_deref(), Some("#00ff00"));
+}
+
 #[test]
 fn migrated_runtime_page_uses_css_states() {
     let page = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../src/runtime/page/index.html");

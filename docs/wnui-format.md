@@ -74,7 +74,8 @@ WnBlobStateRecord (8 bytes)   int32 node; uint8 state_count (0..4);
   los campos presentes se aplican; el resto conserva el valor base.
 - Los colores son ARGB. Un campo presente con color `0x00000000` se rechaza:
   esta lane no representa `transparent` como override de estado (el frontend
-  normaliza a `#rrggbb` opaco y descarta alfa ≤ 0).
+  normaliza a `#rrggbb` opaco, descarta alfa ≤ 0 y **diagnostica** ese color en
+  una regla de estado, para que no quede una declaración silenciosa).
 - El loader valida índice de nodo, orden, `state_count`, `initial_state`,
   códigos de estado, máscara `present`, colores y límites de la sección. Lleva
   registro todo nodo con algún estilo no-default **o** un `initial_state`
@@ -111,7 +112,11 @@ precedencia. `:disabled` gana siempre y suprime hover/press/selected.
 
 **Diferido:** `:checked`, `:focus-visible`, `:focus-within`, `:nth-*`,
 transiciones/animaciones, opacidad o layout por estado, y combinaciones de más
-de un estado salvo `:hover:active` (el subset las diagnostica). El color de
+de un estado salvo `:hover:active` (el subset las diagnostica). Un estado en un
+compuesto **ancestro** (`.card:hover .label`) tampoco se compila: el estado sólo
+se aplica al compuesto sujeto y el subset lo diagnostica. Una regla de estado
+sólo transporta colores (`background`, `color` y color de borde uniforme); las
+demás propiedades de la regla se diagnostican y no se aplican. El color de
 borde de estado es uniforme (recolorea los lados visibles); no cambia
 ancho/estilo por lado.
 
@@ -291,7 +296,8 @@ conserva el orden top/right/bottom/left y el valor crudo (un porcentaje se ve
 como su número, con el bit de porcentaje en `inset-mask`). `z-index` se imprime
 como `auto` o como el entero explícito. `states` lista los estilos v6 como
 `hover(bg=#ff…,text=#ff…,border=#ff…)` separados por comas, o `none`. Sólo se
-imprimen los campos presentes en el blob.
+imprimen los campos presentes en el blob. `initial-state` lista los bits con los
+que arranca el nodo (`disabled`, o `none`), p. ej. `initial-state=disabled`.
 
 Si hay inputs se añade una línea por input:
 
@@ -325,7 +331,8 @@ Mismas claves y valores, orden fijo:
 
 `inputs[]` lleva `node`, `value`, `placeholder`, `max_length` y `password`.
 `state_styles[]` lleva `state` (`hover`/`press`/`focus`/`disabled`) y los campos
-presentes (`background`, `text`, `border`) como `#AARRGGBB`.
+presentes (`background`, `text`, `border`) como `#AARRGGBB`. `initial_state`
+lleva la misma lista que el texto (`"disabled"` o `"none"`).
 
 ### Invariante del test
 

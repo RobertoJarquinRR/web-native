@@ -237,6 +237,51 @@ static void text_state_styles(FILE *out, const UiNode *node)
     }
 }
 
+/* Debug names for the bits in `WnBlobStateRecord.initial_state`. Today the
+ * loader only accepts WN_STATE_DISABLED, but the projection stays a bit list so
+ * a future seeded state is not hidden. */
+static const char *initial_state_name(const UiNode *node, char *buffer, size_t size)
+{
+    static const struct {
+        unsigned int bit;
+        const char *name;
+    } names[] = {
+        { WN_STATE_HOVER, "hover" },
+        { WN_STATE_PRESS, "press" },
+        { WN_STATE_SELECTED, "selected" },
+        { WN_STATE_FOCUSED, "focused" },
+        { WN_STATE_DISABLED, "disabled" },
+    };
+    size_t used = 0;
+    size_t i;
+    buffer[0] = '\0';
+    for (i = 0; i < sizeof(names) / sizeof(names[0]); ++i) {
+        int written;
+        if ((node->initial_state & names[i].bit) == 0u) {
+            continue;
+        }
+        written = snprintf(buffer + used, size - used, "%s%s",
+                           used > 0 ? "," : "", names[i].name);
+        if (written < 0) {
+            break;
+        }
+        used += (size_t)written;
+        if (used >= size) {
+            break;
+        }
+    }
+    if (buffer[0] == '\0') {
+        snprintf(buffer, size, "none");
+    }
+    return buffer;
+}
+
+static void text_initial_state(FILE *out, const UiNode *node)
+{
+    char buffer[64];
+    fprintf(out, " initial-state=%s", initial_state_name(node, buffer, sizeof(buffer)));
+}
+
 static void text_node(FILE *out, int index, const UiNode *node, const char *name)
 {
     fprintf(out, "node %d", index);
@@ -300,6 +345,7 @@ static void text_node(FILE *out, int index, const UiNode *node, const char *name
         fprintf(out, "%d", (int)node->z_index);
     }
     text_state_styles(out, node);
+    text_initial_state(out, node);
     text_string(out, "text", node->text);
     fputc('\n', out);
 }
@@ -429,6 +475,11 @@ static void json_node(FILE *out, int index, const UiNode *node, const char *name
         fprintf(out, "      \"z_index\": %d,\n", (int)node->z_index);
     }
     json_state_styles(out, node);
+    {
+        char buffer[64];
+        fprintf(out, "      \"initial_state\": \"%s\",\n",
+                initial_state_name(node, buffer, sizeof(buffer)));
+    }
     fprintf(out, "      \"text\": ");
     json_string(out, node->text);
     fprintf(out, "\n    }");

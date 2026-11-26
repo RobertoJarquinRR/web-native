@@ -123,12 +123,16 @@ resultantes; el clip del absoluto es el de los hijos de su containing block
 
 El frontend compila `:hover`, `:active` (press incluye hover), `:focus` y
 `:disabled` a cuatro estilos efectivos de `background`, `color` y color de
-borde. `disabled`/`focus` del nodo son bits (`WN_STATE_DISABLED`,
+borde. El estado sólo se aplica al compuesto sujeto (`.card:hover .label` se
+diagnostica y no se compila) y la regla sólo transporta esos tres grupos de
+color; cualquier otra declaración en una regla de estado se diagnostica.
+`disabled`/`focus` del nodo son bits (`WN_STATE_DISABLED`,
 `WN_STATE_FOCUSED`); el input enciende el foco al editar y lo apaga al hacer
 blur. La prioridad por campo es `disabled > press > hover > focus > base`, con
 `selected` como base de la app y `data-*` como fallback. Un nodo deshabilitado
 (o su subárbol) es inerte al puntero pero sigue visible en `wn_node_at` y
-`wn_node_get_rect`.
+`wn_node_get_rect`; al deshabilitar un contenedor se limpian hover/press/focus
+de todo el subárbol y se hace blur del input enfocado dentro.
 
 ### Z-index y stacking contexts (blob v5)
 

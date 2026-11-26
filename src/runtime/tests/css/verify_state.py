@@ -81,6 +81,21 @@ def main() -> int:
     ):
         check("dump", f"state style {expected.split('(')[0]}", expected in text,
               "missing" if expected not in text else "present")
+    check("dump", "initial-state disabled", "initial-state=disabled" in text,
+          "missing" if "initial-state=disabled" not in text else "present")
+    check("dump", "initial-state none", "initial-state=none" in text,
+          "missing" if "initial-state=none" not in text else "present")
+
+    dump_json = subprocess.run([args.dump, "--json", args.blob],
+                               capture_output=True, text=True)
+    payload = json.loads(dump_json.stdout)
+    disabled_json = node(payload, "disabled")
+    check("dump", "json initial_state disabled",
+          disabled_json["initial_state"] == "disabled",
+          f"{disabled_json['initial_state']!r}")
+    check("dump", "json initial_state none",
+          any(node["initial_state"] == "none" for node in payload["nodes"]),
+          "at least one node starts with no state bits")
 
     for element_id, (background, border) in EXPECTED.items():
         rect = node(size, element_id)

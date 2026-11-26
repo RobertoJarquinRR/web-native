@@ -77,7 +77,7 @@ PINNED_BLOBS = {
     # z-index / stacking-context fixture (blob v5, d3d11 + wgpu).
     "z": "58ccea5f399d9084afddb65f88fdac1ace96faeb5a7bc6cc0566fabc5d2872e1",
     # CSS state fixture (blob v6, d3d11 + wgpu).
-    "state": "758db3ea77c6da6e511c8d94984d20e8040ce8634f0b71cbdb800113c48f8ad7",
+    "state": "ccdeb8aead50cbcefab324b71db07e5fe71b88a638002b2316d2db1bfaf0067f",
 }
 
 
@@ -482,7 +482,7 @@ def run_css() -> int:
         _run(card_exe, ["--document", str(z_blob),
                         "--render", "400", "690", str(png)],
              page, environment)
-        # 110 checks: format wnui/5, twenty-seven z-index dump values, the
+        # 110 checks: format wnui/6, twenty-seven z-index dump values, the
         # layout report, thirty-three exact rects, the PNG size and
         # forty-seven analytic color probes (siblings, swapped order, auto/0,
         # step 8, equal z, negative, trapped child, opacity+z, nested,
@@ -559,14 +559,15 @@ def run_css() -> int:
         for node_id, mask in force:
             arguments += ["--force-state", f"{node_id}:{mask}"]
         _run(card_exe, arguments, page, environment)
-        # 27 checks: capture size, the wnui/6 dump + four state styles, and
-        # background+border for nine nodes on each backend.
+        # 31 checks: capture size, the wnui/6 dump + four state styles, the
+        # text/JSON initial_state (disabled/none), and background+border for
+        # nine nodes on each backend.
         _expect_reported_checks(
             _python(suite / "verify_state.py",
                     ["--png", str(png), "--report", str(report),
                      "--blob", str(state_blob), "--dump", str(dump_exe),
                      "--backend", state_backend], cwd=suite),
-            f"state verify ({state_backend})", 27)
+            f"state verify ({state_backend})", 31)
     if wgpu_available():
         log_step("states: compare d3d11 and wgpu")
         compare = out / "state_compare.json"
@@ -757,7 +758,11 @@ def run_fidelity() -> int:
     )
     states_text = _run(states_exe, [], out)
     _expect(states_text, ["states_test: PASS"], "state styles test")
-    _expect_checks(states_text, "state styles test", 40)
+    # 53 checks: the v6 colors/priority/selected/data-sugar/loader set plus the
+    # disabled-subtree cases (bits cleared across the subtree, input blurred,
+    # char/key/paste rejected even with a leaked focus, interactive set_state
+    # refused while disabled) and the initial-disabled seed.
+    _expect_checks(states_text, "state styles test", 53)
 
     log_step("fidelity: paint item list (identity, transform, opacity, layers)")
     paint_exe = out / "paint_list_test.exe"
@@ -925,6 +930,10 @@ def run_dynamic() -> int:
         "dynamic: PASS",
         "set_text(Omega) -> WN_OK",
         "set_image(text) -> WN_ERR_UNSUPPORTED",
+        "set_state(unknown bit) -> WN_ERR_INVALID_ARGUMENT",
+        "set_state(zero mask) -> WN_ERR_INVALID_ARGUMENT",
+        "set_state(disabled) -> WN_OK",
+        "set_state(disabled off) -> WN_OK",
         "remove(root) -> WN_ERR_INVALID_ARGUMENT",
         "clear_children -> nodes=9",
         "dynamic: nav clone=",

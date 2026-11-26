@@ -167,6 +167,23 @@ int main(int argc, char **argv)
 
     expect_status("set_visible(card,0)", wn_node_set_visible(app, card0, 0), WN_OK);
     expect_status("set_visible(card,1)", wn_node_set_visible(app, card0, 1), WN_OK);
+    /* ABI v7: the state mask is validated before touching the view. Unknown
+     * bits (0x20) and an empty mask are rejected; the disabled bit round-trips
+     * and get_state reports 0 once cleared. */
+    expect_status("set_state(unknown bit)",
+                  wn_node_set_state(app, card0, 0x20u, 1),
+                  WN_ERR_INVALID_ARGUMENT);
+    expect_status("set_state(zero mask)",
+                  wn_node_set_state(app, card0, 0u, 1),
+                  WN_ERR_INVALID_ARGUMENT);
+    expect_status("set_state(disabled)",
+                  wn_node_set_state(app, card0, WN_STATE_DISABLED, 1), WN_OK);
+    expect_status("set_state(disabled off)",
+                  wn_node_set_state(app, card0, WN_STATE_DISABLED, 0), WN_OK);
+    if (wn_node_get_state(app, card0) != 0u) {
+        printf("dynamic: FAIL (state mask did not clear)\n");
+        ++g_failures;
+    }
 
     /* A1: a handle from before a removal must not address the slot's next
      * tenant. wn_node_remove() pushes the freed slots onto a LIFO free list, so

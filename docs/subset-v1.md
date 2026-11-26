@@ -97,10 +97,20 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 - Se admite **una** pseudo-clase de estado por regla; `:hover:active` es la
   combinación de press y también se admite. Otras combinaciones
   (`:hover:focus`, …) se diagnostican y no se aplican.
+- La pseudo-clase de estado sólo es válida en el **compuesto sujeto** (el último
+  de la regla). `.card:hover .label` pone el estado en un ancestro: este runtime
+  no lo propaga, así que la regla se descarta y se diagnostica en lugar de
+  compilarse en silencio.
+- Una regla de estado sólo aporta **colores**: `background`/`background-color`,
+  `color` y `border-color` (o `border-*-color`). `border` sin más sólo aporta su
+  color; `border-width`/`border-style`, `opacity`, layout, tipografía y
+  `z-index` dentro de una regla de estado se diagnostican y no se aplican. Un
+  color de estado con alfa 0 (`transparent`, `rgba(…,0)`) también se
+  diagnostica: el blob no lo representa como override.
 - `data-hover`/`data-press`/`data-selected` siguen existiendo como azúcar para
   variantes sin CSS. Los estilos CSS tienen prioridad.
 - Diferido: `:checked`, `:focus-visible`, `:focus-within`, `:nth-*` y
-  transiciones; también cualquier propiedad de layout u opacidad por estado.
+  transiciones.
 
 ### Fuera de v1
 

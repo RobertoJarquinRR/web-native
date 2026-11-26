@@ -137,7 +137,12 @@ pinta. No hay `commit` separado.
   puede cambiarlo con `wn_node_set_state`. El
   hit-test de interacción lo omite; `wn_node_get_rect` y el hit-test de
   diagnóstico (`wn_core_node_at`) siguen viéndolo. Al habilitar `DISABLED` se
-  limpian hover/press/focus del nodo.
+  limpian hover/press/focus del nodo **y de todo su subárbol**, y se hace blur
+  del input enfocado dentro de él (caret, selección y edición se detienen); el
+  path de tecla/char/paste también rechaza ediciones si el nodo o un ancestro
+  está deshabilitado. Mientras un nodo está deshabilitado,
+  `set_state(HOVER|PRESS|FOCUSED, enabled=1)` se rechaza (no-op); apagar bits
+  siempre se permite.
 - **Prioridad de color** (por campo background/text/border):
   `disabled > press > hover > focus > base`. `selected` es el color base de la
   app: se ve si ningún estado superior define ese campo, así que
@@ -295,7 +300,9 @@ private static partial nint wn_node_get_value(nint app, ulong node);
   nombre compilado (no hay `set_class` por handle).
 - Los estilos de estado (blob v6) sólo cubren `background`, `color` y el color
   de borde uniforme. No hay transiciones, `:checked`, `:focus-visible`,
-  `:focus-within`, `:nth-*` ni cambios de layout/opacidad por estado.
+  `:focus-within`, `:nth-*` ni cambios de layout/opacidad por estado. Una regla
+  de estado con otras propiedades, o con el estado en un compuesto ancestro
+  (`.card:hover .label`), se diagnostica y no se compila.
 - `scroll_into_view` es vertical y mueve solo el ancestro scrollable más cercano.
 - Sin virtualización, culling de sólidos, accesibilidad/UIA, DPI/multi-monitor
   ni cross-platform todavía.

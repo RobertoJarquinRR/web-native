@@ -18,7 +18,7 @@ use std::path::Path;
 
 use cssparser::{Delimiter, ParseError, Parser, ParserInput, Token};
 
-use crate::style::color::is_declared_color;
+use crate::style::color::{is_declared_color, parse_color};
 use crate::style::grid::{parse_grid_auto_rows, parse_grid_template_columns};
 use crate::style::style_ext::{box_shadow_is_valid, is_relative_length};
 
@@ -617,6 +617,7 @@ pub(crate) fn check_stylesheet_pilot(
                         path,
                         base_line,
                         &prelude,
+                        selector_is_state_scoped(&prelude),
                         pilot,
                         diagnostics,
                     );
@@ -645,12 +646,14 @@ fn skip_nested_block<'i, 't>(parser: &mut Parser<'i, 't>) {
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn check_block<'i, 't>(
     parser: &mut Parser<'i, 't>,
     text: &str,
     path: &Path,
     base_line: u32,
     selector: &str,
+    state_rule: bool,
     pilot: bool,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
@@ -674,6 +677,7 @@ fn check_block<'i, 't>(
                         path,
                         line,
                         &where_context,
+                        state_rule,
                         pilot,
                         diagnostics,
                     );
@@ -725,13 +729,169 @@ pub(crate) fn check_inline_style_pilot(
         if !raw.is_empty() {
             if let Some((name, value, _important)) = split_declaration(raw) {
                 let line = line_at(text, base_line, decl_start);
-                check_property(&name, &value, path, line, context, pilot, diagnostics);
+                check_property(&name, &value, path, line, context, false, pilot, diagnostics);
             }
         }
         if parser.next_including_whitespace_and_comments().is_err() {
             break;
         }
     }
+}
+
+/// Splits a selector prelude at top-level commas, keeping brackets, strings and
+/// pseudo-class arguments intact.
+fn split_selector_groups(selector: &str) -> Vec<&str> {
+    let bytes = selector.as_bytes();
+    let mut groups = Vec::new();
+    let mut start = 0usize;
+    let mut index = 0usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\\' => index += 2,
+            b'"' | b'\'' => {
+                let quote = bytes[index];
+                index += 1;
+                while index < bytes.len() {
+                    if bytes[index] == b'\\' {
+                        index += 2;
+                        continue;
+                    }
+                    if bytes[index] == quote {
+                        index += 1;
+                        break;
+                    }
+                    index += 1;
+                }
+            }
+            b'[' => index = skip_bracket(bytes, index),
+            b'(' => index = skip_balanced(bytes, index),
+            b',' => {
+                let group = selector[start..index].trim();
+                if !group.is_empty() {
+                    groups.push(group);
+                }
+                start = index + 1;
+                index += 1;
+            }
+            _ => index += 1,
+        }
+    }
+    let group = selector[start..].trim();
+    if !group.is_empty() {
+        groups.push(group);
+    }
+    groups
+}
+
+/// State pseudos of one selector group split by position: the returned
+/// `(subject, ancestor)` lists keep source order. The subject is the last
+/// compound; anything before the last top-level combinator is an ancestor.
+fn split_state_pseudos(group: &str) -> (Vec<String>, Vec<String>) {
+    let bytes = group.as_bytes();
+    let mut subject = Vec::new();
+    let mut ancestor = Vec::new();
+    let mut found: Vec<(usize, String)> = Vec::new();
+    let mut subject_start = 0usize;
+    let mut index = 0usize;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\\' => index += 2,
+            b'"' | b'\'' => {
+                let quote = bytes[index];
+                index += 1;
+                while index < bytes.len() {
+                    if bytes[index] == b'\\' {
+                        index += 2;
+                        continue;
+                    }
+                    if bytes[index] == quote {
+                        index += 1;
+                        break;
+                    }
+                    index += 1;
+                }
+            }
+            b'[' => index = skip_bracket(bytes, index),
+            b'>' => {
+                subject_start = index + 1;
+                index += 1;
+            }
+            byte if byte.is_ascii_whitespace() => {
+                // Only whitespace followed by another compound is a descendant
+                // combinator; trailing whitespace must not move the subject.
+                let mut look = index + 1;
+                while look < bytes.len() && bytes[look].is_ascii_whitespace() {
+                    look += 1;
+                }
+                if look < bytes.len() {
+                    subject_start = look;
+                }
+                index += 1;
+            }
+            b':' => {
+                let doubled = index + 1 < bytes.len() && bytes[index + 1] == b':';
+                let pseudo_start = index;
+                index += if doubled { 2 } else { 1 };
+                let name_start = index;
+                while index < bytes.len() && is_ident_byte(bytes[index]) {
+                    index += 1;
+                }
+                let name = group[name_start..index].to_ascii_lowercase();
+                if !doubled && hook_state_bit(&name).is_some() {
+                    found.push((pseudo_start, name));
+                }
+                if index < bytes.len() && bytes[index] == b'(' {
+                    index = skip_balanced(bytes, index);
+                }
+            }
+            _ => index += 1,
+        }
+    }
+    for (position, name) in found {
+        if position >= subject_start {
+            subject.push(name);
+        } else {
+            ancestor.push(name);
+        }
+    }
+    (subject, ancestor)
+}
+
+/// True when every selector in the list applies its declarations only while a
+/// state pseudo is active (so declarations are scoped to a state style).
+fn selector_is_state_scoped(selector: &str) -> bool {
+    let groups = split_selector_groups(selector);
+    !groups.is_empty()
+        && groups
+            .iter()
+            .all(|group| !split_state_pseudos(group).0.is_empty())
+}
+
+fn skip_bracket(bytes: &[u8], mut index: usize) -> usize {
+    index += 1;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\\' => index += 2,
+            b'"' | b'\'' => {
+                let quote = bytes[index];
+                index += 1;
+                while index < bytes.len() {
+                    if bytes[index] == b'\\' {
+                        index += 2;
+                        continue;
+                    }
+                    if bytes[index] == quote {
+                        index += 1;
+                        break;
+                    }
+                    index += 1;
+                }
+            }
+            b']' => return index + 1,
+            _ => index += 1,
+        }
+    }
+    index
 }
 
 fn check_selector(
@@ -742,6 +902,26 @@ fn check_selector(
 ) -> bool {
     let bytes = selector.as_bytes();
     let mut unsupported = false;
+    // Blob v6 only carries state overrides on the subject compound. A state
+    // pseudo on an ancestor compound is very common CSS (`.card:hover .label`)
+    // but this runtime cannot model it: it would compile nothing or the wrong
+    // node's state. Reject it explicitly instead of accepting silently.
+    for group in split_selector_groups(selector) {
+        let (_, ancestor_states) = split_state_pseudos(group);
+        for name in ancestor_states {
+            diagnostics.push(Diagnostic::new(
+                path,
+                line,
+                Some(format!("selector '{selector}'")),
+                format!(
+                    "pseudo-clase de estado ':{name}' en un compuesto ancestro no soportada en \
+                     esta lane: el estado solo se aplica al compuesto sujeto (p. ej. \
+                     '.card:hover .label' no se compila)"
+                ),
+            ));
+            unsupported = true;
+        }
+    }
     let mut index = 0usize;
     let mut state_bits = 0u8;
     while index < bytes.len() {
@@ -928,12 +1108,53 @@ fn at_rule_name(prelude: &str) -> String {
 
 // --------------------------------------------------------------- properties
 
+/// The only properties a blob v6 state style carries: background, text color
+/// and the uniform border color (including the per-side color longhands).
+fn state_color_property(name: &str) -> bool {
+    matches!(
+        name,
+        "background"
+            | "background-color"
+            | "color"
+            | "border-color"
+            | "border-top-color"
+            | "border-right-color"
+            | "border-bottom-color"
+            | "border-left-color"
+    )
+}
+
+/// `border` and `border-<side>` also set width/style, which a state rule cannot
+/// represent; they are diagnosed as a partial (color-only) declaration.
+fn is_border_shorthand(name: &str) -> bool {
+    matches!(
+        name,
+        "border" | "border-top" | "border-right" | "border-bottom" | "border-left"
+    )
+}
+
+/// A state color with alpha 0 normalizes to "no override" in the cascade, so
+/// the declaration would silently do nothing. Uses the same `parse_color` path
+/// the cascade uses (alpha is dropped; only alpha <= 0 becomes `None`).
+fn state_color_has_zero_alpha(value: &str) -> bool {
+    let components = split_components(value);
+    if components.len() != 1 {
+        return false;
+    }
+    let component = components[0];
+    is_declared_color(component)
+        && !component.eq_ignore_ascii_case("currentcolor")
+        && parse_color(Some(component)).is_none()
+}
+
+#[allow(clippy::too_many_arguments)]
 fn check_property(
     name: &str,
     value: &str,
     path: &Path,
     line: u32,
     where_context: &str,
+    state_rule: bool,
     pilot: bool,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
@@ -946,6 +1167,31 @@ fn check_property(
     if trimmed.is_empty() {
         report(format!("valor vacio en '{name}'"));
         return;
+    }
+    // A state rule is not a full declaration block: blob v6 only carries the
+    // three color groups for hover/press/focus/disabled. Diagnose anything the
+    // runtime would drop instead of leaving a rule that visually does nothing.
+    if state_rule {
+        if !state_color_property(name) {
+            if is_border_shorthand(name) {
+                report(format!(
+                    "'{name}' en una regla de estado solo aplica el color: ancho y estilo de \
+                     borde no se soportan (usa border-color o border-*-color)"
+                ));
+            } else {
+                report(format!(
+                    "propiedad '{name}' no soportada en una regla de estado: solo aplican \
+                     background/background-color, color y border-color (color de borde uniforme)"
+                ));
+            }
+            return;
+        }
+        if state_color_has_zero_alpha(trimmed) {
+            report(format!(
+                "color de estado con alfa 0 no soportado en '{name}': '{trimmed}' no tendria \
+                 efecto (usa un color opaco)"
+            ));
+        }
     }
     let lowered = trimmed.to_ascii_lowercase();
     for (needle, message) in [
@@ -1915,5 +2161,45 @@ mod tests {
                 item.message
             );
         }
+    }
+
+    /// State pseudos are only semantic on the subject compound. The ancestor
+    /// form is common CSS this lane cannot render, so it is diagnosed rather
+    /// than compiled silently; the subject form stays clean.
+    #[test]
+    fn ancestor_state_pseudo_is_diagnosed() {
+        let diagnostics = css(
+            ".card:hover .label { color: red; }\n.card .label:hover { color: blue; }\n",
+        );
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:#?}");
+        assert!(diagnostics[0].message.contains("ancestro"), "{diagnostics:#?}");
+        assert!(
+            diagnostics[0]
+                .context
+                .as_deref()
+                .is_some_and(|context| context.contains(".card:hover .label")),
+            "{diagnostics:#?}"
+        );
+    }
+
+    /// A state rule only carries colors in blob v6; the rest would be dropped,
+    /// so it is diagnosed (including a zero-alpha color that becomes "no
+    /// override" in the cascade).
+    #[test]
+    fn state_rules_only_accept_color_declarations() {
+        let diagnostics = css(
+            ".b:hover {\n  opacity: 0.5;\n  border-color: #ffffff;\n  background: transparent;\n}\n",
+        );
+        assert_eq!(diagnostics.len(), 2, "{diagnostics:#?}");
+        let lines: Vec<Option<u32>> = diagnostics.iter().map(|item| item.line).collect();
+        assert_eq!(lines, vec![Some(2), Some(4)]);
+        assert!(
+            diagnostics.iter().any(|item| item.message.contains("'opacity'")),
+            "{diagnostics:#?}"
+        );
+        assert!(
+            diagnostics.iter().any(|item| item.message.contains("alfa 0")),
+            "{diagnostics:#?}"
+        );
     }
 }

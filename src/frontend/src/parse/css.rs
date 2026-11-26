@@ -104,7 +104,17 @@ impl Selector {
     }
 
     fn matches_at(&self, dom: &Dom, node: usize, index: usize, state_mask: u8) -> bool {
-        if !compound_matches(dom, node, &self.parts[index].1, state_mask) {
+        // State pseudos are only semantic on the subject compound. An ancestor
+        // state (`.card:hover .label`) cannot be applied by this runtime, so
+        // matching it with the subject's mask would silently compile a rule
+        // that never fires. Ancestor compounds therefore match with no state
+        // bits active: the rule never applies, and the subset reports it.
+        let compound_mask = if index == self.parts.len() - 1 {
+            state_mask
+        } else {
+            0
+        };
+        if !compound_matches(dom, node, &self.parts[index].1, compound_mask) {
             return false;
         }
         if index == 0 {

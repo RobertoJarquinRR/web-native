@@ -515,6 +515,11 @@ int wn_core_input_char(wn_core *core, uint32_t codepoint,
         core->input_value[node] == NULL) {
         return -1;
     }
+    /* A disabled node/ancestor rejects edits even if a state bit or focus
+     * leaked through another path. */
+    if (wn_core_node_disabled(core, node)) {
+        return -1;
+    }
     if (input_has_selection(core, node)) {
         int start;
         int end;
@@ -566,6 +571,9 @@ int wn_core_input_key(wn_core *core, int key, uint32_t modifiers,
     node = core->input_focus;
     record = input_record(core, node);
     if (record == NULL || core->input_value == NULL || core->input_value[node] == NULL) {
+        return -1;
+    }
+    if (wn_core_node_disabled(core, node)) {
         return -1;
     }
     len = input_length(core, node);
@@ -733,6 +741,13 @@ int wn_core_input_cut(wn_core *core, char *out, int capacity,
     if (visual_changed != NULL) {
         *visual_changed = 0;
     }
+    if (core == NULL) {
+        return -1;
+    }
+    node = core->input_focus;
+    if (input_record(core, node) == NULL || wn_core_node_disabled(core, node)) {
+        return -1;
+    }
     copied = wn_core_input_copy(core, out, capacity);
     if (copied <= 0) {
         return copied;
@@ -772,6 +787,9 @@ int wn_core_input_paste(wn_core *core, const char *text,
     node = core->input_focus;
     if (input_record(core, node) == NULL || core->input_value == NULL ||
         core->input_value[node] == NULL) {
+        return -1;
+    }
+    if (wn_core_node_disabled(core, node)) {
         return -1;
     }
     if (input_has_selection(core, node)) {

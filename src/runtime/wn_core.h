@@ -403,7 +403,10 @@ int wn_core_input_state(const wn_core *core, int node, wn_input_state *out);
 
 /* Test/debug hooks: force a state without going through the pointer machine.
  * `state` is one WN_STATE_* bit. `wn_core_force_state_mask` ORs a whole mask
- * and skips the single-hover/press rule (offscreen pixel fixtures). */
+ * and skips the single-hover/press rule (offscreen pixel fixtures).
+ * `wn_core_set_state` refuses HOVER/PRESS/FOCUSED on a node that is disabled
+ * (itself or an ancestor); enabling DISABLED clears those bits across the whole
+ * subtree and blurs an input focused inside it. */
 void wn_core_set_state(wn_core *core, int node, int state, int enabled);
 void wn_core_force_state_mask(wn_core *core, int node, unsigned int mask);
 

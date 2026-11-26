@@ -25,6 +25,40 @@
 static int checks = 0;
 static int failures = 0;
 
+/* wn_document_load_blob_memory() borrows the buffer: the document keeps
+ * pointing into it for its whole life (and the core retains the document), so
+ * the test must not free the blob until every core/document that borrowed it is
+ * gone. The leases are released once in main() after the last destroy. */
+typedef struct BlobLease {
+    unsigned char *data;
+    struct BlobLease *next;
+} BlobLease;
+
+static BlobLease *leases;
+
+static void lease_blob(unsigned char *data)
+{
+    BlobLease *lease = (BlobLease *)malloc(sizeof(*lease));
+    if (lease == NULL) {
+        /* The test is doomed either way; keep the buffer alive rather than
+         * freeing memory the document borrows. */
+        return;
+    }
+    lease->data = data;
+    lease->next = leases;
+    leases = lease;
+}
+
+static void release_leases(void)
+{
+    while (leases != NULL) {
+        BlobLease *next = leases->next;
+        free(leases->data);
+        free(leases);
+        leases = next;
+    }
+}
+
 static int check(const char *label, int ok, const char *detail)
 {
     checks += 1;
@@ -219,10 +253,12 @@ static wn_core *build_core(const NodeSpec *spec, uint32_t count,
         return NULL;
     }
     document = wn_document_load_blob_memory(data, size);
-    free(data);
     if (document == NULL) {
+        free(data);
         return NULL;
     }
+    /* The document borrows `data`; keep it alive until the core is destroyed. */
+    lease_blob(data);
     core = wn_core_create(document);
     if (core == NULL) {
         wn_document_destroy(document);
@@ -473,6 +509,117 @@ static void test_text_run_follows_owner(void)
     wn_document_destroy(document);
 }
 
+/* A disabled container must make its whole subtree inert, not only itself:
+ * hover/press/focus bits clear, a focused input blurs, and every edit entry
+ * point rejects input even when a focus bit is forced back in (the guard is the
+ * second line of defense). */
+static void test_disabled_subtree(void)
+{
+    NodeSpec nodes[3];
+    int input_node = 2;
+    wn_document *document = NULL;
+    wn_core *core;
+    int value_changed;
+    int visual_changed;
+
+    spec_init(&nodes[0], -1, R2_NODE_BLOCK, 200.0f, 120.0f);
+    spec_init(&nodes[1], 0, R2_NODE_BLOCK, 120.0f, 30.0f);
+    spec_init(&nodes[2], 1, R2_NODE_INPUT, 100.0f, 24.0f);
+    core = build_core(nodes, 3, NULL, 0, &input_node, &document);
+    check("disabled subtree page builds", core != NULL, NULL);
+    if (core == NULL) {
+        return;
+    }
+
+    check("input focus seeds FOCUSED",
+          wn_core_focus_input_at_end(core, 2) == 2 &&
+              (wn_core_node_state(core, 2) & WN_STATE_FOCUSED) != 0,
+          "wn_core_focus_input_at_end");
+    value_changed = 0;
+    visual_changed = 0;
+    check("enabled input accepts a char",
+          wn_core_input_char(core, (uint32_t)'a', &value_changed,
+                             &visual_changed) == 2 &&
+              value_changed != 0 &&
+              strcmp(wn_core_input_value(core, 2), "a") == 0,
+          "value=\"a\"");
+    wn_core_set_state(core, 2, WN_STATE_HOVER, 1);
+    check("input hover before disabling",
+          (wn_core_node_state(core, 2) & WN_STATE_HOVER) != 0, NULL);
+
+    wn_core_set_state(core, 1, WN_STATE_DISABLED, 1);
+    check("disabled container keeps only its bit",
+          wn_core_node_state(core, 1) == WN_STATE_DISABLED,
+          "hover/press/focused cleared on the node too");
+    check("disabled ancestor clears subtree interaction bits",
+          (wn_core_node_state(core, 2) &
+           (WN_STATE_HOVER | WN_STATE_PRESS | WN_STATE_FOCUSED)) == 0,
+          "descendant hover and focus are gone");
+    check("disabled ancestor blurs the descendant input",
+          wn_core_input_focused(core) == -1 &&
+              wn_core_node_disabled(core, 2) == 1,
+          "input_focus is -1 and the node inherits disabled");
+
+    value_changed = 0;
+    visual_changed = 0;
+    check("typing after disabling is rejected",
+          wn_core_input_char(core, (uint32_t)'b', &value_changed,
+                             &visual_changed) == -1 &&
+              value_changed == 0 &&
+              strcmp(wn_core_input_value(core, 2), "a") == 0,
+          "no focus target, value unchanged");
+
+    /* Simulate a leaked focus/bit (e.g. a host writing internal state) to
+     * prove the edit entry points check the disabled ancestor themselves. */
+    core->input_focus = 2;
+    core->state[2] |= (unsigned char)WN_STATE_FOCUSED;
+    value_changed = 0;
+    visual_changed = 0;
+    check("leaked focus still rejects char",
+          wn_core_input_char(core, (uint32_t)'c', &value_changed,
+                             &visual_changed) == -1 &&
+              value_changed == 0 &&
+              strcmp(wn_core_input_value(core, 2), "a") == 0,
+          "disabled ancestor guard");
+    value_changed = 0;
+    visual_changed = 0;
+    check("leaked focus still rejects keys",
+          wn_core_input_key(core, WN_KEY_BACKSPACE, 0u, &value_changed,
+                            &visual_changed) == -1 &&
+              value_changed == 0 &&
+              strcmp(wn_core_input_value(core, 2), "a") == 0,
+          "backspace does not delete");
+    value_changed = 0;
+    visual_changed = 0;
+    check("leaked focus still rejects paste",
+          wn_core_input_paste(core, "zz", &value_changed,
+                              &visual_changed) == -1 &&
+              value_changed == 0 &&
+              strcmp(wn_core_input_value(core, 2), "a") == 0,
+          "paste is ignored");
+
+    core->state[2] = WN_STATE_CLEAR(core->state[2], WN_STATE_FOCUSED);
+    core->input_focus = -1;
+    wn_core_set_state(core, 2, WN_STATE_HOVER, 1);
+    wn_core_set_state(core, 2, WN_STATE_FOCUSED, 1);
+    check("hover/focused rejected on a disabled subtree",
+          (wn_core_node_state(core, 2) &
+           (WN_STATE_HOVER | WN_STATE_FOCUSED)) == 0 &&
+              wn_core_hover(core) == -1,
+          "set_state(HOVER/FOCUSED, 1) is a no-op while disabled");
+
+    wn_core_set_state(core, 1, WN_STATE_DISABLED, 0);
+    check("re-enabled subtree stays clean",
+          wn_core_node_disabled(core, 2) == 0 &&
+              wn_core_input_focused(core) == -1 &&
+              (wn_core_node_state(core, 2) &
+               (WN_STATE_HOVER | WN_STATE_FOCUSED)) == 0,
+          "no state is resurrected");
+
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+}
+
 static void test_initial_disabled(void)
 {
     NodeSpec nodes[2];
@@ -585,6 +732,7 @@ int main(void)
     test_priority(core);
     test_selected(core);
     test_disabled_pointer(core);
+    test_disabled_subtree();
     test_data_sugar_fallback();
     test_text_run_follows_owner();
     test_initial_disabled();
@@ -593,6 +741,7 @@ int main(void)
 
     wn_core_destroy(core);
     wn_document_destroy(document);
+    release_leases();
     printf("states_test: %s (%d checks)\n", failures == 0 ? "PASS" : "FAIL",
            checks);
     return failures == 0 ? 0 : 1;
