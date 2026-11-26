@@ -36,7 +36,7 @@ Leyenda:
 | `img` local                                                  | Sí       | Parcial | Sí  | WIC; sin red        |
 | `ul`, `ol`, `li`                                             | Sí       | Sí      | Sí  | listas estáticas    |
 | `link` stylesheet, `style`                                   | Sí       | Sí      | Sí  | CSS local           |
-| `input type="text"`                                          | Pilot v3 | warning | Sí  | ASCII 32..126       |
+| `input type="text"`                                          | Pilot v3 | warning | Sí  | UTF-8 en edición    |
 | `script`, `iframe`                                           | No       | No      | No  | no-goal             |
 | `form`, `select`, `table`, `canvas`, `video`, `audio`, `svg` | No       | No      | No  | fuera del subset    |
 | `template`, `slot`, `object`, `embed`                        | No       | No      | No  | fuera del subset    |
@@ -102,7 +102,7 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | Resize                                       | ✅  | re-layout                                                |
 | Wheel                                        | ✅  | `WN_EVENT_WHEEL`                                         |
 | UI dinámica v3                               | ✅  | visibilidad, `set_image`, clone/append/remove            |
-| Input v4                                     | ✅  | ASCII, caret, selección, clipboard; texto shapeado en runtime |
+| Input v4                                     | ✅  | UTF-8, caret, selección, drag, blink; texto shapeado en runtime |
 | Bordes / radius / sombras v1                 | ✅  | radio/borde uniforme; primera sombra; sin per-side/inset |
 | Virtualización / culling                     | ❌  | pendiente                                                |
 | Text shaping runtime                         | ✅  | DirectWrite; medición, shaping y atlas dinámico          |

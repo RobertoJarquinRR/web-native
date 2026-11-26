@@ -12,7 +12,7 @@ viendo `target_id`, eventos y comandos.
 formularios web: sin `form`, `action`, validación ni `submit`.
 
 > **Estado (N2):** `input type="text"` v1 ya está implementado en `ui-tree/3` +
-> ABI v4: una línea, ASCII, caret/selección/clipboard, sin IME. El resto del
+> ABI v5: una línea, UTF-8, caret/selección/drag/blink, sin IME. El resto del
 > catálogo sigue en diseño.
 
 ## Modelo común

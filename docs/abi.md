@@ -60,8 +60,11 @@ blob falta o está corrupto.
 
 ### UI dinámica (v3)
 
-`wn_node_id` es un `uint64_t` opaco, **1-based**; `WN_NODE_INVALID` es 0. Los
-handles son válidos hasta que el nodo (o un ancestro) se elimina.
+`wn_node_id` es un `uint64_t` opaco; `WN_NODE_INVALID` es 0. Dentro lleva la
+generación del slot y el índice (`(gen << 32) | (index + 1)`), así que un handle
+guardado tras eliminar el nodo se rechaza en vez de apuntar al siguiente
+inquilino del slot. No persists handles entre documentos ni tras
+`wn_app_destroy`.
 
 | Función | Uso |
 |---|---|
@@ -87,7 +90,8 @@ pinta. No hay `commit` separado.
 | `wn_node_set_value(app, node, utf8)` | valor programático; caret al final; **no** emite evento |
 | `wn_node_get_value(app, node)` | string del engine, válido hasta la próxima llamada en el hilo |
 
-- Solo ASCII imprimible (32..126) en v4; fuera de rango devuelve
+- UTF-8 de una línea (cursor y selección por codepoint); caracteres de control
+  fuera de rango devuelven
   `WN_ERR_UNSUPPORTED`.
 - `max_length` compilado (o 255) se aplica a type/paste/set.
 - El input debe ser un nodo `kind:"input"` compilado (o un clon).
@@ -189,8 +193,8 @@ private static partial nint wn_node_get_value(nint app, ulong node);
 - `set_text` acepta cualquier UTF-8: el runtime shapea y rasteriza el texto. El
   documento solo lleva cadena, familia, tamaño, peso y `line-height`.
 - `set_image` conserva el tamaño intrínseco compilado; no hay probe WIC nuevo.
-- Input v4: ASCII 32..126 (el texto se shapea en runtime), sin IME/bidi/CJK/emoji,
-  sin multilínea, sin password, sin undo/redo, sin drag-select, caret sin blink.
+- Input: una línea UTF-8 (shapeada en runtime), sin IME/bidi/CJK/emoji, sin
+  multilínea, sin password, sin undo/redo; drag-select y caret blink incluidos.
 - Sin virtualización, culling de sólidos, accesibilidad/UIA, DPI/multi-monitor
   ni cross-platform todavía.
 - Sin path offscreen en la ABI (sigue en `runtime_r2.exe --render/--states`).

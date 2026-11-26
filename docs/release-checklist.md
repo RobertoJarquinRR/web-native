@@ -105,7 +105,7 @@ python tools\cli.py bench pilot
 
 - [ ] R2 **69/69**.
 - [ ] `python tools\cli.py test all` encadena Rust, ABI, **CSS 41/41**,
-      **fidelity 23/23**, **dynamic 53/53**, **input 111/111**, **blob** y
+      **fidelity 23/23**, **dynamic 61/61**, **input 80 + 118/118**, **blob** y
       **offscreen** (d3d11 vs wgpu).
 - [ ] Piloto (`python tools\cli.py bench pilot`) y su `verify.py` verdes.
 - [ ] Blob: `wn-cli test suite blob` da 28/28 rects y 100.00% de píxeles
@@ -166,7 +166,7 @@ Estado real según `docs/support.md`; no prometer lo que no hay:
 | ------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | Plataforma    | Solo Windows x64; macOS/Linux en fase 5                                                                                   |
 | Accesibilidad | Sin UIA/ARIA; sin lector de pantalla                                                                                      |
-| IME / i18n    | Sin IME; input ASCII 32..126; sin bidi, CJK ni emoji                                                                      |
+| IME / i18n    | Sin IME; input UTF-8 de una línea; sin bidi, CJK ni emoji                                                                      |
 | DPI           | System-aware básico; sin `WM_DPICHANGED` ni multi-monitor                                                                 |
 | Texto         | Shape/raster/medición en runtime (DirectWrite); `font-weight`, `line-height`, `text-align`; sin wrapping todavía |
 | CSS           | Sin `position`, `transform`, `transition`, `animation`, `float`, `z-index`; borders/radius uniformes; una sombra no-inset |

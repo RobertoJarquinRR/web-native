@@ -946,9 +946,11 @@ mismo tamaño.
 
 ### 15.1 Handles y búsqueda
 
-`wn_node_id` es un `uint64_t` opaco, 1-based (`0 == WN_NODE_INVALID`). El core
-guarda un arena mutable de hasta 4096 nodos: los nodos compilados se copian al
-crear el core y los clones se asignan desde una free list.
+`wn_node_id` es un `uint64_t` opaco; `0 == WN_NODE_INVALID`. Empaqueta la
+generación del slot y el índice (`(gen << 32) | (index + 1)`): un handle viejo
+se rechaza tras eliminar el nodo. El core guarda un arena mutable que crece
+(512 inicial, hasta 1M): los nodos compilados se copian al crear el core y los
+clones se asignan desde una free list.
 
 ```c
 wn_node_id root  = wn_app_root(app);                 /* body.root */
@@ -1081,8 +1083,8 @@ Evidencia en `tests/dynamic/out/`: `stage_00.png` … `stage_10.png`,
    glifos pre-shaped; no crea runs ni actualiza `width/height`.
 2. **Input**: resuelto para single-line ASCII en la sección 16. Siguen fuera
    IME, bidi, password, undo/redo, multilínea y drag de texto.
-3. **Virtualización/reciclado**: clonar/borrar es O(subárbol) y la arena es fija
-   (4096 nodos, error claro al agotarse). No hay pooling de items visibles,
+3. **Virtualización/reciclado**: clonar/borrar es O(subárbol) y la arena crece
+   bajo demanda (hasta 1M; el fallo es OOM). No hay pooling de items visibles,
    `key`/reconciliación, lazy lists ni reciclado de texturas.
 4. **Animación/transiciones**: no hay timeline, spring, layout animation ni
    repintado por frame sin mutación. Cada mutación fuerza layout completo.
@@ -1098,13 +1100,14 @@ Evidencia en `tests/dynamic/out/`: `stage_00.png` … `stage_10.png`,
 
 ---
 
-## 16. Text input v1 (`ui-tree/3`, ABI v4)
+## 16. Text input (`ui-tree/3`, ABI v5)
 
-Input de texto **de una línea, ASCII, sin IME y sin shaping en runtime**. El
-frontend hornea una piscina ASCII imprimible por cada tamaño de fuente; el core
-mantiene el buffer de edición, caret y selección, y compone el texto sumando
-avances. El host ve eventos semánticos (`WN_EVENT_INPUT`) y puede leer/escribir
-el valor con la ABI. Es la base de la búsqueda del piloto de biblioteca.
+Input de texto **de una línea, UTF-8, sin IME**, con shaping y medición en
+runtime. El documento solo lleva `value`, `placeholder`, `max_length` y
+`password`; el core mantiene el buffer de edición, caret y selección por
+codepoint, y compone el texto con los avances shapeados. El host ve eventos
+semánticos (`WN_EVENT_INPUT`) y puede leer/escribir el valor con la ABI. Es la
+base de la búsqueda del piloto de biblioteca.
 
 ### 16.1 Schema `webnative.ui-tree/3`
 
@@ -1330,8 +1333,9 @@ Resultado de la última ejecución: **111/111 checks PASS**, 0 fallos.
 
 ### 16.6 Limitaciones (honestas)
 
-1. **Solo ASCII imprimible (32..126)**. No hay IME, composición, bidi, CJK,
-   emoji ni shaping en runtime; el host debe filtrar/convertir la entrada.
+1. **Sin IME, composición, bidi, CJK ni emoji en el teclado**. La edición acepta
+   UTF-8 (pegar sí entra) pero las teclas siguen siendo `WM_CHAR`; el documento
+   inicializa `value`/`placeholder` con ASCII imprimible.
 2. **Sin wrapping ni multilínea**: un input es una línea; el texto sobrante se
    recorta y se desplaza en horizontal.
 3. **Sin password real**: `password` está en el schema pero siempre `false`;

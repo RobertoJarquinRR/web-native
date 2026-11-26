@@ -5,6 +5,16 @@ No es una spec: es la lista de trabajo, ordenada por riesgo. Cada fila dice el
 síntoma real y el arreglo propuesto; "aditivo" significa que no rompe contratos
 existentes.
 
+## Resuelto en la ola 1
+
+Ya en `main`: A1 (handles con generación), A3 (LRU de imágenes con presupuesto),
+A4 (arena creciente + jerarquía O(1)), A5 (NUL del blob), A6 (cachés hash+LRU),
+A7 (wrapping), A8/B9 (stack de fuentes y fallback probado), A10 (medición del
+override), B6 (input UTF-8, drag, blink; falta IME), B8 (`WN_WGPU=OFF`), C1 (CI
+D3D11 offline + job wgpu fijado) y D1–D19 salvo lo anotado en cada fila.
+
+Pendiente de la lista: A2, A9, B1–B5, B7, B10, C2–C10.
+
 ## P0 — corrección y seguridad
 
 | ID | Área | Síntoma | Causa | Arreglo |
