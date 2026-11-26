@@ -50,6 +50,7 @@ src/runtime/
   core/
     wn_core.c         documento -> arena mutable, names/classes, dirty flag
     layout.c          block/flex/grid, scroll, imágenes, texto
+    kind_ops.c/.h     tabla de capacidades por tipo de nodo (auto-size, intrínseco, hijos)
     paint.c           display list (rects, texto, imágenes, sombras)
     input.c           editor de una línea: caret, selección, clipboard
     hit_test.c        hover/press/selected, click/doble click, wheel
