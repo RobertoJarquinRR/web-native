@@ -4,6 +4,8 @@
  * Reverse paint-order testing keeps the original press > hover > selected
  * priority and ignores nodes clipped out by an overflow ancestor.
  */
+#include <math.h>
+
 #include "wn_core_internal.h"
 #include "wn_internal.h"
 
@@ -124,6 +126,79 @@ float wn_core_scroll_max(const wn_core *core, int node)
     return core->scroll_max[node];
 }
 
+int wn_core_node_rect(wn_core *core, int node, wn_rect *out)
+{
+    if (core == NULL || out == NULL || !wn_core_node_is_alive(core, node)) {
+        return -1;
+    }
+    ensure_layout_for_hit(core);
+    *out = core->rects[node];
+    return 0;
+}
+
+int wn_core_scroll_node_into_view(wn_core *core, int node, float margin)
+{
+    int container;
+    wn_rect r;
+    wn_rect content;
+    const UiNode *cn;
+    float top;
+    float bottom;
+    float next;
+    if (core == NULL || !wn_core_node_is_alive(core, node)) {
+        return -1;
+    }
+    ensure_layout_for_hit(core);
+    container = core->parent[node];
+    while (container >= 0) {
+        if (core->nodes[container].overflow == R2_OVERFLOW_SCROLL &&
+            core->scroll_max[container] > 0.0f) {
+            break;
+        }
+        container = core->parent[container];
+    }
+    if (container < 0) {
+        return 0; /* nothing scrollable above: already "visible" */
+    }
+    r = core->rects[node];
+    cn = &core->nodes[container];
+    content.x = core->rects[container].x + cn->padding[3];
+    content.y = core->rects[container].y + cn->padding[0];
+    content.w = fmaxf(core->rects[container].w - cn->padding[1] - cn->padding[3], 0.0f);
+    content.h = fmaxf(core->rects[container].h - cn->padding[0] - cn->padding[2], 0.0f);
+    if (margin < 0.0f) {
+        margin = 0.0f;
+    }
+    top = content.y + margin;
+    bottom = content.y + content.h - margin;
+    if (bottom < top) {
+        top = content.y;
+        bottom = content.y + content.h;
+    }
+    next = core->scroll[container];
+    if (r.y < top) {
+        next -= top - r.y;
+    } else if (r.y + r.h > bottom) {
+        next += (r.y + r.h) - bottom;
+    }
+    if (next < 0.0f) {
+        next = 0.0f;
+    }
+    if (next > core->scroll_max[container]) {
+        next = core->scroll_max[container];
+    }
+    if (next == core->scroll[container]) {
+        return 0;
+    }
+    core->scroll[container] = next;
+    {
+        double t0 = wn_now_ms();
+        layout_page(core, (float)core->width, (float)core->height);
+        core->last_layout_ms = wn_now_ms() - t0;
+    }
+    return 0;
+}
+
 int wn_core_node_clip(const wn_core *core, int node, wn_rect *out)
 {
     if (core == NULL || out == NULL || !wn_core_node_is_alive(core, node)) {
@@ -142,6 +217,12 @@ int wn_core_pointer_move(wn_core *core, float px, float py)
     }
     previous = core->hover;
     hit = wn_core_hit_test(core, px, py);
+    if (previous >= 0 && previous != hit) {
+        core->state[previous] = WN_STATE_CLEAR(core->state[previous], WN_STATE_HOVER);
+    }
+    if (hit >= 0) {
+        core->state[hit] |= (unsigned char)WN_STATE_HOVER;
+    }
     core->hover = hit;
     if (hit != previous) {
         core->dirty = 1;
@@ -161,7 +242,19 @@ int wn_core_pointer_down(wn_core *core, float px, float py)
         return -1;
     }
     hit = wn_core_hit_test(core, px, py);
+    if (core->hover >= 0 && core->hover != hit) {
+        core->state[core->hover] = WN_STATE_CLEAR(core->state[core->hover], WN_STATE_HOVER);
+    }
+    if (hit >= 0) {
+        core->state[hit] |= (unsigned char)WN_STATE_HOVER;
+    }
     core->hover = hit;
+    if (core->press >= 0 && core->press != hit) {
+        core->state[core->press] = WN_STATE_CLEAR(core->state[core->press], WN_STATE_PRESS);
+    }
+    if (hit >= 0) {
+        core->state[hit] |= (unsigned char)WN_STATE_PRESS;
+    }
     core->press = hit;
     core->input_drag = -1;
     core->dirty = 1;
@@ -176,6 +269,18 @@ int wn_core_pointer_down(wn_core *core, float px, float py)
     return hit;
 }
 
+/* Keep the pre-v6 click rule: a select click replaces the selection. The
+ * per-node mask still lets a host mark several nodes selected directly. */
+static void clear_selected(wn_core *core)
+{
+    int i;
+    for (i = 0; i < core->node_count; ++i) {
+        if (core->alive[i] && (core->state[i] & WN_STATE_SELECTED) != 0u) {
+            core->state[i] = WN_STATE_CLEAR(core->state[i], WN_STATE_SELECTED);
+        }
+    }
+}
+
 int wn_core_pointer_up(wn_core *core, float px, float py)
 {
     int hit;
@@ -183,15 +288,25 @@ int wn_core_pointer_up(wn_core *core, float px, float py)
         return -1;
     }
     hit = wn_core_hit_test(core, px, py);
+    if (core->hover >= 0 && core->hover != hit) {
+        core->state[core->hover] = WN_STATE_CLEAR(core->state[core->hover], WN_STATE_HOVER);
+    }
+    if (hit >= 0) {
+        core->state[hit] |= (unsigned char)WN_STATE_HOVER;
+    }
     core->hover = hit;
     if (core->press >= 0 && hit == core->press &&
         core->nodes[core->press].action == ACTION_SELECT) {
-        core->selected = core->press;
+        clear_selected(core);
+        core->state[core->press] |= (unsigned char)WN_STATE_SELECTED;
     }
     if (core->press >= 0 && input_record(core, core->press) != NULL &&
         core->input_anchor[core->press] == core->input_cursor[core->press]) {
         /* A plain click leaves no selection. */
         core->input_anchor[core->press] = -1;
+    }
+    if (core->press >= 0) {
+        core->state[core->press] = WN_STATE_CLEAR(core->state[core->press], WN_STATE_PRESS);
     }
     core->press = -1;
     core->input_drag = -1;
@@ -208,6 +323,12 @@ void wn_core_pointer_leave(wn_core *core)
     }
     if (core->hover >= 0 || core->press >= 0 || core->input_drag >= 0) {
         core->dirty = 1;
+    }
+    if (core->hover >= 0) {
+        core->state[core->hover] = WN_STATE_CLEAR(core->state[core->hover], WN_STATE_HOVER);
+    }
+    if (core->press >= 0) {
+        core->state[core->press] = WN_STATE_CLEAR(core->state[core->press], WN_STATE_PRESS);
     }
     core->hover = -1;
     core->press = -1;

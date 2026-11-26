@@ -110,14 +110,57 @@ static const WnBlobSection *find_section(const WnBlobSection *sections, uint32_t
     return NULL;
 }
 
-static void document_release(wn_document *document)
+/* ABI v6: live-document registry. release() checks it before dereferencing so
+ * a double release of an already-freed document is clamped instead of walking
+ * into freed memory. Single-threaded UI contract, like the rest of the core. */
+static wn_document **g_documents;
+static int g_document_count;
+static int g_document_capacity;
+
+static int document_live(const wn_document *document)
+{
+    int i;
+    for (i = 0; i < g_document_count; ++i) {
+        if (g_documents[i] == document) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int document_track(wn_document *document)
+{
+    if (g_document_count == g_document_capacity) {
+        int capacity = g_document_capacity > 0 ? g_document_capacity * 2 : 8;
+        wn_document **grown = (wn_document **)realloc(
+            g_documents, (size_t)capacity * sizeof(*g_documents));
+        if (grown == NULL) {
+            return -1;
+        }
+        g_documents = grown;
+        g_document_capacity = capacity;
+    }
+    g_documents[g_document_count++] = document;
+    return 0;
+}
+
+static void document_untrack(const wn_document *document)
+{
+    int i;
+    for (i = 0; i < g_document_count; ++i) {
+        if (g_documents[i] == document) {
+            g_documents[i] = g_documents[--g_document_count];
+            return;
+        }
+    }
+}
+
+static void document_free(wn_document *document)
 {
     if (document == NULL) {
         return;
     }
-    if (document->owned_nodes == NULL && document->mapping == NULL) {
-        return;
-    }
+    document_untrack(document);
     free(document->owned_nodes);
     free(document->owned_names);
     free(document->owned_inputs);
@@ -130,6 +173,35 @@ static void document_release(wn_document *document)
         blob_map_close(&map);
     }
     free(document);
+}
+
+void wn_document_retain(wn_document *document)
+{
+    if (document == NULL || document == wn_document_builtin()) {
+        return; /* the builtin document has a static refcount */
+    }
+    if (!document_live(document)) {
+        return;
+    }
+    if (document->refs < WN_DOCUMENT_STATIC_REFS - 1) {
+        ++document->refs;
+    }
+}
+
+void wn_document_release(wn_document *document)
+{
+    if (document == NULL || document == wn_document_builtin()) {
+        return;
+    }
+    if (!document_live(document)) {
+        return; /* double release: clamp instead of touching freed memory */
+    }
+    if (document->refs > 0) {
+        --document->refs;
+    }
+    if (document->refs == 0) {
+        document_free(document);
+    }
 }
 
 static const char *blob_string(const char *pool, uint32_t pool_size, uint32_t offset)
@@ -317,6 +389,16 @@ wn_document *wn_document_load_blob(const char *path)
         blob_map_close(&map);
         return NULL;
     }
+    document->refs = 1;
+    if (document_track(document) != 0) {
+        wn_set_error("wn_document_load_blob: out of memory tracking the document");
+        free(document);
+        free(nodes);
+        free(names);
+        free(depth);
+        blob_map_close(&map);
+        return NULL;
+    }
 
     for (i = 0; i < header->node_count; ++i) {
         const WnBlobNode *src = &blob_nodes[i];
@@ -464,6 +546,7 @@ fail:
     free(nodes);
     free(names);
     free(depth);
+    document_untrack(document);
     free(document);
     blob_map_close(&map);
     return NULL;
@@ -471,5 +554,5 @@ fail:
 
 void wn_document_destroy(wn_document *document)
 {
-    document_release(document);
+    wn_document_release(document);
 }

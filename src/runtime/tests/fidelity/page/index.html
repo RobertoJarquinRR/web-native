@@ -25,9 +25,11 @@
   .scrollbox { overflow: auto; width: 200px; height: 80px; margin-left: 20px;
                margin-top: 12px; background: #eeeeee; }
   .scrollcontent { width: 200px; height: 300px; background: #cfcfcf; }
+  .deep { width: 40px; height: 40px; margin-top: 200px; background: #999999; }
   .field { width: 200px; height: 32px; margin-left: 20px; margin-top: 12px;
            background: #ffffff; border: 1px solid #cccccc; border-radius: 8px;
            font-size: 14px; }
+  .ratio { width: 100px; margin-left: 20px; margin-top: 12px; }
 </style>
 </head>
 <body>
@@ -49,8 +51,9 @@
     <div id="autochild" class="autochild"></div>
   </div>
   <div id="scroll" class="scrollbox">
-    <div id="scrollcontent" class="scrollcontent"></div>
+    <div id="scrollcontent" class="scrollcontent"><div id="deep" class="deep"></div></div>
   </div>
   <input id="search" class="field" type="text" value="ab" maxlength="12">
+  <img id="ratio" class="ratio" src="images/ratio.png" alt="ratio">
 </body>
 </html>

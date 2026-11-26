@@ -1,5 +1,5 @@
 /*
- * webnative.h — C ABI v5
+ * webnative.h — C ABI v6
  *
  * Public contract between the webnative engine and host applications.
  *
@@ -23,6 +23,15 @@
  *        wn_node_id), so a handle kept across a removal is rejected instead of
  *        addressing the slot's next tenant. Fields are appended; v4 layout is
  *        unchanged up to the new trailing member.
+ *  - v6: per-node hover/press/selected state bits (wn_node_set_state /
+ *        wn_node_get_state, WN_STATE_* masks) instead of one global selected
+ *        slot; wn_node_get_text/get_rect/scroll_into_view, wn_app_focus_input
+ *        and wn_app_blur_input; wn_event.button and wn_event.click_count
+ *        (appended after `node`); wn_app_set_tick_ms + internal wn_view_tick
+ *        for host-driven frames; reference-counted documents
+ *        (wn_document_retain/release) and wn_node_set_image_size for the
+ *        intrinsic size of a replaced image. All additions are append-only:
+ *        the v5 layout is unchanged up to the new trailing event members.
  */
 #ifndef WEBNATIVE_H
 #define WEBNATIVE_H
@@ -46,7 +55,7 @@ extern "C" {
 #  define WN_API __attribute__((visibility("default")))
 #endif
 
-#define WN_ABI_VERSION 5u
+#define WN_ABI_VERSION 6u
 
 /* Modifier bits for wn_event.modifiers. */
 #define WN_MOD_SHIFT 0x01u
@@ -54,8 +63,24 @@ extern "C" {
 #define WN_MOD_ALT   0x04u
 #define WN_MOD_META  0x08u
 
+/* ABI v6: per-node interaction state bits. wn_node_set_state() accepts one or
+ * more of these OR-ed together; wn_node_get_state() returns the active mask.
+ * Hover and press stay single-node (the pointer has one cursor); selected is a
+ * per-node bit, so a host may keep several nodes selected at once. Text input
+ * focus is NOT part of this mask: it is exclusive and lives in
+ * wn_app_focus_input()/wn_app_blur_input(). */
+#define WN_STATE_HOVER    0x01u
+#define WN_STATE_PRESS    0x02u
+#define WN_STATE_SELECTED 0x04u
+
 /* Reserved flags; must be 0 in v0. */
 #define WN_FLAG_NONE 0u
+
+/* Axis-aligned rectangle in view pixels. ABI v6: public so hosts can read
+ * laid-out geometry through wn_node_get_rect(). */
+typedef struct wn_rect {
+    float x, y, w, h;
+} wn_rect;
 
 typedef struct wn_app  wn_app;
 typedef struct wn_document wn_document;
@@ -123,7 +148,8 @@ typedef struct wn_event {
     uint32_t modifiers;      /* WN_MOD_* */
     /* ABI v2: WN_EVENT_WHEEL. deltas are px; positive delta_y scrolls the
      * content down (the host maps WM_MOUSEWHEEL wheel-forward to negative y).
-     * v2 only consumes delta_y (vertical scroll); delta_x is reserved. */
+     * ABI v6: delta_x carries horizontal wheel/trackpad scroll (positive
+     * scrolls content right); the core still only applies the vertical axis. */
     float delta_x, delta_y;
     /* ABI v5: stable handle (wn_node_id) of the event target, or
      * WN_NODE_INVALID when the event does not target a node. Works for
@@ -132,6 +158,15 @@ typedef struct wn_event {
      * stays usable for clones; combine it with the wn_node_* navigation
      * helpers to reach children. */
     wn_node_id node;
+    /* ABI v6: pointer buttons. 0 = none (move/wheel/key events), 1 = left,
+     * 2 = right, 3 = middle. A pointer click that lands on a non-interactive
+     * node still reports that node in `node`; the core only changes
+     * hover/press/selection for the left button. */
+    uint8_t button;
+    /* ABI v6: 1 for a normal press/release, 2 for the press of a double click
+     * (WM_LBUTTONDBLCLK and the release paired with it). 0 when the event is
+     * not a button event. */
+    uint8_t click_count;
 } wn_event;
 
 typedef void (*wn_event_cb)(void *userdata, const wn_event *event);
@@ -155,10 +190,19 @@ WN_API const char *wn_last_error(void);
 
 /* ------------------------------------------------------------ documents */
 
-/* Loads a compiled document (.wnui). The file is mapped read-only; the
- * document stays valid until wn_document_destroy(). Returns NULL and sets
- * wn_last_error() when the file is missing or invalid. */
+/* Loads a compiled document (.wnui). The file is mapped read-only.
+ *
+ * ABI v6: documents are reference counted. wn_document_load_blob() returns one
+ * reference owned by the caller; wn_document_retain() adds one and
+ * wn_document_release()/wn_document_destroy() drop one. The builtin compiled
+ * document has a static reference count, so retaining/releasing it is a no-op.
+ * Every core retains the document it was created from, which means the caller
+ * may release its reference immediately after wn_core_create() while the core
+ * keeps working. Releasing the same reference twice is clamped (it does not
+ * crash, but it is still a caller bug). */
 WN_API wn_document *wn_document_load_blob(const char *path_utf8);
+WN_API void wn_document_retain(wn_document *document);
+WN_API void wn_document_release(wn_document *document);
 WN_API void wn_document_destroy(wn_document *document);
 
 /* ------------------------------------------------------- standalone app */
@@ -178,8 +222,19 @@ WN_API wn_status wn_app_load(wn_app *app,
 WN_API wn_status wn_app_load_document(wn_app *app, const char *path_utf8);
 
 WN_API wn_status wn_app_set_text(wn_app *app, const char *id, const char *text_utf8);
+/* Class toggles stay name-based in v6: they resolve compiled document ids only
+ * (clones have no document name). The baked style values are fixed, so
+ * "hover"/"press"/"selected" are interpreted as the per-node state bits; other
+ * names are remembered per node but do not recompute CSS. Use
+ * wn_node_set_state() to drive state on an arbitrary handle. */
 WN_API wn_status wn_app_set_class(wn_app *app, const char *id, const char *class_name, int enabled);
 WN_API wn_status wn_app_on_event(wn_app *app, wn_event_cb callback, void *userdata);
+
+/* ABI v6: periodic frames for a host that needs animation/debounce. While
+ * enabled (ms > 0) the standalone host starts an OS timer that marks the core
+ * dirty and requests a frame at roughly that interval; 0 stops it. The caret
+ * blink of a focused input keeps its own timer. */
+WN_API void wn_app_set_tick_ms(wn_app *app, int ms);
 
 /* Runs the UI loop until the window closes. Returns the process exit code. */
 WN_API int wn_app_run(wn_app *app);
@@ -281,6 +336,58 @@ WN_API wn_status wn_node_clear_children(wn_app *app, wn_node_id node);
 /* Re-parent `child` (and its subtree) as the last child of `parent`. The
  * document root cannot be moved and `parent` must not be inside `child`. */
 WN_API wn_status wn_node_append(wn_app *app, wn_node_id parent, wn_node_id child);
+
+/* --------------------------------------------------- node state (ABI v6) */
+/*
+ * Per-node interaction state. `state` is one or more WN_STATE_* bits (hover,
+ * press, selected); `enabled` sets or clears those bits on `node`. Hover and
+ * press remain exclusive (the pointer has a single cursor), but selected is
+ * per-node: a host may mark several nodes selected. Painting uses the compiled
+ * hover_bg/press_bg/selected_bg colors with the same press > hover > selected
+ * priority as before, so the existing single-selection visuals are unchanged.
+ * Returns WN_ERR_INVALID_ARGUMENT for a dead handle or an unknown bit.
+ * wn_node_get_state() returns the active mask, or 0 for a dead handle.
+ */
+WN_API wn_status wn_node_set_state(wn_app *app, wn_node_id node, uint32_t state,
+                                   int enabled);
+WN_API uint32_t wn_node_get_state(wn_app *app, wn_node_id node);
+
+/* -------------------------------------------------- node reads (ABI v6) */
+/*
+ * wn_node_get_text returns the effective text of a text node (the runtime
+ * override when present, otherwise the compiled string). The buffer is owned
+ * by the engine and stays valid until the next webnative call on this thread.
+ * Non-text nodes without an override return NULL and set wn_last_error().
+ *
+ * wn_node_get_rect writes the laid-out border box (view px), forcing layout
+ * first when the tree is dirty. Returns WN_OK or WN_ERR_INVALID_ARGUMENT.
+ *
+ * wn_node_scroll_into_view scrolls the nearest scrollable ancestor so the
+ * node's box is inside its content box, leaving `margin` px of breathing room
+ * where it fits. It is a no-op (WN_OK) when the node is already visible or has
+ * no scrollable ancestor.
+ */
+WN_API const char *wn_node_get_text(wn_app *app, wn_node_id node);
+WN_API wn_status wn_node_get_rect(wn_app *app, wn_node_id node, wn_rect *out);
+WN_API wn_status wn_node_scroll_into_view(wn_app *app, wn_node_id node, float margin);
+
+/* ------------------------------------------------- text input focus (ABI v6) */
+/*
+ * Focus an input programmatically with the caret at the end and no selection.
+ * blur clears the current focus (idempotent). Neither emits WN_EVENT_INPUT or
+ * WN_EVENT_FOCUS_*; they only change the editor state for the next frame.
+ */
+WN_API wn_status wn_app_focus_input(wn_app *app, wn_node_id node);
+WN_API wn_status wn_app_blur_input(wn_app *app);
+
+/* ------------------------------------------------- image size (ABI v6) */
+/*
+ * Override the intrinsic size used by layout/object-fit after wn_node_set_image
+ * (0, 0 = unknown). Useful when the host knows the new file's pixel size: an
+ * image box without a CSS height then follows the new aspect ratio. The call
+ * marks layout dirty; the next frame/render applies it. */
+WN_API wn_status wn_node_set_image_size(wn_app *app, wn_node_id node,
+                                        float width, float height);
 
 /* -------------------------------------------------- text input (ABI v5) */
 /*

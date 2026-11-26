@@ -1,12 +1,13 @@
 /*
  * wn_core.h - platform/GPU independent R2 engine core.
  *
- * Owns the compiled document (the pre-layout style tree emitted at build time),
- * runtime layout, hover/press/selected state, hit testing and the display list.
- * It knows nothing about Win32, wgpu or the standalone/embedded mode.
+ * Retains the compiled document (it may outlive the caller's reference),
+ * owns runtime layout, per-node hover/press/selected state, hit testing and
+ * the display list. It knows nothing about Win32, wgpu or the standalone or
+ * embedded mode.
  *
- * One core instance per UI thread. The document tables are immutable and shared;
- * all mutable state lives in wn_core.
+ * One core instance per UI thread. The document tables are immutable and
+ * shared; all mutable state lives in wn_core.
  */
 #ifndef WN_CORE_H
 #define WN_CORE_H
@@ -14,20 +15,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "webnative.h"
+
 #if defined(__cplusplus)
 extern "C" {
 #endif
-
-typedef struct {
-    float x, y, w, h;
-} wn_rect;
-
-/* State slots used by wn_core_set_state(). */
-typedef enum wn_state_kind {
-    WN_STATE_HOVER = 0,
-    WN_STATE_PRESS = 1,
-    WN_STATE_SELECTED = 2
-} wn_state_kind;
 
 /* Solid quad vertex: vec2 clip position + unorm8x4 color (12 bytes). */
 typedef struct {
@@ -175,6 +167,21 @@ int wn_core_hover(const wn_core *core);
 int wn_core_press(const wn_core *core);
 int wn_core_selected(const wn_core *core);
 
+/* Per-node state bits (WN_STATE_*). wn_core_set_state applies one bit;
+ * wn_core_node_state reports the live mask (0 for a dead node). */
+int wn_core_node_state(const wn_core *core, int node);
+
+/* Laid-out border box, forcing layout first when the tree is dirty. */
+int wn_core_node_rect(wn_core *core, int node, wn_rect *out);
+
+/* Scrolls the nearest scrollable ancestor until `node` is visible. Returns 0
+ * on success or when already visible; -1 for an invalid node. */
+int wn_core_scroll_node_into_view(wn_core *core, int node, float margin);
+
+/* Programmatic input focus with the caret at the end and no selection. Emits
+ * no events (the ABI blur wrapper is idempotent). */
+int wn_core_focus_input_at_end(wn_core *core, int node);
+
 /* Runtime text override.
  * Returns 0 on success, 1 when the text contains control characters other
  * than tab (WN_ERR_UNSUPPORTED at the ABI layer), -1 for an invalid
@@ -184,9 +191,10 @@ int wn_core_set_text(wn_core *core, int node, const char *text);
 int wn_core_text_override_supported(const wn_core *core, int node,
                                     const char *text);
 
-/* Class toggles. "hover", "press" and "selected" drive R2 state colors.
- * Other class names are remembered per node but do not recompute styles
- * (styles are baked at build time). */
+/* Class toggles. "hover", "press" and "selected" drive the per-node state
+ * bits (and therefore the compiled R2 state colors). Other class names are
+ * remembered per node but do not recompute styles (styles are baked at build
+ * time). */
 int wn_core_set_class(wn_core *core, int node, const char *class_name, int enabled);
 
 /* ------------------------------------------------------ dynamic UI (v0) */
@@ -203,6 +211,10 @@ int wn_core_set_visible(wn_core *core, int node, int visible);
 /* 0 ok, 1 unsupported (node is not NODE_IMAGE), -1 invalid argument,
  * -2 out of memory. */
 int wn_core_set_image(wn_core *core, int node, const char *path);
+
+/* ABI v6: intrinsic size override for an image (0,0 = unknown). 0 ok,
+ * 1 unsupported (not an image), -1 invalid argument. Marks layout dirty. */
+int wn_core_set_image_size(wn_core *core, int node, float width, float height);
 
 /* Deep clone. Returns the new node index or -1 (invalid) / -2 (out of memory or
  * beyond WN_NODE_MAX_CAPACITY). */
@@ -290,8 +302,13 @@ int wn_core_set_input_value(wn_core *core, int node, const char *text);
 const char *wn_core_input_value(const wn_core *core, int node);
 int wn_core_input_state(const wn_core *core, int node, wn_input_state *out);
 
-/* Test/debug hooks: force a state without going through the pointer machine. */
+/* Test/debug hooks: force a state without going through the pointer machine.
+ * `state` is one WN_STATE_* bit. */
 void wn_core_set_state(wn_core *core, int node, int state, int enabled);
+
+/* Marks the core dirty and asks layout/paint to run on the next frame
+ * (wn_view_tick). */
+void wn_core_mark_dirty(wn_core *core);
 
 double wn_core_last_layout_ms(const wn_core *core);
 

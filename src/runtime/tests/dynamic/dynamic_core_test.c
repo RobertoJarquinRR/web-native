@@ -148,6 +148,25 @@ static int image_batch_has_src(const char *src)
     return 0;
 }
 
+/* Counts solid vertices with an exact (r,g,b,a) color: each rectangular node
+ * contributes 6. Used to prove per-node selected colors without reading pixels. */
+static int count_color_vertices(unsigned r, unsigned g, unsigned b, unsigned a)
+{
+    const wn_display_list *list = wn_core_display_list(g_core);
+    int count = 0;
+    int i;
+    if (list == NULL) {
+        return 0;
+    }
+    for (i = 0; i < list->vertex_count; ++i) {
+        const wn_vertex *v = &list->vertices[i];
+        if (v->r == r && v->g == g && v->b == b && v->a == a) {
+            ++count;
+        }
+    }
+    return count;
+}
+
 static void event_begin(FILE *f, const char *stage)
 {
     fprintf(f, "{\"stage\":\"%s\",", stage);
@@ -230,6 +249,65 @@ int main(int argc, char **argv)
     check("initial paint", initial_vertices > 0 && initial_glyphs > 0 &&
           initial_images == 12,
           "solids + glyphs + two image quads");
+
+    /* ------------------------------------------------ per-node state (B2) */
+    {
+        int selected_vertices;
+        wn_core_set_state(g_core, card0, WN_STATE_SELECTED, 1);
+        wn_core_set_state(g_core, card1, WN_STATE_SELECTED, 1);
+        check("state multi-select bits",
+              wn_core_node_state(g_core, card0) == WN_STATE_SELECTED &&
+              wn_core_node_state(g_core, card1) == WN_STATE_SELECTED &&
+              wn_core_selected(g_core) == card0,
+              "two nodes keep the selected bit; the legacy getter reports the first");
+        wn_core_build_display_list(g_core);
+        selected_vertices = count_color_vertices(0x34u, 0x98u, 0xdbu, 0xFFu);
+        check("state multi-select paint", selected_vertices == 12,
+              "both selected cards use selected_bg (2 x 6 vertices)");
+        wn_core_set_state(g_core, card0, WN_STATE_SELECTED, 0);
+        wn_core_build_display_list(g_core);
+        check("state clear one",
+              wn_core_node_state(g_core, card0) == 0 &&
+              wn_core_node_state(g_core, card1) == WN_STATE_SELECTED &&
+              wn_core_selected(g_core) == card1 &&
+              count_color_vertices(0x34u, 0x98u, 0xdbu, 0xFFu) == 6,
+              "clearing one keeps the other selected and painted");
+        wn_core_set_state(g_core, card1, WN_STATE_SELECTED, 0);
+        wn_core_build_display_list(g_core);
+        check("state clear all", wn_core_selected(g_core) == -1 &&
+              count_color_vertices(0x34u, 0x98u, 0xdbu, 0xFFu) == 0,
+              "no selected node remains");
+        /* A select click still replaces the selection (pre-v6 behaviour). */
+        {
+            wn_rect r1 = rect_of(card1);
+            wn_core_set_state(g_core, card0, WN_STATE_SELECTED, 1);
+            wn_core_pointer_down(g_core, r1.x + r1.w * 0.5f, r1.y + r1.h * 0.5f);
+            wn_core_pointer_up(g_core, r1.x + r1.w * 0.5f, r1.y + r1.h * 0.5f);
+            check("state click replaces selection",
+                  (wn_core_node_state(g_core, card0) & WN_STATE_SELECTED) == 0 &&
+                  (wn_core_node_state(g_core, card1) & WN_STATE_SELECTED) != 0,
+                  "a click on another selectable node moves the selection");
+            wn_core_pointer_leave(g_core);
+            wn_core_set_state(g_core, card1, WN_STATE_SELECTED, 0);
+        }
+        /* Hover/press stay exclusive: setting one clears the previous node. */
+        wn_core_set_state(g_core, card0, WN_STATE_HOVER, 1);
+        wn_core_set_state(g_core, card1, WN_STATE_HOVER, 1);
+        check("state hover exclusive",
+              wn_core_node_state(g_core, card0) == 0 &&
+              wn_core_node_state(g_core, card1) == WN_STATE_HOVER &&
+              wn_core_hover(g_core) == card1,
+              "the pointer has a single hovered node");
+        wn_core_set_state(g_core, card1, WN_STATE_HOVER, 0);
+        wn_core_set_state(g_core, card0, WN_STATE_PRESS, 1);
+        check("state press bit", (wn_core_node_state(g_core, card0) & WN_STATE_PRESS) != 0 &&
+              wn_core_press(g_core) == card0, "press is exposed through the mask");
+        wn_core_set_state(g_core, card0, WN_STATE_PRESS, 0);
+        wn_core_build_display_list(g_core);
+        check("state restored paint",
+              wn_core_display_list(g_core)->vertex_count == initial_vertices,
+              "clearing state restores the initial display list");
+    }
     event_begin(report, "initial");
     write_counts(report);
     fputc(',', report);

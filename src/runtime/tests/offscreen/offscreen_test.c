@@ -175,16 +175,320 @@ static int test_replace_same_document(const char *blob)
         ok = wn_view_replace_document(view, document) == 0 &&
              wn_view_replace_document(view, document) == 0 &&
              wn_view_node_count(view) == wn_document_node_count(document);
+        if (ok) {
+            /* ABI v6: the view holds its own reference, so the caller can drop
+             * theirs while the view stays usable. */
+            wn_document_release(document);
+            ok = wn_view_node_count(view) == wn_document_node_count(document);
+        } else {
+            wn_document_release(document);
+        }
         wn_view_destroy(view);
     } else {
         if (view != NULL) {
             wn_view_destroy(view);
         }
-        wn_document_destroy(document);
+        wn_document_release(document);
     }
     printf("offscreen: same-document replace%s\n", ok ? " PASS" : " FAIL");
     return ok;
 }
+
+/* A2: the core retains the document; releasing the caller's reference right
+ * after wn_core_create() must leave the core usable, and a release after the
+ * last reference freed the document is clamped (no crash). */
+static int test_document_refcount(const char *blob)
+{
+    wn_document *document = wn_document_load_blob(blob);
+    wn_core *core = document != NULL ? wn_core_create(document) : NULL;
+    int ok = 0;
+
+    if (document != NULL && core != NULL) {
+        wn_document_release(document);
+        ok = wn_core_node_count(core) > 0 &&
+             wn_core_node_is_alive(core, 0);
+        wn_core_relayout(core);
+        wn_core_build_display_list(core);
+        ok = ok && wn_core_display_list(core)->vertex_count > 0;
+        wn_core_destroy(core);       /* drops the last reference */
+        wn_document_release(document); /* double release: clamped */
+        wn_document_release(document);
+    } else {
+        wn_core_destroy(core);
+        wn_document_release(document);
+    }
+    printf("offscreen: document refcount%s\n", ok ? " PASS" : " FAIL");
+    return ok;
+}
+
+/* B3: view-level text/rect getters. */
+static int test_view_reads(void)
+{
+    wn_view *view = wn_view_create_offscreen(960, 640);
+    int ok = 0;
+
+    if (view != NULL && wn_view_load(view, "", NULL, NULL) == WN_OK) {
+        wn_node_id brand = wn_view_find(view, "body.root/div.sidebar/div.brand/text");
+        const char *text = wn_view_get_text(view, brand);
+        ok = brand != WN_NODE_INVALID && text != NULL &&
+             strcmp(text, "webnative") == 0;
+        ok = ok && wn_view_set_node_text(view, brand, "ABI six") == 0 &&
+             strcmp(wn_view_get_text(view, brand), "ABI six") == 0;
+
+        if (ok) {
+            wn_node_id root = wn_view_root(view);
+            wn_rect via_view;
+            wn_rect via_core;
+            int index;
+            ok = wn_view_get_rect(view, brand, &via_view) == WN_OK;
+            index = wn_view_resolve_handle(view, brand);
+            ok = ok && wn_core_node_rect((wn_core *)wn_view_core(view), index,
+                                         &via_core) == 0 &&
+                 via_view.x == via_core.x && via_view.y == via_core.y &&
+                 via_view.w == via_core.w && via_view.h == via_core.h;
+            ok = ok && root != WN_NODE_INVALID;
+            {
+                wn_rect out;
+                memset(&out, 0x7f, sizeof(out));
+                ok = ok && wn_view_get_rect(view, WN_NODE_INVALID, &out) ==
+                               WN_ERR_INVALID_ARGUMENT;
+            }
+        }
+    }
+    if (view != NULL) {
+        wn_view_destroy(view);
+    }
+    printf("offscreen: view text/rect getters%s\n", ok ? " PASS" : " FAIL");
+    return ok;
+}
+
+/* B5: wn_view_tick marks the core dirty and produces a real frame. */
+static int test_view_tick(void)
+{
+    wn_view *view = wn_view_create_offscreen(960, 640);
+    wn_view_stats stats;
+    int frames_before = 0;
+    int ok = 0;
+
+    if (view != NULL && wn_view_load(view, "", NULL, NULL) == WN_OK &&
+        wn_view_render(view) == WN_OK) {
+        memset(&stats, 0, sizeof(stats));
+        (void)wn_view_get_stats(view, &stats);
+        frames_before = stats.frames;
+        ok = wn_view_needs_render(view) == 0;
+        ok = ok && wn_view_tick(view) == WN_OK &&
+             wn_core_dirty(wn_view_core(view)) == 1 &&
+             wn_view_needs_render(view) == 1;
+        ok = ok && wn_view_render(view) == WN_OK;
+        memset(&stats, 0, sizeof(stats));
+        (void)wn_view_get_stats(view, &stats);
+        ok = ok && stats.frames == frames_before + 1;
+        ok = ok && wn_view_tick(view) == WN_OK &&
+             wn_view_needs_render(view) == 1;
+    }
+    if (view != NULL) {
+        wn_view_destroy(view);
+    }
+    printf("offscreen: view tick frames%s\n", ok ? " PASS" : " FAIL");
+    return ok;
+}
+
+/* B3 + B4: focus/blur and pointer button/click_count reporting. */
+static wn_event g_last_event;
+static int g_event_count;
+
+static void capture_event(void *userdata, const wn_event *event)
+{
+    (void)userdata;
+    g_last_event = *event;
+    ++g_event_count;
+}
+
+static int node_center(wn_view *view, wn_node_id handle, float *x, float *y)
+{
+    int index = wn_view_resolve_handle(view, handle);
+    wn_rect rect;
+    if (index < 0 || wn_core_node_rect((wn_core *)wn_view_core(view), index,
+                                       &rect) != 0) {
+        return 0;
+    }
+    *x = rect.x + rect.w * 0.5f;
+    *y = rect.y + rect.h * 0.5f;
+    return rect.w > 0.0f && rect.h > 0.0f;
+}
+
+static int test_view_input_focus(const char *blob)
+{
+    wn_document *document = wn_document_load_blob(blob);
+    wn_view *view = wn_view_create_offscreen(480, 240);
+    int ok = 0;
+
+    if (document != NULL && view != NULL &&
+        wn_view_replace_document(view, document) == 0) {
+        wn_document_release(document);
+        document = NULL;
+        if (wn_view_load(view, "", NULL, NULL) == WN_OK) {
+            wn_node_id input = wn_view_find(
+                view, "body.root/div.bar/input#search.search");
+            wn_core *core = (wn_core *)wn_view_core(view);
+            int index = wn_view_resolve_handle(view, input);
+            wn_input_state state;
+            ok = input != WN_NODE_INVALID && index >= 0 &&
+                 wn_view_set_value(view, input, "hello") == WN_OK;
+            /* Move the caret to 0 first so focus-at-end is observable. */
+            ok = ok && wn_core_focus_input(core, index, 0.0f) == index;
+            ok = ok && wn_view_focus_input(view, input) == WN_OK &&
+                 wn_view_input_focused(view);
+            memset(&state, 0, sizeof(state));
+            ok = ok && wn_core_input_state(core, index, &state) == 0 &&
+                 state.cursor == 5 && state.anchor < 0;
+            ok = ok && wn_view_blur_input(view) == WN_OK &&
+                 !wn_view_input_focused(view) &&
+                 wn_view_blur_input(view) == WN_OK;
+        }
+    }
+    wn_document_release(document);
+    if (view != NULL) {
+        wn_view_destroy(view);
+    }
+    printf("offscreen: view focus/blur%s\n", ok ? " PASS" : " FAIL");
+    return ok;
+}
+
+static int test_pointer_events(void)
+{
+    wn_view *view = wn_view_create_offscreen(960, 640);
+    wn_core *core;
+    wn_node_id nav;
+    wn_node_id nav2;
+    wn_node_id brand;
+    float x = 0.0f;
+    float y = 0.0f;
+    float nx = 0.0f;
+    float ny = 0.0f;
+    float bx = 0.0f;
+    float by = 0.0f;
+    wn_event event;
+    int ok = 0;
+
+#define POINTER_CHECK(cond, label)                                           \
+    do {                                                                     \
+        if (!(cond)) {                                                       \
+            printf("  pointer check FAILED: %s\n", label);                   \
+            ok = 0;                                                          \
+        }                                                                    \
+    } while (0)
+
+    if (view != NULL && wn_view_load(view, "", NULL, NULL) == WN_OK) {
+        (void)wn_view_on_event(view, capture_event, NULL);
+        core = (wn_core *)wn_view_core(view);
+        nav = wn_view_find(view, "body.root/div.sidebar/div.nav");
+        nav2 = wn_view_find(view, "body.root/div.sidebar/div.nav[1]");
+        brand = wn_view_find(view, "body.root/div.sidebar/div.brand/text");
+        ok = nav != WN_NODE_INVALID && nav2 != WN_NODE_INVALID &&
+             brand != WN_NODE_INVALID && node_center(view, nav, &x, &y) &&
+             node_center(view, nav2, &nx, &ny) &&
+             node_center(view, brand, &bx, &by);
+        POINTER_CHECK(ok, "nodes found and centred");
+
+        if (ok) {
+            g_event_count = 0;
+            memset(&event, 0, sizeof(event));
+            event.type = WN_EVENT_POINTER_MOVE;
+            event.x = x;
+            event.y = y;
+            POINTER_CHECK(wn_view_event(view, &event) == WN_OK && g_event_count == 1, "move delivered once");
+            POINTER_CHECK(g_last_event.node == nav, "move targets nav");
+            POINTER_CHECK(g_last_event.button == 0 &&
+                          g_last_event.click_count == 0,
+                          "move has no button/click count");
+
+            memset(&event, 0, sizeof(event));
+            event.type = WN_EVENT_POINTER_DOWN;
+            event.x = x;
+            event.y = y;
+            event.button = 1;
+            event.click_count = 1;
+            POINTER_CHECK(wn_view_event(view, &event) == WN_OK && g_last_event.node == nav,
+                          "left down targets nav");
+            POINTER_CHECK(g_last_event.button == 1 &&
+                          g_last_event.click_count == 1,
+                          "left down carries button 1 count 1");
+            event.type = WN_EVENT_POINTER_UP;
+            POINTER_CHECK(wn_view_event(view, &event) == WN_OK && g_last_event.node == nav,
+                          "left up targets nav");
+            POINTER_CHECK(g_last_event.button == 1, "left up carries button 1");
+            {
+                int nav_state = wn_core_node_state(
+                    core, wn_view_resolve_handle(view, nav));
+                POINTER_CHECK((nav_state & (WN_STATE_SELECTED | WN_STATE_PRESS)) ==
+                                  WN_STATE_SELECTED,
+                              "left up selects nav");
+            }
+
+            /* Double click: the host maps WM_LBUTTONDBLCLK to count 2. */
+            event.type = WN_EVENT_POINTER_DOWN;
+            event.click_count = 2;
+            POINTER_CHECK(wn_view_event(view, &event) == WN_OK && g_last_event.click_count == 2 &&
+                          g_last_event.button == 1,
+                          "double down carries count 2");
+            event.type = WN_EVENT_POINTER_UP;
+            POINTER_CHECK(wn_view_event(view, &event) == WN_OK && g_last_event.click_count == 2,
+                          "double up keeps count 2");
+
+            /* Right click: reports the node but does not press/select. */
+            memset(&event, 0, sizeof(event));
+            event.type = WN_EVENT_POINTER_DOWN;
+            event.x = nx;
+            event.y = ny;
+            event.button = 2;
+            event.click_count = 1;
+            POINTER_CHECK(wn_view_event(view, &event) == WN_OK && g_last_event.node == nav2,
+                          "right down targets nav2");
+            POINTER_CHECK(g_last_event.button == 2 && wn_core_press(core) == -1,
+                          "right down does not press");
+            POINTER_CHECK((wn_core_node_state(
+                               core, wn_view_resolve_handle(view, nav2)) &
+                           (WN_STATE_PRESS | WN_STATE_SELECTED)) == 0,
+                          "right down does not select nav2");
+
+            /* Middle click on a non-interactive node reports that node. */
+            memset(&event, 0, sizeof(event));
+            event.type = WN_EVENT_POINTER_DOWN;
+            event.x = bx;
+            event.y = by;
+            event.button = 3;
+            event.click_count = 1;
+            POINTER_CHECK(wn_view_event(view, &event) == WN_OK && g_last_event.node == brand,
+                          "middle down targets the brand text");
+            POINTER_CHECK(g_last_event.button == 3 && wn_core_press(core) == -1,
+                          "middle down does not press");
+
+            /* Left click on a non-interactive node also reports the hit node
+             * but leaves the pointer state machine empty. */
+            memset(&event, 0, sizeof(event));
+            event.type = WN_EVENT_POINTER_DOWN;
+            event.x = bx;
+            event.y = by;
+            event.button = 1;
+            event.click_count = 1;
+            POINTER_CHECK(wn_view_event(view, &event) == WN_OK && g_last_event.node == brand,
+                          "left down targets the brand text");
+            POINTER_CHECK(wn_core_press(core) == -1,
+                          "left down on non-interactive leaves press empty");
+            event.type = WN_EVENT_POINTER_UP;
+            POINTER_CHECK(wn_view_event(view, &event) == WN_OK && g_last_event.node == brand,
+                          "left up targets the brand text");
+        }
+    }
+#undef POINTER_CHECK
+    if (view != NULL) {
+        wn_view_destroy(view);
+    }
+    printf("offscreen: pointer button/click_count%s\n", ok ? " PASS" : " FAIL");
+    return ok;
+}
+
 
 
 int main(int argc, char **argv)
@@ -228,10 +532,22 @@ int main(int argc, char **argv)
     }
     wn_view_destroy(view);
     printf("offscreen: ok %dx%d -> %s\n", width, height, path);
+
+    {
+        int abi6 = test_view_reads();
+        abi6 = test_view_tick() && abi6;
+        abi6 = test_pointer_events() && abi6;
+        if (!abi6) {
+            fprintf(stderr, "offscreen: ABI v6 view tests failed\n");
+            return 1;
+        }
+    }
     if (argc >= 5) {
         int lifecycle = test_destroy_in_callback(argv[4]);
         lifecycle = test_self_destroy(argv[4]) && lifecycle;
         lifecycle = test_replace_same_document(argv[4]) && lifecycle;
+        lifecycle = test_document_refcount(argv[4]) && lifecycle;
+        lifecycle = test_view_input_focus(argv[4]) && lifecycle;
         if (!lifecycle) {
             fprintf(stderr, "offscreen: lifecycle tests failed\n");
             return 1;

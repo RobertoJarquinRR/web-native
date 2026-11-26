@@ -16,6 +16,11 @@
 
 #define WN_MAX_CLASSES 8
 
+/* Clear one state bit without a truncating constant cast (MSVC /W4 warns on
+ * `(unsigned char)~WN_STATE_x`). */
+#define WN_STATE_CLEAR(value, bit)                                           \
+    ((unsigned char)((value) & (unsigned char)(0xFFu ^ (unsigned int)(bit))))
+
 /* The node arena starts at WN_NODE_MIN_CAPACITY slots and grows on demand in
  * 1.5x steps, so a host can materialise large lists. WN_NODE_MAX_CAPACITY keeps
  * the int index arithmetic and the per-array byte sizes bounded. */
@@ -85,6 +90,10 @@ struct wn_core {
     unsigned char *dynamic_node;
     unsigned char *visible;
     unsigned char *visible_eff;
+    /* ABI v6: WN_STATE_HOVER|PRESS|SELECTED bits per slot. hover/press below
+     * cache the single pointer-driven node; selected is read from this mask so
+     * several nodes can stay selected. */
+    unsigned char *state;
     int *parent;
     int *order_key;
     int next_order;
@@ -105,7 +114,6 @@ struct wn_core {
 
     int hover;
     int press;
-    int selected;
 
     wn_vertex *vertices;
     int vertex_count;

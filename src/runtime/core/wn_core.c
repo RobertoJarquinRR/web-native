@@ -31,7 +31,9 @@ static const wn_document g_builtin_document = {
     NULL,
     NULL,
     NULL,
-    NULL
+    NULL,
+    NULL,
+    WN_DOCUMENT_STATIC_REFS
 };
 
 const wn_document *wn_document_builtin(void)
@@ -220,26 +222,66 @@ int wn_core_press(const wn_core *core)
 
 int wn_core_selected(const wn_core *core)
 {
-    return core != NULL ? core->selected : -1;
+    int i;
+    if (core == NULL || core->state == NULL) {
+        return -1;
+    }
+    for (i = 0; i < core->node_count; ++i) {
+        if (core->alive[i] && (core->state[i] & WN_STATE_SELECTED) != 0u) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int wn_core_node_state(const wn_core *core, int node)
+{
+    if (!wn_core_node_is_alive(core, node) || core->state == NULL) {
+        return 0;
+    }
+    return core->state[node];
 }
 
 void wn_core_set_state(wn_core *core, int node, int state, int enabled)
 {
-    int value;
-    if (core == NULL || node < 0 || node >= core->node_count) {
+    if (core == NULL || core->state == NULL || node < 0 ||
+        node >= core->node_count || !core->alive[node]) {
         return;
     }
-    if (!enabled) {
-        value = -1;
-    } else {
-        value = node;
-    }
     if (state == WN_STATE_HOVER) {
-        core->hover = value;
+        if (enabled) {
+            if (core->hover >= 0 && core->hover != node) {
+                core->state[core->hover] = WN_STATE_CLEAR(core->state[core->hover], WN_STATE_HOVER);
+            }
+            core->state[node] |= (unsigned char)WN_STATE_HOVER;
+            core->hover = node;
+        } else {
+            core->state[node] = WN_STATE_CLEAR(core->state[node], WN_STATE_HOVER);
+            if (core->hover == node) {
+                core->hover = -1;
+            }
+        }
     } else if (state == WN_STATE_PRESS) {
-        core->press = value;
+        if (enabled) {
+            if (core->press >= 0 && core->press != node) {
+                core->state[core->press] = WN_STATE_CLEAR(core->state[core->press], WN_STATE_PRESS);
+            }
+            core->state[node] |= (unsigned char)WN_STATE_PRESS;
+            core->press = node;
+        } else {
+            core->state[node] = WN_STATE_CLEAR(core->state[node], WN_STATE_PRESS);
+            if (core->press == node) {
+                core->press = -1;
+            }
+        }
     } else if (state == WN_STATE_SELECTED) {
-        core->selected = value;
+        if (enabled) {
+            core->state[node] |= (unsigned char)WN_STATE_SELECTED;
+        } else {
+            core->state[node] = WN_STATE_CLEAR(core->state[node], WN_STATE_SELECTED);
+        }
+    } else {
+        return;
     }
     core->dirty = 1;
 }
@@ -256,30 +298,15 @@ int wn_core_set_class(wn_core *core, int node, const char *class_name, int enabl
         return -1;
     }
     if (strcmp(class_name, "hover") == 0) {
-        if (enabled) {
-            core->hover = node;
-        } else if (core->hover == node) {
-            core->hover = -1;
-        }
-        core->dirty = 1;
+        wn_core_set_state(core, node, WN_STATE_HOVER, enabled);
         return 0;
     }
     if (strcmp(class_name, "press") == 0) {
-        if (enabled) {
-            core->press = node;
-        } else if (core->press == node) {
-            core->press = -1;
-        }
-        core->dirty = 1;
+        wn_core_set_state(core, node, WN_STATE_PRESS, enabled);
         return 0;
     }
     if (strcmp(class_name, "selected") == 0) {
-        if (enabled) {
-            core->selected = node;
-        } else if (core->selected == node) {
-            core->selected = -1;
-        }
-        core->dirty = 1;
+        wn_core_set_state(core, node, WN_STATE_SELECTED, enabled);
         return 0;
     }
 
@@ -408,12 +435,13 @@ wn_core *wn_core_create(const wn_document *document)
         return NULL;
     }
     c->doc = document;
+    wn_document_retain((wn_document *)document);
     count = document->node_count;
     capacity = count > WN_NODE_MIN_CAPACITY ? count : WN_NODE_MIN_CAPACITY;
     c->node_capacity = capacity;
     c->node_count = count;
     c->live_count = count;
-    c->hover = c->press = c->selected = -1;
+    c->hover = c->press = -1;
     c->width = document->viewport_width;
     c->height = document->viewport_height;
 
@@ -425,6 +453,7 @@ wn_core *wn_core_create(const wn_document *document)
     c->dynamic_node = (unsigned char *)calloc(bytes, sizeof(unsigned char));
     c->visible = (unsigned char *)calloc(bytes, sizeof(unsigned char));
     c->visible_eff = (unsigned char *)calloc(bytes, sizeof(unsigned char));
+    c->state = (unsigned char *)calloc(bytes, sizeof(unsigned char));
     c->parent = (int *)calloc(bytes, sizeof(int));
     c->order_key = (int *)calloc(bytes, sizeof(int));
     c->free_list = (int *)calloc(bytes, sizeof(int));
@@ -467,6 +496,7 @@ wn_core *wn_core_create(const wn_document *document)
     if (c->nodes == NULL || c->names == NULL || c->generation == NULL ||
         c->alive == NULL ||
         c->dynamic_node == NULL || c->visible == NULL || c->visible_eff == NULL ||
+        c->state == NULL ||
         c->parent == NULL || c->order_key == NULL ||
         c->free_list == NULL || c->rects == NULL || c->clips == NULL ||
         c->scroll == NULL || c->scroll_max == NULL || c->first_child == NULL ||
@@ -603,6 +633,7 @@ static int arena_reserve(wn_core *c, int minimum)
     WN_GROW_ARRAY(c, dynamic_node, capacity);
     WN_GROW_ARRAY(c, visible, capacity);
     WN_GROW_ARRAY(c, visible_eff, capacity);
+    WN_GROW_ARRAY(c, state, capacity);
     WN_GROW_ARRAY(c, parent, capacity);
     WN_GROW_ARRAY(c, order_key, capacity);
     WN_GROW_ARRAY(c, free_list, capacity);
@@ -658,6 +689,7 @@ static int arena_alloc(wn_core *c)
     c->dynamic_node[id] = 1;
     c->visible[id] = 1;
     c->visible_eff[id] = 1;
+    c->state[id] = 0;
     c->parent[id] = -1;
     c->order_key[id] = c->next_order++;
     c->rects[id].x = c->rects[id].y = 0.0f;
@@ -701,6 +733,7 @@ static void arena_release(wn_core *c, int node)
     c->last_child[node] = -1;
     c->visible[node] = 0;
     c->visible_eff[node] = 0;
+    c->state[node] = 0;
     c->rects[node].x = c->rects[node].y = 0.0f;
     c->rects[node].w = c->rects[node].h = 0.0f;
     c->clips[node] = c->rects[node];
@@ -779,28 +812,39 @@ void wn_core_clear_dirty(wn_core *core)
     }
 }
 
+void wn_core_mark_dirty(wn_core *core)
+{
+    if (core != NULL) {
+        core->dirty = 1;
+    }
+}
+
 int wn_core_set_visible(wn_core *core, int node, int visible)
 {
-    int state[3];
     int i;
     if (core == NULL || !wn_core_node_is_alive(core, node)) {
         return -1;
     }
     core->visible[node] = visible != 0 ? 1 : 0;
     if (!core->visible[node]) {
-        state[0] = core->hover;
-        state[1] = core->press;
-        state[2] = core->selected;
-        for (i = 0; i < 3; ++i) {
-            int walk = state[i];
-            while (walk >= 0) {
-                if (walk == node) {
-                    if (i == 0) core->hover = -1;
-                    else if (i == 1) core->press = -1;
-                    else core->selected = -1;
-                    break;
-                }
+        /* Drop any state bit owned by a node inside the hidden subtree. */
+        for (i = 0; i < core->node_count; ++i) {
+            int walk;
+            if (core->state[i] == 0u) {
+                continue;
+            }
+            walk = i;
+            while (walk >= 0 && walk != node) {
                 walk = core->parent[walk];
+            }
+            if (walk == node) {
+                core->state[i] = 0;
+                if (core->hover == i) {
+                    core->hover = -1;
+                }
+                if (core->press == i) {
+                    core->press = -1;
+                }
             }
         }
         if (core->input_focus >= 0) {
@@ -837,6 +881,28 @@ int wn_core_set_image(wn_core *core, int node, const char *path)
     }
     wn_free_(core->image_override[node]);
     core->image_override[node] = copy;
+    mark_core_dirty(core);
+    return 0;
+}
+
+/* ABI v6: the host knows the new file's pixel size after wn_core_set_image.
+ * The mutable node copy carries the intrinsic size used by layout/object-fit,
+ * so updating it and marking layout dirty is enough. (0,0) means unknown. */
+int wn_core_set_image_size(wn_core *core, int node, float width, float height)
+{
+    UiNode *n;
+    if (core == NULL || !wn_core_node_is_alive(core, node)) {
+        return -1;
+    }
+    if (width < 0.0f || height < 0.0f) {
+        return -1;
+    }
+    n = &core->nodes[node];
+    if (n->kind != R2_NODE_IMAGE) {
+        return 1;
+    }
+    n->image_width = width;
+    n->image_height = height;
     mark_core_dirty(core);
     return 0;
 }
@@ -1010,9 +1076,9 @@ int wn_core_remove(wn_core *core, int node)
      * their internal links until arena_release() resets them. */
     unlink_child(core, node);
     for (i = 0; i < count; ++i) {
+        core->state[ids[i]] = 0;
         if (core->hover == ids[i]) core->hover = -1;
         if (core->press == ids[i]) core->press = -1;
-        if (core->selected == ids[i]) core->selected = -1;
     }
     for (i = count - 1; i >= 0; --i) {
         arena_release(core, ids[i]);
@@ -1075,9 +1141,11 @@ int wn_core_append(wn_core *core, int parent, int child)
 void wn_core_destroy(wn_core *core)
 {
     int i;
+    const wn_document *document;
     if (core == NULL) {
         return;
     }
+    document = core->doc;
     if (core->nodes != NULL) {
         for (i = 0; i < core->node_count; ++i) {
             if (core->alive != NULL && core->alive[i]) {
@@ -1092,6 +1160,7 @@ void wn_core_destroy(wn_core *core)
     wn_free_(core->dynamic_node);
     wn_free_(core->visible);
     wn_free_(core->visible_eff);
+    wn_free_(core->state);
     wn_free_(core->parent);
     wn_free_(core->order_key);
     wn_free_(core->free_list);
@@ -1121,5 +1190,6 @@ void wn_core_destroy(wn_core *core)
     wn_free_(core->glyph_batches);
     wn_free_(core->image_vertices);
     wn_free_(core->image_batches);
-    wn_free_(core);
+    free(core);
+    wn_document_release((wn_document *)document);
 }

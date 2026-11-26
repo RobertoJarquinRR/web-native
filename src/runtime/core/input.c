@@ -453,6 +453,24 @@ int wn_core_focus_input(wn_core *core, int node, float pointer_x)
     return node;
 }
 
+/* Programmatic focus: same editor state as a click, but the caret goes to the
+ * end of the value and no selection survives. Emits no events. */
+int wn_core_focus_input_at_end(wn_core *core, int node)
+{
+    if (core == NULL || input_record(core, node) == NULL) {
+        return -1;
+    }
+    if (wn_core_focus_input(core, node, 3.0e38f) < 0) {
+        return -1;
+    }
+    core->input_cursor[node] = input_length(core, node);
+    core->input_anchor[node] = -1;
+    input_update_scroll(core, node);
+    input_blink_reset(core);
+    core->dirty = 1;
+    return node;
+}
+
 int wn_core_blur_input(wn_core *core)
 {
     int node;

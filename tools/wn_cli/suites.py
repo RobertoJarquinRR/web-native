@@ -265,6 +265,9 @@ def run_fidelity() -> int:
         log_step("fidelity: cargo build --release")
         run_cmd(["cargo", "build", "--release"], cwd=rust)
 
+    log_step("fidelity: deterministic ratio image")
+    _python(suite / "make_images.py", [], cwd=suite)
+
     log_step("fidelity: frontend-rust --emit-ui")
     run_cmd(
         [rust_exe, "--html", "page/index.html", "--width", "480", "--height", "560",
@@ -305,6 +308,16 @@ def run_fidelity() -> int:
     core_stdout = _run(core_exe, [], out)
     if "PASS" not in core_stdout:
         raise CliError("fidelity core test did not report PASS")
+
+    log_step("fidelity: ABI v6 core test")
+    abi_exe = out / "abi_v6_core_test.exe"
+    _compile(
+        abi_exe,
+        [suite / "abi_v6_core_test.c", *[runtime / source for source in CORE_SOURCES]],
+        [get_paths().root / "include", runtime, out / "emit"],
+        CORE_LIBS,
+    )
+    _expect(_run(abi_exe, [], out), ["abi_v6_core_test: PASS"], "ABI v6 core test")
 
     log_step("fidelity: compile runtime + renders")
     runtime_exe = out / "runtime_fidelity.exe"
@@ -389,7 +402,7 @@ def run_dynamic() -> int:
     _compile(abi_exe, runtime_sources(skip_main=True) + [runtime / "examples" / "dynamic.c"], includes, libs)
     abi_text = _run(abi_exe, ["--frames", "8", "--image-b", str(page / "images" / "b.png")], page)
     _expect(abi_text, [
-        "ABI 5",
+        "ABI 6",
         "dynamic: PASS",
         "set_text(Omega) -> WN_OK",
         "set_image(text) -> WN_ERR_UNSUPPORTED",
@@ -462,7 +475,7 @@ def run_input() -> int:
     _compile(abi_exe, runtime_sources(skip_main=True) + [runtime / "examples" / "input.c"], includes, libs)
     abi_text = _run_logged(abi_exe, ["--frames", "8"], page, out / "abi_input.log")
     _expect(abi_text, [
-        "ABI 5",
+        "ABI 6",
         "input: PASS",
         "set_value(abc) -> WN_OK",
         "set_value(Omega) -> WN_OK",

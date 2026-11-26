@@ -30,6 +30,7 @@ struct wn_app {
     int resize_demo;
     int demo_stage;
     int caret_blink;
+    int tick_ms;
     double created_ms;
     wn_event_cb callback;
     void *userdata;
@@ -96,6 +97,12 @@ static void app_host_frame(void *userdata, int force)
 
     if (app == NULL || app->view == NULL || app->closed) {
         return;
+    }
+    /* ABI v6: while a tick is active every frame callback marks the core
+     * dirty, so animations get a fresh layout/paint even without host
+     * mutations. The tick timer itself only wakes the message loop. */
+    if (app->tick_ms > 0) {
+        (void)wn_view_tick(app->view);
     }
     if (!force && app->max_frames <= 0 && !wn_view_needs_render(app->view)) {
         return;
@@ -238,6 +245,8 @@ wn_status wn_app_load_document(wn_app *app, const char *path_utf8)
         wn_set_error("wn_app_load_document: %s", detail);
         return WN_ERR_INTERNAL;
     }
+    /* The view retained its own reference; drop the loader's. */
+    wn_document_release(document);
     app->loaded = 1;
     return WN_OK;
 }
@@ -453,6 +462,96 @@ wn_status wn_node_append(wn_app *app, wn_node_id parent, wn_node_id child)
     return wn_view_append(app->view, parent, child);
 }
 
+/* ----------------------------------------------------- node state (ABI v6) */
+
+wn_status wn_node_set_state(wn_app *app, wn_node_id node, uint32_t state,
+                            int enabled)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_set_state: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    if (state == 0u || (state & ~(uint32_t)(WN_STATE_HOVER | WN_STATE_PRESS |
+                                            WN_STATE_SELECTED)) != 0u) {
+        wn_set_error("wn_node_set_state: unknown state mask 0x%X",
+                     (unsigned)state);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_set_state_handle(app->view, node, state, enabled);
+}
+
+uint32_t wn_node_get_state(wn_app *app, wn_node_id node)
+{
+    if (app == NULL || app->view == NULL) {
+        return 0;
+    }
+    return wn_view_get_state_handle(app->view, node);
+}
+
+/* ------------------------------------------------------ node reads (ABI v6) */
+
+const char *wn_node_get_text(wn_app *app, wn_node_id node)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_get_text: app is NULL");
+        return NULL;
+    }
+    return wn_view_get_text(app->view, node);
+}
+
+wn_status wn_node_get_rect(wn_app *app, wn_node_id node, wn_rect *out)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_get_rect: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_get_rect(app->view, node, out);
+}
+
+wn_status wn_node_scroll_into_view(wn_app *app, wn_node_id node, float margin)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_scroll_into_view: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_scroll_into_view(app->view, node, margin);
+}
+
+wn_status wn_app_focus_input(wn_app *app, wn_node_id node)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_app_focus_input: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_focus_input(app->view, node);
+}
+
+wn_status wn_app_blur_input(wn_app *app)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_app_blur_input: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_blur_input(app->view);
+}
+
+wn_status wn_node_set_image_size(wn_app *app, wn_node_id node,
+                                 float width, float height)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_set_image_size: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_set_image_size(app->view, node, width, height);
+}
+
 /* ------------------------------------------------------ text input (v4) */
 
 wn_status wn_node_set_value(wn_app *app, wn_node_id node, const char *utf8)
@@ -547,6 +646,23 @@ void wn_app_set_max_frames(wn_app *app, int max_frames)
             app->host_ops->set_continuous != NULL) {
             app->host_ops->set_continuous(app->host, app->max_frames > 0);
         }
+    }
+}
+
+/* ABI v6: periodic host tick. The timer wakes the loop; app_host_frame marks
+ * the core dirty while it is active. 0 stops the timer. */
+void wn_app_set_tick_ms(wn_app *app, int ms)
+{
+    if (app == NULL) {
+        return;
+    }
+    app->tick_ms = ms > 0 ? ms : 0;
+    if (app->view != NULL && app->tick_ms > 0) {
+        (void)wn_view_tick(app->view);
+    }
+    if (app->host_ops != NULL && app->host != NULL &&
+        app->host_ops->set_tick != NULL) {
+        app->host_ops->set_tick(app->host, app->tick_ms);
     }
 }
 

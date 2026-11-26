@@ -427,6 +427,23 @@ int main(int argc, char **argv)
               "focus restarts the visible phase");
     }
 
+    /* ------------------------------------- programmatic focus (ABI v6) */
+    {
+        wn_input_state focus_state;
+        check("focus-at-end", wn_core_focus_input_at_end(g_core, search) == search &&
+              wn_core_input_focused(g_core) == search,
+              "wn_core_focus_input_at_end takes the focus");
+        if (wn_core_input_state(g_core, search, &focus_state) == 0) {
+            check("focus-at-end caret", focus_state.cursor ==
+                  (int)strlen(wn_core_input_value(g_core, search)) &&
+                  focus_state.anchor < 0 && focus_state.focused,
+                  "caret sits at the end and there is no selection");
+        }
+        check("blur clears focus", wn_core_blur_input(g_core) == 0 &&
+              wn_core_input_focused(g_core) < 0,
+              "blur releases the editor");
+    }
+
     /* ---------------------------------------------------------- report end */
     write_state(report, "final", search, changes);
     fclose(report);
