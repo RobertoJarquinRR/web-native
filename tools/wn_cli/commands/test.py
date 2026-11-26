@@ -1,3 +1,4 @@
+from __future__ import annotations
 import argparse
 
 from wn_cli import suites
