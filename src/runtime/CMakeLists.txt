@@ -22,6 +22,7 @@ set(WN_RUNTIME_SOURCES
     wn_common.c
     core/wn_core.c
     core/layout.c
+    core/kind_ops.c
     core/paint.c
     core/input.c
     core/hit_test.c

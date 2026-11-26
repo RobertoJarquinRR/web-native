@@ -1,19 +1,18 @@
 /*
- * layout.c - hierarchy, intrinsic sizes, block/flex/grid layout and clipping.
+ * layout.c - hierarchy, block/flex/grid layout and clipping.
  *
  * Keeps the documented R2 behaviour: same block/flex algorithm, same wrap
- * shrink rule, same margin:auto handling.
+ * shrink rule, same margin:auto handling. Kind-specific size and children
+ * rules live in the capability table (core/kind_ops.c); this file resolves the
+ * declared sizes, dispatches through the table and applies scroll/clip.
  */
 #include <math.h>
 #include <stdlib.h>
-#include <string.h>
 
+#include "kind_ops.h"
 #include "wn_core_internal.h"
 #include "wn_internal.h"
 
-/* Max-content width. Flex items use their content width, not the container
- * width (documented R2 behaviour). */
-static float intrinsic_width(wn_core *c, int node, float available);
 static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
                          float available_w, float parent_content_h,
                          int is_root, float forced_w);
@@ -109,136 +108,6 @@ static void mark_subtree_hidden(wn_core *c, int node)
     for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
         mark_subtree_hidden(c, child);
     }
-}
-
-static const char *node_text(const wn_core *c, int node)
-{
-    if (c->text_override != NULL && c->text_override[node] != NULL) {
-        return c->text_override[node];
-    }
-    return c->nodes[node].text != NULL ? c->nodes[node].text : "";
-}
-
-static void measure_text_node(const wn_core *c, int node, float max_width, wn_text_metrics *out)
-{
-    const UiNode *n = &c->nodes[node];
-    const char *text = node_text(c, node);
-    if (wn_text_measure_string(text, n->font_family, n->font_size, n->font_weight,
-                               max_width > 0.0f ? max_width : 0.0f, out) == 0) {
-        return;
-    }
-    out->width = n->font_size * 0.6f * (float)strlen(text);
-    out->height = n->font_size * 1.25f;
-    out->ascent = n->font_size;
-    out->descent = 0.0f;
-}
-
-static float text_node_width(const wn_core *c, int node, float max_width)
-{
-    const UiNode *n = &c->nodes[node];
-    const char *text = node_text(c, node);
-    wn_text_metrics metrics;
-    /* A constrained width picks the widest greedy line; unconstrained keeps
-     * the backend's single-line advance width. */
-    if (max_width > 0.0f) {
-        const wn_text_line_layout *layout = wn_text_line_layout_get(
-            text, n->font_family, n->font_size, n->font_weight, max_width);
-        if (layout != NULL) {
-            return ceilf(layout->width) + WN_DECL_W(n);
-        }
-    }
-    measure_text_node(c, node, 0.0f, &metrics);
-    return ceilf(metrics.width) + WN_DECL_W(n);
-}
-
-static float text_node_height(const wn_core *c, int node, float max_width)
-{
-    const UiNode *n = &c->nodes[node];
-    const char *text = node_text(c, node);
-    const wn_text_line_layout *layout = wn_text_line_layout_get(
-        text, n->font_family, n->font_size, n->font_weight,
-        max_width > 0.0f ? max_width : 0.0f);
-    wn_text_metrics metrics;
-    float line_height;
-
-    if (layout == NULL) {
-        /* The backend measure with a max_width is a hint only: constrained
-         * nodes are sized by the engine breaker above. */
-        measure_text_node(c, node, 0.0f, &metrics);
-        return ceilf(metrics.height) + WN_DECL_H(n);
-    }
-    if (layout->line_count <= 1 && WN_LINE_HEIGHT(n) <= 0.0f && max_width <= 0.0f) {
-        /* Unconstrained single-line text keeps the backend's exact box. A
-         * constrained node always follows the engine breaker, even at one
-         * line. */
-        return ceilf(layout->measured_height) + WN_DECL_H(n);
-    }
-    line_height = WN_LINE_HEIGHT(n) > 0.0f ? WN_LINE_HEIGHT(n) : layout->line_height;
-    return ceilf((float)layout->line_count * line_height) + WN_DECL_H(n);
-}
-
-static float intrinsic_width(wn_core *c, int node, float available)
-{
-    const UiNode *n = &c->nodes[node];
-    if (n->width >= 0.0f) {
-        return n->width + WN_DECL_W(n);
-    }
-    if (n->width_pct > 0.0f) {
-        return available * n->width_pct * 0.01f + WN_DECL_W(n);
-    }
-    if (n->kind == R2_NODE_TEXT) {
-        return text_node_width(c, node, available);
-    }
-    if (n->kind == R2_NODE_IMAGE && n->image_width > 0.0f) {
-        return n->image_width + n->padding[1] + n->padding[3];
-    }
-    if (n->kind == R2_NODE_GRID && n->grid_mode == R2_GRID_AUTO_FILL &&
-        n->grid_column_px > 0.0f) {
-        return n->grid_column_px + n->padding[1] + n->padding[3];
-    }
-    if (n->kind == R2_NODE_INPUT) {
-        /* Default width of a field without CSS: roughly 20 characters,
-         * bounded by max_length when the field declares one. */
-        const WnInputRecord *rec = input_record(c, node);
-        float width = 200.0f;
-        if (rec != NULL && rec->max_length > 0) {
-            float estimated = (float)rec->max_length * n->font_size * 0.62f;
-            width = fmaxf(80.0f, fminf(estimated, 480.0f));
-        }
-        return width + n->padding[1] + n->padding[3];
-    }
-    float content = 0.0f;
-    if (n->kind == R2_NODE_FLEX && n->direction == 0) {
-        float sum = 0.0f;
-        int count = 0;
-        int child;
-        for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
-            if (!c->alive[child] || !c->visible[child]) {
-                continue;
-            }
-            sum += intrinsic_width(c, child, available);
-            ++count;
-        }
-        if (count > 0) {
-            sum += (n->gap > 0.0f ? n->gap : 0.0f) * (float)(count - 1);
-        }
-        content = sum;
-    } else {
-        float maxw = 0.0f;
-        int child;
-        for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
-            float w;
-            if (!c->alive[child] || !c->visible[child]) {
-                continue;
-            }
-            w = intrinsic_width(c, child, available);
-            if (w > maxw) {
-                maxw = w;
-            }
-        }
-        content = maxw;
-    }
-    return content + n->padding[1] + n->padding[3];
 }
 
 static float align_offset(int align, float extent, float size)
@@ -337,9 +206,9 @@ static float layout_flex_children(wn_core *c, int parent, float content_x,
             float margins = n->margin[1] + n->margin[3];
             float limit = fmaxf(content_w - margins, 0.0f);
             if (row) {
-                forced = fminf(limit, intrinsic_width(c, id, content_w));
+                forced = fminf(limit, wn_intrinsic_width(c, id, content_w));
             } else if (p->align != ALIGN_STRETCH) {
-                forced = fminf(limit, intrinsic_width(c, id, content_w));
+                forced = fminf(limit, wn_intrinsic_width(c, id, content_w));
             }
         }
         if (basis >= 0.0f) {
@@ -773,41 +642,97 @@ static float layout_grid_children(wn_core *c, int parent, float content_x,
     }
 }
 
+/* Children algorithms behind the capability table. They return the y cursor
+ * after the last child, so layout_node derives `content_used` with the same
+ * float operations the old inline chains used. */
+
+float wn_layout_block_children(wn_core *c, int node, float content_x, float content_y,
+                               float content_w, float content_h)
+{
+    float cursor = content_y;
+    int child;
+    for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
+        float used;
+        if (!c->alive[child] || !c->visible[child]) {
+            mark_subtree_hidden(c, child);
+            continue;
+        }
+        used = layout_node(c, child, content_x, cursor, content_w, content_h, 0, -1.0f);
+        /* `margin-left/right:auto` in a block container. Both auto margins
+         * centre the box; only left pushes it to the right. */
+        {
+            int auto_left = WN_MARGIN_AUTO(&c->nodes[child], 3);
+            int auto_right = WN_MARGIN_AUTO(&c->nodes[child], 1);
+            if (auto_left || auto_right) {
+                float dx = 0.0f;
+                float room = content_w - c->rects[child].w;
+                if (room > 0.0f) {
+                    if (auto_left && auto_right) {
+                        dx = room * 0.5f;
+                    } else if (auto_left) {
+                        dx = room;
+                    }
+                }
+                if (dx > 0.0f) {
+                    translate_subtree(c, child, dx, 0.0f);
+                }
+            }
+        }
+        /* The child was placed at cursor + its top margin, so the flow must
+         * advance by both; skipping margin[0] made every following sibling
+         * sit one margin too high. */
+        cursor += c->nodes[child].margin[0] + used;
+    }
+    return cursor;
+}
+
+float wn_layout_flex_children(wn_core *c, int node, float content_x, float content_y,
+                              float content_w, float content_h)
+{
+    return content_y + layout_flex_children(c, node, content_x, content_y, content_w, content_h);
+}
+
+float wn_layout_grid_children(wn_core *c, int node, float content_x, float content_y,
+                              float content_w, float content_h)
+{
+    return content_y + layout_grid_children(c, node, content_x, content_y, content_w, content_h);
+}
+
 static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
                          float available_w, float parent_content_h,
                          int is_root, float forced_w)
 {
     const UiNode *n = &c->nodes[node];
+    const WnKindOps *ops;
     float w;
     if (!c->alive[node] || !c->visible[node]) {
         mark_subtree_hidden(c, node);
         return 0.0f;
     }
     c->visible_eff[node] = 1;
+
+    /* The table only owns the auto cases: forced/declared/percentage widths are
+     * the same rule for every kind and stay here. */
+    ops = wn_kind_ops(n->kind);
+    if (ops == NULL) {
+        /* A corrupt kind keeps the historical block behaviour. */
+        ops = wn_kind_ops(R2_NODE_BLOCK);
+    }
     if (forced_w >= 0.0f) {
         w = forced_w;   /* already a border-box width (grid/flex added padding) */
     } else if (n->width >= 0.0f) {
         w = n->width + WN_DECL_W(n);
     } else if (n->width_pct > 0.0f) {
         w = available_w * n->width_pct * 0.01f + WN_DECL_W(n);
-    } else if (n->kind == R2_NODE_TEXT) {
-        w = text_node_width(c, node, available_w - n->margin[1] - n->margin[3]);
-    } else if (n->kind == R2_NODE_IMAGE && n->image_width > 0.0f) {
-        w = n->image_width;
+    } else if (ops->auto_width != NULL) {
+        w = ops->auto_width(c, node, available_w, parent_content_h);
     } else {
+        /* No kind-specific rule: fill the parent minus the margins. */
         w = fmaxf(available_w - n->margin[1] - n->margin[3], 0.0f);
-    }
-
-    float x = origin_x + n->margin[3];
-    float y = origin_y + n->margin[0];
-    if (is_root) {
-        x = 0.0f;
-        y = 0.0f;
     }
 
     const float pad_l = n->padding[3], pad_r = n->padding[1];
     const float pad_t = n->padding[0], pad_b = n->padding[2];
-    const float content_w = fmaxf(w - pad_l - pad_r, 0.0f);
     float content_h = -1.0f;
     int definite_h = 0;
     if (n->height >= 0.0f) {
@@ -819,101 +744,49 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
         definite_h = 1;
     }
 
+    /* Leaves never run children: the kind entry owns their height and the
+     * early return keeps the historical "no children" contract. Their scroll
+     * state needs no write either: only the container path below (and
+     * hit_test, gated on scroll_max > 0) ever changes it, so a leaf's
+     * scroll/scroll_max stay at the zero the arena is initialised with. */
+    /* One declared-height rule for every leaf, TEXT included: the percentage is
+     * the content box, so WN_DECL_H adds the padding back for content-box and
+     * is zero for border-box. IMAGE/INPUT always resolved this way; TEXT used
+     * to stop at the clipped content_h. The HTML/CSS emitter never emits a
+     * percentage height on TEXT today, but .wnui is public, so the loader can
+     * (locked by tests/core/text_pct_height_test.c). */
+    if (ops->is_leaf) {
+        float h;
+        if (n->height >= 0.0f) {
+            h = n->height + WN_DECL_H(n);
+        } else if (n->height_pct > 0.0f && parent_content_h >= 0.0f) {
+            h = parent_content_h * n->height_pct * 0.01f + WN_DECL_H(n);
+        } else {
+            h = ops->auto_height(c, node, w, content_h);
+        }
+        c->rects[node].x = origin_x + n->margin[3];
+        c->rects[node].y = origin_y + n->margin[0];
+        if (is_root) {
+            c->rects[node].x = 0.0f;
+            c->rects[node].y = 0.0f;
+        }
+        c->rects[node].w = w;
+        c->rects[node].h = h;
+        return h + n->margin[2];
+    }
+
+    float x = origin_x + n->margin[3];
+    float y = origin_y + n->margin[0];
+    if (is_root) {
+        x = 0.0f;
+        y = 0.0f;
+    }
+    const float content_w = fmaxf(w - pad_l - pad_r, 0.0f);
     const float content_x = x + pad_l;
     const float content_y = y + pad_t;
 
-    if (n->kind == R2_NODE_TEXT) {
-        float h;
-        if (n->height >= 0.0f) {
-            h = n->height + WN_DECL_H(n);
-        } else if (content_h >= 0.0f) {
-            h = content_h;
-        } else {
-            h = text_node_height(c, node, content_w);
-        }
-        c->rects[node].x = x;
-        c->rects[node].y = y;
-        c->rects[node].w = w;
-        c->rects[node].h = h;
-        return h + n->margin[2];
-    }
-    if (n->kind == R2_NODE_IMAGE) {
-        float h;
-        if (n->height >= 0.0f) {
-            h = n->height + WN_DECL_H(n);
-        } else if (n->height_pct > 0.0f && parent_content_h >= 0.0f) {
-            h = parent_content_h * n->height_pct * 0.01f + WN_DECL_H(n);
-        } else if (n->image_height > 0.0f && n->image_width > 0.0f) {
-            h = w * (n->image_height / n->image_width);
-        } else {
-            h = content_h >= 0.0f ? content_h : 0.0f;
-        }
-        c->rects[node].x = x;
-        c->rects[node].y = y;
-        c->rects[node].w = w;
-        c->rects[node].h = h;
-        return h + n->margin[2];
-    }
-    if (n->kind == R2_NODE_INPUT) {
-        /* Single-line editor: a leaf with no children. Without CSS the height
-         * is the font line (ascender + descender) plus the padding. */
-        float h;
-        if (n->height >= 0.0f) {
-            h = n->height + WN_DECL_H(n);
-        } else if (n->height_pct > 0.0f && parent_content_h >= 0.0f) {
-            h = parent_content_h * n->height_pct * 0.01f + WN_DECL_H(n);
-        } else {
-            h = pad_t + pad_b + fmaxf(input_line_height(c, node), 1.0f);
-        }
-        c->rects[node].x = x;
-        c->rects[node].y = y;
-        c->rects[node].w = w;
-        c->rects[node].h = h;
-        c->scroll_max[node] = 0.0f;
-        c->scroll[node] = 0.0f;
-        return h + n->margin[2];
-    }
-
-    float cursor = content_y;
-    if (n->kind == R2_NODE_FLEX) {
-        cursor += layout_flex_children(c, node, content_x, content_y, content_w, content_h);
-    } else if (n->kind == R2_NODE_GRID) {
-        cursor += layout_grid_children(c, node, content_x, content_y, content_w, content_h);
-    } else {
-        int child;
-        for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
-            float used;
-            if (!c->alive[child] || !c->visible[child]) {
-                mark_subtree_hidden(c, child);
-                continue;
-            }
-            used = layout_node(c, child, content_x, cursor, content_w, content_h, 0, -1.0f);
-            /* `margin-left/right:auto` in a block container. Both auto
-             * margins centre the box; only left pushes it to the right. */
-            {
-                int auto_left = WN_MARGIN_AUTO(&c->nodes[child], 3);
-                int auto_right = WN_MARGIN_AUTO(&c->nodes[child], 1);
-                if (auto_left || auto_right) {
-                    float dx = 0.0f;
-                    float room = content_w - c->rects[child].w;
-                    if (room > 0.0f) {
-                        if (auto_left && auto_right) {
-                            dx = room * 0.5f;
-                        } else if (auto_left) {
-                            dx = room;
-                        }
-                    }
-                    if (dx > 0.0f) {
-                        translate_subtree(c, child, dx, 0.0f);
-                    }
-                }
-            }
-            /* The child was placed at cursor + its top margin, so the flow must
-             * advance by both; skipping margin[0] made every following sibling
-             * sit one margin too high. */
-            cursor += c->nodes[child].margin[0] + used;
-        }
-    }
+    const float cursor = ops->layout_children(c, node, content_x, content_y,
+                                              content_w, content_h);
     const float content_used = cursor - content_y;
 
     float h;

@@ -14,6 +14,7 @@ RUNTIME_SOURCES = (
     "runtime_r2.c",
     "core/wn_core.c",
     "core/layout.c",
+    "core/kind_ops.c",
     "core/paint.c",
     "core/input.c",
     "core/hit_test.c",
@@ -33,8 +34,8 @@ RUNTIME_SOURCES_NO_WGPU = tuple(
     "renderer_wgpu_stub.c" if source == "renderer_wgpu.c" else source
     for source in RUNTIME_SOURCES
 )
-CORE_SOURCES = ("core/wn_core.c", "core/layout.c", "core/paint.c", "core/input.c",
-                "core/hit_test.c", "wn_common.c", "document/wn_blob.c",
+CORE_SOURCES = ("core/wn_core.c", "core/layout.c", "core/kind_ops.c", "core/paint.c",
+                "core/input.c", "core/hit_test.c", "wn_common.c", "document/wn_blob.c",
                 "text/text_runtime.c", "text/text_atlas.c", "text/text_directwrite.cpp")
 CORE_LIBS = ("dwrite.lib",)
 RUNTIME_LIBS = (
@@ -392,6 +393,32 @@ def run_fidelity() -> int:
         CORE_LIBS,
     )
     _expect(_run(abi_exe, [], out), ["abi_v6_core_test: PASS"], "ABI v6 core test")
+
+    log_step("fidelity: kind capability table")
+    kind_exe = out / "kind_ops_test.exe"
+    _compile(
+        kind_exe,
+        [_suite_dir("core") / "kind_ops_test.c", *[runtime / source for source in CORE_SOURCES]],
+        [get_paths().root / "include", runtime, out / "emit"],
+        CORE_LIBS,
+    )
+    kind_text = _run(kind_exe, [], out)
+    _expect(kind_text, ["kind_ops_test: PASS"], "kind ops test")
+    # 9 checks per kind entry (6 kinds) + 5 table-level checks. Deleting one
+    # kind iteration drops this to 50, so the floor is the full 59.
+    _expect_checks(kind_text, "kind ops test", 59)
+
+    log_step("fidelity: TEXT percentage height")
+    pct_exe = out / "text_pct_height_test.exe"
+    _compile(
+        pct_exe,
+        [_suite_dir("core") / "text_pct_height_test.c", *[runtime / source for source in CORE_SOURCES]],
+        [get_paths().root / "include", runtime, out / "emit"],
+        CORE_LIBS,
+    )
+    pct_text = _run(pct_exe, [], out)
+    _expect(pct_text, ["text_pct_height_test: PASS"], "TEXT percentage height test")
+    _expect_checks(pct_text, "TEXT percentage height test", 9)
 
     log_step("fidelity: compile runtime + renders")
     runtime_exe = out / "runtime_fidelity.exe"
