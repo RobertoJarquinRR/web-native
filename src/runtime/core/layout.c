@@ -884,7 +884,101 @@ static void compute_clips(wn_core *c, int node, wn_rect clip)
 
 /* -------------------------------------------------------------- paint list */
 
-static void append_paint_item(wn_core *c, int node)
+static float paint_node_opacity(const wn_core *c, int node)
+{
+    float opacity = c->nodes[node].opacity;
+    if (!(opacity > 0.0f)) {
+        return 0.0f;
+    }
+    if (opacity > 1.0f) {
+        return 1.0f;
+    }
+    return opacity;
+}
+
+/* Any node with `opacity < 1` is a CSS group: opacity creates a stacking
+ * context, so the node's own item and its whole subtree render into an
+ * offscreen layer and composite once. Leaves are groups too. A leaf can paint
+ * several passes (border over background, shadow under fill, input ring/body/
+ * selection/caret, text or an image over a background); fading each pass
+ * separately is not the same as fading the flattened result. */
+static int paint_group_root(const wn_core *c, int node)
+{
+    return c->nodes[node].opacity < 1.0f;
+}
+
+static int paint_layers_reserve(wn_core *c, int needed)
+{
+    int capacity;
+    wn_paint_layer *grown;
+    if (needed <= c->paint_layer_capacity) {
+        return 1;
+    }
+    capacity = c->paint_layer_capacity > 0 ? c->paint_layer_capacity : 8;
+    while (capacity < needed) {
+        capacity *= 2;
+    }
+    if (capacity > WN_MAX_PAINT_LAYERS) {
+        capacity = WN_MAX_PAINT_LAYERS;
+    }
+    if (needed > capacity) {
+        return 0;
+    }
+    grown = (wn_paint_layer *)realloc(c->paint_layers,
+                                      (size_t)capacity * sizeof(wn_paint_layer));
+    if (grown == NULL) {
+        return 0;
+    }
+    c->paint_layers = grown;
+    c->paint_layer_capacity = capacity;
+    return 1;
+}
+
+static int paint_layer_add(wn_core *c, int parent, int node, float opacity,
+                           wn_rect clip)
+{
+    wn_paint_layer *layer;
+    if (c->paint_layer_count >= WN_MAX_PAINT_LAYERS ||
+        !paint_layers_reserve(c, c->paint_layer_count + 1)) {
+        return -1;
+    }
+    layer = &c->paint_layers[c->paint_layer_count];
+    layer->id = c->paint_layer_count;
+    layer->parent = parent;
+    layer->node = node;
+    layer->opacity = opacity;
+    layer->clip = clip;
+    return c->paint_layer_count++;
+}
+
+/* Allocates the root layer and reports whether the page uses groups. Called
+ * after layout/clips and before the item walk. */
+static int paint_layers_begin(wn_core *c, wn_rect viewport)
+{
+    int i;
+    wn_paint_layer *root;
+    c->paint_layer_count = 0;
+    c->paint_command_count = 0;
+    for (i = 0; i < c->node_count; ++i) {
+        if (c->alive[i] && c->visible_eff[i] && !rect_is_empty(c->clips[i]) &&
+            paint_group_root(c, i)) {
+            break;
+        }
+    }
+    if (i == c->node_count || !paint_layers_reserve(c, 1)) {
+        return 0;
+    }
+    root = &c->paint_layers[0];
+    root->id = 0;
+    root->parent = -1;
+    root->node = -1;
+    root->opacity = 1.0f;
+    root->clip = viewport;
+    c->paint_layer_count = 1;
+    return 1;
+}
+
+static void append_paint_item(wn_core *c, int node, int layer, float opacity)
 {
     WnPaintItem *item;
     if (c->paint_item_count >= c->paint_item_capacity) {
@@ -892,7 +986,7 @@ static void append_paint_item(wn_core *c, int node)
     }
     item = &c->paint_items[c->paint_item_count++];
     *item = (WnPaintItem){
-        node, c->clips[node], 0, 1.0f, WN_TRANSFORM_IDENTITY_INIT
+        node, c->clips[node], layer, opacity, WN_TRANSFORM_IDENTITY_INIT
     };
 }
 
@@ -916,18 +1010,130 @@ static void append_paint_item(wn_core *c, int node)
  * layout and +10 % build, still inside the absolute budgets. The AoS stride of
  * 52 B per item (node, clip, layer, opacity, transform) is the tradeoff that
  * keeps one ordered array instead of parallel arrays. */
-static void build_paint_items(wn_core *c, int node)
+static void build_paint_items(wn_core *c, int node, int layer)
 {
     int child;
+    int own_layer = layer;
+    int group;
     if (!c->alive[node] || !c->visible_eff[node]) {
         return;
     }
     if (rect_is_empty(c->clips[node])) {
         return;
     }
-    append_paint_item(c, node);
+    group = paint_group_root(c, node);
+    if (group) {
+        own_layer = paint_layer_add(c, layer, node, paint_node_opacity(c, node),
+                                    c->clips[node]);
+        if (own_layer < 0) {
+            /* Beyond WN_MAX_PAINT_LAYERS: fall back to direct alpha on this
+             * node's own box (deeper groups still layer below the cap). */
+            group = 0;
+            own_layer = layer;
+        }
+    }
+    append_paint_item(c, node, own_layer, group ? 1.0f : paint_node_opacity(c, node));
     for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
-        build_paint_items(c, child);
+        build_paint_items(c, child, own_layer);
+    }
+}
+
+/* True when `ancestor` is `layer` or one of its ancestors. */
+static int paint_layer_ancestor(const wn_core *c, int ancestor, int layer)
+{
+    int walk = layer;
+    int guard = 0;
+    while (walk >= 0 && guard++ <= WN_MAX_PAINT_LAYER_DEPTH) {
+        if (walk == ancestor) {
+            return 1;
+        }
+        walk = c->paint_layers[walk].parent;
+    }
+    return 0;
+}
+
+static int paint_commands_reserve(wn_core *c, int needed)
+{
+    int capacity;
+    wn_paint_command *grown;
+    if (needed <= c->paint_command_capacity) {
+        return 1;
+    }
+    capacity = c->paint_command_capacity > 0 ? c->paint_command_capacity : 64;
+    while (capacity < needed) {
+        capacity *= 2;
+    }
+    grown = (wn_paint_command *)realloc(
+        c->paint_commands, (size_t)capacity * sizeof(wn_paint_command));
+    if (grown == NULL) {
+        return 0;
+    }
+    c->paint_commands = grown;
+    c->paint_command_capacity = capacity;
+    return 1;
+}
+
+static int paint_commands_emit(wn_core *c, int kind, int item, int layer)
+{
+    wn_paint_command *command;
+    if (!paint_commands_reserve(c, c->paint_command_count + 1)) {
+        return 0;
+    }
+    command = &c->paint_commands[c->paint_command_count++];
+    command->kind = kind;
+    command->item = item;
+    command->layer = layer;
+    return 1;
+}
+
+/* Replays the DFS item order as DRAW/BEGIN_LAYER/END_LAYER commands. Items in
+ * one layer are contiguous, so a stack walk opens exactly the layers between
+ * the previous item and the next one. */
+static void build_paint_commands(wn_core *c)
+{
+    int stack[WN_MAX_PAINT_LAYER_DEPTH];
+    int top = 0;
+    int i;
+    c->paint_command_count = 0;
+    if (c->paint_layer_count <= 1) {
+        return;
+    }
+    if (!paint_commands_reserve(c, c->paint_item_count * 2 +
+                                       c->paint_layer_count * 2)) {
+        c->paint_layer_count = 0;
+        return;
+    }
+    stack[0] = 0;
+    for (i = 0; i < c->paint_item_count; ++i) {
+        int target = c->paint_items[i].layer;
+        while (top > 0 && !paint_layer_ancestor(c, stack[top], target)) {
+            paint_commands_emit(c, WN_PAINT_CMD_END_LAYER, -1, stack[top]);
+            --top;
+        }
+        if (stack[top] != target) {
+            int chain[WN_MAX_PAINT_LAYER_DEPTH];
+            int count = 0;
+            int walk = target;
+            while (walk >= 0 && walk != stack[top] &&
+                   count < WN_MAX_PAINT_LAYER_DEPTH) {
+                chain[count++] = walk;
+                walk = c->paint_layers[walk].parent;
+            }
+            while (count > 0) {
+                --count;
+                if (top + 1 >= WN_MAX_PAINT_LAYER_DEPTH) {
+                    break;
+                }
+                stack[++top] = chain[count];
+                paint_commands_emit(c, WN_PAINT_CMD_BEGIN_LAYER, -1,
+                                    chain[count]);
+            }
+        }
+        paint_commands_emit(c, WN_PAINT_CMD_DRAW, i, -1);
+    }
+    while (top > 0) {
+        paint_commands_emit(c, WN_PAINT_CMD_END_LAYER, -1, stack[top]);
+        --top;
     }
 }
 
@@ -1085,6 +1291,7 @@ void layout_page(wn_core *c, float viewport_w, float viewport_h)
     }
     c->paint_item_count = 0;
     if (root >= 0) {
+        int layered;
         layout_node(c, root, 0.0f, 0.0f, viewport_w, viewport_h, 1, -1.0f);
         viewport.x = 0.0f;
         viewport.y = 0.0f;
@@ -1093,8 +1300,14 @@ void layout_page(wn_core *c, float viewport_w, float viewport_h)
         if (c->visible_eff[root]) {
             compute_clips(c, root, viewport);
         }
-        build_paint_items(c, root);
-        wn_core_sort_paint_items(c);
+        layered = paint_layers_begin(c, viewport);
+        build_paint_items(c, root, 0);
+        if (layered) {
+            /* Layer order is explicit; the z-index sort would destroy it. */
+            build_paint_commands(c);
+        } else {
+            wn_core_sort_paint_items(c);
+        }
     }
 }
 

@@ -20,7 +20,7 @@
 #include "document/wn_document_internal.h"
 #include "wn_internal.h"
 
-#define FORMAT_NAME "wnui/2"
+#define FORMAT_NAME "wnui/3"
 
 static const char *kind_name(int kind)
 {
@@ -224,6 +224,7 @@ static void text_node(FILE *out, int index, const UiNode *node, const char *name
     text_float(out, "basis", node->flex_basis);
     text_string(out, "family", node->font_family);
     text_int(out, "weight", node->font_weight);
+    text_float(out, "opacity", node->opacity);
     text_string(out, "text", node->text);
     fputc('\n', out);
 }
@@ -316,6 +317,7 @@ static void json_node(FILE *out, int index, const UiNode *node, const char *name
     json_string(out, node->font_family);
     fprintf(out, ",\n");
     fprintf(out, "      \"font_weight\": %d,\n", node->font_weight);
+    json_float(out, "opacity", node->opacity);
     fprintf(out, "      \"text\": ");
     json_string(out, node->text);
     fprintf(out, "\n    }");

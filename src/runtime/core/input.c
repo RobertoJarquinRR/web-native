@@ -937,6 +937,8 @@ void build_input_text_geometry(wn_core *c, float viewport_w, float viewport_h)
         float scroll;
         float line_offset;
         int use_placeholder;
+        wn_paint_draw *draw = wn_core_draw_for_item(c, order_index);
+        int glyph_first = c->glyph_vertex_count;
         if (n->kind != R2_NODE_INPUT || record == NULL) {
             continue;
         }
@@ -960,6 +962,10 @@ void build_input_text_geometry(wn_core *c, float viewport_w, float viewport_h)
         scroll = c->input_scroll[node];
         wn_paint_use_item(c, item);
         set_glyph_clip(c, &clip);
+        if (draw != NULL) {
+            draw->input_glyph.first = glyph_first;
+            draw->input_glyph.clip = clip;
+        }
         cr = (uint8_t)((color >> 16) & 0xFFu);
         cg = (uint8_t)((color >> 8) & 0xFFu);
         cb = (uint8_t)(color & 0xFFu);
@@ -990,6 +996,9 @@ void build_input_text_geometry(wn_core *c, float viewport_w, float viewport_h)
                                 viewport_w, viewport_h, cr, cg, cb, a);
             }
         }
+        if (draw != NULL && draw->input_glyph.count == 0) {
+            draw->input_glyph.count = c->glyph_vertex_count - glyph_first;
+        }
     }
 }
 
@@ -1010,6 +1019,9 @@ void build_input_decorations(wn_core *c)
         float scroll;
         int start;
         int end;
+        int decoration_first = c->vertex_count;
+        int body_first;
+        wn_paint_draw *draw = wn_core_draw_for_item(c, order_index);
         if (n->kind != R2_NODE_INPUT || record == NULL) {
             continue;
         }
@@ -1025,12 +1037,22 @@ void build_input_decorations(wn_core *c)
             push_rounded_ring(c, r->x, r->y, r->w, r->h, n->border_radius, ring,
                               WN_INPUT_FOCUS_COLOR);
         }
+        body_first = c->vertex_count;
+        if (draw != NULL) {
+            draw->decoration.first = decoration_first;
+            draw->decoration.count = body_first - decoration_first;
+            draw->decoration.clip = item->clip;
+        }
 
         clip = rect_intersection(item->clip, content);
         if (rect_is_empty(clip)) {
             continue;
         }
         set_solid_clip(c, &clip);
+        if (draw != NULL) {
+            draw->input_body.first = body_first;
+            draw->input_body.clip = clip;
+        }
 
         if (c->input_focus == node && input_has_selection(c, node)) {
             float x0;
@@ -1070,6 +1092,9 @@ void build_input_decorations(wn_core *c)
                           content.h - 2.0f, (float)c->width, (float)c->height,
                           n->text_color);
             }
+        }
+        if (draw != NULL) {
+            draw->input_body.count = c->vertex_count - body_first;
         }
     }
 }

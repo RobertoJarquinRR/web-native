@@ -10,7 +10,7 @@
  * through WIC and cached by path. Vertex data uses the exact engine structs:
  *   wn_vertex        12 bytes (R32G32_FLOAT + R8G8B8A8_UNORM)
  *   wn_glyph_vertex  20 bytes (+ R32G32_FLOAT uv)
- *   wn_image_vertex  16 bytes (R32G32_FLOAT + R32G32_FLOAT)
+ *   wn_image_vertex  20 bytes (R32G32_FLOAT + R32G32_FLOAT + R32_FLOAT alpha)
  */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -35,7 +35,7 @@
 
 _Static_assert(sizeof(wn_vertex) == 12, "wn_vertex must stay 12 bytes");
 _Static_assert(sizeof(wn_glyph_vertex) == 20, "wn_glyph_vertex must stay 20 bytes");
-_Static_assert(sizeof(wn_image_vertex) == 16, "wn_image_vertex must stay 16 bytes");
+_Static_assert(sizeof(wn_image_vertex) == 20, "wn_image_vertex must stay 20 bytes");
 
 /* Decoded local image cached by path (PNG/JPEG via WIC -> RGBA8). */
 typedef struct {
@@ -48,6 +48,13 @@ typedef struct {
     unsigned long long last_used; /* monotonic touch counter */
     unsigned long long frame;     /* last frame that referenced the entry */
 } WnD3D11Image;
+
+/* One viewport-sized offscreen target for a nested group layer. */
+typedef struct {
+    ID3D11Texture2D *texture;
+    ID3D11RenderTargetView *rtv;
+    ID3D11ShaderResourceView *srv;
+} WnD3D11LayerTarget;
 
 typedef struct {
     ID3D11Device *device;
@@ -64,6 +71,14 @@ typedef struct {
 
     ID3D11Texture2D *backbuffer;
     ID3D11RenderTargetView *rtv;
+
+    /* Group layers (blob v3 opacity): one pooled target per nesting depth. */
+    WnD3D11LayerTarget *layer_targets;
+    int layer_target_count;
+    ID3D11VertexShader *composite_vs;
+    ID3D11PixelShader *composite_ps;
+    ID3D11BlendState *composite_blend;
+    ID3D11Buffer *composite_params;
 
     ID3D11VertexShader *solid_vs;
     ID3D11PixelShader *solid_ps;
@@ -133,6 +148,8 @@ static void com_release(IUnknown *object)
     }
 }
 
+static void release_layer_targets(WnD3D11 *gpu);
+
 /* ----------------------------------------------------------------- shaders */
 
 static const char *kSolidShader =
@@ -185,19 +202,47 @@ static const char *kImageShader =
     "struct VSIn {\n"
     "  float2 pos : POSITION;\n"
     "  float2 uv : TEXCOORD0;\n"
+    "  float alpha : TEXCOORD1;\n"
     "};\n"
     "struct VSOut {\n"
     "  float4 pos : SV_Position;\n"
     "  float2 uv : TEXCOORD0;\n"
+    "  float alpha : TEXCOORD1;\n"
     "};\n"
     "VSOut vs_main(VSIn input) {\n"
     "  VSOut output;\n"
     "  output.pos = float4(input.pos, 0.0, 1.0);\n"
     "  output.uv = input.uv;\n"
+    "  output.alpha = input.alpha;\n"
     "  return output;\n"
     "}\n"
     "float4 ps_main(VSOut input) : SV_Target {\n"
-    "  return image_texture.Sample(image_sampler, input.uv);\n"
+    "  float4 c = image_texture.Sample(image_sampler, input.uv);\n"
+    "  return float4(c.rgb, c.a * input.alpha);\n"
+    "}\n";
+
+/* Group-layer composite: the layer texture already holds premultiplied RGB
+ * (normal SrcAlpha blending accumulated it over transparent black), so the
+ * shader scales rgb and alpha by the group opacity and the composite blend is
+ * ONE / INV_SRC_ALPHA. That applies the group alpha exactly once. */
+static const char *kCompositeShader =
+    "cbuffer LayerParams : register(b0) { float layer_opacity; };\n"
+    "Texture2D layer_texture : register(t0);\n"
+    "SamplerState layer_sampler : register(s0);\n"
+    "struct VSOut {\n"
+    "  float4 pos : SV_Position;\n"
+    "  float2 uv : TEXCOORD0;\n"
+    "};\n"
+    "VSOut vs_main(uint id : SV_VertexID) {\n"
+    "  VSOut output;\n"
+    "  float2 p = float2((float)((id << 1) & 2), (float)(id & 2));\n"
+    "  output.pos = float4(p.x * 2.0 - 1.0, 1.0 - p.y * 2.0, 0.0, 1.0);\n"
+    "  output.uv = p;\n"
+    "  return output;\n"
+    "}\n"
+    "float4 ps_main(VSOut input) : SV_Target {\n"
+    "  float4 c = layer_texture.Sample(layer_sampler, input.uv);\n"
+    "  return float4(c.rgb * layer_opacity, c.a * layer_opacity);\n"
     "}\n";
 
 static ID3DBlob *compile_shader(WnD3D11 *gpu, const char *source, const char *entry,
@@ -271,6 +316,42 @@ static int create_pipeline(WnD3D11 *gpu, const char *source,
     return 0;
 }
 
+static int create_composite_pipeline(WnD3D11 *gpu)
+{
+    ID3DBlob *vs_code;
+    ID3DBlob *ps_code;
+    const char *vs_target = gpu->feature_level >= D3D_FEATURE_LEVEL_11_0 ? "vs_5_0"
+                                                                        : "vs_4_0";
+    const char *ps_target = gpu->feature_level >= D3D_FEATURE_LEVEL_11_0 ? "ps_5_0"
+                                                                        : "ps_4_0";
+    HRESULT hr;
+    vs_code = compile_shader(gpu, kCompositeShader, "vs_main", vs_target);
+    if (vs_code == NULL) {
+        return 1;
+    }
+    ps_code = compile_shader(gpu, kCompositeShader, "ps_main", ps_target);
+    if (ps_code == NULL) {
+        vs_code->lpVtbl->Release(vs_code);
+        return 1;
+    }
+    hr = gpu->device->lpVtbl->CreateVertexShader(
+        gpu->device, vs_code->lpVtbl->GetBufferPointer(vs_code),
+        vs_code->lpVtbl->GetBufferSize(vs_code), NULL, &gpu->composite_vs);
+    if (SUCCEEDED(hr)) {
+        hr = gpu->device->lpVtbl->CreatePixelShader(
+            gpu->device, ps_code->lpVtbl->GetBufferPointer(ps_code),
+            ps_code->lpVtbl->GetBufferSize(ps_code), NULL, &gpu->composite_ps);
+    }
+    vs_code->lpVtbl->Release(vs_code);
+    ps_code->lpVtbl->Release(ps_code);
+    if (FAILED(hr)) {
+        set_error(gpu, "composite pipeline creation failed (hr=0x%08lX)",
+                  (unsigned long)hr);
+        return 1;
+    }
+    return 0;
+}
+
 static int create_pipelines(WnD3D11 *gpu)
 {
     static const D3D11_INPUT_ELEMENT_DESC solid_elements[] = {
@@ -284,7 +365,8 @@ static int create_pipelines(WnD3D11 *gpu)
     };
     static const D3D11_INPUT_ELEMENT_DESC image_elements[] = {
         { "POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 8, D3D11_INPUT_PER_VERTEX_DATA, 0 }
+        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 8, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "TEXCOORD", 1, DXGI_FORMAT_R32_FLOAT, 0, 16, D3D11_INPUT_PER_VERTEX_DATA, 0 }
     };
 
     if (create_pipeline(gpu, kSolidShader, solid_elements,
@@ -302,7 +384,7 @@ static int create_pipelines(WnD3D11 *gpu)
                         &gpu->image_vs, &gpu->image_ps, &gpu->image_layout) != 0) {
         return 1;
     }
-    return 0;
+    return create_composite_pipeline(gpu);
 }
 
 /* ------------------------------------------------------------- swapchain */
@@ -1017,6 +1099,7 @@ static int renderer_init(void **out, const wn_surface_desc *surface, int width, 
     D3D_FEATURE_LEVEL got_level = D3D_FEATURE_LEVEL_10_0;
     D3D11_SAMPLER_DESC sampler_desc;
     D3D11_BLEND_DESC blend_desc;
+    D3D11_BUFFER_DESC buffer_desc;
     D3D11_RASTERIZER_DESC raster_desc;
     UINT create_flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
     const char *capture;
@@ -1123,6 +1206,41 @@ static int renderer_init(void **out, const wn_surface_desc *surface, int width, 
         goto fail;
     }
 
+    /* Layer composite: the shader outputs premultiplied rgb*opacity, so the
+     * blend is ONE / INV_SRC_ALPHA (normal straight-alpha would multiply the
+     * alpha twice). */
+    memset(&blend_desc, 0, sizeof(blend_desc));
+    blend_desc.AlphaToCoverageEnable = FALSE;
+    blend_desc.IndependentBlendEnable = FALSE;
+    blend_desc.RenderTarget[0].BlendEnable = TRUE;
+    blend_desc.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
+    blend_desc.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+    blend_desc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+    blend_desc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+    blend_desc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
+    blend_desc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+    blend_desc.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
+    hr = gpu->device->lpVtbl->CreateBlendState(gpu->device, &blend_desc,
+                                               &gpu->composite_blend);
+    if (FAILED(hr)) {
+        set_error(gpu, "composite CreateBlendState failed (hr=0x%08lX)",
+                  (unsigned long)hr);
+        goto fail;
+    }
+
+    memset(&buffer_desc, 0, sizeof(buffer_desc));
+    buffer_desc.ByteWidth = 16;
+    buffer_desc.Usage = D3D11_USAGE_DYNAMIC;
+    buffer_desc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    buffer_desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    hr = gpu->device->lpVtbl->CreateBuffer(gpu->device, &buffer_desc, NULL,
+                                           &gpu->composite_params);
+    if (FAILED(hr)) {
+        set_error(gpu, "composite CreateBuffer failed (hr=0x%08lX)",
+                  (unsigned long)hr);
+        goto fail;
+    }
+
     memset(&raster_desc, 0, sizeof(raster_desc));
     raster_desc.FillMode = D3D11_FILL_SOLID;
     raster_desc.CullMode = D3D11_CULL_NONE;
@@ -1178,6 +1296,10 @@ fail:
     /* Release everything allocated so far; *out stays NULL. */
     {
         int i;
+        if (gpu->composite_params != NULL) gpu->composite_params->lpVtbl->Release(gpu->composite_params);
+        if (gpu->composite_blend != NULL) gpu->composite_blend->lpVtbl->Release(gpu->composite_blend);
+        if (gpu->composite_ps != NULL) gpu->composite_ps->lpVtbl->Release(gpu->composite_ps);
+        if (gpu->composite_vs != NULL) gpu->composite_vs->lpVtbl->Release(gpu->composite_vs);
         if (gpu->solid_buffer != NULL) gpu->solid_buffer->lpVtbl->Release(gpu->solid_buffer);
         if (gpu->text_buffer != NULL) gpu->text_buffer->lpVtbl->Release(gpu->text_buffer);
         if (gpu->image_buffer != NULL) gpu->image_buffer->lpVtbl->Release(gpu->image_buffer);
@@ -1235,6 +1357,8 @@ static void renderer_resize(void *context, int width, int height)
     gpu->height = height;
     gpu->info.width = width;
     gpu->info.height = height;
+    /* Layer targets are viewport-sized; drop them and recreate lazily. */
+    release_layer_targets(gpu);
     if (gpu->offscreen) {
         com_release((IUnknown *)gpu->rtv);
         gpu->rtv = NULL;
@@ -1361,6 +1485,268 @@ static int set_scissor(WnD3D11 *gpu, float x, float y, float w, float h)
     return 1;
 }
 
+static void release_layer_targets(WnD3D11 *gpu)
+{
+    int i;
+    for (i = 0; i < gpu->layer_target_count; ++i) {
+        com_release((IUnknown *)gpu->layer_targets[i].srv);
+        com_release((IUnknown *)gpu->layer_targets[i].rtv);
+        com_release((IUnknown *)gpu->layer_targets[i].texture);
+    }
+    wn_free_(gpu->layer_targets);
+    gpu->layer_targets = NULL;
+    gpu->layer_target_count = 0;
+}
+
+/* Lazily creates the viewport-sized RGBA8 target for nesting index `depth`.
+ * A resize releases the pool; the next render recreates only the depths the
+ * page actually nests. */
+static int ensure_layer_target(WnD3D11 *gpu, int depth)
+{
+    WnD3D11LayerTarget *target;
+    D3D11_TEXTURE2D_DESC desc;
+    HRESULT hr;
+
+    if (depth < 0 || depth >= WN_MAX_PAINT_LAYER_DEPTH) {
+        set_error(gpu, "layer depth %d exceeds %d", depth, WN_MAX_PAINT_LAYER_DEPTH);
+        return 1;
+    }
+    if (depth >= gpu->layer_target_count) {
+        int capacity = gpu->layer_target_count > 0 ? gpu->layer_target_count : 4;
+        WnD3D11LayerTarget *grown;
+        while (capacity <= depth) {
+            capacity *= 2;
+        }
+        grown = (WnD3D11LayerTarget *)realloc(
+            gpu->layer_targets, (size_t)capacity * sizeof(WnD3D11LayerTarget));
+        if (grown == NULL) {
+            set_error(gpu, "out of memory for layer targets");
+            return 1;
+        }
+        memset(grown + gpu->layer_target_count, 0,
+               (size_t)(capacity - gpu->layer_target_count) * sizeof(*grown));
+        gpu->layer_targets = grown;
+        gpu->layer_target_count = capacity;
+    }
+    target = &gpu->layer_targets[depth];
+    if (target->texture != NULL) {
+        return 0;
+    }
+    memset(&desc, 0, sizeof(desc));
+    desc.Width = (UINT)(gpu->width > 0 ? gpu->width : 1);
+    desc.Height = (UINT)(gpu->height > 0 ? gpu->height : 1);
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    hr = gpu->device->lpVtbl->CreateTexture2D(gpu->device, &desc, NULL,
+                                              &target->texture);
+    if (FAILED(hr) || target->texture == NULL) {
+        set_error(gpu, "layer CreateTexture2D(%dx%d) failed (hr=0x%08lX)",
+                  gpu->width, gpu->height, (unsigned long)hr);
+        return 1;
+    }
+    hr = gpu->device->lpVtbl->CreateRenderTargetView(
+        gpu->device, (ID3D11Resource *)target->texture, NULL, &target->rtv);
+    if (FAILED(hr) || target->rtv == NULL) {
+        set_error(gpu, "layer CreateRenderTargetView failed (hr=0x%08lX)",
+                  (unsigned long)hr);
+        return 1;
+    }
+    hr = gpu->device->lpVtbl->CreateShaderResourceView(
+        gpu->device, (ID3D11Resource *)target->texture, NULL, &target->srv);
+    if (FAILED(hr) || target->srv == NULL) {
+        set_error(gpu, "layer CreateShaderResourceView failed (hr=0x%08lX)",
+                  (unsigned long)hr);
+        return 1;
+    }
+    return 0;
+}
+
+static void draw_solid_range(WnD3D11 *gpu, const wn_paint_range *range)
+{
+    UINT stride;
+    UINT offset = 0;
+    if (range->count <= 0 || gpu->uploaded_vertices <= 0) {
+        return;
+    }
+    if (!set_scissor(gpu, range->clip.x, range->clip.y, range->clip.w,
+                     range->clip.h)) {
+        return;
+    }
+    stride = (UINT)sizeof(wn_vertex);
+    gpu->context->lpVtbl->IASetInputLayout(gpu->context, gpu->solid_layout);
+    gpu->context->lpVtbl->IASetVertexBuffers(gpu->context, 0, 1,
+                                             &gpu->solid_buffer, &stride, &offset);
+    gpu->context->lpVtbl->VSSetShader(gpu->context, gpu->solid_vs, NULL, 0);
+    gpu->context->lpVtbl->PSSetShader(gpu->context, gpu->solid_ps, NULL, 0);
+    gpu->context->lpVtbl->Draw(gpu->context, (UINT)range->count,
+                               (UINT)range->first);
+}
+
+static void draw_image_range(WnD3D11 *gpu, const wn_paint_draw *draw)
+{
+    const wn_paint_range *range = &draw->image;
+    WnD3D11Image *texture;
+    UINT stride;
+    UINT offset = 0;
+    if (range->count <= 0 || draw->image_src == NULL ||
+        gpu->uploaded_images <= 0) {
+        return;
+    }
+    texture = find_cached_image(gpu, draw->image_src);
+    if (texture == NULL || texture->view == NULL) {
+        return;
+    }
+    if (!set_scissor(gpu, range->clip.x, range->clip.y, range->clip.w,
+                     range->clip.h)) {
+        return;
+    }
+    stride = (UINT)sizeof(wn_image_vertex);
+    gpu->context->lpVtbl->IASetInputLayout(gpu->context, gpu->image_layout);
+    gpu->context->lpVtbl->IASetVertexBuffers(gpu->context, 0, 1,
+                                             &gpu->image_buffer, &stride, &offset);
+    gpu->context->lpVtbl->VSSetShader(gpu->context, gpu->image_vs, NULL, 0);
+    gpu->context->lpVtbl->PSSetShader(gpu->context, gpu->image_ps, NULL, 0);
+    gpu->context->lpVtbl->PSSetSamplers(gpu->context, 0, 1, &gpu->sampler);
+    gpu->context->lpVtbl->PSSetShaderResources(gpu->context, 0, 1, &texture->view);
+    gpu->context->lpVtbl->Draw(gpu->context, (UINT)range->count,
+                               (UINT)range->first);
+}
+
+static void draw_glyph_range(WnD3D11 *gpu, const wn_paint_range *range)
+{
+    UINT stride;
+    UINT offset = 0;
+    if (range->count <= 0 || gpu->uploaded_glyphs <= 0 ||
+        gpu->atlas_view == NULL) {
+        return;
+    }
+    if (!set_scissor(gpu, range->clip.x, range->clip.y, range->clip.w,
+                     range->clip.h)) {
+        return;
+    }
+    stride = (UINT)sizeof(wn_glyph_vertex);
+    gpu->context->lpVtbl->IASetInputLayout(gpu->context, gpu->text_layout);
+    gpu->context->lpVtbl->IASetVertexBuffers(gpu->context, 0, 1,
+                                             &gpu->text_buffer, &stride, &offset);
+    gpu->context->lpVtbl->VSSetShader(gpu->context, gpu->text_vs, NULL, 0);
+    gpu->context->lpVtbl->PSSetShader(gpu->context, gpu->text_ps, NULL, 0);
+    gpu->context->lpVtbl->PSSetSamplers(gpu->context, 0, 1, &gpu->sampler);
+    gpu->context->lpVtbl->PSSetShaderResources(gpu->context, 0, 1,
+                                               &gpu->atlas_view);
+    gpu->context->lpVtbl->Draw(gpu->context, (UINT)range->count,
+                               (UINT)range->first);
+}
+
+/* One paint item in the layered replay, in the same pass order the flat
+ * renderer uses: solids (background, shadow, input decorations, scrollbars),
+ * then the image, then text. */
+static void draw_paint_item(WnD3D11 *gpu, const wn_paint_draw *draw)
+{
+    draw_solid_range(gpu, &draw->solid);
+    draw_solid_range(gpu, &draw->decoration);
+    draw_solid_range(gpu, &draw->input_body);
+    draw_solid_range(gpu, &draw->scrollbar);
+    draw_image_range(gpu, draw);
+    draw_glyph_range(gpu, &draw->glyph);
+    draw_glyph_range(gpu, &draw->input_glyph);
+}
+
+static void composite_layer(WnD3D11 *gpu, ID3D11RenderTargetView *parent,
+                            const WnD3D11LayerTarget *layer_target,
+                            const wn_paint_layer *layer)
+{
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    ID3D11ShaderResourceView *views[1];
+    ID3D11ShaderResourceView *null_views[1] = { NULL };
+
+    gpu->context->lpVtbl->OMSetRenderTargets(gpu->context, 1, &parent, NULL);
+    gpu->context->lpVtbl->IASetInputLayout(gpu->context, NULL);
+    gpu->context->lpVtbl->VSSetShader(gpu->context, gpu->composite_vs, NULL, 0);
+    gpu->context->lpVtbl->PSSetShader(gpu->context, gpu->composite_ps, NULL, 0);
+    memset(&mapped, 0, sizeof(mapped));
+    if (SUCCEEDED(gpu->context->lpVtbl->Map(gpu->context,
+                                            (ID3D11Resource *)gpu->composite_params,
+                                            0, D3D11_MAP_WRITE_DISCARD, 0,
+                                            &mapped))) {
+        ((float *)mapped.pData)[0] = layer->opacity;
+        gpu->context->lpVtbl->Unmap(gpu->context,
+                                    (ID3D11Resource *)gpu->composite_params, 0);
+    }
+    gpu->context->lpVtbl->PSSetConstantBuffers(gpu->context, 0, 1,
+                                               &gpu->composite_params);
+    gpu->context->lpVtbl->PSSetSamplers(gpu->context, 0, 1, &gpu->sampler);
+    views[0] = layer_target->srv;
+    gpu->context->lpVtbl->PSSetShaderResources(gpu->context, 0, 1, views);
+    gpu->context->lpVtbl->OMSetBlendState(gpu->context, gpu->composite_blend,
+                                          NULL, 0xFFFFFFFFu);
+    if (set_scissor(gpu, layer->clip.x, layer->clip.y, layer->clip.w,
+                    layer->clip.h)) {
+        gpu->context->lpVtbl->Draw(gpu->context, 3, 0);
+    }
+    gpu->context->lpVtbl->PSSetShaderResources(gpu->context, 0, 1, null_views);
+    gpu->context->lpVtbl->OMSetBlendState(gpu->context, gpu->blend, NULL,
+                                          0xFFFFFFFFu);
+    gpu->context->lpVtbl->IASetPrimitiveTopology(gpu->context,
+                                                 D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+}
+
+static int render_layered(WnD3D11 *gpu, const wn_display_list *list)
+{
+    ID3D11RenderTargetView *targets[WN_MAX_PAINT_LAYER_DEPTH];
+    float transparent[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    int depth = 0;
+    int i;
+
+    if (list->layer_count > WN_MAX_PAINT_LAYERS) {
+        set_error(gpu, "list has %d layers (max %d)", list->layer_count,
+                  WN_MAX_PAINT_LAYERS);
+        return 1;
+    }
+    targets[0] = gpu->rtv;
+    for (i = 0; i < list->command_count; ++i) {
+        const wn_paint_command *command = &list->commands[i];
+        if (command->kind == WN_PAINT_CMD_DRAW) {
+            if (command->item >= 0 && command->item < list->draw_count) {
+                draw_paint_item(gpu, &list->draws[command->item]);
+            }
+            continue;
+        }
+        if (command->kind == WN_PAINT_CMD_BEGIN_LAYER) {
+            WnD3D11LayerTarget *target;
+            if (depth + 1 >= WN_MAX_PAINT_LAYER_DEPTH) {
+                set_error(gpu, "layer nesting exceeds %d", WN_MAX_PAINT_LAYER_DEPTH);
+                return 1;
+            }
+            if (ensure_layer_target(gpu, depth) != 0) {
+                return 1;
+            }
+            target = &gpu->layer_targets[depth];
+            gpu->context->lpVtbl->ClearRenderTargetView(gpu->context, target->rtv,
+                                                        transparent);
+            gpu->context->lpVtbl->OMSetRenderTargets(gpu->context, 1, &target->rtv,
+                                                     NULL);
+            targets[++depth] = target->rtv;
+            continue;
+        }
+        if (command->kind == WN_PAINT_CMD_END_LAYER) {
+            const wn_paint_layer *layer;
+            if (depth <= 0 || command->layer < 0 ||
+                command->layer >= list->layer_count) {
+                continue;
+            }
+            layer = &list->layers[command->layer];
+            composite_layer(gpu, targets[depth - 1], &gpu->layer_targets[depth - 1],
+                            layer);
+            --depth;
+        }
+    }
+    return 0;
+}
+
 static int renderer_render(void *context, const wn_display_list *list)
 {
     WnD3D11 *gpu = (WnD3D11 *)context;
@@ -1417,6 +1803,11 @@ static int renderer_render(void *context, const wn_display_list *list)
     gpu->context->lpVtbl->IASetPrimitiveTopology(gpu->context,
                                                  D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
+    if (list != NULL && list->layer_count > 1 && list->command_count > 0) {
+        if (render_layered(gpu, list) != 0) {
+            return 1;
+        }
+    } else {
     if (gpu->uploaded_vertices > 0) {
         int b;
         stride = (UINT)sizeof(wn_vertex);
@@ -1490,6 +1881,7 @@ static int renderer_render(void *context, const wn_display_list *list)
             gpu->context->lpVtbl->Draw(gpu->context, (UINT)gpu->uploaded_glyphs, 0);
         }
     }
+    }
     cpu_ms = wn_now_ms() - t0;
 
     if (gpu->capture_path[0] != '\0' &&
@@ -1547,6 +1939,11 @@ static void renderer_destroy(void *context)
     com_release((IUnknown *)gpu->solid_buffer);
     com_release((IUnknown *)gpu->text_buffer);
     com_release((IUnknown *)gpu->image_buffer);
+    release_layer_targets(gpu);
+    com_release((IUnknown *)gpu->composite_params);
+    com_release((IUnknown *)gpu->composite_blend);
+    com_release((IUnknown *)gpu->composite_ps);
+    com_release((IUnknown *)gpu->composite_vs);
     for (i = 0; i < gpu->image_count; ++i) {
         release_image_entry(&gpu->images[i]);
     }

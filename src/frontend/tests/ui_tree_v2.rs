@@ -600,3 +600,86 @@ fn input_does_not_leak_into_v1_or_v2_pages() {
         .iter()
         .any(|node| node.style.grid_template_columns.is_some()));
 }
+
+// ------------------------------------------------------------ opacity (blob v3)
+
+const OPACITY_PAGE: &str = r##"<!doctype html>
+<html>
+<head><style>
+body { margin: 0; }
+.group { width: 100px; height: 50px; background: #ff0000; opacity: 0.5; }
+.child { width: 20px; height: 20px; background: #0000ff; }
+.default { width: 10px; height: 10px; }
+.zero { width: 10px; height: 10px; opacity: 0; }
+.half { width: 10px; height: 10px; opacity: 0.5; }
+.one { width: 10px; height: 10px; opacity: 1; }
+.over { width: 10px; height: 10px; opacity: 1.5; }
+.negative { width: 10px; height: 10px; opacity: -0.25; }
+.percent { width: 10px; height: 10px; opacity: 50%; }
+</style></head>
+<body>
+  <div id="group" class="group"><div id="child" class="child"></div></div>
+  <div id="default" class="default"></div>
+  <div id="zero" class="zero"></div>
+  <div id="half" class="half"></div>
+  <div id="one" class="one"></div>
+  <div id="over" class="over"></div>
+  <div id="negative" class="negative"></div>
+  <div id="percent" class="percent"></div>
+</body>
+</html>
+"##;
+
+#[test]
+fn opacity_is_parsed_clamped_and_not_inherited() {
+    let dir = temp_dir("opacity-v3");
+    let tree = build(&dir, OPACITY_PAGE);
+
+    // Blob v3 is a plain style field: a page that only uses `opacity` does
+    // not need the v2 sections and still carries the value.
+    assert!(!tree.detailed, "opacity alone must not force the v2 sections");
+
+    assert_eq!(tree.nodes[0].style.opacity, 1.0, "default is opaque");
+    assert_eq!(node_with_id(&tree, "group").style.opacity, 0.5);
+    assert_eq!(node_with_id(&tree, "zero").style.opacity, 0.0);
+    assert_eq!(node_with_id(&tree, "half").style.opacity, 0.5);
+    assert_eq!(node_with_id(&tree, "one").style.opacity, 1.0);
+    // Out of range clamps like the browser; percentages/unknown are ignored.
+    assert_eq!(node_with_id(&tree, "over").style.opacity, 1.0);
+    assert_eq!(node_with_id(&tree, "negative").style.opacity, 0.0);
+    assert_eq!(node_with_id(&tree, "percent").style.opacity, 1.0);
+
+    // `opacity` is not inherited. The child of a 0.5 group keeps 1.0: the
+    // runtime fades the subtree with a group layer instead.
+    assert_eq!(node_with_id(&tree, "child").style.opacity, 1.0);
+    // The generated text run is not faded either; the owning element's layer
+    // covers it. (This page has no text, so check the invariant on the group.)
+    for node in &tree.nodes {
+        if node.tag == "#text" {
+            assert_eq!(node.style.opacity, 1.0, "{}", node.name);
+        }
+    }
+
+    // The writer emits version 3 and records the field byte-for-byte.
+    let blob = dir.join("opacity.wnui");
+    tree.write_blob(&blob).unwrap();
+    let bytes = fs::read(&blob).unwrap();
+    assert_eq!(&bytes[0..4], b"WNUI");
+    assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().unwrap()), 3);
+}
+
+#[test]
+fn opacity_subset_accepts_zero_to_one_and_diagnoses_the_rest() {
+    let dir = temp_dir("opacity-subset");
+    let path = dir.join("page.html");
+    fs::write(&path, OPACITY_PAGE).unwrap();
+
+    let accepted = check_document_pilot(OPACITY_PAGE, &path, &dir, true);
+    let text = diag_text(&accepted, true);
+    // 50% is ignored by the cascade and diagnosed by the strict subset; it is
+    // not a pilot feature.
+    assert!(text.contains("error[subset]"), "{text}");
+    assert!(text.contains("'50%' no soportado en 'opacity'"), "{text}");
+    assert!(!text.contains("piloto"), "{text}");
+}
+

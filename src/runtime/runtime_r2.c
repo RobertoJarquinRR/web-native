@@ -1494,6 +1494,8 @@ int main(int argc, char **argv)
     int size_count = 3;
     const char *document_path = NULL;
     const wn_document *document = NULL;
+    int focus_node = -1;
+    int select_all = 0;
 
     setvbuf(stdout, NULL, _IONBF, 0);
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
@@ -1603,18 +1605,41 @@ int main(int argc, char **argv)
             g_wheel_y = (float)atof(argv[i + 2]);
             g_wheel_dy = (float)atof(argv[i + 3]);
             i += 3;
+        } else if (strcmp(argv[i], "--document") == 0 && i + 1 < argc) {
+            /* Consumed by the pre-scan before the core exists; skip the value
+             * here so it does not surface as an ignored argument. */
+            ++i;
+        } else if (strcmp(argv[i], "--focus") == 0 && i + 1 < argc) {
+            focus_node = atoi(argv[++i]);
+        } else if (strcmp(argv[i], "--select-all") == 0) {
+            select_all = 1;
         } else if (strcmp(argv[i], "--width") == 0 && i + 1 < argc) {
             width_arg = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--height") == 0 && i + 1 < argc) {
             height_arg = atoi(argv[++i]);
         } else if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
-            printf("usage: runtime_r2.exe [--render W H out.png] [--states PREFIX] "
-                   "[--report FILE] [--dynamic PREFIX] [--input PREFIX] [--frames N] "
-                   "[--resize-demo]\n");
+            printf("usage: runtime_r2.exe [--document FILE] [--render W H out.png] "
+                   "[--states PREFIX] [--report FILE] [--dynamic PREFIX] "
+                   "[--input PREFIX] [--frames N] [--resize-demo] "
+                   "[--focus N] [--select-all]\n");
             CoUninitialize();
             return 0;
         } else {
             fprintf(stderr, "warning: ignoring argument '%s'\n", argv[i]);
+        }
+    }
+    if (focus_node >= 0) {
+        /* Test/debug hook: focus an input before an offscreen render so the
+         * focus ring, selection and caret passes are exercised. */
+        if (focus_node < document->node_count &&
+            wn_core_node_is_input(g_core, focus_node)) {
+            wn_core_focus_input_at_end(g_core, focus_node);
+            if (select_all) {
+                int visual_changed = 0;
+                wn_core_input_select_all(g_core, &visual_changed);
+            }
+        } else {
+            fprintf(stderr, "warning: --focus %d is not an input\n", focus_node);
         }
     }
     if (width_arg > 0 && height_arg > 0) {

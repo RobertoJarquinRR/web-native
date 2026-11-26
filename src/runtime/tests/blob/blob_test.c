@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -182,6 +183,7 @@ static int write_chain_blob(const char *path, uint32_t node_count)
     for (i = 0; i < node_count; ++i) {
         nodes[i].parent = i == 0 ? -1 : (int32_t)(i - 1);
         nodes[i].font_size = 16.0f;
+        nodes[i].opacity = 1.0f;
     }
     ok = write_file(path, data, (size_t)total);
     free(data);
@@ -322,6 +324,30 @@ static int write_bad_font_size_copy(const char *source, const char *target,
     return ok;
 }
 
+/* Overwrites node 0's opacity. The fixture always has at least one node. */
+static int write_opacity_copy(const char *source, const char *target,
+                              float opacity)
+{
+    long length = 0;
+    unsigned char *data = read_whole_file(source, &length);
+    WnBlobSection *nodes_section;
+    int ok = 0;
+
+    if (data == NULL) {
+        return 0;
+    }
+    nodes_section = find_blob_section(data, WN_BLOB_SECTION_NODES);
+    if (nodes_section != NULL &&
+        nodes_section->size >= (uint32_t)sizeof(WnBlobNode) &&
+        (uint32_t)length >= nodes_section->offset + nodes_section->size) {
+        WnBlobNode *nodes = (WnBlobNode *)(data + nodes_section->offset);
+        nodes[0].opacity = opacity;
+        ok = write_file(target, data, (size_t)length);
+    }
+    free(data);
+    return ok;
+}
+
 static int strings_equal(const char *a, const char *b)
 {
     if (a == NULL || b == NULL) {
@@ -371,7 +397,8 @@ static int node_equal(const UiNode *a, const UiNode *b)
            a->flex_shrink == b->flex_shrink &&
            a->flex_basis == b->flex_basis &&
            strings_equal(a->font_family, b->font_family) &&
-           a->font_weight == b->font_weight;
+           a->font_weight == b->font_weight &&
+           a->opacity == b->opacity;
 }
 
 static int documents_equal(const wn_document *a, const wn_document *b)
@@ -801,6 +828,49 @@ int main(int argc, char **argv)
         }
     }
 
+    {
+        /* The loader accepts the inclusive range and rejects everything else,
+         * including NaN (both comparisons false) and infinity. */
+        static const struct {
+            float value;
+            int accepted;
+            const char *label;
+        } opacity_cases[] = {
+            { 0.0f, 1, "opacity 0 is accepted" },
+            { 1.0f, 1, "opacity 1 is accepted" },
+            { -0.001f, 0, "negative opacity is rejected" },
+            { 1.001f, 0, "opacity above 1 is rejected" },
+            { (float)NAN, 0, "NaN opacity is rejected" },
+            { (float)INFINITY, 0, "infinite opacity is rejected" },
+        };
+        const char *opacity_file = "opacity_range.wnui";
+        int c;
+        for (c = 0; c < (int)(sizeof(opacity_cases) / sizeof(opacity_cases[0])); ++c) {
+            wn_document *candidate = NULL;
+            const char *error;
+            int written = write_opacity_copy(path, opacity_file,
+                                             opacity_cases[c].value);
+            if (written) {
+                candidate = wn_document_load_blob(opacity_file);
+            }
+            error = wn_last_error();
+            if (opacity_cases[c].accepted) {
+                check(opacity_cases[c].label, written && candidate != NULL);
+            } else {
+                check(opacity_cases[c].label,
+                      written && candidate == NULL && error != NULL &&
+                          strstr(error, "opacity") != NULL);
+                printf("  error: %s\n", error != NULL ? error : "(none)");
+            }
+            if (candidate != NULL) {
+                wn_document_destroy(candidate);
+            }
+            if (written) {
+                remove(opacity_file);
+            }
+        }
+    }
+
     wn_core_destroy(core_builtin);
     wn_core_destroy(core_blob);
     wn_document_destroy(loaded);
@@ -812,3 +882,4 @@ int main(int argc, char **argv)
     printf("blob_test: PASS (%d checks)\n", checks);
     return 0;
 }
+

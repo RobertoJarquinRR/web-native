@@ -1,0 +1,91 @@
+/* Group-opacity pixel fixture, 400x500. */
+* { box-sizing: border-box; }
+html { height: 100%; }
+body {
+  margin: 0;
+  padding: 20px;
+  width: 400px;
+  height: 500px;
+  box-sizing: border-box;
+  background: #f0f0f0;
+  color: #000000;
+}
+.row { display: flex; }
+.first { gap: 20px; height: 100px; }
+.second { gap: 10px; height: 60px; margin-top: 20px; }
+.third { height: 60px; margin-top: 20px; }
+.fourth { gap: 10px; height: 90px; margin-top: 20px; }
+.fifth { gap: 10px; height: 60px; margin-top: 20px; }
+
+/* Group overlap: B starts 40 px into A, so 30 px overlap. */
+.group { width: 100px; height: 100px; opacity: 0.5; display: flex; }
+.over-a { width: 70px; height: 100px; background: #ff0000; }
+.over-b { width: 70px; height: 100px; background: #0000ff; margin-left: -40px; }
+
+/* Nested groups: 0.5 inside 0.5 -> 0.25 over the page. */
+.nested { opacity: 0.5; }
+.inner { width: 100px; height: 100px; opacity: 0.5; }
+.fill { width: 100px; height: 100px; background: #0000ff; }
+
+/* Single-pass leaves. */
+.leaf-solid { width: 60px; height: 60px; background: #ff0000; opacity: 0.5; }
+.leaf-text { width: 60px; height: 60px; font-size: 48px; color: #000000; opacity: 0.5; }
+.leaf-image { display: block; width: 60px; height: 60px; opacity: 0.5; }
+
+/* Opacity 0: the whole group paints nothing. */
+.zero { width: 100px; height: 60px; opacity: 0; }
+.zero-a { width: 70px; height: 60px; background: #00ff00; }
+.zero-b { width: 70px; height: 60px; background: #ff00ff; margin-left: -40px; }
+
+/* Multi-pass leaves: border over fill. Both copies are identical; the second
+   only adds a zero-size child so it was already a group before B1. */
+.leaf-border {
+  width: 90px;
+  height: 70px;
+  background: #ff0000;
+  border: 10px solid #0000ff;
+  opacity: 0.5;
+}
+.pair-child { width: 0; height: 0; }
+
+/* Input leaf: body + focus ring + selection + caret + value glyphs. The test
+   focuses it and selects all before rendering. */
+.leaf-input {
+  width: 160px;
+  height: 60px;
+  padding: 8px;
+  background: #ff0000;
+  color: #ffffff;
+  border: 4px solid #00ff00;
+  font-size: 28px;
+  opacity: 0.5;
+}
+
+/* Shadow leaf: the runtime draws three stacked shadow layers, so direct
+   per-pass alpha would fade each one separately. */
+.leaf-shadow {
+  width: 60px;
+  height: 60px;
+  background: #ff0000;
+  box-shadow: 0 0 0 10px #0000ff;
+  opacity: 0.5;
+}
+
+/* Text and image over a background: the background must fade with the glyph
+   or image as one flattened layer. */
+.leaf-text-bg {
+  width: 100px;
+  height: 60px;
+  background: #ff0000;
+  font-size: 48px;
+  color: #000000;
+  opacity: 0.5;
+}
+.leaf-image-bg {
+  display: block;
+  width: 90px;
+  height: 60px;
+  padding: 10px;
+  background: #ff0000;
+  opacity: 0.5;
+}

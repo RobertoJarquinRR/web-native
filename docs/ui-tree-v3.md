@@ -1,7 +1,7 @@
 # ui-tree/3 — input de texto
 
 > **Documento histórico.** `webnative.ui-tree/3` era el IR JSON intermedio; el
-> runtime ya no lo consume. El contrato vivo es el blob `.wnui` v2, donde los
+> runtime ya no lo consume. El contrato vivo es el blob `.wnui` v3, donde los
 > inputs viajan en la sección `inputs` (`docs/wnui-format.md`). Se conserva como
 > historia; no describe el flujo actual.
 

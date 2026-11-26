@@ -67,6 +67,7 @@ static wn_core *build_scene(void)
     g_nodes[0].width = -1.0f;
     g_nodes[0].height = -1.0f;
     g_nodes[0].flex_shrink = 1.0f;
+    g_nodes[0].opacity = 1.0f;
 
     g_nodes[1].parent = 0;
     g_nodes[1].kind = R2_NODE_TEXT;
@@ -78,6 +79,7 @@ static wn_core *build_scene(void)
     g_nodes[1].width = -1.0f;
     g_nodes[1].height = -1.0f;
     g_nodes[1].flex_shrink = 1.0f;
+    g_nodes[1].opacity = 1.0f;
 
     g_doc.nodes = g_nodes;
     g_doc.node_count = 2;

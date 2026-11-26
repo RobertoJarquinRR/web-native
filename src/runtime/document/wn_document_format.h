@@ -10,10 +10,11 @@
 
 #include <stdint.h>
 
-/* The runtime always carries the E1/CSS style extras. Blob v2 writes every
+/* The runtime always carries the E1/CSS style extras. Blob v3 writes every
  * field for every node, so a page that does not use them gets the same
  * defaults the old header-less builds used (text_align 0, line_height 0,
- * margin_auto 0, box_sizing 0, flex_grow 0, flex_shrink 1, flex_basis -1). */
+ * margin_auto 0, box_sizing 0, flex_grow 0, flex_shrink 1, flex_basis -1,
+ * opacity 1). */
 #define UI_STYLE_EXTRAS 1
 
 typedef enum {
@@ -95,6 +96,10 @@ typedef struct {
     float flex_basis;           /* px, -1 = auto */
     const char *font_family;    /* text nodes, CSS family */
     int font_weight;            /* text nodes, 100..900 */
+    /* Blob v3: CSS group opacity in [0, 1], 1 = opaque. A node below 1 is a
+     * group: the runtime renders its subtree into an offscreen layer and
+     * composites it once. Not inherited. */
+    float opacity;
 } UiNode;
 
 typedef struct {

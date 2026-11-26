@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>webnative group opacity fixture</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Row 1: a 0.5 group with two overlapping children (the overlap must be
+       composited once), and a 0.5 group nested inside another 0.5 group. -->
+  <div class="row first">
+    <div id="overlap" class="group">
+      <div id="over-a" class="over-a"></div>
+      <div id="over-b" class="over-b"></div>
+    </div>
+    <div id="nested" class="group nested">
+      <div id="inner" class="inner">
+        <div id="fill" class="fill"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 2: single-pass leaves. Each still goes through a group layer now;
+       one primitive has nothing to overlap, so the result is the same. -->
+  <div class="row second">
+    <div id="leaf-solid" class="leaf-solid"></div>
+    <div id="leaf-text" class="leaf-text">H</div>
+    <img id="leaf-image" class="leaf-image" src="poster.png" alt="poster">
+  </div>
+
+  <!-- Row 3: opacity: 0 renders nothing. -->
+  <div class="row third">
+    <div id="zero" class="group zero">
+      <div id="zero-a" class="zero-a"></div>
+      <div id="zero-b" class="zero-b"></div>
+    </div>
+  </div>
+
+  <!-- Row 4: leaves that paint several passes. The pair is the same DOM with
+       and without a zero-size child: CSS opacity must flatten both the same. -->
+  <div class="row fourth">
+    <div id="leaf-border" class="leaf-border"></div>
+    <div id="leaf-border-pair" class="leaf-border">
+      <div class="pair-child"></div>
+    </div>
+    <input id="leaf-input" class="leaf-input" type="text" value="Ab"
+           maxlength="8" placeholder="x">
+  </div>
+
+  <!-- Row 5: shadow over fill, text over background, image over background. -->
+  <div class="row fifth">
+    <div id="leaf-shadow" class="leaf-shadow"></div>
+    <div id="leaf-text-bg" class="leaf-text-bg">H</div>
+    <img id="leaf-image-bg" class="leaf-image-bg" src="poster.png" alt="poster">
+  </div>
+</body>
+</html>

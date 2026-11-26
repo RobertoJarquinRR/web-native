@@ -22,7 +22,7 @@
 
 _Static_assert(sizeof(wn_vertex) == 12, "wn_vertex must stay 12 bytes");
 _Static_assert(sizeof(wn_glyph_vertex) == 20, "wn_glyph_vertex must stay 20 bytes");
-_Static_assert(sizeof(wn_image_vertex) == 16, "wn_image_vertex must stay 16 bytes");
+_Static_assert(sizeof(wn_image_vertex) == 20, "wn_image_vertex must stay 20 bytes");
 
 /* Decoded local image cached by path (PNG/JPEG via WIC -> RGBA8). */
 typedef struct {
@@ -52,6 +52,12 @@ typedef struct {
 } DeviceResult;
 
 typedef struct {
+    WGPUTexture texture;
+    WGPUTextureView view;
+    WGPUBindGroup bind; /* params+texture+sampler */
+} WnWgpuLayerTarget;
+
+typedef struct {
     WGPUInstance instance;
     WGPUAdapter adapter;
     WGPUDevice device;
@@ -64,6 +70,16 @@ typedef struct {
     int offscreen;
     WGPUTexture target;
     WGPUTextureView target_view;
+
+    /* Group layers (blob v3 opacity): pooled targets, one per nesting depth. */
+    WnWgpuLayerTarget *layer_targets;
+    int layer_target_count;
+    WGPUShaderModule composite_shader;
+    WGPURenderPipeline composite_pipeline;
+    WGPUBindGroupLayout composite_bgl;
+    WGPUPipelineLayout composite_pl;
+    WGPUBuffer composite_params;
+    size_t composite_params_capacity;
 
     WGPUShaderModule shader;
     WGPURenderPipeline pipeline;
@@ -289,19 +305,56 @@ static const char *kImageShaderWGSL =
     "struct VSOut {\n"
     "  @builtin(position) position: vec4<f32>,\n"
     "  @location(0) uv: vec2<f32>,\n"
+    "  @location(1) alpha: f32,\n"
     "};\n"
     "\n"
     "@vertex\n"
-    "fn vs_main(@location(0) position: vec2<f32>, @location(1) uv: vec2<f32>) -> VSOut {\n"
+    "fn vs_main(@location(0) position: vec2<f32>, @location(1) uv: vec2<f32>,\n"
+    "           @location(2) alpha: f32) -> VSOut {\n"
     "  var out: VSOut;\n"
     "  out.position = vec4<f32>(position, 0.0, 1.0);\n"
     "  out.uv = uv;\n"
+    "  out.alpha = alpha;\n"
     "  return out;\n"
     "}\n"
     "\n"
     "@fragment\n"
     "fn fs_main(in: VSOut) -> @location(0) vec4<f32> {\n"
-    "  return textureSample(image_texture, image_sampler, in.uv);\n"
+    "  let c = textureSample(image_texture, image_sampler, in.uv);\n"
+    "  return vec4<f32>(c.rgb, c.a * in.alpha);\n"
+    "}\n";
+
+/* Group composite. The layer texture holds premultiplied RGB (normal
+ * SrcAlpha blending accumulated it over transparent black); the shader scales
+ * rgb and alpha by the group opacity and the pipeline blends with
+ * ONE / ONE_MINUS_SRC_ALPHA, applying the group alpha exactly once. */
+static const char *kCompositeShaderWGSL =
+    "@group(0) @binding(0) var layer_texture: texture_2d<f32>;\n"
+    "@group(0) @binding(1) var layer_sampler: sampler;\n"
+    "@group(0) @binding(2) var<uniform> params: vec4<f32>;\n"
+    "\n"
+    "struct VSOut {\n"
+    "  @builtin(position) position: vec4<f32>,\n"
+    "  @location(0) uv: vec2<f32>,\n"
+    "};\n"
+    "\n"
+    "@vertex\n"
+    "fn vs_main(@builtin(vertex_index) index: u32) -> VSOut {\n"
+    "  var positions = array<vec2<f32>, 3>(\n"
+    "    vec2<f32>(-1.0, 1.0), vec2<f32>(3.0, 1.0), vec2<f32>(-1.0, -3.0));\n"
+    "  var uvs = array<vec2<f32>, 3>(\n"
+    "    vec2<f32>(0.0, 0.0), vec2<f32>(2.0, 0.0), vec2<f32>(0.0, 2.0));\n"
+    "  var out: VSOut;\n"
+    "  out.position = vec4<f32>(positions[index], 0.0, 1.0);\n"
+    "  out.uv = uvs[index];\n"
+    "  return out;\n"
+    "}\n"
+    "\n"
+    "@fragment\n"
+    "fn fs_main(in: VSOut) -> @location(0) vec4<f32> {\n"
+    "  let c = textureSample(layer_texture, layer_sampler, in.uv);\n"
+    "  let opacity = params.x;\n"
+    "  return vec4<f32>(c.rgb * opacity, c.a * opacity);\n"
     "}\n";
 
 static int create_offscreen_target(WnWgpu *gpu);
@@ -585,7 +638,7 @@ static int create_pipelines(WnWgpu *gpu)
     }
 
     {
-        WGPUVertexAttribute attributes[2];
+        WGPUVertexAttribute attributes[3];
         WGPUVertexBufferLayout buffer_layout;
         WGPUColorTargetState target;
         WGPUBlendState blend;
@@ -601,10 +654,13 @@ static int create_pipelines(WnWgpu *gpu)
         attributes[1].format = WGPUVertexFormat_Float32x2;
         attributes[1].offset = 8;
         attributes[1].shaderLocation = 1;
+        attributes[2].format = WGPUVertexFormat_Float32;
+        attributes[2].offset = 16;
+        attributes[2].shaderLocation = 2;
         memset(&buffer_layout, 0, sizeof(buffer_layout));
         buffer_layout.stepMode = WGPUVertexStepMode_Vertex;
         buffer_layout.arrayStride = sizeof(wn_image_vertex);
-        buffer_layout.attributeCount = 2;
+        buffer_layout.attributeCount = 3;
         buffer_layout.attributes = attributes;
         memset(&blend, 0, sizeof(blend));
         blend.color.operation = WGPUBlendOperation_Add;
@@ -644,6 +700,104 @@ static int create_pipelines(WnWgpu *gpu)
         gpu->image_pipeline = wgpuDeviceCreateRenderPipeline(gpu->device, &descriptor);
         if (gpu->image_pipeline == NULL) {
             set_error(gpu, "image pipeline creation failed");
+            return 1;
+        }
+    }
+    {
+        WGPUBindGroupLayoutEntry entries[3];
+        WGPUBindGroupLayoutDescriptor bgl_desc;
+        WGPUPipelineLayoutDescriptor pl_desc;
+        WGPUShaderModuleDescriptor shader_desc;
+        WGPUShaderSourceWGSL wgsl;
+        WGPUVertexState vertex;
+        WGPUColorTargetState target;
+        WGPUBlendState blend;
+        WGPUFragmentState fragment;
+        WGPUPrimitiveState primitive;
+        WGPUMultisampleState multisample;
+        WGPURenderPipelineDescriptor descriptor;
+
+        memset(&shader_desc, 0, sizeof(shader_desc));
+        memset(&wgsl, 0, sizeof(wgsl));
+        wgsl.chain.sType = WGPUSType_ShaderSourceWGSL;
+        wgsl.code = wsv(kCompositeShaderWGSL);
+        shader_desc.label = wsv("wn-composite-shader");
+        shader_desc.nextInChain = &wgsl.chain;
+        gpu->composite_shader = wgpuDeviceCreateShaderModule(gpu->device, &shader_desc);
+        if (gpu->composite_shader == NULL) {
+            set_error(gpu, "composite shader creation failed");
+            return 1;
+        }
+
+        memset(entries, 0, sizeof(entries));
+        entries[0].binding = 0;
+        entries[0].visibility = WGPUShaderStage_Fragment;
+        entries[0].texture.sampleType = WGPUTextureSampleType_Float;
+        entries[0].texture.viewDimension = WGPUTextureViewDimension_2D;
+        entries[1].binding = 1;
+        entries[1].visibility = WGPUShaderStage_Fragment;
+        entries[1].sampler.type = WGPUSamplerBindingType_Filtering;
+        entries[2].binding = 2;
+        entries[2].visibility = WGPUShaderStage_Fragment;
+        entries[2].buffer.type = WGPUBufferBindingType_Uniform;
+        entries[2].buffer.hasDynamicOffset = 1;
+        entries[2].buffer.minBindingSize = 16;
+        memset(&bgl_desc, 0, sizeof(bgl_desc));
+        bgl_desc.label = wsv("wn-composite-bgl");
+        bgl_desc.entryCount = 3;
+        bgl_desc.entries = entries;
+        gpu->composite_bgl = wgpuDeviceCreateBindGroupLayout(gpu->device, &bgl_desc);
+        if (gpu->composite_bgl == NULL) {
+            set_error(gpu, "composite bind group layout creation failed");
+            return 1;
+        }
+        memset(&pl_desc, 0, sizeof(pl_desc));
+        pl_desc.label = wsv("wn-composite-pipeline-layout");
+        pl_desc.bindGroupLayoutCount = 1;
+        pl_desc.bindGroupLayouts = &gpu->composite_bgl;
+        gpu->composite_pl = wgpuDeviceCreatePipelineLayout(gpu->device, &pl_desc);
+        if (gpu->composite_pl == NULL) {
+            set_error(gpu, "composite pipeline layout creation failed");
+            return 1;
+        }
+
+        memset(&blend, 0, sizeof(blend));
+        blend.color.operation = WGPUBlendOperation_Add;
+        blend.color.srcFactor = WGPUBlendFactor_One;
+        blend.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+        blend.alpha.operation = WGPUBlendOperation_Add;
+        blend.alpha.srcFactor = WGPUBlendFactor_One;
+        blend.alpha.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+        memset(&target, 0, sizeof(target));
+        target.format = gpu->format;
+        target.blend = &blend;
+        target.writeMask = WGPUColorWriteMask_All;
+        memset(&vertex, 0, sizeof(vertex));
+        vertex.module = gpu->composite_shader;
+        vertex.entryPoint = wsv("vs_main");
+        vertex.bufferCount = 0;
+        memset(&fragment, 0, sizeof(fragment));
+        fragment.module = gpu->composite_shader;
+        fragment.entryPoint = wsv("fs_main");
+        fragment.targetCount = 1;
+        fragment.targets = &target;
+        memset(&primitive, 0, sizeof(primitive));
+        primitive.topology = WGPUPrimitiveTopology_TriangleList;
+        primitive.frontFace = WGPUFrontFace_CCW;
+        primitive.cullMode = WGPUCullMode_None;
+        memset(&multisample, 0, sizeof(multisample));
+        multisample.count = 1;
+        multisample.mask = 0xFFFFFFFFu;
+        memset(&descriptor, 0, sizeof(descriptor));
+        descriptor.label = wsv("wn-composite-pipeline");
+        descriptor.layout = gpu->composite_pl;
+        descriptor.vertex = vertex;
+        descriptor.primitive = primitive;
+        descriptor.multisample = multisample;
+        descriptor.fragment = &fragment;
+        gpu->composite_pipeline = wgpuDeviceCreateRenderPipeline(gpu->device, &descriptor);
+        if (gpu->composite_pipeline == NULL) {
+            set_error(gpu, "composite pipeline creation failed");
             return 1;
         }
     }
@@ -840,6 +994,133 @@ fail:
     return 1;
 }
 
+static void release_layer_targets(WnWgpu *gpu)
+{
+    int i;
+    for (i = 0; i < gpu->layer_target_count; ++i) {
+        if (gpu->layer_targets[i].bind != NULL) {
+            wgpuBindGroupRelease(gpu->layer_targets[i].bind);
+        }
+        if (gpu->layer_targets[i].view != NULL) {
+            wgpuTextureViewRelease(gpu->layer_targets[i].view);
+        }
+        if (gpu->layer_targets[i].texture != NULL) {
+            wgpuTextureRelease(gpu->layer_targets[i].texture);
+        }
+    }
+    wn_free_(gpu->layer_targets);
+    gpu->layer_targets = NULL;
+    gpu->layer_target_count = 0;
+}
+
+/* Dynamic uniform offsets are 256-byte aligned on every backend we ship. */
+#define WN_LAYER_PARAM_STRIDE 256u
+
+static int ensure_layer_params(WnWgpu *gpu, size_t bytes)
+{
+    WGPUBufferDescriptor desc;
+    WGPUBuffer buffer;
+    if (gpu->composite_params != NULL && gpu->composite_params_capacity >= bytes) {
+        return 0;
+    }
+    memset(&desc, 0, sizeof(desc));
+    desc.label = wsv("wn-layer-params");
+    desc.size = (uint64_t)bytes;
+    desc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
+    buffer = wgpuDeviceCreateBuffer(gpu->device, &desc);
+    if (buffer == NULL) {
+        set_error(gpu, "layer params buffer creation failed");
+        return 1;
+    }
+    if (gpu->composite_params != NULL) {
+        wgpuBufferRelease(gpu->composite_params);
+    }
+    gpu->composite_params = buffer;
+    gpu->composite_params_capacity = bytes;
+    /* Existing bind groups pointed at the old buffer. */
+    release_layer_targets(gpu);
+    return 0;
+}
+
+static int ensure_layer_target(WnWgpu *gpu, int depth)
+{
+    WnWgpuLayerTarget *target;
+    WGPUTextureDescriptor texture_desc;
+    WGPUBindGroupEntry entries[3];
+    WGPUBindGroupDescriptor bind_desc;
+
+    if (depth < 0 || depth >= WN_MAX_PAINT_LAYER_DEPTH) {
+        set_error(gpu, "layer depth %d exceeds %d", depth, WN_MAX_PAINT_LAYER_DEPTH);
+        return 1;
+    }
+    if (gpu->composite_params == NULL) {
+        set_error(gpu, "layer params buffer is missing");
+        return 1;
+    }
+    if (depth >= gpu->layer_target_count) {
+        int capacity = gpu->layer_target_count > 0 ? gpu->layer_target_count : 4;
+        WnWgpuLayerTarget *grown;
+        while (capacity <= depth) {
+            capacity *= 2;
+        }
+        grown = (WnWgpuLayerTarget *)realloc(
+            gpu->layer_targets, (size_t)capacity * sizeof(WnWgpuLayerTarget));
+        if (grown == NULL) {
+            set_error(gpu, "out of memory for layer targets");
+            return 1;
+        }
+        memset(grown + gpu->layer_target_count, 0,
+               (size_t)(capacity - gpu->layer_target_count) * sizeof(*grown));
+        gpu->layer_targets = grown;
+        gpu->layer_target_count = capacity;
+    }
+    target = &gpu->layer_targets[depth];
+    if (target->texture != NULL) {
+        return 0;
+    }
+    memset(&texture_desc, 0, sizeof(texture_desc));
+    texture_desc.label = wsv("wn-layer");
+    texture_desc.usage = WGPUTextureUsage_RenderAttachment |
+                         WGPUTextureUsage_TextureBinding;
+    texture_desc.dimension = WGPUTextureDimension_2D;
+    texture_desc.size.width = (uint32_t)(gpu->width > 0 ? gpu->width : 1);
+    texture_desc.size.height = (uint32_t)(gpu->height > 0 ? gpu->height : 1);
+    texture_desc.size.depthOrArrayLayers = 1;
+    texture_desc.format = gpu->format;
+    texture_desc.mipLevelCount = 1;
+    texture_desc.sampleCount = 1;
+    target->texture = wgpuDeviceCreateTexture(gpu->device, &texture_desc);
+    if (target->texture == NULL) {
+        set_error(gpu, "layer texture creation failed");
+        return 1;
+    }
+    target->view = wgpuTextureCreateView(target->texture, NULL);
+    if (target->view == NULL) {
+        set_error(gpu, "layer texture view creation failed");
+        return 1;
+    }
+    memset(entries, 0, sizeof(entries));
+    entries[0].binding = 0;
+    entries[0].textureView = target->view;
+    entries[1].binding = 1;
+    entries[1].sampler = gpu->sampler;
+    entries[2].binding = 2;
+    entries[2].buffer = gpu->composite_params;
+    entries[2].offset = 0;
+    entries[2].size = 16;
+    memset(&bind_desc, 0, sizeof(bind_desc));
+    bind_desc.label = wsv("wn-layer-bind-group");
+    bind_desc.layout = gpu->composite_bgl;
+    bind_desc.entryCount = 3;
+    bind_desc.entries = entries;
+    target->bind = wgpuDeviceCreateBindGroup(gpu->device, &bind_desc);
+    if (target->bind == NULL) {
+        set_error(gpu, "layer bind group creation failed");
+        return 1;
+    }
+    return 0;
+}
+
 static void renderer_resize(void *context, int width, int height)
 {
     WnWgpu *gpu = (WnWgpu *)context;
@@ -856,6 +1137,7 @@ static void renderer_resize(void *context, int width, int height)
     gpu->height = height;
     gpu->info.width = width;
     gpu->info.height = height;
+    release_layer_targets(gpu);
     if (gpu->offscreen) {
         (void)create_offscreen_target(gpu);
         return;
@@ -1304,6 +1586,12 @@ static int renderer_upload(void *context, const wn_display_list *list)
     gpu->uploaded_glyphs = 0;
     gpu->uploaded_images = 0;
     touch_frame_images(gpu, list);
+    if (list->layer_count > 1) {
+        if (ensure_layer_params(gpu, (size_t)list->layer_count *
+                                         WN_LAYER_PARAM_STRIDE) != 0) {
+            return 1;
+        }
+    }
 
     if (list->atlas.pixels != NULL) {
         if (upload_atlas(gpu, &list->atlas) != 0) {
@@ -1625,6 +1913,215 @@ done:
     return rc;
 }
 
+static void wgpu_draw_item(WGPURenderPassEncoder pass, WnWgpu *gpu,
+                           const wn_paint_draw *draw)
+{
+    if (draw->solid.count > 0 && gpu->uploaded_vertices > 0) {
+        if (set_scissor(pass, draw->solid.clip.x, draw->solid.clip.y,
+                        draw->solid.clip.w, draw->solid.clip.h,
+                        gpu->width, gpu->height)) {
+            wgpuRenderPassEncoderSetPipeline(pass, gpu->pipeline);
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, gpu->vertex_buffer, 0,
+                                                 WGPU_WHOLE_SIZE);
+            wgpuRenderPassEncoderDraw(pass, (uint32_t)draw->solid.count, 1,
+                                      (uint32_t)draw->solid.first, 0);
+        }
+    }
+    if (draw->decoration.count > 0 && gpu->uploaded_vertices > 0) {
+        if (set_scissor(pass, draw->decoration.clip.x, draw->decoration.clip.y,
+                        draw->decoration.clip.w, draw->decoration.clip.h,
+                        gpu->width, gpu->height)) {
+            wgpuRenderPassEncoderSetPipeline(pass, gpu->pipeline);
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, gpu->vertex_buffer, 0,
+                                                 WGPU_WHOLE_SIZE);
+            wgpuRenderPassEncoderDraw(pass, (uint32_t)draw->decoration.count, 1,
+                                      (uint32_t)draw->decoration.first, 0);
+        }
+    }
+    if (draw->input_body.count > 0 && gpu->uploaded_vertices > 0) {
+        if (set_scissor(pass, draw->input_body.clip.x, draw->input_body.clip.y,
+                        draw->input_body.clip.w, draw->input_body.clip.h,
+                        gpu->width, gpu->height)) {
+            wgpuRenderPassEncoderSetPipeline(pass, gpu->pipeline);
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, gpu->vertex_buffer, 0,
+                                                 WGPU_WHOLE_SIZE);
+            wgpuRenderPassEncoderDraw(pass, (uint32_t)draw->input_body.count, 1,
+                                      (uint32_t)draw->input_body.first, 0);
+        }
+    }
+    if (draw->scrollbar.count > 0 && gpu->uploaded_vertices > 0) {
+        if (set_scissor(pass, draw->scrollbar.clip.x, draw->scrollbar.clip.y,
+                        draw->scrollbar.clip.w, draw->scrollbar.clip.h,
+                        gpu->width, gpu->height)) {
+            wgpuRenderPassEncoderSetPipeline(pass, gpu->pipeline);
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, gpu->vertex_buffer, 0,
+                                                 WGPU_WHOLE_SIZE);
+            wgpuRenderPassEncoderDraw(pass, (uint32_t)draw->scrollbar.count, 1,
+                                      (uint32_t)draw->scrollbar.first, 0);
+        }
+    }
+    if (draw->image.count > 0 && gpu->image_pipeline != NULL &&
+        gpu->uploaded_images > 0 && draw->image_src != NULL) {
+        WnImageTexture *texture = find_cached_image(gpu, draw->image_src);
+        if (texture != NULL && texture->bind != NULL &&
+            set_scissor(pass, draw->image.clip.x, draw->image.clip.y,
+                        draw->image.clip.w, draw->image.clip.h,
+                        gpu->width, gpu->height)) {
+            wgpuRenderPassEncoderSetPipeline(pass, gpu->image_pipeline);
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, gpu->image_buffer, 0,
+                                                 WGPU_WHOLE_SIZE);
+            wgpuRenderPassEncoderSetBindGroup(pass, 0, texture->bind, 0, NULL);
+            wgpuRenderPassEncoderDraw(pass, (uint32_t)draw->image.count, 1,
+                                      (uint32_t)draw->image.first, 0);
+        }
+    }
+    if (draw->glyph.count > 0 && gpu->text_pipeline != NULL &&
+        gpu->text_bg != NULL && gpu->uploaded_glyphs > 0) {
+        if (set_scissor(pass, draw->glyph.clip.x, draw->glyph.clip.y,
+                        draw->glyph.clip.w, draw->glyph.clip.h,
+                        gpu->width, gpu->height)) {
+            wgpuRenderPassEncoderSetPipeline(pass, gpu->text_pipeline);
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, gpu->glyph_buffer, 0,
+                                                 WGPU_WHOLE_SIZE);
+            wgpuRenderPassEncoderSetBindGroup(pass, 0, gpu->text_bg, 0, NULL);
+            wgpuRenderPassEncoderDraw(pass, (uint32_t)draw->glyph.count, 1,
+                                      (uint32_t)draw->glyph.first, 0);
+        }
+    }
+    if (draw->input_glyph.count > 0 && gpu->text_pipeline != NULL &&
+        gpu->text_bg != NULL && gpu->uploaded_glyphs > 0) {
+        if (set_scissor(pass, draw->input_glyph.clip.x,
+                        draw->input_glyph.clip.y, draw->input_glyph.clip.w,
+                        draw->input_glyph.clip.h, gpu->width, gpu->height)) {
+            wgpuRenderPassEncoderSetPipeline(pass, gpu->text_pipeline);
+            wgpuRenderPassEncoderSetVertexBuffer(pass, 0, gpu->glyph_buffer, 0,
+                                                 WGPU_WHOLE_SIZE);
+            wgpuRenderPassEncoderSetBindGroup(pass, 0, gpu->text_bg, 0, NULL);
+            wgpuRenderPassEncoderDraw(pass, (uint32_t)draw->input_glyph.count, 1,
+                                      (uint32_t)draw->input_glyph.first, 0);
+        }
+    }
+}
+
+static WGPURenderPassEncoder begin_layer_pass(WnWgpu *gpu, WGPUCommandEncoder encoder,
+                                              WGPUTextureView target, int clear,
+                                              const float clear_value[4])
+{
+    WGPURenderPassColorAttachment attachment;
+    WGPURenderPassDescriptor pass_desc;
+    (void)gpu;
+    memset(&attachment, 0, sizeof(attachment));
+    attachment.view = target;
+    attachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+    attachment.loadOp = clear ? WGPULoadOp_Clear : WGPULoadOp_Load;
+    attachment.storeOp = WGPUStoreOp_Store;
+    attachment.clearValue.r = clear_value[0];
+    attachment.clearValue.g = clear_value[1];
+    attachment.clearValue.b = clear_value[2];
+    attachment.clearValue.a = clear_value[3];
+    memset(&pass_desc, 0, sizeof(pass_desc));
+    pass_desc.label = wsv("wn-layer-pass");
+    pass_desc.colorAttachmentCount = 1;
+    pass_desc.colorAttachments = &attachment;
+    return wgpuCommandEncoderBeginRenderPass(encoder, &pass_desc);
+}
+
+/* Replays the command list exactly: a new pass per layer segment, a composite
+ * pass on the parent after each child layer, and a Load pass to continue the
+ * parent. `depth` is the child nesting index (0 for the first group). */
+static int run_layer_commands(WnWgpu *gpu, WGPUCommandEncoder encoder,
+                              WGPUTextureView target, int clear,
+                              const float clear_value[4],
+                              const wn_display_list *list, int *index, int depth)
+{
+    WGPURenderPassEncoder pass = begin_layer_pass(gpu, encoder, target, clear,
+                                                  clear_value);
+    if (pass == NULL) {
+        set_error(gpu, "layer render pass creation failed");
+        return 1;
+    }
+    while (*index < list->command_count) {
+        const wn_paint_command *command = &list->commands[*index];
+        if (command->kind == WN_PAINT_CMD_DRAW) {
+            if (command->item >= 0 && command->item < list->draw_count) {
+                wgpu_draw_item(pass, gpu, &list->draws[command->item]);
+            }
+            *index += 1;
+            continue;
+        }
+        if (command->kind == WN_PAINT_CMD_BEGIN_LAYER) {
+            WGPUTextureView layer_view;
+            const wn_paint_layer *layer;
+            uint32_t offset;
+            float transparent[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+            if (command->layer < 0 || command->layer >= list->layer_count ||
+                depth + 1 >= WN_MAX_PAINT_LAYER_DEPTH) {
+                wgpuRenderPassEncoderEnd(pass);
+                wgpuRenderPassEncoderRelease(pass);
+                set_error(gpu, "invalid layer boundary");
+                return 1;
+            }
+            if (ensure_layer_target(gpu, depth) != 0) {
+                wgpuRenderPassEncoderEnd(pass);
+                wgpuRenderPassEncoderRelease(pass);
+                return 1;
+            }
+            /* Copy the handle: the recursive call can realloc layer_targets,
+             * so no pointer into that array may survive it. Re-index for the
+             * bind group after the recursion returns. */
+            layer_view = gpu->layer_targets[depth].view;
+            wgpuRenderPassEncoderEnd(pass);
+            wgpuRenderPassEncoderRelease(pass);
+            pass = NULL;
+            *index += 1;
+            if (run_layer_commands(gpu, encoder, layer_view, 1,
+                                   transparent, list, index, depth + 1) != 0) {
+                return 1;
+            }
+            layer = &list->layers[command->layer];
+            pass = begin_layer_pass(gpu, encoder, target, 0, clear_value);
+            if (pass == NULL) {
+                set_error(gpu, "layer continuation pass failed");
+                return 1;
+            }
+            offset = (uint32_t)command->layer * WN_LAYER_PARAM_STRIDE;
+            wgpuRenderPassEncoderSetPipeline(pass, gpu->composite_pipeline);
+            wgpuRenderPassEncoderSetBindGroup(pass, 0,
+                                              gpu->layer_targets[depth].bind, 1,
+                                              &offset);
+            if (set_scissor(pass, layer->clip.x, layer->clip.y, layer->clip.w,
+                            layer->clip.h, gpu->width, gpu->height)) {
+                wgpuRenderPassEncoderDraw(pass, 3, 1, 0, 0);
+            }
+            continue;
+        }
+        if (command->kind == WN_PAINT_CMD_END_LAYER) {
+            *index += 1;
+            wgpuRenderPassEncoderEnd(pass);
+            wgpuRenderPassEncoderRelease(pass);
+            return 0;
+        }
+        *index += 1;
+    }
+    wgpuRenderPassEncoderEnd(pass);
+    wgpuRenderPassEncoderRelease(pass);
+    return 0;
+}
+
+static void write_layer_params(WnWgpu *gpu, const wn_display_list *list)
+{
+    int i;
+    if (gpu->composite_params == NULL) {
+        return;
+    }
+    for (i = 1; i < list->layer_count; ++i) {
+        float value[4] = { list->layers[i].opacity, 0.0f, 0.0f, 0.0f };
+        wgpuQueueWriteBuffer(gpu->queue, gpu->composite_params,
+                             (uint64_t)i * WN_LAYER_PARAM_STRIDE, value,
+                             sizeof(value));
+    }
+}
+
 static int renderer_render(void *context, const wn_display_list *list)
 {
     WnWgpu *gpu = (WnWgpu *)context;
@@ -1707,6 +2204,27 @@ static int renderer_render(void *context, const wn_display_list *list)
         return 1;
     }
 
+    if (list != NULL && list->layer_count > 1 && list->command_count > 0) {
+        int index = 0;
+        if (ensure_layer_params(gpu, (size_t)list->layer_count *
+                                         WN_LAYER_PARAM_STRIDE) != 0) {
+            wgpuCommandEncoderRelease(encoder);
+            if (!gpu->offscreen) {
+                wgpuTextureViewRelease(view);
+                wgpuTextureRelease(surface_texture.texture);
+            }
+            return 1;
+        }
+        write_layer_params(gpu, list);
+        if (run_layer_commands(gpu, encoder, view, 1, clear, list, &index, 0) != 0) {
+            wgpuCommandEncoderRelease(encoder);
+            if (!gpu->offscreen) {
+                wgpuTextureViewRelease(view);
+                wgpuTextureRelease(surface_texture.texture);
+            }
+            return 1;
+        }
+    } else {
     memset(&attachment, 0, sizeof(attachment));
     attachment.view = view;
     attachment.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
@@ -1790,6 +2308,7 @@ static int renderer_render(void *context, const wn_display_list *list)
         wgpuRenderPassEncoderEnd(pass);
         wgpuRenderPassEncoderRelease(pass);
     }
+    }
 
     command = wgpuCommandEncoderFinish(encoder, NULL);
     if (command == NULL) {
@@ -1835,6 +2354,12 @@ static void renderer_destroy(void *context)
     if (gpu->vertex_buffer != NULL) wgpuBufferRelease(gpu->vertex_buffer);
     if (gpu->glyph_buffer != NULL) wgpuBufferRelease(gpu->glyph_buffer);
     if (gpu->image_buffer != NULL) wgpuBufferRelease(gpu->image_buffer);
+    release_layer_targets(gpu);
+    if (gpu->composite_params != NULL) wgpuBufferRelease(gpu->composite_params);
+    if (gpu->composite_pipeline != NULL) wgpuRenderPipelineRelease(gpu->composite_pipeline);
+    if (gpu->composite_pl != NULL) wgpuPipelineLayoutRelease(gpu->composite_pl);
+    if (gpu->composite_bgl != NULL) wgpuBindGroupLayoutRelease(gpu->composite_bgl);
+    if (gpu->composite_shader != NULL) wgpuShaderModuleRelease(gpu->composite_shader);
     if (gpu->target_view != NULL) wgpuTextureViewRelease(gpu->target_view);
     if (gpu->target != NULL) wgpuTextureRelease(gpu->target);
     for (i = 0; i < gpu->image_count; ++i) {

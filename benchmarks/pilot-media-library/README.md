@@ -219,7 +219,7 @@ respecto al HTML; `--runtime-cwd` permite otro directorio.
 El working tree de esta sesión ya contiene la implementación v2 (frontend Rust
 y runtime R2). Con el runtime piloto compilado desde `page/index.html`:
 
-- frontend: 301 nodos y 101 runs de texto en el blob `.wnui` v2;
+- frontend: 301 nodos y 101 runs de texto en el blob `.wnui` v3;
 - `--report`: grid 280,24 976x752 a 1280x800 y 184,24 592x552 a 800x600;
   30 cards y 30 imágenes con rects exactos;
 - `--render`: tamaño, colores de posters, gap, clip y scroll (100 px, 400 px,

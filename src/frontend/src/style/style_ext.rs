@@ -623,7 +623,6 @@ pub struct StyleV3 {
     /// the same unit).
     pub border_radius_rel: Option<RelLength>,
     pub box_shadow: Vec<BoxShadow>,
-    pub opacity: f64,
 }
 
 impl Default for StyleV3 {
@@ -652,7 +651,6 @@ impl Default for StyleV3 {
             border_radius: [0.0; 4],
             border_radius_rel: None,
             box_shadow: Vec::new(),
-            opacity: 1.0,
         }
     }
 }
@@ -684,7 +682,6 @@ impl StyleV3 {
             || self.border_radius.iter().any(|value| *value != 0.0)
             || self.border_radius_rel.is_some()
             || !self.box_shadow.is_empty()
-            || (self.opacity - 1.0).abs() > 1e-9
     }
 }
 

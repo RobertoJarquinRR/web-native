@@ -1236,6 +1236,9 @@ void wn_core_destroy(wn_core *core)
     wn_free_(core->prev_sibling);
     wn_free_(core->last_child);
     wn_free_(core->paint_items);
+    wn_free_(core->paint_layers);
+    wn_free_(core->paint_commands);
+    wn_free_(core->paint_draws);
     wn_free_(core->text_override);
     wn_free_(core->image_override);
     wn_free_(core->input_map);

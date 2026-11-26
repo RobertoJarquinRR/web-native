@@ -33,9 +33,12 @@ typedef struct {
     uint8_t r, g, b, a;
 } wn_glyph_vertex;
 
-/* Image vertex: vec2 clip position + vec2 uv (16 bytes). */
+/* Image vertex: vec2 clip position + vec2 uv + float alpha (20 bytes). The
+ * shader multiplies the sampled texture alpha by it, so a leaf image with
+ * `opacity < 1` fades without an offscreen layer. */
 typedef struct {
     float x, y, u, v;
+    float a;
 } wn_image_vertex;
 
 /* One scissored draw range into the solid/glyph vertex arrays. `clip` is the
@@ -53,6 +56,64 @@ typedef struct {
     float clip_x, clip_y, clip_w, clip_h;
     const char *src;
 } wn_image_batch;
+
+/* ----------------------------------------------------- group layers (v3) */
+/* A node with `opacity < 1` is a CSS group: opacity creates a stacking
+ * context, so the core renders its item and subtree into an offscreen layer
+ * and composites the layer once with `opacity`. Leaves are groups too; a leaf
+ * may paint several passes (border + fill, shadow + fill, input decorations,
+ * background + text/image) that must fade as one flattened result.
+ *
+ * `layers[0]` is the root layer (opacity 1). Layer ids are allocated in DFS
+ * order; `parent` is the enclosing layer. `commands` replay the nesting in
+ * paint order: DRAW(item), BEGIN_LAYER(layer), END_LAYER(layer). */
+#define WN_MAX_PAINT_LAYERS 65536
+/* Nesting depth bound: matches the document tree depth limit, so a layer per
+ * ancestor is always representable. Renderer target pools are per depth. */
+#define WN_MAX_PAINT_LAYER_DEPTH 512
+
+enum {
+    WN_PAINT_CMD_DRAW = 1,
+    WN_PAINT_CMD_BEGIN_LAYER = 2,
+    WN_PAINT_CMD_END_LAYER = 3
+};
+
+typedef struct {
+    int first;
+    int count;
+    wn_rect clip;
+} wn_paint_range;
+
+/* Per-item geometry ranges. Each pass (background, decorations, scrollbars,
+ * images, text, input text) is contiguous both in the vertex arrays and in
+ * item order, so a draw is a set of ranges. `clip` is the scissor the pass
+ * used, which is not always the item clip (input content). */
+typedef struct {
+    int node;
+    int layer;
+    wn_paint_range solid;
+    wn_paint_range decoration;
+    wn_paint_range input_body;
+    wn_paint_range scrollbar;
+    wn_paint_range image;
+    const char *image_src;
+    wn_paint_range glyph;
+    wn_paint_range input_glyph;
+} wn_paint_draw;
+
+typedef struct {
+    int id;
+    int parent;   /* -1 for the root layer */
+    int node;     /* group-root node; -1 for the root layer */
+    float opacity;
+    wn_rect clip;
+} wn_paint_layer;
+
+typedef struct {
+    int kind;   /* WN_PAINT_CMD_* */
+    int item;   /* DRAW: item index, -1 otherwise */
+    int layer;  /* BEGIN/END: layer id, -1 otherwise */
+} wn_paint_command;
 
 /* Immutable atlas description attached to a document. */
 typedef struct {
@@ -79,6 +140,15 @@ typedef struct {
     int image_vertex_count;
     const wn_image_batch *image_batches;
     int image_batch_count;
+    /* Group layers (blob v3 `opacity`). `layers[0]` is the root; the renderer
+     * keeps its historical single-pass path while layer_count <= 1. `draws`
+     * are per paint item and `commands` replay the nesting exactly. */
+    const wn_paint_layer *layers;
+    int layer_count;
+    const wn_paint_command *commands;
+    int command_count;
+    const wn_paint_draw *draws;
+    int draw_count;
     wn_atlas_view atlas;
     float clear_color[4];
     int width, height;

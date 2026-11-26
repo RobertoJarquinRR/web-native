@@ -13,7 +13,8 @@ use std::path::{Path, PathBuf};
 
 use frontend_rust::build_tree_from_file;
 
-const NODE_RECORD_SIZE: usize = 220;
+// Blob v3 `WnBlobNode`: 220 bytes through `font_weight` + 4 bytes `opacity`.
+const NODE_RECORD_SIZE: usize = 224;
 const IMAGE_WIDTH_OFFSET: usize = 132;
 const IMAGE_HEIGHT_OFFSET: usize = 136;
 

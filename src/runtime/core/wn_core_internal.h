@@ -10,9 +10,14 @@
 
 #include <stdint.h>
 
+#include "document/wn_blob.h"
 #include "document/wn_document_internal.h"
 #include "text/text_atlas.h"
 #include "wn_core.h"
+
+/* The on-disk node record is a fixed contract shared with the Rust writer and
+ * the blob loader. A field added without bumping both sides must fail here. */
+_Static_assert(sizeof(WnBlobNode) == 224, "WnBlobNode must stay 224 bytes");
 
 #define WN_MAX_CLASSES 8
 
@@ -46,10 +51,13 @@ typedef struct {
  *   - clip: the node's screen-space scissor from compute_clips(). Transform is
  *     applied to geometry only; a transformed node stays clipped by its
  *     axis-aligned parent clip until the clipping lane lands.
- *   - layer: stable paint key. Sorting by layer is a no-op while all are 0.
- *   - opacity: multiplies solid and glyph alpha. Image vertices carry no
- *     per-vertex alpha (wn_image_vertex is x,y,u,v), so image opacity is
- *     pending that format/feature lane.
+ *   - layer: group layer id from the command list; 0 is the root layer. The
+ *     stable sort by layer is a no-op for opacity-free pages, where every item
+ *     stays 0.
+ *   - opacity: direct-alpha factor for items on the flat path and the fallback
+ *     when the layer cap is reached. A group root keeps 1 here because its
+ *     layer carries the opacity. Multiplied into solid and glyph alpha and into
+ *     the image vertex alpha.
  *   - transform: applied to solid/shadow/glyph/image vertex positions in pixel
  *     space before the clip-space projection.
  * Synthetic passes (input decorations, scrollbars) are not nodes and stay
@@ -197,6 +205,18 @@ struct wn_core {
     WnPaintItem *paint_items;
     int paint_item_count;
     int paint_item_capacity;
+    /* Group layers and command list, allocated lazily: a page with no
+     * `opacity < 1` group keeps these NULL and the renderers' historical
+     * single-pass fast path. `paint_draws` is per paint item and only built
+     * when `paint_layer_count > 1`. */
+    wn_paint_layer *paint_layers;
+    int paint_layer_count;
+    int paint_layer_capacity;
+    wn_paint_command *paint_commands;
+    int paint_command_count;
+    int paint_command_capacity;
+    wn_paint_draw *paint_draws;
+    int paint_draw_capacity;
     /* Geometry helper context: the item whose transform/opacity the push_*
      * helpers apply. NULL means identity/opaque (also the post-build reset). */
     const WnPaintItem *paint_item;
@@ -223,6 +243,11 @@ void wn_core_set_caret_epoch(wn_core *core, double ms);
 int build_input_state(wn_core *c);
 void build_input_text_geometry(wn_core *c, float viewport_w, float viewport_h);
 void build_input_decorations(wn_core *c);
+
+/* Per-item geometry ranges for the layer command model (NULL when the page
+ * has no group layers). Defined in paint.c; input.c records its synthetic
+ * passes there too. */
+wn_paint_draw *wn_core_draw_for_item(wn_core *c, int item);
 
 /* Paint list maintenance (layout.c). The item build walks the same visible
  * subtrees as the old DFS order and skips empty clips. The sort is a stable
