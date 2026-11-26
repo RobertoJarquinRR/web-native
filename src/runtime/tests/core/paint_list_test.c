@@ -17,19 +17,27 @@
  *      the known pre-list geometry, and a second build is identical.
  *   3. A forced translate moves solid, glyph and image vertices by exactly
  *      (dx, dy) in view pixels.
- *   4. Opacity halves solid and glyph alpha; images are untouched (documented
- *      pending: wn_image_vertex has no alpha).
- *   5. A forced layer reorders the solid batch and stays stable inside a layer.
- *   6. The culling helper decides correctly; culling stays OFF, so an offscreen
- *      item is still built.
+ *   4. Opacity boundaries on solid and glyph: 0/negative drop the vertices,
+ *      1 keeps them, >1 clamps, 0.5 rounds to 128. Images are untouched
+ *      (documented pending: wn_image_vertex has no alpha).
+ *   5. Layers: distinct layers sort stably in O(n log n); an all-equal list
+ *      takes the no-copy fast path and keeps the exact DFS order.
+ *   6. The culling helper decides correctly, and a real .wnui fixture locks the
+ *      build decision: a child fully below the viewport but casting a shadow
+ *      into it is still built, so enabling culling by the helper would lose
+ *      the shadow. Culling is computed, never applied.
+ *   7. Visibility rebuilds the item list.
  *
  *   paint_list_test.exe
  */
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "core/wn_core_internal.h"
+#include "document/wn_blob.h"
+#include "document/wn_document_format.h"
 #include "document/wn_document_internal.h"
 #include "text/text_runtime.h"
 #include "wn_core.h"
@@ -145,6 +153,102 @@ static wn_core *make_core(void)
     g_doc.viewport_height = (int)VIEW_H;
     g_doc.refs = WN_DOCUMENT_STATIC_REFS;
     return wn_core_create(&g_doc);
+}
+
+/* ------------------------------------------- culling fixture (.wnui blob)
+ *
+ * root BLOCK 200x120 border-box, padding-top 130 -> its only child starts at
+ * y=130, fully below the 200x120 viewport. The root is overflow:visible, so
+ * the child's inherited clip is the viewport and non-empty. The child has no
+ * background and one shadow offset -50px, so the 30px box (130..160) casts a
+ * 3-layer shadow over 80..110: inside the viewport. If the item build ever
+ * culls by wn_paint_item_visible(), the child item disappears and the 18
+ * shadow vertices vanish with it. */
+#define CULL_VIEW_W 200.0f
+#define CULL_VIEW_H 120.0f
+#define SHADOW_VERTS 18 /* three radius-0 shadow quads, 6 vertices each */
+
+static const char kCullStrings[] = "\0cull.root\0cull.shadow\0";
+
+static uint32_t align_up8(uint32_t value)
+{
+    return (value + 7u) & ~7u;
+}
+
+static unsigned char *build_cull_blob(size_t *out_size)
+{
+    const uint32_t node_count = 2u;
+    const uint32_t section_bytes = 3u * (uint32_t)sizeof(WnBlobSection);
+    const uint32_t nodes_offset = align_up8(WN_BLOB_HEADER_SIZE + section_bytes);
+    const uint32_t nodes_bytes = node_count * (uint32_t)sizeof(WnBlobNode);
+    const uint32_t names_offset = align_up8(nodes_offset + nodes_bytes);
+    const uint32_t names_bytes = node_count * (uint32_t)sizeof(uint32_t);
+    const uint32_t strings_offset = align_up8(names_offset + names_bytes);
+    const uint32_t strings_bytes = (uint32_t)sizeof(kCullStrings);
+    const uint32_t total = align_up8(strings_offset + strings_bytes);
+    unsigned char *data = (unsigned char *)calloc(1, total);
+    WnBlobHeader *header;
+    WnBlobSection *sections;
+    WnBlobNode *nodes;
+    uint32_t *name_offsets;
+    char *strings;
+
+    if (data == NULL) {
+        return NULL;
+    }
+    header = (WnBlobHeader *)data;
+    header->magic = WN_BLOB_MAGIC;
+    header->version = WN_BLOB_VERSION;
+    header->section_count = 3u;
+    header->file_size = total;
+    header->node_count = node_count;
+    header->viewport_width = (uint32_t)CULL_VIEW_W;
+    header->viewport_height = (uint32_t)CULL_VIEW_H;
+
+    sections = (WnBlobSection *)(data + WN_BLOB_HEADER_SIZE);
+    sections[0].id = WN_BLOB_SECTION_NODES;
+    sections[0].offset = nodes_offset;
+    sections[0].size = nodes_bytes;
+    sections[1].id = WN_BLOB_SECTION_NAMES;
+    sections[1].offset = names_offset;
+    sections[1].size = names_bytes;
+    sections[2].id = WN_BLOB_SECTION_STRINGS;
+    sections[2].offset = strings_offset;
+    sections[2].size = strings_bytes;
+
+    nodes = (WnBlobNode *)(data + nodes_offset);
+    nodes[0].parent = -1;
+    nodes[0].kind = R2_NODE_BLOCK;
+    nodes[0].width = CULL_VIEW_W;
+    nodes[0].height = CULL_VIEW_H;
+    nodes[0].padding[0] = CULL_VIEW_H + 10.0f; /* pushes the child to y=130 */
+    nodes[0].box_sizing = 1;                   /* 120px box, padding included */
+    nodes[0].font_size = FAKE_SIZE;
+    nodes[0].flex_shrink = 1.0f;
+    nodes[0].flex_basis = -1.0f;
+
+    nodes[1].parent = 0;
+    nodes[1].kind = R2_NODE_BLOCK;
+    nodes[1].width = 40.0f;
+    nodes[1].height = 30.0f;
+    nodes[1].shadow_x = 0.0f;
+    nodes[1].shadow_y = -50.0f; /* 130..160 box -> 80..110 shadow */
+    nodes[1].shadow_blur = 0.0f;
+    nodes[1].shadow_spread = 0.0f;
+    nodes[1].shadow_color = 0xFF000000u;
+    nodes[1].font_size = FAKE_SIZE;
+    nodes[1].flex_shrink = 1.0f;
+    nodes[1].flex_basis = -1.0f;
+
+    name_offsets = (uint32_t *)(data + names_offset);
+    name_offsets[0] = 0u;
+    name_offsets[1] = 1u;
+
+    strings = (char *)(data + strings_offset);
+    memcpy(strings, kCullStrings, sizeof(kCullStrings));
+
+    *out_size = total;
+    return data;
 }
 
 static int item_index_for_node(const wn_core *c, int node)
@@ -309,34 +413,78 @@ int main(void)
 
     /* ---------------------------------------------------- 4. opacity */
     {
-        int index = item_index_for_node(core, 1);
-        int ok = 1;
-        core->paint_items[index].opacity = 0.5f;
-        wn_core_build_display_list(core);
-        for (i = 0; ok && i < 6; ++i) {
-            ok = list->vertices[i].a == 128 &&
-                 list->vertices[i].r == 0x11 && list->vertices[i].g == 0x22 &&
-                 list->vertices[i].b == 0x33;
+        static const struct {
+            float opacity;
+            int alpha;
+            int painted;
+            const char *label;
+        } solid_cases[] = {
+            { 0.0f, 0, 0, "solid opacity 0 drops the item's vertices" },
+            { 1.0f, 255, 1, "solid opacity 1 keeps alpha 255" },
+            { 2.0f, 255, 1, "solid opacity >1 clamps to 255" },
+            { -0.5f, 0, 0, "solid negative opacity drops the vertices" },
+            { 0.5f, 128, 1, "solid opacity 0.5 rounds to 128" },
+        };
+        int c;
+        for (c = 0; c < (int)(sizeof(solid_cases) / sizeof(solid_cases[0])); ++c) {
+            int index = item_index_for_node(core, 1);
+            int ok = 1;
+            core->paint_items[index].opacity = solid_cases[c].opacity;
+            wn_core_build_display_list(core);
+            if (!solid_cases[c].painted) {
+                ok = list->vertex_count == SOLID_VERTS - 6 &&
+                     memcmp(list->vertices, identity.solids + 6,
+                            (size_t)6 * sizeof(wn_vertex)) == 0;
+            } else {
+                ok = list->vertex_count == SOLID_VERTS;
+                for (i = 0; ok && i < 6; ++i) {
+                    ok = list->vertices[i].a == (uint8_t)solid_cases[c].alpha &&
+                         list->vertices[i].r == 0x11 &&
+                         list->vertices[i].g == 0x22 &&
+                         list->vertices[i].b == 0x33;
+                }
+                for (i = 6; ok && i < SOLID_VERTS; ++i) {
+                    ok = list->vertices[i].a == 255;
+                }
+            }
+            check(solid_cases[c].label, ok);
+            reset_items(core);
         }
-        for (i = 6; ok && i < SOLID_VERTS; ++i) {
-            ok = list->vertices[i].a == 255;
-        }
-        check("opacity 0.5 halves solid alpha only", ok);
-        reset_items(core);
     }
     {
-        int index = item_index_for_node(core, 3);
-        int ok = 1;
-        core->paint_items[index].opacity = 0.5f;
-        wn_core_build_display_list(core);
-        for (i = 0; ok && i < GLYPH_VERTS; ++i) {
-            ok = list->glyph_vertices[i].a == 128 &&
-                 list->glyph_vertices[i].r == 0xFF &&
-                 list->glyph_vertices[i].g == 0x80 &&
-                 list->glyph_vertices[i].b == 0x40;
+        static const struct {
+            float opacity;
+            int alpha;
+            int painted;
+            const char *label;
+        } glyph_cases[] = {
+            { 0.0f, 0, 0, "glyph opacity 0 drops the text vertices" },
+            { 1.0f, 255, 1, "glyph opacity 1 keeps alpha 255" },
+            { 2.0f, 255, 1, "glyph opacity >1 clamps to 255" },
+            { -0.5f, 0, 0, "glyph negative opacity drops the vertices" },
+            { 0.5f, 128, 1, "glyph opacity 0.5 rounds to 128" },
+        };
+        int c;
+        for (c = 0; c < (int)(sizeof(glyph_cases) / sizeof(glyph_cases[0])); ++c) {
+            int index = item_index_for_node(core, 3);
+            int ok = 1;
+            core->paint_items[index].opacity = glyph_cases[c].opacity;
+            wn_core_build_display_list(core);
+            if (!glyph_cases[c].painted) {
+                ok = list->glyph_vertex_count == 0;
+            } else {
+                ok = list->glyph_vertex_count == GLYPH_VERTS;
+                for (i = 0; ok && i < GLYPH_VERTS; ++i) {
+                    ok = list->glyph_vertices[i].a ==
+                             (uint8_t)glyph_cases[c].alpha &&
+                         list->glyph_vertices[i].r == 0xFF &&
+                         list->glyph_vertices[i].g == 0x80 &&
+                         list->glyph_vertices[i].b == 0x40;
+                }
+            }
+            check(glyph_cases[c].label, ok);
+            reset_items(core);
         }
-        check("opacity 0.5 halves glyph alpha", ok);
-        reset_items(core);
     }
     {
         int index = item_index_for_node(core, 4);
@@ -351,22 +499,28 @@ int main(void)
 
     /* ------------------------------------------------------ 5. layers */
     {
-        int ok = 1;
-        core->paint_items[item_index_for_node(core, 1)].layer = 2;
-        core->paint_items[item_index_for_node(core, 2)].layer = 1;
-        wn_core_sort_paint_items(core);
-        check("stable sort moves the higher layer later",
-              core->paint_item_count == ITEM_COUNT &&
-                  core->paint_items[0].node == 0 &&
-                  core->paint_items[1].node == 3 &&
-                  core->paint_items[2].node == 4 &&
-                  core->paint_items[3].node == 2 &&
-                  core->paint_items[4].node == 1);
-        wn_core_sort_paint_items(core);
-        for (i = 0; ok && i < ITEM_COUNT; ++i) {
-            ok = core->paint_items[i].node == (i == 0 ? 0 : i == 1 ? 3 : i == 2 ? 4 : i == 3 ? 2 : 1);
-        }
-        check("sorting again is a no-op (tie stability)", ok);
+        int copies;
+        int ok;
+        /* DFS [0,1,2,3,4] with layers [0,2,1,2,0]. Stable ascending result:
+         * layer 0 keeps 0 then 4; layer 1 is 2; layer 2 keeps 1 then 3. */
+        core->paint_items[0].layer = 0;
+        core->paint_items[1].layer = 2;
+        core->paint_items[2].layer = 1;
+        core->paint_items[3].layer = 2;
+        core->paint_items[4].layer = 0;
+        copies = wn_core_sort_paint_items(core);
+        ok = core->paint_item_count == ITEM_COUNT &&
+             core->paint_items[0].node == 0 &&
+             core->paint_items[1].node == 4 &&
+             core->paint_items[2].node == 2 &&
+             core->paint_items[3].node == 1 &&
+             core->paint_items[4].node == 3;
+        check("distinct layers sort stably (ties keep DFS order)",
+              ok && copies > 0 && core->paint_items[0].layer == 0 &&
+                  core->paint_items[1].layer == 0 &&
+                  core->paint_items[2].layer == 1 &&
+                  core->paint_items[3].layer == 2 &&
+                  core->paint_items[4].layer == 2);
 
         wn_core_build_display_list(core);
         ok = list->vertex_count == SOLID_VERTS;
@@ -380,6 +534,22 @@ int main(void)
         }
         check("solid batch follows the sorted layer order", ok);
         reset_items(core);
+    }
+    {
+        WnPaintItem before[ITEM_COUNT];
+        int copies;
+        int ok;
+        memset(before, 0, sizeof(before));
+        memcpy(before, core->paint_items, sizeof(before));
+        copies = wn_core_sort_paint_items(core);
+        ok = copies == 0 &&
+             memcmp(before, core->paint_items, sizeof(before)) == 0;
+        for (i = 0; ok && i < ITEM_COUNT; ++i) {
+            ok = core->paint_items[i].node == i && core->paint_items[i].layer == 0;
+        }
+        check("all-equal layers take the no-copy fast path (0 moves)", ok);
+        check("all-equal sort keeps the exact DFS item bytes",
+              memcmp(before, core->paint_items, sizeof(before)) == 0);
     }
 
     /* ----------------------------------------------------- 6. culling */
@@ -412,7 +582,58 @@ int main(void)
         reset_items(core);
     }
 
-    /* -------------------------------------- 7. visibility rebuilds items */
+    /* ----------------------------- 6b. culling build decision (.wnui fixture) */
+    {
+        unsigned char *data;
+        size_t size = 0;
+        wn_document *document = NULL;
+        wn_core *cull = NULL;
+        const wn_display_list *cull_list;
+        int child_item;
+        int ok;
+
+        data = build_cull_blob(&size);
+        if (data != NULL) {
+            document = wn_document_load_blob_memory(data, size);
+        }
+        check("culling fixture blob built and loaded",
+              data != NULL && document != NULL);
+        if (document != NULL) {
+            cull = wn_core_create(document);
+        }
+        if (!check("culling fixture core is created", cull != NULL)) {
+            printf("paint_list_test: FAIL (%d checks, %d failed)\n", checks, failures);
+            return 1;
+        }
+        wn_core_resize(cull, (int)CULL_VIEW_W, (int)CULL_VIEW_H);
+        cull_list = wn_core_display_list(cull);
+
+        check("fixture child sits fully below the viewport",
+              cull->rects[1].y >= CULL_VIEW_H);
+        child_item = item_index_for_node(cull, 1);
+        check("build keeps the offscreen shadow caster in paint_items",
+              child_item >= 0 &&
+                  !rect_is_empty(cull->paint_items[child_item].clip));
+        check("the culling helper would drop that item",
+              child_item >= 0 &&
+                  wn_paint_item_visible(cull, &cull->paint_items[child_item]) == 0);
+
+        check("the shadow still contributes its vertices",
+              cull_list->vertex_count == SHADOW_VERTS);
+        ok = cull_list->vertex_count == SHADOW_VERTS;
+        for (i = 0; ok && i < SHADOW_VERTS; ++i) {
+            /* NDC y maps back to pixels; the shadow rect is 80..110. */
+            float py = view_y(cull_list, cull_list->vertices[i].y);
+            ok = py > 0.0f && py < CULL_VIEW_H;
+        }
+        check("the shadow vertices land inside the viewport", ok);
+
+        wn_core_destroy(cull);
+        wn_document_destroy(document);
+        free(data);
+    }
+
+    /* -------------------------------------- 8. visibility rebuilds items */
     {
         int ok;
         wn_core_set_visible(core, 2, 0);

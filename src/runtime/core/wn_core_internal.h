@@ -225,13 +225,14 @@ void build_input_text_geometry(wn_core *c, float viewport_w, float viewport_h);
 void build_input_decorations(wn_core *c);
 
 /* Paint list maintenance (layout.c). The item build walks the same visible
- * subtrees as the old DFS order and skips empty clips; the sort is stable. */
-void wn_core_sort_paint_items(wn_core *c);
+ * subtrees as the old DFS order and skips empty clips. The sort is a stable
+ * merge sort; it returns the number of element copies (0 when all layers are
+ * equal, the production fast path) so tests can assert the no-copy path. */
+int wn_core_sort_paint_items(wn_core *c);
 /* Culling helper: transformed node AABB vs the viewport plus a non-empty clip.
- * Tested but not wired into the item build yet: the empty-clip rule already
- * drops viewport-empty clips, and the residual "clipped by viewport but box
- * offscreen" nodes can still cast a shadow into the viewport, so enabling it
- * is not provably pixel-identical. See WN_PAINT_CULL_ITEMS in layout.c. */
+ * Computed and tested, never applied by the item build: a box outside the
+ * viewport can still cast a box-shadow into it, so dropping the item is not
+ * pixel-safe until shadows join the visibility test. */
 int wn_paint_item_visible(const wn_core *c, const WnPaintItem *item);
 /* Publishes the item whose transform/opacity the push_* helpers apply. NULL
  * restores the identity/opaque fast path. */

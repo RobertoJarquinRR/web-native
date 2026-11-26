@@ -8,6 +8,7 @@
  */
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "kind_ops.h"
 #include "wn_core_internal.h"
@@ -883,15 +884,6 @@ static void compute_clips(wn_core *c, int node, wn_rect clip)
 
 /* -------------------------------------------------------------- paint list */
 
-/* Culling switch. Off: every item has a non-empty clip, so the viewport half of
- * wn_paint_item_visible() is already implied by the build rule; the only extra
- * nodes it would drop are boxes entirely outside the viewport that keep a
- * non-empty clip through an overflow:visible ancestor. Those can still paint a
- * box-shadow into the viewport, so dropping them is not provably pixel-safe
- * with the current shadow model. The helper and its tests land now; the
- * feature lane can enable this once shadows are part of the visibility test. */
-#define WN_PAINT_CULL_ITEMS 0
-
 static void append_paint_item(wn_core *c, int node)
 {
     WnPaintItem *item;
@@ -904,10 +896,26 @@ static void append_paint_item(wn_core *c, int node)
     };
 }
 
-/* Items are visible nodes with a non-empty clip, in DFS order. Descendants of
- * an empty-clip node also have an empty clip (clips only shrink), so the walk
- * can stop there without changing the paint set; invisible subtrees are
- * skipped whole, exactly like the old paint_order build. */
+/* Items are visible nodes with a non-empty inherited clip, in DFS order. The
+ * clip is the intersection of the viewport with the ancestor content boxes
+ * (compute_clips starts at the viewport), so it says nothing about the node's
+ * own box: a node whose box is entirely outside the viewport still has a
+ * non-empty clip through an overflow:visible ancestor. Descendants of an
+ * empty-clip node also have an empty clip (clips only shrink), so the walk can
+ * stop there without changing the paint set; invisible subtrees are skipped
+ * whole, exactly like the old paint_order build.
+ *
+ * wn_paint_item_visible() computes the second test (item AABB vs viewport),
+ * but the build intentionally does not apply it. A box fully below the
+ * viewport can still cast its box-shadow into the viewport, and shadows are
+ * not part of the visibility test yet. Culling is computed and tested, never
+ * applied; paint_list_test locks the offscreen-shadow-caster case.
+ *
+ * Cost note (measured on the paint-list refactor, Release/D3D11): canonical
+ * page +0.4 % versus the old paint_order walk; a 1201-node synthetic page +7 %
+ * layout and +10 % build, still inside the absolute budgets. The AoS stride of
+ * 52 B per item (node, clip, layer, opacity, transform) is the tradeoff that
+ * keeps one ordered array instead of parallel arrays. */
 static void build_paint_items(wn_core *c, int node)
 {
     int child;
@@ -917,36 +925,89 @@ static void build_paint_items(wn_core *c, int node)
     if (rect_is_empty(c->clips[node])) {
         return;
     }
-    /* Culling stays off (WN_PAINT_CULL_ITEMS documents why); the helper is
-     * asserted by paint_list_test instead of dropping items here. */
     append_paint_item(c, node);
     for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
         build_paint_items(c, child);
     }
 }
 
-/* Stable insertion sort by layer. With every layer equal (today) the inner
- * loop never runs, so this is a single O(n) scan and the order is untouched.
- * Equal layers keep their DFS order (tie = original order). */
-void wn_core_sort_paint_items(wn_core *c)
+/* Stable bottom-up merge sort by layer. Every layer is 0 in production, so the
+ * first scan returns before any allocation or element copy (O(n), order
+ * untouched, 0 moves). A distinct-layer list pays one malloc plus O(n log n)
+ * merge passes. Ties take the left run, preserving the DFS order of equal
+ * layers. Returns the number of element copies performed (0 on the all-equal
+ * fast path) so the test can prove the fast path; layout ignores the result. */
+int wn_core_sort_paint_items(wn_core *c)
 {
-    int i;
-    if (c == NULL) {
-        return;
+    int n, i, width, copies = 0;
+    WnPaintItem *src, *dst, *tmp;
+
+    if (c == NULL || c->paint_item_count < 2) {
+        return 0;
     }
-    for (i = 1; i < c->paint_item_count; ++i) {
-        WnPaintItem item;
-        int j = i - 1;
-        if (c->paint_items[j].layer <= c->paint_items[i].layer) {
-            continue; /* already in order: no copy on the all-equal path */
+    n = c->paint_item_count;
+    for (i = 1; i < n; ++i) {
+        if (c->paint_items[i].layer != c->paint_items[0].layer) {
+            break;
         }
-        item = c->paint_items[i];
-        while (j >= 0 && c->paint_items[j].layer > item.layer) {
-            c->paint_items[j + 1] = c->paint_items[j];
-            --j;
-        }
-        c->paint_items[j + 1] = item;
     }
+    if (i == n) {
+        return 0; /* all-equal fast path: O(n) scan, no allocation, no copies */
+    }
+
+    tmp = (WnPaintItem *)malloc((size_t)n * sizeof(*tmp));
+    if (tmp == NULL) {
+        /* Out of memory: stable insertion sort keeps the contract. */
+        for (i = 1; i < n; ++i) {
+            WnPaintItem item = c->paint_items[i];
+            int j = i - 1;
+            while (j >= 0 && c->paint_items[j].layer > item.layer) {
+                c->paint_items[j + 1] = c->paint_items[j];
+                --j;
+                ++copies;
+            }
+            if (j + 1 != i) {
+                c->paint_items[j + 1] = item;
+                ++copies;
+            }
+        }
+        return copies;
+    }
+
+    src = c->paint_items;
+    dst = tmp;
+    for (width = 1; width < n; width *= 2) {
+        int left;
+        for (left = 0; left < n; left += width * 2) {
+            int mid = left + width < n ? left + width : n;
+            int right = left + width * 2 < n ? left + width * 2 : n;
+            int a = left, b = mid, k = left;
+            while (a < mid && b < right) {
+                if (src[a].layer <= src[b].layer) {
+                    dst[k++] = src[a++]; /* ties keep the left (DFS) run */
+                } else {
+                    dst[k++] = src[b++];
+                }
+            }
+            while (a < mid) {
+                dst[k++] = src[a++];
+            }
+            while (b < right) {
+                dst[k++] = src[b++];
+            }
+            copies += right - left;
+        }
+        {
+            WnPaintItem *swap = src;
+            src = dst;
+            dst = swap;
+        }
+    }
+    if (src != c->paint_items) {
+        memcpy(c->paint_items, src, (size_t)n * sizeof(*src));
+    }
+    free(tmp);
+    return copies;
 }
 
 static int transform_is_identity(const wn_transform *t)
