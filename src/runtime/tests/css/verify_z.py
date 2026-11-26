@@ -2,15 +2,17 @@
 """Pixel + layout acceptance for blob v5 `z-index` / stacking contexts.
 
 The fixture is a real HTML/CSS page compiled by `frontend-rust --emit-blob`.
-Eight isolated regions exercise the CSS stacking order implemented by the
+Eleven isolated regions exercise the CSS stacking order implemented by the
 runtime:
 
   * positioned siblings z 1/2 and the same pair in swapped DOM order;
-  * z auto (in flow) against an explicit z 0 context;
+  * positioned z 0 before positioned z auto (CSS step 8, tree order);
   * a negative context painting behind in-flow content;
   * a z 100 child that cannot escape a z 1 parent (root z 2 wins);
   * opacity + z (the group allocates a texture, the z box only ordering);
-  * nested contexts; z on a relative node; z on a static node (ignored).
+  * nested contexts; z on a relative node; z on a static node (ignored);
+  * equal-z siblings, where tree order breaks the tie;
+  * a group clipped to nothing whose absolute escapes with the region clip.
 
 Colors are analytic and probes are axis-aligned interior pixels, so the same
 script runs against D3D11 and wgpu.
@@ -94,6 +96,13 @@ EXPECTED_RECTS = {
     "rel-z": (155, 300, 50, 80),
     "static-z": (280, 310, 70, 70),
     "abs-over": (310, 310, 70, 70),
+    "step8-red": (20, 440, 70, 70),
+    "step8-blue": (40, 440, 70, 70),
+    "tie-a": (155, 440, 70, 70),
+    "tie-b": (185, 440, 70, 70),
+    "f1-clip": (270, 430, 100, 0),
+    "f1-group": (270, 430, 100, 60),
+    "f1-escape": (280, 450, 40, 40),
 }
 
 EXPECTED_Z = {
@@ -113,6 +122,11 @@ EXPECTED_Z = {
     "rel-z": 1,
     "static-z": 5,
     "abs-over": 2,
+    "step8-red": 0,
+    "step8-blue": "auto",
+    "tie-a": 1,
+    "tie-b": 1,
+    "f1-escape": "auto",
 }
 
 PROBES = (
@@ -155,6 +169,18 @@ PROBES = (
     # Row 3c: static z is ignored.
     ("static", "static box only", 290, 340, GREEN, 0),
     ("static", "z 2 absolute over the static z 5", 330, 340, RED, 0),
+    # Row 4a: positioned z 0 before positioned z auto (CSS step 8).
+    ("step8", "z 0 only", 25, 475, RED, 0),
+    ("step8", "later z auto over the z 0", 60, 475, BLUE, 0),
+    ("step8", "z auto only", 105, 475, BLUE, 0),
+    # Row 4b: equal z, tree order decides.
+    ("same-z", "first equal-z box only", 160, 475, GREEN, 0),
+    ("same-z", "later equal-z box over the first", 200, 475, RED, 0),
+    ("same-z", "later equal-z box only", 240, 475, RED, 0),
+    # Row 4c: empty-clip group does not swallow its escaping absolute.
+    ("empty-clip", "escaping absolute paints", 285, 455, BLUE, 0),
+    ("empty-clip", "clipped group background is not painted", 275, 435, PAGE_BG, 0),
+    ("empty-clip", "group area beside the absolute stays page", 350, 470, PAGE_BG, 0),
 )
 
 
@@ -218,15 +244,15 @@ def main() -> int:
     ok = dump_checks(Path(args.dump), Path(args.blob))
     report = json.loads(Path(args.report).read_text(encoding="utf-8"))
     sizes = {f"{item['width']}x{item['height']}": item for item in report["sizes"]}
-    ok = check("report", "400x420 layout present", "400x420" in sizes,
+    ok = check("report", "400x550 layout present", "400x550" in sizes,
                f"sizes={sorted(sizes)}") and ok
-    if "400x420" in sizes:
-        ok = layout_checks(sizes["400x420"]["nodes"]) and ok
+    if "400x550" in sizes:
+        ok = layout_checks(sizes["400x550"]["nodes"]) and ok
 
     img = Image.open(args.png).convert("RGB")
-    ok = check(f"raster/{args.backend}", "PNG size", img.size == (400, 420),
+    ok = check(f"raster/{args.backend}", "PNG size", img.size == (400, 550),
                f"{img.size}") and ok
-    if img.size == (400, 420):
+    if img.size == (400, 550):
         ok = color_checks(img, args.backend) and ok
 
     failed = [item for item in CHECKS if not item["ok"]]

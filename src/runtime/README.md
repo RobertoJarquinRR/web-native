@@ -94,11 +94,12 @@ selección/caret de un input, texto o imagen sobre fondo).
   `W × H × 4` bytes. Los targets se reservan por profundidad, se reutilizan
   entre frames y el pico es `profundidad × W × H × 4` (más la surface). El
   clip del grupo recorta al componer, no reduce la textura.
-- **Orden:** sin grupos ni contextos z se mantiene el orden plano histórico por
-  categorías (todos los sólidos, luego imágenes, luego glifos). Con al menos un
-  grupo o un contexto `z-index`, el replay de comandos dibuja por item
-  (sólido/decoración/imagen/texto) en el orden de stacking para contener el
-  subárbol completo en cada capa; es el orden más cercano a CSS.
+- **Orden:** sin grupos, contextos z ni posicionamiento se mantiene el orden
+  plano histórico por categorías (todos los sólidos, luego imágenes, luego
+  glifos). Con al menos un grupo, un contexto `z-index` o un nodo posicionado,
+  el replay de comandos dibuja por item (sólido/decoración/imagen/texto) en el
+  orden de stacking para contener el subárbol completo en cada capa; es el
+  orden más cercano a CSS. Un grupo con clip vacío no reserva textura.
 - **Límites:** `WN_MAX_PAINT_LAYER_DEPTH` (512, igual que la profundidad del
   documento) y `WN_MAX_PAINT_LAYERS` (65536). El pool wgpu/D3D11 se indexa por
   profundidad, no por cantidad de grupos hermanos.
@@ -123,13 +124,18 @@ resultantes; el clip del absoluto es el de los hijos de su containing block
 Un contexto lo crea la raíz, un nodo con `opacity < 1` o un nodo posicionado
 con `z-index != auto`. Dentro de cada contexto se pinta: su propio ítem,
 contextos hijos con `z < 0` (ascendente), contenido en flujo en orden de árbol
-(incluye posicionados con `z: auto`), contextos con `z == 0`/`auto` en orden de
-árbol y contextos con `z > 0` (ascendente). El bloque de un contexto es
-contiguo: sus descendientes no escapan del padre. `z-index` en un nodo `static`
-se ignora (sin ítems flex/grid). Un contexto z-only no reserva textura: la capa
-solo existe para ordenar y el renderer la reproduce inline (`needs_texture=0`);
-un grupo de opacidad sí reserva target y compone. El hit-test recorre los
-ítems al revés, así que gana el z más alto.
+(ítems y grupos de opacidad **no** posicionados), posicionados con `z == auto`/`0`
+en orden de árbol (paso 8 de CSS, por encima del flujo: ítems `z: auto`,
+contextos `z: 0` y grupos posicionados) y contextos con `z > 0` (ascendente). El
+bloque de un contexto es contiguo: sus descendientes no escapan del padre.
+`z-index` en un nodo `static` se ignora (sin ítems flex/grid); un posicionado
+con `z: auto` se emite como bloque atómico del paso 8 (sus posicionados no se
+unen al contexto abuelo, simplificación documentada). Un contexto z-only no
+reserva textura: la capa solo existe para ordenar y el renderer la reproduce
+inline (`needs_texture=0`); un grupo de opacidad sí reserva target y compone.
+Un grupo recortado a nada no reserva textura, y un absoluto que escapa conserva
+su clip no vacío (sin atenuarse por ese grupo: limitación conocida). El
+hit-test recorre los ítems al revés, así que gana el z más alto.
 
 El texto no está horneado. El nodo lleva cadena, familia, tamaño, peso y
 `line-height`; DirectWrite mide y shapea, y `text_atlas` cachea glifos y runs.

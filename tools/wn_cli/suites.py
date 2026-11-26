@@ -73,9 +73,9 @@ PINNED_BLOBS = {
     "opacity": "2e8cf1307329d8041fa992ad1e56dd11553a566cd1204d8e53b4250856ad850e",
     "opacity_deep": "01375814b629e6a5dd449e6a39194142ea94d35581073099bd1ac75ba4cd9a5c",
     # Position fixture (relative/absolute boxes, verified on d3d11 + wgpu).
-    "position": "baa44c7752d87d201320a1a0c9eb41df6f3a682d6c7550bc441a814caaca1127",
+    "position": "0d87b7001091c0b0289cb00307f2e33eae8fe4daa6fe35d94a38185636da39a4",
     # z-index / stacking-context fixture (blob v5, d3d11 + wgpu).
-    "z": "71a5b4ba4b545869a6b013328c703c86ed5e5333116ebe2fac9f18ad5f8e1c76",
+    "z": "a61b3ba6595d1269eea206c692db4b3bc5be81aba78bf96d465eb3ab232c93d0",
 }
 
 
@@ -467,7 +467,7 @@ def run_css() -> int:
 
     log_step("z-index: stacking-context pixel fixture (d3d11" +
              (" + wgpu)" if wgpu_available() else ")"))
-    z_blob = _emit_css_fixture("z", page, 400, 420, out / "emit" / "z")
+    z_blob = _emit_css_fixture("z", page, 400, 550, out / "emit" / "z")
     _assert_pinned_blob("z", z_blob)
     z_backends = ["d3d11"] + (["wgpu"] if wgpu_available() else [])
     for z_backend in z_backends:
@@ -475,21 +475,22 @@ def run_css() -> int:
         report = out / f"layout_z_{z_backend}.json"
         environment = {"WN_RENDERER": z_backend}
         _run(card_exe, ["--document", str(z_blob),
-                        "--report", str(report), "--sizes", "400x420"],
+                        "--report", str(report), "--sizes", "400x550"],
              page, environment)
         _run(card_exe, ["--document", str(z_blob),
-                        "--render", "400", "420", str(png)],
+                        "--render", "400", "550", str(png)],
              page, environment)
-        # 68 checks: format wnui/5, sixteen z-index dump values, the layout
-        # report, twenty exact rects, the PNG size and twenty-nine analytic
-        # color probes (siblings, swapped order, auto/0, negative, trapped
-        # child, opacity+z, nested, relative and ignored static z).
+        # 89 checks: format wnui/5, twenty-one z-index dump values, the layout
+        # report, twenty-seven exact rects, the PNG size and thirty-eight
+        # analytic color probes (siblings, swapped order, auto/0, step 8,
+        # equal z, negative, trapped child, opacity+z, nested, relative,
+        # ignored static z and the empty-clip escaping absolute).
         _expect_reported_checks(
             _python(suite / "verify_z.py",
                     ["--png", str(png), "--report", str(report),
                      "--blob", str(z_blob), "--dump", str(dump_exe),
                      "--backend", z_backend], cwd=suite),
-            f"z verify ({z_backend})", 68)
+            f"z verify ({z_backend})", 89)
     if wgpu_available():
         log_step("z-index: compare d3d11 and wgpu")
         compare = out / "z_compare.json"
@@ -647,12 +648,14 @@ def run_fidelity() -> int:
     )
     zindex_text = _run(zindex_exe, [], out)
     _expect(zindex_text, ["zindex_test: PASS"], "z-index stacking test")
-    # 39 checks: positioned sibling z 1/2 and swapped, z auto/0 in both tree
-    # orders, negative z behind in-flow, a high-z child trapped by a low-z
-    # parent, opacity+z texture-vs-ordering layers, nested contexts, z on a
-    # relative node, static z ignored, the flat no-context path, and the v5
-    # loader sentinel/range roundtrip.
-    _expect_checks(zindex_text, "zindex_test", 39)
+    # 55 checks: positioned sibling z 1/2 and swapped, positioned z auto/0 in
+    # both tree orders (step 8), negative z behind in-flow, a high-z child
+    # trapped by a low-z parent, opacity+z texture-vs-ordering layers, nested
+    # contexts, the equal-z tree-order tie-break (including reversed DOM), a
+    # first-in-DOM relative z over a later in-flow sibling, static z ignored,
+    # the empty-clip group with and without an unrelated group, the flat
+    # no-context path, and the v5 loader sentinel/range roundtrip.
+    _expect_checks(zindex_text, "zindex_test", 55)
 
     log_step("fidelity: paint item list (identity, transform, opacity, layers)")
     paint_exe = out / "paint_list_test.exe"

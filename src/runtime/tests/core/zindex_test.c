@@ -4,16 +4,21 @@
  * Blobs are built in memory (no HTML/CSS, no GPU) so every case is exact:
  *
  *   siblings   - positioned siblings with z 1/2 and the swapped order.
- *   auto/zero  - z auto stays in flow; z 0 is a context in step 4.
+ *   auto/zero  - positioned z auto and z 0 are both step 8, tree order.
  *   negative   - a negative context paints behind the context's in-flow
  *                content.
  *   escape     - a high z inside a low-z parent context cannot escape it.
  *   opacity+z  - a group context with an explicit z orders as a group and
  *                allocates a texture; a z-only context does not.
  *   nested     - nested contexts compose and the parent block stays contiguous.
- *   relative   - z-index on a relative node is a context.
+ *   same z     - equal-z siblings keep tree order, including reversed DOM.
+ *   relative   - a first-in-DOM relative z node paints above a later in-flow
+ *                sibling that overlaps it.
  *   static     - z-index on a static (non flex/grid) node is ignored, as CSS.
- *   flat       - a page with no opacity/z keeps the historical flat path.
+ *   empty clip - a group clipped to nothing allocates no texture, so an
+ *                escaping absolute keeps painting (with and without an
+ *                unrelated group on the page).
+ *   flat       - a page with no opacity/z/positioning keeps the flat path.
  *   loader     - the v5 sentinel and explicit int32 values survive.
  *
  *   zindex_test.exe
@@ -51,6 +56,7 @@ typedef struct {
     float inset[4];     /* top,right,bottom,left */
     unsigned int inset_mask;
     int z_index;
+    int overflow;
     float opacity;
 } NodeSpec;
 
@@ -112,6 +118,7 @@ static unsigned char *build_blob(const NodeSpec *spec, uint32_t count,
         memcpy(nodes[i].inset, spec[i].inset, sizeof(nodes[i].inset));
         nodes[i].inset_mask = spec[i].inset_mask;
         nodes[i].z_index = spec[i].z_index;
+        nodes[i].overflow = spec[i].overflow;
         nodes[i].font_size = 16.0f;
         nodes[i].flex_shrink = 1.0f;
         nodes[i].flex_basis = -1.0f;
@@ -278,9 +285,9 @@ static void run_auto_zero(void)
     wn_document *document = NULL;
     wn_core *core;
     static const int auto_then_zero[] = { 0, 1, 2 };
-    static const int zero_then_auto[] = { 0, 2, 1 };
 
-    /* auto first, zero second. */
+    /* auto first, zero second: both are positioned, so both are step 8 blocks
+     * and tree order decides. */
     spec_init(&spec[0], -1, 400.0f, 200.0f);
     spec_init(&spec[1], 0, 100.0f, 100.0f);
     spec_init(&spec[2], 0, 100.0f, 100.0f);
@@ -295,14 +302,15 @@ static void run_auto_zero(void)
         return;
     }
     nodes_order(core, auto_then_zero, 3,
-                "auto/zero: auto in flow, then the z 0 context");
-    check("auto/zero: z 0 is above z auto",
+                "auto/zero: z auto then z 0 in tree order");
+    check("auto/zero: the later z 0 is above z auto",
           wn_core_node_at(core, 50.0f, 50.0f) == 2, "node_at(50,50)");
     wn_core_destroy(core);
     wn_document_destroy(document);
 
-    /* zero first in the DOM, auto second: simplified step 4 still puts the
-     * z 0 context after all in-flow (z auto) content. */
+    /* zero first in the DOM, auto second: CSS step 8 paints both in tree
+     * order, so the later positioned z auto box wins. This is the regression
+     * for the old behaviour that put z auto in the in-flow phase. */
     spec[1].z_index = 0;
     spec[2].z_index = R2_Z_INDEX_AUTO;
     document = NULL;
@@ -311,10 +319,10 @@ static void run_auto_zero(void)
                core != NULL ? NULL : wn_last_error())) {
         return;
     }
-    nodes_order(core, zero_then_auto, 3,
-                "auto/zero: z 0 (step 4) stays after in-flow z auto (step 3)");
-    check("auto/zero swapped: z 0 still above z auto",
-          wn_core_node_at(core, 50.0f, 50.0f) == 1, "node_at(50,50)");
+    nodes_order(core, auto_then_zero, 3,
+                "auto/zero swapped: z 0 then z auto in tree order");
+    check("auto/zero swapped: the later z auto is above z 0",
+          wn_core_node_at(core, 50.0f, 50.0f) == 2, "node_at(50,50)");
     wn_core_destroy(core);
     wn_document_destroy(document);
 }
@@ -454,17 +462,19 @@ static void run_relative_and_static(void)
     NodeSpec spec[3];
     wn_document *document = NULL;
     wn_core *core;
-    static const int relative_order[] = { 0, 1, 2 };
+    static const int relative_order[] = { 0, 2, 1 };
     static const int static_order[] = { 0, 1, 2 };
 
-    /* Relative z 1 over an in-flow static box. */
+    /* The relative z 1 box comes first in the DOM and its offset makes it
+     * overlap the later static sibling. Step 3 paints the static sibling,
+     * step 4 paints the positioned box above it. */
     spec_init(&spec[0], -1, 400.0f, 200.0f);
     spec_init(&spec[1], 0, 100.0f, 100.0f);
     spec_init(&spec[2], 0, 100.0f, 100.0f);
-    spec[2].position = R2_POSITION_RELATIVE;
-    spec[2].inset[0] = -80.0f;   /* top: -80px -> overlaps the first box */
-    spec[2].inset_mask = 0b0001u;
-    spec[2].z_index = 1;
+    spec[1].position = R2_POSITION_RELATIVE;
+    spec[1].inset[0] = 60.0f;    /* top: 60px -> overlaps the later box */
+    spec[1].inset_mask = 0b0001u;
+    spec[1].z_index = 1;
 
     core = build_core(spec, 3u, &document);
     if (!check("relative: core built", core != NULL,
@@ -472,9 +482,9 @@ static void run_relative_and_static(void)
         return;
     }
     nodes_order(core, relative_order, 3,
-                "relative: z 1 context paints after the in-flow box");
-    check("relative: the relative z box wins the hit",
-          wn_core_node_at(core, 50.0f, 50.0f) == 2, "node_at(50,50)");
+                "relative: first-in-DOM z 1 paints after the later static box");
+    check("relative: the relative z box wins the hit over the later box",
+          wn_core_node_at(core, 50.0f, 120.0f) == 1, "node_at(50,120)");
     wn_core_destroy(core);
     wn_document_destroy(document);
 
@@ -499,6 +509,125 @@ static void run_relative_and_static(void)
     wn_document_destroy(document);
 }
 
+static void run_same_z(void)
+{
+    NodeSpec spec[3];
+    wn_document *document = NULL;
+    wn_core *core;
+    static const int expected[] = { 0, 1, 2 };
+
+    /* Two siblings with the same z: the comparator's explicit tree-order
+     * tie-break decides. Left box first in the DOM. */
+    spec_init(&spec[0], -1, 400.0f, 200.0f);
+    spec_init(&spec[1], 0, 100.0f, 100.0f);
+    spec_init(&spec[2], 0, 100.0f, 100.0f);
+    set_absolute(&spec[1], 0.0f, 0.0f, 100.0f, 100.0f);
+    set_absolute(&spec[2], 30.0f, 0.0f, 100.0f, 100.0f);
+    spec[1].z_index = 1;
+    spec[2].z_index = 1;
+
+    core = build_core(spec, 3u, &document);
+    if (!check("same z: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        return;
+    }
+    nodes_order(core, expected, 3, "same z: left then right in tree order");
+    check("same z: the later sibling wins the overlap",
+          wn_core_node_at(core, 50.0f, 50.0f) == 2, "node_at(50,50)");
+    check("same z: the earlier sibling still owns its own area",
+          wn_core_node_at(core, 10.0f, 50.0f) == 1, "node_at(10,50)");
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+
+    /* Reversed DOM order with the same z: the right box is first, so the left
+     * box is the later sibling and paints on top. */
+    set_absolute(&spec[1], 30.0f, 0.0f, 100.0f, 100.0f);
+    set_absolute(&spec[2], 0.0f, 0.0f, 100.0f, 100.0f);
+    document = NULL;
+    core = build_core(spec, 3u, &document);
+    if (!check("same z reversed: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        return;
+    }
+    nodes_order(core, expected, 3,
+                "same z reversed: right then left in tree order");
+    check("same z reversed: the later left box wins the overlap",
+          wn_core_node_at(core, 50.0f, 50.0f) == 2, "node_at(50,50)");
+    check("same z reversed: the earlier right box owns its own area",
+          wn_core_node_at(core, 115.0f, 50.0f) == 1, "node_at(115,50)");
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+}
+
+/* True when the item list carries `node` with a non-empty clip. */
+static int item_has_node(const wn_core *core, int node)
+{
+    int i;
+    for (i = 0; i < core->paint_item_count; ++i) {
+        if (core->paint_items[i].node == node &&
+            !rect_is_empty(core->paint_items[i].clip)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int texture_layer_count(const wn_core *core)
+{
+    int i;
+    int count = 0;
+    for (i = 0; i < core->paint_layer_count; ++i) {
+        if (core->paint_layers[i].needs_texture) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+/* F1: a group under a zero-height clipped ancestor has an empty clip, so it
+ * must not allocate an opacity texture. Its escaping absolute keeps its own
+ * non-empty clip and paints. The unrelated opacity div switches the page
+ * between the flat and ordered paths in the old code; both builds must paint
+ * and hit the escaping absolute. */
+static void run_empty_clip_group(int with_unrelated)
+{
+    NodeSpec spec[5];
+    wn_document *document = NULL;
+    wn_core *core;
+    uint32_t count = with_unrelated ? 5u : 4u;
+    const char *label = with_unrelated ? "empty clip + unrelated group"
+                                       : "empty clip alone";
+
+    spec_init(&spec[0], -1, 400.0f, 200.0f);
+    spec_init(&spec[1], 0, 100.0f, 0.0f);    /* clipper: height 0 */
+    spec_init(&spec[2], 1, 100.0f, 50.0f);   /* group under the clipper */
+    spec_init(&spec[3], 2, 50.0f, 50.0f);    /* escaping absolute */
+    spec_init(&spec[4], 0, 50.0f, 50.0f);    /* unrelated group */
+    spec[1].overflow = R2_OVERFLOW_HIDDEN;
+    spec[2].opacity = 0.5f;
+    set_absolute(&spec[3], 10.0f, 10.0f, 50.0f, 50.0f);
+    if (with_unrelated) {
+        set_absolute(&spec[4], 250.0f, 100.0f, 50.0f, 50.0f);
+        spec[4].opacity = 0.5f;
+    }
+
+    core = build_core(spec, count, &document);
+    if (!check("empty clip: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        return;
+    }
+    check("empty clip: the escaping absolute is in the paint list",
+          item_has_node(core, 3), label);
+    check("empty clip: the escaping absolute wins the hit",
+          wn_core_node_at(core, 20.0f, 20.0f) == 3, label);
+    check("empty clip: the empty-clip group allocates no texture",
+          texture_layer_count(core) == (with_unrelated ? 1 : 0),
+          with_unrelated ? "only the unrelated group has one"
+                         : "no texture layers");
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+}
+
 static void run_flat_path(void)
 {
     NodeSpec spec[3];
@@ -516,7 +645,8 @@ static void run_flat_path(void)
                core != NULL ? NULL : wn_last_error())) {
         return;
     }
-    nodes_order(core, expected, 3, "flat: pages without opacity/z keep DFS order");
+    nodes_order(core, expected, 3,
+                "flat: pages without opacity/z/positioning keep DFS order");
     list = wn_core_display_list(core);
     check("flat: no layers and no commands (historical path)",
           list != NULL && list->layer_count == 0 && list->command_count == 0 &&
@@ -569,7 +699,10 @@ int main(void)
     run_escape();
     run_opacity_z();
     run_nested();
+    run_same_z();
     run_relative_and_static();
+    run_empty_clip_group(0);
+    run_empty_clip_group(1);
     run_flat_path();
     run_loader();
 

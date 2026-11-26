@@ -1,15 +1,17 @@
-/* z-index fixture: 400x420. Eight isolation regions exercise the CSS
+/* z-index fixture: 400x550. Eleven isolation regions exercise the CSS
    stacking-context order: positioned siblings, swapped DOM order, z auto vs
    z 0, negative z behind in-flow content, a high-z child trapped inside a
-   lower-z parent, opacity+z, nested contexts, z on a relative node and z on a
-   static node (ignored). */
+   lower-z parent, opacity+z, nested contexts, z on a relative node, z on a
+   static node (ignored), CSS step 8 (positioned z 0 before positioned z auto),
+   the equal-z tree-order tie-break, and a group clipped to nothing whose
+   absolute escapes the clip. */
 * { box-sizing: border-box; }
 html { height: 100%; }
 body {
   margin: 0;
   padding: 0;
   width: 400px;
-  height: 420px;
+  height: 550px;
   background: #f0f0f0;
 }
 
@@ -25,6 +27,9 @@ body {
 .r1c2 { left: 270px; top: 150px; }
 .r2c1 { left: 145px; top: 290px; }
 .r2c2 { left: 270px; top: 290px; }
+.r3c0 { left: 10px;  top: 430px; }
+.r3c1 { left: 145px; top: 430px; }
+.r3c2 { left: 270px; top: 430px; }
 
 .green  { background: #22aa66; }
 .red    { background: #cc3333; }
@@ -94,3 +99,36 @@ body {
 /* Row 3c: z-index on a static node is ignored; the z 2 absolute is on top. */
 #static-z { width: 70px; height: 70px; margin-left: 10px; margin-top: 20px; z-index: 5; }
 #abs-over { position: absolute; left: 310px; top: 310px; width: 70px; height: 70px; z-index: 2; }
+
+/* Row 4a: CSS step 8. Both are positioned; the z 0 box comes first in the DOM
+   and the z auto box later, so tree order puts the z auto box on top. */
+#step8-red {
+  position: relative;
+  left: 10px;
+  top: 10px;
+  display: block;
+  width: 70px;
+  height: 70px;
+  background: #cc3333;
+  z-index: 0;
+}
+#step8-blue {
+  position: relative;
+  left: 30px;
+  top: -60px;
+  display: block;
+  width: 70px;
+  height: 70px;
+  background: #3366cc;
+}
+
+/* Row 4b: equal z. Tree order (not z) decides, so the later box is on top. */
+#tie-a { position: absolute; left: 10px; top: 10px; width: 70px; height: 70px; background: #22aa66; z-index: 1; }
+#tie-b { position: absolute; left: 40px; top: 10px; width: 70px; height: 70px; background: #cc3333; z-index: 1; }
+
+/* Row 4c: a group under a zero-height clipped ancestor has an empty clip. It
+   must not allocate an opacity texture, so its absolute (containing block is
+   the region) keeps painting with the region clip. */
+.f1-clip { height: 0; width: 100px; overflow: hidden; }
+.f1-group { width: 100px; height: 60px; background: #22aa66; opacity: 0.5; }
+.f1-escape { position: absolute; left: 10px; top: 20px; width: 40px; height: 40px; background: #3366cc; }

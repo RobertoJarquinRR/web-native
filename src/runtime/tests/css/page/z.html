@@ -54,5 +54,24 @@
   </div>
   <!-- Direct body child, z 2 above the ignored static z 5. -->
   <div id="abs-over" class="abs-over red"></div>
+
+  <!-- Row 4: CSS step 8 (positioned z 0 before positioned z auto, tree order),
+       the equal-z tree-order tie-break, and a group clipped to nothing with an
+       escaping absolute. -->
+  <div class="region r3c0">
+    <div id="step8-red" class="step8-red"></div>
+    <div id="step8-blue" class="step8-blue"></div>
+  </div>
+  <div class="region r3c1">
+    <div id="tie-a" class="tie-a"></div>
+    <div id="tie-b" class="tie-b"></div>
+  </div>
+  <div class="region r3c2">
+    <div id="f1-clip" class="f1-clip">
+      <div id="f1-group" class="f1-group">
+        <div id="f1-escape" class="f1-escape"></div>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

@@ -5,7 +5,8 @@
 //! normalizations the emitter applies when reading the pre-layout tree, so the
 //! blob is byte-for-byte identical. `detailed == false` (historical schema
 //! `/1`) implies the page carries no v2 section: the contract there is to use
-//! `gap` for `row_gap`/`column_gap`, grid at zero and `overflow` at 0.
+//! `gap` for `row_gap`/`column_gap` and grid at zero. `overflow` is v1, so it
+//! is always emitted (`hidden` adds no scroll).
 
 use std::collections::HashMap;
 use std::fs;
@@ -294,11 +295,9 @@ fn push_node_record(
     } else {
         (style.gap, style.gap)
     };
-    let overflow = if detailed {
-        overflow_code(style.overflow.as_deref())
-    } else {
-        0
-    };
+    /* `overflow` is a v1 field: `hidden` does not add scroll, so it must reach
+     * the runtime even when the rest of the historical schema is untouched. */
+    let overflow = overflow_code(style.overflow.as_deref());
     let image_src = node.image.as_ref().and_then(|image| image.src.as_deref());
     let image_alt = node.image.as_ref().and_then(|image| image.alt.as_deref());
     let (image_width, image_height) = image_size(image_src, asset_dir);

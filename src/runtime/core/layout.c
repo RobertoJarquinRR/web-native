@@ -1188,8 +1188,10 @@ static int paint_context_z(const wn_core *c, int node)
 }
 
 /* True when the page needs the ordered per-item path: any visible, non-empty
- * group or z-index context. Pages with neither keep the historical flat
- * category path byte for byte. */
+ * group, z-index context or positioned node. A positioned element with
+ * `z-index: auto` is not a context, but CSS paints it in step 8, above in-flow
+ * content, so it needs the ordered walk too. Pages without opacity, z-index or
+ * positioning keep the historical flat category path byte for byte. */
 static int paint_needs_ordering(const wn_core *c)
 {
     int i;
@@ -1198,7 +1200,8 @@ static int paint_needs_ordering(const wn_core *c)
             rect_is_empty(c->clips[i])) {
             continue;
         }
-        if (paint_group_root(c, i) || paint_z_context(c, i)) {
+        if (paint_group_root(c, i) || paint_z_context(c, i) ||
+            WN_IS_POSITIONED(&c->nodes[i])) {
             return 1;
         }
     }
@@ -1250,8 +1253,9 @@ static int paint_layer_add(wn_core *c, int parent, int node, float opacity,
     return c->paint_layer_count++;
 }
 
-/* Allocates the root layer and reports whether the page uses groups. Called
- * after layout/clips and before the item walk. */
+/* Allocates the root layer and reports whether the page needs the ordered
+ * per-item path (groups, z-index contexts or positioned nodes). Called after
+ * layout/clips and before the item walk. */
 static int paint_layers_begin(wn_core *c, wn_rect viewport)
 {
     wn_paint_layer *root;
@@ -1341,22 +1345,30 @@ static void build_paint_items_dfs(wn_core *c, int node, int layer)
 
 /* -------------------------------------------------- stacking order (v5) */
 /* CSS 2.1 Appendix E, simplified to the primitives this engine has (no floats
- * and no inline-level boxes): inside one stacking context paint
+ * and no inline-level boxes). Inside one stacking context paint
  *
  *   1. the context root's own item (background/border/content and, when the
  *      root is an opacity group, its offscreen group);
  *   2. child contexts with negative z, ascending z (tree order breaks ties);
- *   3. in-flow content in tree order. A positioned descendant whose z-index is
- *      auto is not a context, so it stays here at its tree position;
- *   4. child contexts with z 0/auto in tree order;
+ *   3. in-flow content in tree order: non-positioned items and non-positioned
+ *      contexts (a static `opacity < 1` group), painted at their tree
+ *      position;
+ *   4. positioned boxes with z 0/auto in tree order: positioned `z-index:
+ *      auto` items, positioned `z-index: 0` contexts and positioned opacity
+ *      groups. This is CSS step 8, which paints all of them together, above
+ *      the in-flow content of step 3;
  *   5. child contexts with positive z, ascending z (tree order breaks ties).
  *
- * A child context's whole block is emitted as one unit, so its descendants can
- * never escape the parent context. Nested contexts compose recursively. */
+ * A step 2/4/5 block is emitted as one unit, so its descendants can never
+ * escape the parent context. Treating a positioned `z-index: auto` box as an
+ * atomic block is the documented simplification: CSS lets its positioned
+ * descendants join the parent context instead. Nested contexts compose
+ * recursively. */
 typedef struct {
     int order;       /* pre-order index, the stable tie-breaker */
     int z;           /* effective stacking level inside the parent context */
     unsigned char is_context;
+    unsigned char is_positioned;
 } WnPaintCtxInfo;
 
 typedef struct {
@@ -1385,6 +1397,8 @@ static void paint_ctx_info_walk(wn_core *c, WnPaintCtxInfo *info, int node,
     int is_context = paint_context_root(c, node);
     info[node].order = (*order)++;
     info[node].is_context = (unsigned char)is_context;
+    info[node].is_positioned =
+        (unsigned char)WN_IS_POSITIONED(&c->nodes[node]);
     info[node].z = is_context ? paint_context_z(c, node) : 0;
     for (child = c->first_child[node]; child >= 0;
          child = c->next_sibling[child]) {
@@ -1395,11 +1409,14 @@ static void paint_ctx_info_walk(wn_core *c, WnPaintCtxInfo *info, int node,
     }
 }
 
-/* Direct child contexts of `node`: walk its descendants in tree order and
- * stop at the first context root of each branch. */
-static void paint_collect_child_contexts(wn_core *c, const WnPaintCtxInfo *info,
-                                         int node, WnPaintChild *scratch,
-                                         int *top)
+/* Blocks of `node` that are emitted by stacking level: the first positioned
+ * node or context root of each branch, in tree order. A positioned
+ * `z-index: auto` node is a block even though it is not a context (step 4).
+ * A non-positioned context (static opacity group) is not a step block: step 3
+ * emits it at its tree position, so the walk stops there without adding it. */
+static void paint_collect_step_blocks(wn_core *c, const WnPaintCtxInfo *info,
+                                      int node, WnPaintChild *scratch,
+                                      int *top)
 {
     int child;
     for (child = c->first_child[node]; child >= 0;
@@ -1408,39 +1425,63 @@ static void paint_collect_child_contexts(wn_core *c, const WnPaintCtxInfo *info,
             continue;
         }
         if (info[child].is_context) {
+            if (!info[child].is_positioned) {
+                continue; /* step 3 */
+            }
             scratch[*top].z = info[child].z;
             scratch[*top].order = info[child].order;
             scratch[*top].node = child;
             ++(*top);
+        } else if (info[child].is_positioned) {
+            scratch[*top].z = 0;
+            scratch[*top].order = info[child].order;
+            scratch[*top].node = child;
+            ++(*top);
         } else {
-            paint_collect_child_contexts(c, info, child, scratch, top);
+            paint_collect_step_blocks(c, info, child, scratch, top);
         }
     }
 }
 
-/* Step 3: every visible, non-context node in the context's subtree, in tree
- * order. Context roots are skipped here because they are emitted by their
- * stacking level (steps 2/4/5). */
+static void paint_emit_context(wn_core *c, const WnPaintCtxInfo *info, int node,
+                               int parent_layer, int is_root,
+                               WnPaintChild *scratch, int *top);
+
+/* Step 3: the in-flow content of the context in tree order. Non-positioned
+ * contexts (static opacity groups) are emitted whole at their tree position;
+ * positioned nodes are skipped because step 4 paints them above this content. */
 static void paint_emit_in_flow(wn_core *c, const WnPaintCtxInfo *info, int node,
-                               int layer)
+                               int layer, WnPaintChild *scratch, int *top)
 {
     int child;
     for (child = c->first_child[node]; child >= 0;
          child = c->next_sibling[child]) {
-        if (!c->alive[child] || !c->visible_eff[child] ||
-            info[child].is_context) {
+        if (!c->alive[child] || !c->visible_eff[child]) {
+            continue;
+        }
+        if (info[child].is_positioned) {
+            continue; /* step 4 */
+        }
+        if (info[child].is_context) {
+            paint_emit_context(c, info, child, layer, 0, scratch, top);
             continue;
         }
         if (!rect_is_empty(c->clips[child])) {
             append_paint_item(c, child, layer, paint_node_opacity(c, child));
         }
-        paint_emit_in_flow(c, info, child, layer);
+        paint_emit_in_flow(c, info, child, layer, scratch, top);
     }
 }
 
-/* Emits one stacking context: its own item and, in CSS order, its child
- * contexts and in-flow content. `is_root` keeps the root layer allocated by
- * paint_layers_begin(); every other context adds its own layer. */
+/* Emits one block: a stacking context or a positioned `z-index: auto` box. Its
+ * own item comes first, then its child blocks and in-flow content in CSS
+ * order. `is_root` keeps the root layer allocated by paint_layers_begin();
+ * every other block adds its own layer. An empty-clip group gets no layer: its
+ * own box is clipped out and an escaping absolute must keep its own non-empty
+ * clip instead of being composited through an empty layer.
+ *
+ * The deeper limitation stays documented: an escaping absolute inside an
+ * `opacity < 1` group that is entirely clipped is not faded by that group. */
 static void paint_emit_context(wn_core *c, const WnPaintCtxInfo *info, int node,
                                int parent_layer, int is_root,
                                WnPaintChild *scratch, int *top)
@@ -1448,21 +1489,24 @@ static void paint_emit_context(wn_core *c, const WnPaintCtxInfo *info, int node,
     const UiNode *n = &c->nodes[node];
     int own_layer = parent_layer;
     int group = 0;
+    int has_box = !rect_is_empty(c->clips[node]);
     int start;
     int count;
     int i;
 
     if (!is_root) {
         if (n->opacity < 1.0f) {
-            int added = paint_layer_add(c, parent_layer, node,
-                                        paint_node_opacity(c, node),
-                                        c->clips[node], 1);
-            if (added >= 0) {
-                own_layer = added;
-                group = 1;
+            if (has_box) {
+                int added = paint_layer_add(c, parent_layer, node,
+                                            paint_node_opacity(c, node),
+                                            c->clips[node], 1);
+                if (added >= 0) {
+                    own_layer = added;
+                    group = 1;
+                }
             }
-        } else {
-            /* z-index-only context: ordering, no texture. */
+        } else if (has_box) {
+            /* Ordering-only block: explicit layer, no texture. */
             int added = paint_layer_add(c, parent_layer, node, 1.0f,
                                         c->clips[node], 0);
             if (added >= 0) {
@@ -1481,14 +1525,14 @@ static void paint_emit_context(wn_core *c, const WnPaintCtxInfo *info, int node,
         }
     }
 
-    /* Step 1: the context root's own box (and its group, if it is one). */
-    if (!rect_is_empty(c->clips[node])) {
+    /* Step 1: the block's own box (and its group, if it is one). */
+    if (has_box) {
         append_paint_item(c, node, own_layer,
                           group ? 1.0f : paint_node_opacity(c, node));
     }
 
     start = *top;
-    paint_collect_child_contexts(c, info, node, scratch, top);
+    paint_collect_step_blocks(c, info, node, scratch, top);
     count = *top - start;
     qsort(&scratch[start], (size_t)count, sizeof(scratch[0]),
           paint_child_compare);
@@ -1502,9 +1546,9 @@ static void paint_emit_context(wn_core *c, const WnPaintCtxInfo *info, int node,
     }
 
     /* Step 3: in-flow content of this context in tree order. */
-    paint_emit_in_flow(c, info, node, own_layer);
+    paint_emit_in_flow(c, info, node, own_layer, scratch, top);
 
-    /* Step 4: z 0/auto contexts in tree order. */
+    /* Step 4: positioned z 0/auto blocks in tree order (CSS step 8). */
     for (i = 0; i < count; ++i) {
         if (scratch[start + i].z == 0) {
             paint_emit_context(c, info, scratch[start + i].node, own_layer, 0,
@@ -1523,10 +1567,11 @@ static void paint_emit_context(wn_core *c, const WnPaintCtxInfo *info, int node,
     *top = start;
 }
 
-/* Ordered build used whenever the page has at least one group or z-index
- * context. `info` and `scratch` are caller-owned (layout_page) so a frame with
- * no context never pays for them. Returns 0 on allocation failure, in which
- * case layout_page falls back to the historical DFS list. */
+/* Ordered build used whenever the page has at least one group, z-index
+ * context or positioned node. It allocates the per-node context tables for the
+ * duration of the walk, so a flat page never pays for them. Returns 0 on
+ * allocation failure, in which case layout_page falls back to the historical
+ * DFS list. */
 static int build_paint_items_ordered(wn_core *c, int root, wn_rect viewport)
 {
     WnPaintCtxInfo *info;
@@ -1596,9 +1641,10 @@ static int paint_commands_emit(wn_core *c, int kind, int item, int layer)
     return 1;
 }
 
-/* Replays the DFS item order as DRAW/BEGIN_LAYER/END_LAYER commands. Items in
- * one layer are contiguous, so a stack walk opens exactly the layers between
- * the previous item and the next one. */
+/* Replays the ordered item list as DRAW/BEGIN_LAYER/END_LAYER commands. A
+ * layer's own items need not be contiguous: a parent layer stays open while
+ * the blocks of its children are emitted, so a stack walk opens and closes
+ * exactly the layers between the previous item and the next one. */
 static void build_paint_commands(wn_core *c)
 {
     int stack[WN_MAX_PAINT_LAYER_DEPTH];
@@ -1819,8 +1865,8 @@ void layout_page(wn_core *c, float viewport_w, float viewport_h)
         }
         layered = paint_layers_begin(c, viewport);
         if (layered) {
-            /* Group/z contexts: explicit CSS stacking order. Layer order is
-             * explicit too, so the flat category sort is not used. */
+            /* Groups/z contexts/positioned: explicit CSS stacking order. Layer
+             * order is explicit too, so the flat category sort is not used. */
             if (!build_paint_items_ordered(c, root, viewport)) {
                 /* OOM for the context tables: keep the historical DFS list so
                  * a frame still comes out. */

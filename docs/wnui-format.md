@@ -110,13 +110,16 @@ ni cajas inline, que no existen en el subset):
 1. el ítem propio del nodo raíz del contexto (fondo/borde/contenido y, si es un
    grupo de opacidad, su capa offscreen);
 2. contextos hijos con `z < 0`, de menor a mayor `z` (empate: orden de árbol);
-3. contenido en flujo del contexto en orden de árbol. Un descendiente
-   posicionado con `z-index: auto` **no** es contexto y se pinta aquí, en su
-   posición del árbol;
-4. contextos hijos con `z == 0`/`auto` en orden de árbol;
+3. contenido en flujo del contexto en orden de árbol: los ítems **no
+   posicionados** y los contextos **no posicionados** (un grupo `opacity < 1`
+   estático), cada uno en su posición del árbol;
+4. posicionados con `z == 0`/`auto` en orden de árbol: ítems posicionados con
+   `z-index: auto`, contextos posicionados con `z: 0` y grupos de opacidad
+   posicionados. Es el paso 8 de CSS 2.1, que pinta todos ellos juntos **por
+   encima** del contenido en flujo del paso 3;
 5. contextos hijos con `z > 0`, de menor a mayor `z` (empate: orden de árbol).
 
-El bloque completo de un contexto hijo se emite como una unidad: sus
+El bloque completo de un bloque de los pasos 2/4/5 se emite como una unidad: sus
 descendientes **no pueden escapar** del contexto padre (un hijo con `z: 100`
 dentro de un padre `z: 1` sigue debajo de un hermano del padre con `z: 2`). Los
 contextos anidados componen recursivamente y el `z` se compara solo entre
@@ -125,16 +128,22 @@ hermanos de contexto.
 **Simplificaciones documentadas:** `z-index` sobre un nodo `static` se
 **ignora** (CSS solo lo aplica a posicionados y a ítems flex/grid; este lane no
 crea contextos de ítem flex/grid). No hay floats, cajas inline ni
-`position: fixed/sticky`. Un posicionado con `z-index: auto` se pinta en el
-paso 3 (orden de árbol) en vez del paso 8 completo de CSS; el resultado es el
-mismo orden relativo para el subset soportado.
+`position: fixed/sticky`. Un posicionado con `z-index: auto` no es un stacking
+context en CSS, pero aquí se emite como un bloque atómico en el paso 4: sus
+descendientes posicionados no se unen al contexto abuelo como haría CSS. El
+caso normal (la caja y su subárbol sobre el contenido en flujo) coincide con el
+paso 8 de CSS.
 
 **Capas:** un contexto de `z-index` **solo ordena**, no necesita textura. El
 modelo de comandos distingue `needs_texture` (grupo de opacidad → target
 offscreen y composición) de un contexto z-only (replay inline). Una página sin
-`opacity < 1` ni `z-index` conserva la ruta plana histórica por categorías
-(byte-idéntica); en cuanto hay un grupo o un contexto z se usa la ruta
-ordenada por ítem.
+`opacity < 1`, `z-index` ni posicionamiento conserva la ruta plana histórica por
+categorías (byte-idéntica); en cuanto hay un grupo, un contexto z o un nodo
+posicionado se usa la ruta ordenada por ítem. Un grupo recortado a nada
+(`clips[nodo]` vacío) **no** reserva textura: su caja está recortada, pero un
+absoluto que escapa conserva su propio clip no vacío y se pinta. Limitación
+conocida: ese absoluto que escapa de un grupo `opacity < 1` totalmente recortado
+no se atenúa con la opacidad del grupo.
 
 ### Semántica de `opacity` (v3)
 
