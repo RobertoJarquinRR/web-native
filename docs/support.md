@@ -25,7 +25,7 @@ Leyenda:
 | UI tree base            | `webnative.ui-tree/1`      | ✅                       |
 | Grid, scroll e imágenes | `webnative.ui-tree/2`      | ✅ pilot                 |
 | Text input              | `webnative.ui-tree/3`      | ✅ pilot                 |
-| ABI C                   | `WN_ABI_VERSION 4`         | ✅ standalone + embedded |
+| ABI C                   | `WN_ABI_VERSION 6`         | ✅ standalone + embedded |
 
 ## HTML
 
@@ -60,8 +60,8 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | `width`, `height`                                    | Sí       | Sí      | Sí      | px/%                                                       |
 | `min-width`, `max-width`, `min-height`, `max-height` | Pilot v3 | Parcial | Parcial | el frontend emite; runtime pendiente de validar            |
 | `padding`, `margin`                                  | Sí       | Sí      | Sí      | px; `margin: auto` en block/flex                           |
-| `box-sizing`                                         | fijo     | fijo    | fijo    | **siempre border-box**; el motor no implementa content-box |
-| `box-sizing: content-box`                            | No       | No      | No      | el default de CSS; el subset lo rechaza                    |
+| `box-sizing`                                         | Sí       | Sí      | Sí      | content-box por defecto (CSS); border-box si se declara |
+| `box-sizing: content-box`                            | Sí       | Sí      | Sí      | default de CSS; el motor suma padding/borde             |
 | `overflow: hidden`                                   | Sí       | Sí      | Sí      | clip rectangular                                           |
 | `overflow: auto/scroll`                              | Pilot v2 | warning | Sí      | scroll vertical                                            |
 | `position`, `float`, `z-index`                       | No       | No      | No      | fuera del subset                                           |
@@ -75,7 +75,7 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | `font-size`                               | Sí       | Sí      | Sí      | px                                                                                            |
 | `font-weight`                             | Sí       | Sí      | Sí      | ≥600 usa la cara bold real del sistema (Segoe UI/Arial bold); si falta, regular + diagnóstico |
 | `line-height`                             | Sí       | No      | Sí      | px o número; afecta altura y baseline (half-leading)                                          |
-| `text-align`                              | Sí       | No      | Sí      | `left`/`center`/`right`; una línea (R2 no envuelve texto)                                     |
+| `text-align`                              | Sí       | No      | Sí      | `left`/`center`/`right` por línea; el texto envuelve                                          |
 | `color`, `background`, `background-color` | Sí       | Sí      | Sí      | `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()`                                             |
 | `opacity`                                 | Pilot v3 | Parcial | Parcial | el frontend emite; el core aún no lo compone                                                  |
 | `font-face`, web fonts                    | No       | No      | No      | no-goal                                                                                       |
@@ -121,6 +121,25 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | Parser HTML/CSS runtime                      | ❌  | no-goal                                                  |
 | JS / iframes                                 | ❌  | no-goal                                                  |
 
+## Paridad con el navegador
+
+Medición de referencia (Chromium 141 headless vs D3D11, DPR 1, offscreen):
+
+| Fixture | SSIM | Diff | Región peor |
+|---|---:|---:|---|
+| `flex-page` 480×320 | 1.000000 | **0.000 %** | — |
+| `contract` 400×300 | 1.000000 | **0.000 %** | — |
+| `media-library` 1280×800 | 0.957851 | 2.139 % | grid 2.262 % (texto e imágenes); sidebar/detalle ≥ 0.990 |
+
+Los dos primeros son gateables y coinciden al píxel. En el tercero lo que queda
+es antialiasing de DirectWrite vs Skia y remuestreo de pósteres: la caja, la
+rejilla y las columnas ya coinciden.
+
+**Caveat:** el runner (`run_visual.ps1`) está archivado, así que estos números
+son la última medición documentada, no un gate que corra en CI. Para volver a
+medir hay que restaurar el runner en Python (sin `.ps1`). Detalle y entorno en
+[`benchmarks/visual-parity/BASELINE.md`](../benchmarks/visual-parity/BASELINE.md).
+
 ## Frontends
 
 | Frontend   | Rol                                 | Alcance                                          |
@@ -140,7 +159,7 @@ actualizan o se quedan fuera del subset actual. Snapshot de resultados en
 
 ```powershell
 # Diagnóstico estricto: falla ante cualquier feature fuera del subset
-frontend-rust --html page.html --width 1280 --height 800 --out ir.json --strict-subset
+frontend-rust --html page.html --css style.css --width 1280 --height 800 --emit-ui ui.json --strict-subset
 
 # Extensiones del piloto
 frontend-rust --html page.html --width 1280 --height 800 --emit-ui ui.json --pilot
@@ -154,6 +173,10 @@ python tools\cli.py bench pilot
 # Blob: layout y píxeles contra el documento builtin
 python tools\cli.py test suite blob
 ```
+
+`--strict-subset` es literal: `<meta>`, `<title>` y atributos como `lang` no
+están en el contrato y fallan, aunque el parser los ignore. Una página estricta
+es un fragmento del subset (o compile sin el flag).
 
 Ejecutar un `.exe` o cargar un `.wnui` no necesita Python.
 
