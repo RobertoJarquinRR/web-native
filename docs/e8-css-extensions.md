@@ -27,7 +27,7 @@ coherente; este documento no lo cambia por su cuenta.
 | Feature | Prioridad | Dónde se nota hoy | Qué pasa si no está |
 |---|---|---|---|
 | `transition` | **Muy alta** | hover/press de botones y cards, chips de filtro, paneles que aparecen, foco | La UI se siente brusca y “de laboratorio”; es la diferencia más barata entre demo y producto |
-| `position` | **Muy alta** | dropdowns, tooltips, badges, overlays/modales, toasts, cabeceras sticky, FAB | Todo overlay se resuelve con trucos de layout o se queda fuera del piloto |
+| `position` | **Muy alta** | dropdowns, tooltips, badges, overlays/modales, toasts, cabeceras sticky, FAB | Todo overlay se resuelve con trucos de layout o se queda fuera del piloto. `relative`/`absolute` **ya implementados (blob v4)**; `fixed`/`sticky` pendientes |
 | `z-index` | **Alta (con overlays)** | orden de modal/toast/tooltip sobre el contenido, sombras y foco | Sin `position` no tiene sentido; con overlays es obligatorio |
 | `transform` | **Alta** | elevación en hover (`translateY`), press (`scale`), paneles deslizantes, spinners | Interacciones planas; además es el target barato de animar (no relayout) |
 | `animation` | **Media-alta** | skeleton/shimmer, spinners, progreso indeterminado | Se puede cubrir casi todo con `transition` + un caso concreto de rotación en bucle |
@@ -196,13 +196,17 @@ se descarta.
 
 ### Position relative/absolute + z-index simple
 
-- [ ] `absolute` mide contra el ancestro posicionado correcto; `auto` resuelve
-      sin ambigüedad.
-- [ ] El nodo absoluto no altera el flujo de sus hermanos (test de layout).
+- [x] `absolute` mide contra el ancestro posicionado correcto; `auto` resuelve
+      sin ambigüedad (blob v4, `position_test` + fixture de píxeles).
+- [x] El nodo absoluto no altera el flujo de sus hermanos (test de layout).
 - [ ] Orden de pintado y hit-test coinciden en un fixture con solape y
-      `z-index` negativo/positivo (test de click en el nodo superior).
-- [ ] Clip por `overflow: hidden` del ancestro correcto.
-- [ ] `fixed`/`sticky` quedan explícitamente fuera hasta su propio go.
+      `z-index` negativo/positivo (test de click en el nodo superior). Hoy el
+      orden es el del árbol: `z-index` sigue diferido.
+- [x] Clip por `overflow: hidden` del ancestro correcto: el containing block
+      recorta, y un `overflow` estático que no es el containing block no
+      recorta al absoluto (verificado en `position_test`).
+- [x] `fixed`/`sticky` quedan explícitamente fuera hasta su propio go
+      (diagnosticados por el subset).
 
 ### Animation keyframes
 

@@ -64,6 +64,15 @@ pub(crate) struct ComputedStyle {
     /// `opacity` (0..1, clamped). Not inherited: a node with `opacity < 1`
     /// becomes a group that fades its own box and its whole subtree.
     pub(crate) opacity: f64,
+    /// `position`: `static | relative | absolute`. `fixed`/`sticky` are
+    /// diagnosed by the subset and fall back to `static`.
+    pub(crate) position: String,
+    /// top, right, bottom, left. Percentages are kept as percentage numbers
+    /// (not baked) so the runtime resolves them against the right box.
+    pub(crate) inset: [f64; 4],
+    /// bit 0..3 = side is declared (not `auto`); bit 4..7 = that side is a
+    /// percentage. 0 means all four insets are `auto`.
+    pub(crate) inset_mask: u32,
     pub(crate) flex_direction: String,
     pub(crate) justify_content: String,
     pub(crate) align_items: String,
@@ -296,6 +305,14 @@ fn resolve(
         .and_then(|value| parse_number(value))
         .map(|value| value.clamp(0.0, 1.0))
         .unwrap_or(1.0);
+    // Only relative/absolute are part of the contract; fixed/sticky are
+    // diagnosed by `subset` and behave as static here so a page still lays out.
+    let position = match raw.get("position") {
+        Some(value) if value.trim().eq_ignore_ascii_case("relative") => "relative".to_string(),
+        Some(value) if value.trim().eq_ignore_ascii_case("absolute") => "absolute".to_string(),
+        _ => "static".to_string(),
+    };
+    let (inset, inset_mask) = resolve_insets(&raw);
 
     // E1: text-align is discrete and inherited; line-height resolves to px
     // (`normal` -> 0.0 so the runtime uses ascender + descender).
@@ -304,6 +321,9 @@ fn resolve(
     let line_height = resolve_line_height(raw.get("line-height"), font_size, root_font_size);
 
     ComputedStyle {
+        position,
+        inset,
+        inset_mask,
         color,
         font_family: raw
             .get("font-family")
@@ -417,6 +437,41 @@ fn resolve_box_length(
         return (Some(ctx.resolve(rel)), 0.0, Some(rel));
     }
     (None, 0.0, None)
+}
+
+/// `top`/`right`/`bottom`/`left` -> `(values, mask)`.
+///
+/// Bit `i` means side `i` (top,right,bottom,left) is declared; bit `4+i` means
+/// that value is a percentage. Percentages stay as numbers: the runtime
+/// resolves them against the containing block, never the frontend. Values the
+/// cascade cannot parse are treated as `auto` (the subset reports them).
+fn resolve_insets(raw: &HashMap<String, String>) -> ([f64; 4], u32) {
+    let mut inset = [0.0f64; 4];
+    let mut mask = 0u32;
+    for (index, side) in SIDES.iter().enumerate() {
+        let Some(value) = raw.get(*side) else {
+            continue;
+        };
+        let text = value.trim();
+        if text.is_empty() || text.eq_ignore_ascii_case("auto") {
+            continue;
+        }
+        if let Some(number) = text.strip_suffix('%') {
+            if let Some(percent) = parse_number(number) {
+                inset[index] = percent;
+                mask |= 1 << index;
+                mask |= 1 << (4 + index);
+            }
+            continue;
+        }
+        if let Some(px) = length(Some(text)) {
+            inset[index] = px;
+            mask |= 1 << index;
+        }
+        // `em`/`rem`/`vh`/`vw` are not part of this lane: the subset reports
+        // them and the cascade leaves the side at `auto`.
+    }
+    (inset, mask)
 }
 
 /// Computed `font-size`: px/number, `em` (parent), `rem` (root) or `%` (parent).

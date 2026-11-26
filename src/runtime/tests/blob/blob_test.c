@@ -398,7 +398,10 @@ static int node_equal(const UiNode *a, const UiNode *b)
            a->flex_basis == b->flex_basis &&
            strings_equal(a->font_family, b->font_family) &&
            a->font_weight == b->font_weight &&
-           a->opacity == b->opacity;
+           a->opacity == b->opacity &&
+           a->position == b->position &&
+           memcmp(a->inset, b->inset, sizeof(a->inset)) == 0 &&
+           a->inset_mask == b->inset_mask;
 }
 
 static int documents_equal(const wn_document *a, const wn_document *b)

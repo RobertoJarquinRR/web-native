@@ -102,6 +102,20 @@ selección/caret de un input, texto o imagen sobre fondo).
   documento) y `WN_MAX_PAINT_LAYERS` (65536). El pool wgpu/D3D11 se indexa por
   profundidad, no por cantidad de grupos hermanos.
 
+### Position (blob v4)
+
+`relative` se dispone en el flujo normal y después se traslada el nodo y su
+subárbol (`left`/`top`, o `-right`/`-bottom`); el cursor del padre no cambia y
+los hermanos conservan su sitio. `absolute` sale del flujo: block/flex/grid lo
+saltan, el containing block es el ancestro posicionado más cercano (o el root)
+y los insets se resuelven contra su padding box. Una segunda pasada tras el
+layout normal coloca los absolutos cuando todos los containing blocks ya son
+finales; `left+right`/`top+bottom` con tamaño `auto` estiran y los porcentajes
+se resuelven ahí, no en el frontend. Scroll, clip y hit-test usan los rects
+resultantes; el clip del absoluto es el de los hijos de su containing block
+(un `overflow` estático intermedio que no es containing block no lo recorta).
+`fixed`, `sticky` y `z-index` quedan fuera de esta lane.
+
 El texto no está horneado. El nodo lleva cadena, familia, tamaño, peso y
 `line-height`; DirectWrite mide y shapea, y `text_atlas` cachea glifos y runs.
 Los inputs se editan en `core/input.c` y su spec (`value`, `placeholder`,

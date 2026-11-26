@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
 #define WN_BLOB_MAGIC 0x49554E57u /* "WNUI" */
-#define WN_BLOB_VERSION 3u
+#define WN_BLOB_VERSION 4u
 #define WN_BLOB_HEADER_SIZE 32u
 
 /* Loader limits: the layout/paint walk is recursive, so a crafted chain would
@@ -101,6 +101,14 @@ typedef struct {
     uint32_t font_family;
     int32_t font_weight;
     float opacity;
+    /* Blob v4: positioning. `position` is 0 static, 1 relative, 2 absolute.
+     * `inset` is top,right,bottom,left; `inset_mask` bit 0..3 marks a declared
+     * side and bit 4..7 marks that side as a percentage (value stays a
+     * percentage number; the runtime resolves it against the containing
+     * block). Mask 0 = all four insets are `auto`. */
+    int32_t position;
+    float inset[4];
+    uint32_t inset_mask;
 } WnBlobNode;
 
 typedef struct {

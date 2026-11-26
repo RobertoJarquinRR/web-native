@@ -136,7 +136,8 @@ static float children_max_intrinsic(wn_core *c, int node, float available)
     int child;
     for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
         float w;
-        if (!c->alive[child] || !c->visible[child]) {
+        if (!c->alive[child] || !c->visible[child] ||
+            WN_IS_ABSOLUTE(&c->nodes[child])) {
             continue;
         }
         w = wn_intrinsic_width(c, child, available);
@@ -155,7 +156,8 @@ static float children_row_intrinsic(wn_core *c, int node, float available)
     int count = 0;
     int child;
     for (child = c->first_child[node]; child >= 0; child = c->next_sibling[child]) {
-        if (!c->alive[child] || !c->visible[child]) {
+        if (!c->alive[child] || !c->visible[child] ||
+            WN_IS_ABSOLUTE(&c->nodes[child])) {
             continue;
         }
         sum += wn_intrinsic_width(c, child, available);

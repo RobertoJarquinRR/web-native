@@ -1,7 +1,7 @@
 # Frontend Rust
 
 Compilador de UI de WebNative: convierte HTML + CSS en el **documento `.wnui`**
-(blob v3) que consume el runtime C. No calcula geometría ni hornea texto: el
+(blob v4) que consume el runtime C. No calcula geometría ni hornea texto: el
 motor mide, shapea y pinta en runtime.
 
 ## Uso
@@ -16,10 +16,10 @@ frontend-rust.exe --html app/index.html --width 1280 --height 800 \
 |---|---|
 | `--html` | página a compilar |
 | `--width`, `--height` | viewport de referencia (resuelve `%`, `vw/vh`) |
-| `--emit-blob` | salida `.wnui` v3; es la **única** salida y es obligatoria |
+| `--emit-blob` | salida `.wnui` v4; es la **única** salida y es obligatoria |
 | `--css` | aceptado por compatibilidad; las hojas se descubren del `<link>`/`<style>` del documento |
 | `--strict-subset` | cualquier feature fuera de `docs/subset-v1.md` es error (exit != 0) |
-| `--pilot` | habilita grid, scroll, imágenes y `<input>` (extensiones v2/v3) |
+| `--pilot` | habilita grid, scroll, imágenes y `<input>` (extensiones v2/v3); `position` v4 no necesita flag |
 
 Sin `--emit-blob` el binario no escribe nada y devuelve error de uso. El blob
 es la única salida y el contrato.
@@ -46,8 +46,8 @@ tree.write_blob(Path::new("app.wnui"))?;
 - `build_tree(html, base_dir, viewport)` ejecuta parseo + cascada y devuelve un
   `Tree` **en memoria**. `base_dir` resuelve los `<link>` relativos.
 - `Tree.nodes` expone `kind`, `tag`, `classes`, `element_id`, `style`
-  (incluye `css3`: bordes, radios, sombras y unidades relativas), `data`,
-  `argb`, `text`, `image` e `input`.
+  (incluye `css3`: bordes, radios, sombras y unidades relativas; `position`,
+  `inset` e `inset_mask` para v4), `data`, `argb`, `text`, `image` e `input`.
 - `Tree.detailed` indica si la página necesita los campos v2/v3 del blob (grid,
   scroll, imágenes, CSS v3 o input).
 - `Tree::write_blob(path)` escribe el `.wnui` canónico.

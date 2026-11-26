@@ -20,7 +20,7 @@
 #include "document/wn_document_internal.h"
 #include "wn_internal.h"
 
-#define FORMAT_NAME "wnui/3"
+#define FORMAT_NAME "wnui/4"
 
 static const char *kind_name(int kind)
 {
@@ -105,6 +105,15 @@ static const char *wrap_name(int value)
 static const char *box_sizing_name(int value)
 {
     return value != 0 ? "border-box" : "content-box";
+}
+
+static const char *position_name(int value)
+{
+    switch (value) {
+    case R2_POSITION_RELATIVE: return "relative";
+    case R2_POSITION_ABSOLUTE: return "absolute";
+    default: return "static";
+    }
 }
 
 /* Emitter style: four decimals, never "-0.0000". */
@@ -225,6 +234,9 @@ static void text_node(FILE *out, int index, const UiNode *node, const char *name
     text_string(out, "family", node->font_family);
     text_int(out, "weight", node->font_weight);
     text_float(out, "opacity", node->opacity);
+    fprintf(out, " position=%s", position_name(node->position));
+    text_box4(out, "inset", node->inset);
+    text_int(out, "inset-mask", (long long)node->inset_mask);
     text_string(out, "text", node->text);
     fputc('\n', out);
 }
@@ -318,6 +330,9 @@ static void json_node(FILE *out, int index, const UiNode *node, const char *name
     fprintf(out, ",\n");
     fprintf(out, "      \"font_weight\": %d,\n", node->font_weight);
     json_float(out, "opacity", node->opacity);
+    fprintf(out, "      \"position\": \"%s\",\n", position_name(node->position));
+    json_box4(out, "inset", node->inset);
+    fprintf(out, "      \"inset_mask\": %u,\n", node->inset_mask);
     fprintf(out, "      \"text\": ");
     json_string(out, node->text);
     fprintf(out, "\n    }");

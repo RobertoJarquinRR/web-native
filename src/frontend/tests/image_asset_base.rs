@@ -13,8 +13,9 @@ use std::path::{Path, PathBuf};
 
 use frontend_rust::build_tree_from_file;
 
-// Blob v3 `WnBlobNode`: 220 bytes through `font_weight` + 4 bytes `opacity`.
-const NODE_RECORD_SIZE: usize = 224;
+// Blob v4 `WnBlobNode`: 220 bytes through `font_weight` + 4 bytes `opacity`
+// + v4 position/inset fields. Image size offsets are unchanged.
+const NODE_RECORD_SIZE: usize = 248;
 const IMAGE_WIDTH_OFFSET: usize = 132;
 const IMAGE_HEIGHT_OFFSET: usize = 136;
 

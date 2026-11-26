@@ -148,6 +148,13 @@ pub struct StyleOut {
     /// runtime renders its box and subtree into an offscreen layer and
     /// composites it once. Not inherited.
     pub opacity: f64,
+    /// `static | relative | absolute` (default `static`).
+    pub position: String,
+    /// top, right, bottom, left. Percentages stay as percentage numbers; the
+    /// runtime resolves them against the containing block.
+    pub inset: [f64; 4],
+    /// bit 0..3 = declared side; bit 4..7 = that side is a percentage.
+    pub inset_mask: u32,
     /// v3: borders, radius, shadows and relative units (only schema `/2`).
     pub css3: StyleV3,
 }
@@ -403,6 +410,9 @@ impl<'a> Builder<'a> {
                 flex_shrink: style.flex_shrink,
                 flex_basis: style.flex_basis,
                 opacity: style.opacity,
+                position: style.position.clone(),
+                inset: style.inset,
+                inset_mask: style.inset_mask,
                 css3: style.css3.clone(),
             },
             data: DataOut {
@@ -543,6 +553,9 @@ impl<'a> Builder<'a> {
                 // Generated text nodes do not inherit `opacity`: the owning
                 // element's group layer already fades the text.
                 opacity: 1.0,
+                position: "static".to_string(),
+                inset: [0.0; 4],
+                inset_mask: 0,
                 css3: StyleV3::default(),
             },
             data: DataOut {

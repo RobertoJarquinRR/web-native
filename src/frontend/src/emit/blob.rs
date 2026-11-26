@@ -1,4 +1,4 @@
-//! `--emit-blob`: the `.wnui` v3 document (same section layout as the
+//! `--emit-blob`: the `.wnui` v4 document (same section layout as the
 //! archived Python oracle's `write_blob`).
 //!
 //! The tree is already parsed into `NodeOut`; this module only reproduces the
@@ -16,7 +16,7 @@ use crate::style::color::argb;
 use crate::style::grid::{GridAutoRows, GridTemplateColumns};
 
 const BLOB_MAGIC: u32 = 0x4955_4E57; // "WNUI"
-const BLOB_VERSION: u32 = 3;
+const BLOB_VERSION: u32 = 4;
 const BLOB_HEADER_SIZE: usize = 32;
 const BLOB_SECTION_SIZE: usize = 16;
 
@@ -89,6 +89,14 @@ pub(crate) fn object_fit_code(value: Option<&str>) -> i32 {
     match value.map(|text| text.trim().to_ascii_lowercase()) {
         Some(text) if text == "cover" => 1,
         Some(text) if text == "contain" => 2,
+        _ => 0,
+    }
+}
+
+pub(crate) fn position_code(value: &str) -> i32 {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "relative" => 1,
+        "absolute" => 2,
         _ => 0,
     }
 }
@@ -370,6 +378,13 @@ fn push_node_record(
     push_i32(out, font_weight_code(&style.font_weight));
     // Blob v3: CSS group opacity (0..1). The cascade already clamps it.
     push_f32(out, style.opacity.clamp(0.0, 1.0));
+    // Blob v4: position + inset. Percentages stay as percentage numbers; the
+    // mask marks declared sides (bits 0..3) and percentage units (bits 4..7).
+    push_i32(out, position_code(&style.position));
+    for value in style.inset {
+        push_f32(out, value);
+    }
+    push_u32(out, style.inset_mask & 0xFF);
 }
 
 /// Writes the v3 `.wnui` document. `asset_dir` is the directory the document's

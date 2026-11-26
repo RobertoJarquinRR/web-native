@@ -946,6 +946,47 @@ fn check_property(
                 );
             }
         }
+        "position" => {
+            if matches!(lowered.as_str(), "fixed" | "sticky") {
+                report(format!(
+                    "position: {lowered} no soportado en esta lane (subset: static | relative | absolute; fixed/sticky diferidos)"
+                ));
+            } else {
+                check_keyword(
+                    name,
+                    &lowered,
+                    &["static", "relative", "absolute"],
+                    "static | relative | absolute",
+                    &mut report,
+                );
+            }
+        }
+        "top" | "right" | "bottom" | "left" => {
+            check_lengths(
+                name,
+                trimmed,
+                1,
+                true,
+                true,
+                true,
+                false,
+                pilot,
+                "px | % | auto",
+                &mut report,
+            );
+        }
+        "inset" => {
+            report(
+                "shorthand 'inset' no soportado en esta lane; usa top/right/bottom/left"
+                    .to_string(),
+            );
+        }
+        "z-index" => {
+            report(
+                "z-index fuera del alcance de esta lane (el orden de pintado sigue el árbol; z-index diferido)"
+                    .to_string(),
+            );
+        }
         "flex-direction" => check_keyword(
             name,
             &lowered,

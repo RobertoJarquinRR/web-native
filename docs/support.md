@@ -22,7 +22,7 @@ Leyenda:
 | Contrato                | Versión                    | Estado                   |
 | ----------------------- | -------------------------- | ------------------------ |
 | Display list R1         | `webnative.display-list/1` | archivado, ya no se emite |
-| Documento `.wnui`       | blob v3                    | ✅                       |
+| Documento `.wnui`       | blob v4                    | ✅                       |
 | Grid, scroll e imágenes | campos v2 del blob         | ✅ pilot                 |
 | Text input              | sección `inputs` del blob  | ✅ pilot                 |
 | ABI C                   | `WN_ABI_VERSION 6`         | ✅ standalone + embedded |
@@ -64,7 +64,9 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | `box-sizing: content-box`                            | Sí       | Sí      | Sí      | default de CSS; el motor suma padding/borde             |
 | `overflow: hidden`                                   | Sí       | Sí      | Sí      | clip rectangular                                           |
 | `overflow: auto/scroll`                              | Pilot v2 | warning | Sí      | scroll vertical                                            |
-| `position`, `float`, `z-index`                       | No       | No      | No      | fuera del subset                                           |
+| `position: static/relative/absolute` + `top/right/bottom/left` | Sí (v4)  | No | Sí | nodos relativos/absolutos, containing block, px/%/auto; ver `wnui-format.md` |
+| `position: fixed/sticky`, `inset`, `z-index`         | No       | No      | No      | fuera de esta lane; se diagnostican                          |
+| `float`                                              | No       | No      | No      | fuera del subset                                             |
 | `transform`, `transition`, `animation`               | No       | No      | No      | fuera del subset                                           |
 
 ## CSS: tipografía y color
@@ -95,7 +97,8 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 
 | Capacidad                                    | R2  | Notas                                                    |
 | -------------------------------------------- | --- | -------------------------------------------------------- |
-| Layout block/flex/grid                       | ✅  | layout en C; `margin: auto` en block y flex              |
+| Layout block/flex/grid                       | ✅  | layout en C; `margin: auto` en block y flex; relative/absolute v4 |
+| Position relative/absolute                   | ✅  | fuera de flujo, containing block, stretch, scroll/clip, hit-test |
 | Scroll vertical + clip                       | ✅  | scrollbar track+thumb (sin drag); thumb sigue el wheel   |
 | Imágenes WIC + cache                         | ✅  | LRU con presupuesto (`WN_IMAGE_CACHE_MB`, 256 MB)        |
 | Tamaño intrínseco tras `set_image`            | ✅  | `wn_node_set_image_size` re-layout y `object-fit` (A9)   |

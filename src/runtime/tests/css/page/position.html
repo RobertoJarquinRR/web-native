@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>webnative position fixture</title>
+  <link rel="stylesheet" href="position.css">
+</head>
+<body>
+  <!-- Relative boxes stay in flow and shift; absolute boxes leave the flow,
+       resolve against the nearest positioned ancestor (or body) and keep tree
+       paint order. -->
+  <div class="flow"></div>
+  <div class="rel"></div>
+  <div class="rel2"></div>
+  <div class="abs"></div>
+  <div class="after"></div>
+  <div class="absstretch"></div>
+  <div class="abspct"></div>
+  <div class="nested-host"><div class="nested"></div></div>
+</body>
+</html>
