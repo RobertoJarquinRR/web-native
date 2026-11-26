@@ -12,8 +12,10 @@ What it proves:
     result ONCE. The overlap pixel is 0.5*top + 0.5*page, not the naive
     top*0.5 over child*0.5 over page.
   * nested groups: 0.5 inside 0.5 -> 0.25 over the page.
-  * leaf solid, text and image: 0.5 applied through the geometry alpha (the
-    image through its new per-vertex alpha).
+  * leaves are groups too: a leaf and the same box with an extra child are
+    pixel-identical, and every multi-pass leaf (border+fill, shadow+fill,
+    input ring/body/selection, text/image over a background) matches the
+    flattened group result instead of fading each pass separately.
   * opacity: 0 renders nothing.
 
 Usage:
@@ -31,6 +33,9 @@ from PIL import Image
 PAGE_BG = (240, 240, 240)
 RED = (255, 0, 0)
 BLUE = (0, 0, 255)
+GREEN = (0, 255, 0)
+BLACK = (0, 0, 0)
+FOCUS = (0x3B, 0x82, 0xF6)
 IMAGE_QUADRANTS = ((204, 68, 51), (51, 170, 102),
                    (51, 85, 204), (221, 170, 34))
 CHECKS: list[dict] = []
@@ -52,9 +57,24 @@ def blend(color: tuple[int, int, int], alpha: float,
                  for c, b in zip(color, background))
 
 
+def src_over(top: tuple[int, int, int], alpha: float,
+             bottom: tuple[int, int, int]) -> tuple[int, int, int]:
+    return tuple(int(round(t * alpha + b * (1.0 - alpha)))
+                 for t, b in zip(top, bottom))
+
+
 def close(actual: tuple[int, int, int], expected: tuple[int, int, int],
           tolerance: int) -> bool:
     return all(abs(a - b) <= tolerance for a, b in zip(actual, expected))
+
+
+def shadow_alpha() -> float:
+    """Accumulated alpha of the runtime's three stacked box-shadow quads."""
+    alpha = 0.0
+    for layer in (0.50, 0.35, 0.25):
+        sample = round(255 * layer) / 255.0
+        alpha = alpha + sample * (1.0 - alpha)
+    return alpha
 
 
 def rect_of(nodes: list[dict], suffix: str) -> tuple[float, float, float, float]:
@@ -78,6 +98,22 @@ def region_uniform(img: Image.Image, rect: tuple[float, float, float, float],
     return bad, first
 
 
+def darkest_luma(img: Image.Image, rect: tuple[float, float, float, float]):
+    x, y, w, h = rect
+    darkest = 255.0
+    darkest_at = (0, 0)
+    darkest_px = (0, 0, 0)
+    for py in range(int(round(y)), int(round(y + h))):
+        for pxx in range(int(round(x)), int(round(x + w))):
+            value = px(img, pxx, py)
+            luminance = 0.299 * value[0] + 0.587 * value[1] + 0.114 * value[2]
+            if luminance < darkest:
+                darkest = luminance
+                darkest_at = (pxx, py)
+                darkest_px = value
+    return darkest, darkest_at, darkest_px
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="group opacity pixel verifier")
     parser.add_argument("--png", required=True)
@@ -87,13 +123,14 @@ def main() -> int:
 
     img = Image.open(args.png).convert("RGB")
     report = json.loads(Path(args.report).read_text(encoding="utf-8"))
+    size_key = f"{img.size[0]}x{img.size[1]}"
     sizes = {f"{item['width']}x{item['height']}": item for item in report["sizes"]}
-    if "400x300" not in sizes:
-        print(f"FAIL: report has no 400x300 size: {sorted(sizes)}")
+    if size_key not in sizes:
+        print(f"FAIL: report has no {size_key} size: {sorted(sizes)}")
         return 1
-    nodes = sizes["400x300"]["nodes"]
+    nodes = sizes[size_key]["nodes"]
     backend = args.backend
-    ok = check("capture", "PNG size", img.size == (400, 300), f"{img.size}")
+    ok = check("capture", "PNG size", img.size == (400, 500), f"{img.size}")
 
     # ---------------------------------------------------- group overlap
     gx, gy, gw, gh = rect_of(nodes, "#overlap.group")
@@ -123,30 +160,20 @@ def main() -> int:
                close(nested, expected_nested, 2),
                f"{nested} == {expected_nested}") and ok
 
-    # ---------------------------------------------------- leaf solid
+    # ---------------------------------------------------- single-pass leaves
     sx, sy, sw, sh = rect_of(nodes, "#leaf-solid.leaf-solid")
     solid = px(img, sx + sw / 2, sy + sh / 2)
-    ok = check(f"leaf/{backend}", "leaf solid alpha 0.5",
+    ok = check(f"leaf/{backend}", "leaf solid goes through a layer at 0.5",
                close(solid, expected_a, 2), f"{solid} == {expected_a}") and ok
 
-    # ---------------------------------------------------- leaf text
     tx, ty, tw, th = rect_of(nodes, "#leaf-text.leaf-text")
-    darkest = 255
-    darkest_at = (0, 0)
-    for py in range(int(round(ty)), int(round(ty + th))):
-        for pxx in range(int(round(tx)), int(round(tx + tw))):
-            value = px(img, pxx, py)
-            luminance = 0.299 * value[0] + 0.587 * value[1] + 0.114 * value[2]
-            if luminance < darkest:
-                darkest = luminance
-                darkest_at = (pxx, py)
+    darkest, darkest_at, _ = darkest_luma(img, (tx, ty, tw, th))
     # A 48 px "H" has fully covered stem pixels: black at 0.5 over the page.
     expected_text = 0.5 * 0.0 + 0.5 * 240.0
     ok = check(f"leaf/{backend}", "leaf text glyph alpha 0.5",
                115.0 <= darkest <= 126.0 and abs(darkest - expected_text) <= 6.0,
                f"darkest={darkest:.1f} at {darkest_at} (expected ~{expected_text:.1f})") and ok
 
-    # ---------------------------------------------------- leaf image
     ix, iy, iw, ih = rect_of(nodes, "#leaf-image.leaf-image")
     probes = ((ix + 15, iy + 15, IMAGE_QUADRANTS[0]),
               (ix + iw - 15, iy + 15, IMAGE_QUADRANTS[1]),
@@ -161,6 +188,81 @@ def main() -> int:
         details.append(f"({pxx},{pyy})={actual}~{expected}")
     ok = check(f"leaf/{backend}", "leaf image vertex alpha 0.5", image_ok,
                ", ".join(details)) and ok
+
+    # ------------------------------------------- multi-pass leaves (B1)
+    bx, by, bw, bh = rect_of(nodes, "#leaf-border.leaf-border")
+    px_border = px(img, bx + 5, by + bh / 2)
+    px_fill = px(img, bx + bw / 2, by + bh / 2)
+    ok = check(f"leaf/{backend}", "bordered leaf border flattens once",
+               close(px_border, blend(BLUE, 0.5), 3),
+               f"{px_border} == {blend(BLUE, 0.5)}") and ok
+    ok = check(f"leaf/{backend}", "bordered leaf fill flattens once",
+               close(px_fill, blend(RED, 0.5), 3),
+               f"{px_fill} == {blend(RED, 0.5)}") and ok
+
+    pbx, pby, pbw, pbh = rect_of(nodes, "#leaf-border-pair.leaf-border")
+    px_pair_border = px(img, pbx + 5, pby + pbh / 2)
+    px_pair_fill = px(img, pbx + pbw / 2, pby + pbh / 2)
+    ok = check(f"leaf/{backend}", "same DOM with/without a child: border identical",
+               close(px_pair_border, px_border, 1),
+               f"{px_pair_border} == {px_border}") and ok
+    ok = check(f"leaf/{backend}", "same DOM with/without a child: fill identical",
+               close(px_pair_fill, px_fill, 1),
+               f"{px_pair_fill} == {px_fill}") and ok
+
+    hx, hy, hw, hh = rect_of(nodes, "#leaf-shadow.leaf-shadow")
+    shadow = px(img, hx - 5, hy + hh / 2)
+    expected_shadow = blend(BLUE, shadow_alpha() * 0.5)
+    direct_shadow = blend(BLUE, (1.0 - (1 - 64 / 255) * (1 - 45 / 255) *
+                                  (1 - 32 / 255)))
+    ok = check(f"leaf/{backend}", "box-shadow leaf stacks then flattens",
+               close(shadow, expected_shadow, 4) and
+               not close(shadow, direct_shadow, 8),
+               f"{shadow} == {expected_shadow} (direct {direct_shadow})") and ok
+    center = px(img, hx + hw / 2, hy + hh / 2)
+    ok = check(f"leaf/{backend}", "box-shadow leaf fill stays grouped",
+               close(center, blend(RED, 0.5), 3),
+               f"{center} == {blend(RED, 0.5)}") and ok
+
+    ax, ay, aw, ah = rect_of(nodes, "#leaf-input.leaf-input")
+    body = px(img, ax + aw - 20, ay + ah / 2)
+    ring = px(img, ax + aw / 2, ay + 1)
+    selection = px(img, ax + 14, ay + ah - 10)
+    expected_selection = blend(src_over(FOCUS, 102 / 255.0, RED), 0.5)
+    ok = check(f"leaf/{backend}", "input leaf body flattens once",
+               close(body, blend(RED, 0.5), 3),
+               f"{body} == {blend(RED, 0.5)}") and ok
+    ok = check(f"leaf/{backend}", "input leaf focus ring flattens once",
+               close(ring, blend(FOCUS, 0.5), 4),
+               f"{ring} == {blend(FOCUS, 0.5)}") and ok
+    ok = check(f"leaf/{backend}", "input leaf selection flattens once",
+               close(selection, expected_selection, 6),
+               f"{selection} == {expected_selection}") and ok
+
+    tgx, tgy, tgw, tgh = rect_of(nodes, "#leaf-text-bg.leaf-text-bg")
+    _, bg_at, bg_px = darkest_luma(img, (tgx, tgy, tgw, tgh))
+    spread = max(bg_px) - min(bg_px)
+    ok = check(f"leaf/{backend}", "text over background is flattened (neutral stem)",
+               abs(bg_px[0] - 120) <= 6 and spread <= 8,
+               f"darkest={bg_px} at {bg_at} (spread {spread}, direct would be ~(124,60,60))") and ok
+
+    igx, igy, igw, igh = rect_of(nodes, "#leaf-image-bg.leaf-image-bg")
+    # padding 10 -> the image content is inset by 10 on each side.
+    image_probes = (
+        (igx + 10 + 15, igy + 10 + 10, IMAGE_QUADRANTS[0]),
+        (igx + igw - 25, igy + 10 + 10, IMAGE_QUADRANTS[1]),
+        (igx + 10 + 15, igy + igh - 20, IMAGE_QUADRANTS[2]),
+        (igx + igw - 25, igy + igh - 20, IMAGE_QUADRANTS[3]),
+    )
+    details = []
+    image_ok = True
+    for pxx, pyy, color in image_probes:
+        actual = px(img, pxx, pyy)
+        expected = blend(color, 0.5)
+        image_ok = image_ok and close(actual, expected, 4)
+        details.append(f"({pxx},{pyy})={actual}~{expected}")
+    ok = check(f"leaf/{backend}", "image over background flattens once",
+               image_ok, ", ".join(details)) and ok
 
     # ---------------------------------------------------- opacity: 0
     zx, zy, zw, zh = rect_of(nodes, "#zero.group")

@@ -66,10 +66,10 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 
 > **Runtime actual:** `font-weight ≥ 600` usa la cara bold real del sistema,
 > `line-height` y `text-align` se aplican en R2 (E1), `margin: auto` funciona en
-> block y flex. `opacity < 1` en un contenedor crea un **grupo**: el subárbol se
-> pinta en una capa offscreen y se compone una sola vez (los hijos que se
-> solapan no se oscurecen dos veces); en una hoja se aplica alfa directo a su
-> geometría. Ver `support.md`.
+> block y flex. Todo nodo con `opacity < 1` crea un **grupo**: su caja y su
+> subárbol se pintan en una capa offscreen y se componen una sola vez. Las
+> hojas también, porque pueden pintar varias pasadas (borde+fondo, sombra+
+> relleno, decoraciones de input, texto/imagen sobre fondo). Ver `support.md`.
 
 ### Bordes y caja
 

@@ -10,9 +10,14 @@
 
 #include <stdint.h>
 
+#include "document/wn_blob.h"
 #include "document/wn_document_internal.h"
 #include "text/text_atlas.h"
 #include "wn_core.h"
+
+/* The on-disk node record is a fixed contract shared with the Rust writer and
+ * the blob loader. A field added without bumping both sides must fail here. */
+_Static_assert(sizeof(WnBlobNode) == 224, "WnBlobNode must stay 224 bytes");
 
 #define WN_MAX_CLASSES 8
 
@@ -46,10 +51,13 @@ typedef struct {
  *   - clip: the node's screen-space scissor from compute_clips(). Transform is
  *     applied to geometry only; a transformed node stays clipped by its
  *     axis-aligned parent clip until the clipping lane lands.
- *   - layer: stable paint key. Sorting by layer is a no-op while all are 0.
- *   - opacity: leaf opacity (group roots stay 1: their layer carries it).
- *     Multiplied into solid and glyph alpha and into the image vertex alpha.
- *   - layer: group layer id from the command list; 0 is the root layer.
+ *   - layer: group layer id from the command list; 0 is the root layer. The
+ *     stable sort by layer is a no-op for opacity-free pages, where every item
+ *     stays 0.
+ *   - opacity: direct-alpha factor for items on the flat path and the fallback
+ *     when the layer cap is reached. A group root keeps 1 here because its
+ *     layer carries the opacity. Multiplied into solid and glyph alpha and into
+ *     the image vertex alpha.
  *   - transform: applied to solid/shadow/glyph/image vertex positions in pixel
  *     space before the clip-space projection.
  * Synthetic passes (input decorations, scrollbars) are not nodes and stay

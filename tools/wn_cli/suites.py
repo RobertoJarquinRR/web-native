@@ -344,7 +344,7 @@ def run_css() -> int:
     run_cmd(
         [rust_exe, "--html", str(opacity_page / "index.html"),
          "--css", str(opacity_page / "style.css"),
-         "--width", "400", "--height", "300", "--emit-blob", str(opacity_blob)],
+         "--width", "400", "--height", "500", "--emit-blob", str(opacity_blob)],
         cwd=opacity_page,
     )
     opacity_backends = ["d3d11"] + (["wgpu"] if wgpu_available() else [])
@@ -353,14 +353,55 @@ def run_css() -> int:
         report = out / f"layout_opacity_{opacity_backend}.json"
         environment = {"WN_RENDERER": opacity_backend}
         _run(card_exe, ["--document", str(opacity_blob),
-                        "--report", str(report), "--sizes", "400x300"],
+                        "--report", str(report), "--sizes", "400x500"],
              opacity_page, environment)
+        # Focus the input leaf and select all so the ring/selection/caret
+        # passes (multi-pass leaf) are part of the pixel check.
+        input_id = None
+        report_json = json.loads(report.read_text(encoding="utf-8"))
+        for size in report_json["sizes"]:
+            for node in size["nodes"]:
+                if str(node.get("name", "")).endswith("#leaf-input.leaf-input"):
+                    input_id = node["id"]
+                    break
+            if input_id is not None:
+                break
+        if input_id is None:
+            raise CliError("opacity fixture has no #leaf-input node")
         _run(card_exe, ["--document", str(opacity_blob),
-                        "--render", "400", "300", str(png)],
+                        "--render", "400", "500", str(png),
+                        "--focus", str(input_id), "--select-all"],
              opacity_page, environment)
         _python(opacity_suite / "verify_opacity.py",
                 ["--png", str(png), "--report", str(report),
                  "--backend", opacity_backend], cwd=opacity_suite)
+
+    log_step("opacity: deep nesting (10 groups) on d3d11" +
+             (" + wgpu" if wgpu_available() else ")"))
+    deep_suite = _suite_dir("opacity_deep")
+    deep_page = deep_suite / "page"
+    deep_fixture = out / "emit" / "opacity_deep"
+    deep_fixture.mkdir(parents=True, exist_ok=True)
+    deep_blob = deep_fixture / "app.wnui"
+    run_cmd(
+        [rust_exe, "--html", str(deep_page / "index.html"),
+         "--css", str(deep_page / "style.css"),
+         "--width", "400", "--height", "300", "--emit-blob", str(deep_blob)],
+        cwd=deep_page,
+    )
+    for deep_backend in opacity_backends:
+        png = out / f"render_opacity_deep_{deep_backend}.png"
+        report = out / f"layout_opacity_deep_{deep_backend}.json"
+        environment = {"WN_RENDERER": deep_backend}
+        _run(card_exe, ["--document", str(deep_blob),
+                        "--report", str(report), "--sizes", "400x300"],
+             deep_page, environment)
+        _run(card_exe, ["--document", str(deep_blob),
+                        "--render", "400", "300", str(png)],
+             deep_page, environment)
+        _python(deep_suite / "verify_opacity_deep.py",
+                ["--png", str(png), "--report", str(report),
+                 "--backend", deep_backend], cwd=deep_suite)
 
     log_info("css core v1: PASS")
     return 0
@@ -481,14 +522,15 @@ def run_fidelity() -> int:
     )
     paint_text = _run(paint_exe, [], out)
     _expect(paint_text, ["paint_list_test: PASS"], "paint list test")
-    # 40 checks: item count/DFS order/defaults, known identity counts and a
-    # byte-identical second build, solid/glyph/image translate, opacity
+    # 56 checks: item count/DFS order/defaults, known identity counts and a
+    # byte-identical second build, solid/glyph/image translate, direct-alpha
     # boundaries (0, 1, >1, negative, 0.5 rounding) on solid and glyph plus the
-    # image vertex alpha, group layers (parented nested layers, command replay,
-    # opacity 0), stable layer sort with its no-copy fast path, four culling
+    # image vertex alpha, group layers (leaf and container layers, parented
+    # nested layers, command replay, opacity 0), leaf vs the same box with a
+    # child, stable layer sort with its no-copy fast path, four culling
     # decisions, the .wnui offscreen-shadow-caster build fixture, and the
     # visibility rebuild.
-    _expect_checks(paint_text, "paint list test", 50)
+    _expect_checks(paint_text, "paint list test", 56)
 
     log_step("fidelity: compile runtime + renders")
     runtime_exe = out / "runtime_fidelity.exe"

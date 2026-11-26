@@ -2050,7 +2050,7 @@ static int run_layer_commands(WnWgpu *gpu, WGPUCommandEncoder encoder,
             continue;
         }
         if (command->kind == WN_PAINT_CMD_BEGIN_LAYER) {
-            WnWgpuLayerTarget *layer_target;
+            WGPUTextureView layer_view;
             const wn_paint_layer *layer;
             uint32_t offset;
             float transparent[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
@@ -2066,12 +2066,15 @@ static int run_layer_commands(WnWgpu *gpu, WGPUCommandEncoder encoder,
                 wgpuRenderPassEncoderRelease(pass);
                 return 1;
             }
-            layer_target = &gpu->layer_targets[depth];
+            /* Copy the handle: the recursive call can realloc layer_targets,
+             * so no pointer into that array may survive it. Re-index for the
+             * bind group after the recursion returns. */
+            layer_view = gpu->layer_targets[depth].view;
             wgpuRenderPassEncoderEnd(pass);
             wgpuRenderPassEncoderRelease(pass);
             pass = NULL;
             *index += 1;
-            if (run_layer_commands(gpu, encoder, layer_target->view, 1,
+            if (run_layer_commands(gpu, encoder, layer_view, 1,
                                    transparent, list, index, depth + 1) != 0) {
                 return 1;
             }
@@ -2083,7 +2086,8 @@ static int run_layer_commands(WnWgpu *gpu, WGPUCommandEncoder encoder,
             }
             offset = (uint32_t)command->layer * WN_LAYER_PARAM_STRIDE;
             wgpuRenderPassEncoderSetPipeline(pass, gpu->composite_pipeline);
-            wgpuRenderPassEncoderSetBindGroup(pass, 0, layer_target->bind, 1,
+            wgpuRenderPassEncoderSetBindGroup(pass, 0,
+                                              gpu->layer_targets[depth].bind, 1,
                                               &offset);
             if (set_scissor(pass, layer->clip.x, layer->clip.y, layer->clip.w,
                             layer->clip.h, gpu->width, gpu->height)) {

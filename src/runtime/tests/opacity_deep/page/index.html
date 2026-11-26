@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>webnative deep group opacity fixture</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Ten nested groups, each opacity: 0.9. The renderer pools one
+       full-viewport layer target per nesting depth, so this exercises the
+       layer-target growth/realloc path (failure mode B2). -->
+  <div id="d1" class="d">
+    <div id="d2" class="d">
+      <div id="d3" class="d">
+        <div id="d4" class="d">
+          <div id="d5" class="d">
+            <div id="d6" class="d">
+              <div id="d7" class="d">
+                <div id="d8" class="d">
+                  <div id="d9" class="d">
+                    <div id="d10" class="d">
+                      <div id="deep-fill" class="fill"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

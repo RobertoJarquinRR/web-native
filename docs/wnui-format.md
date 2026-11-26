@@ -46,15 +46,32 @@ ancho de los campos están en `src/runtime/document/wn_blob.h`.
 
 ### Semántica de `opacity` (v3)
 
-Un nodo con `opacity < 1` es un **grupo CSS**: su caja y todo su subárbol se
-pintan en una superficie offscreen y se componen una sola vez con alfa
-constante. Los hijos que se solapan no se oscurecen dos veces, y los grupos
-anidados multiplican (0.5 dentro de 0.5 = 0.25). Una **hoja** (sin hijos) no
-necesita capa: el alfa se aplica directamente a su geometría (sólido, glifo o
-vértice de imagen), que es pixel-exacto porque no hay nada que agrupar.
-`opacity: 1` mantiene la ruta plana histórica: sin texturas extra y sin
-cambios de geometría. La transformación dentro de una capa sigue siendo
-identidad en esta lane.
+Un nodo con `opacity < 1` es un **grupo CSS**: `opacity` crea un stacking
+context, así que su caja y todo su subárbol se pintan en una superficie
+offscreen y se componen una sola vez con alfa constante. Los hijos que se
+solapan no se oscurecen dos veces, y los grupos anidados multiplican (0.5
+dentro de 0.5 = 0.25). La regla vale también para **hojas**: una hoja puede
+pintar varias pasadas (borde sobre fondo, sombra bajo relleno, cuerpo/ring/
+selección/caret de un input, texto o imagen sobre fondo) y atenuar cada pasada
+por separado no es lo mismo que atenuar el resultado aplanado. Por eso toda
+hoja con `opacity < 1` también recibe su capa. `opacity: 1` mantiene la ruta
+plana histórica: sin texturas extra y sin cambios de geometría. La
+transformación dentro de una capa sigue siendo identidad en esta lane.
+
+**Memoria:** cada nivel de anidamiento con `opacity < 1` usa una textura
+offscreen de viewport completo, `W × H × 4` bytes, en ambos backends. Los
+targets se reservan por profundidad y se reutilizan entre frames; el pico es
+`profundidad_máxima_de_grupos × W × H × 4` (más el target de la surface). Un
+grupo pequeño no reduce la textura: el recorte del clip se aplica al componer,
+no al reservar.
+
+**Orden de pintado:** una página sin ningún grupo conserva el orden plano por
+categorías (todos los sólidos, después las imágenes, después los glifos). En
+cuanto la página tiene al menos un grupo (`opacity < 1`), el replay dibuja por
+item (sólido/decoración/imagen/texto de cada nodo, en orden DFS) para que cada
+capa contenga su subárbol completo. Es el orden más cercano a CSS y es el
+precio de componer grupos correctamente; no se puede mezclar el orden global
+por categorías con la composición atómica de una capa.
 
 El runtime no tiene parser HTML/CSS. Carga el blob con
 `wn_document_load_blob()` (archivo mapeado) o

@@ -20,8 +20,8 @@
     </div>
   </div>
 
-  <!-- Row 2: leaves. A single primitive has nothing to overlap, so its own
-       geometry alpha carries the 0.5 exactly. -->
+  <!-- Row 2: single-pass leaves. Each still goes through a group layer now;
+       one primitive has nothing to overlap, so the result is the same. -->
   <div class="row second">
     <div id="leaf-solid" class="leaf-solid"></div>
     <div id="leaf-text" class="leaf-text">H</div>
@@ -34,6 +34,24 @@
       <div id="zero-a" class="zero-a"></div>
       <div id="zero-b" class="zero-b"></div>
     </div>
+  </div>
+
+  <!-- Row 4: leaves that paint several passes. The pair is the same DOM with
+       and without a zero-size child: CSS opacity must flatten both the same. -->
+  <div class="row fourth">
+    <div id="leaf-border" class="leaf-border"></div>
+    <div id="leaf-border-pair" class="leaf-border">
+      <div class="pair-child"></div>
+    </div>
+    <input id="leaf-input" class="leaf-input" type="text" value="Ab"
+           maxlength="8" placeholder="x">
+  </div>
+
+  <!-- Row 5: shadow over fill, text over background, image over background. -->
+  <div class="row fifth">
+    <div id="leaf-shadow" class="leaf-shadow"></div>
+    <div id="leaf-text-bg" class="leaf-text-bg">H</div>
+    <img id="leaf-image-bg" class="leaf-image-bg" src="poster.png" alt="poster">
   </div>
 </body>
 </html>

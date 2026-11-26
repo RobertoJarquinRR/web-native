@@ -83,6 +83,25 @@ Los cambios de estado (`set_visible`, `set_text`, `set_image`, clones, input)
 marcan el core dirty; el siguiente frame re-layouta y repinta. `wn_view_render`
 es síncrono y single-thread: no reentrar.
 
+### Capas de opacidad
+
+Todo nodo con `opacity < 1` es un grupo CSS: su item y su subárbol se pintan en
+una textura offscreen y se componen una sola vez. Las hojas también, porque
+pueden pintar varias pasadas (borde+fondo, sombra+relleno, cuerpo/ring/
+selección/caret de un input, texto o imagen sobre fondo).
+
+- **Memoria:** un target de viewport completo por nivel de anidamiento,
+  `W × H × 4` bytes. Los targets se reservan por profundidad, se reutilizan
+  entre frames y el pico es `profundidad × W × H × 4` (más la surface). El
+  clip del grupo recorta al componer, no reduce la textura.
+- **Orden:** sin grupos se mantiene el orden plano histórico por categorías
+  (todos los sólidos, luego imágenes, luego glifos). Con al menos un grupo, el
+  replay de comandos dibuja por item (sólido/decoración/imagen/texto) para
+  contener el subárbol completo en cada capa; es el orden más cercano a CSS.
+- **Límites:** `WN_MAX_PAINT_LAYER_DEPTH` (512, igual que la profundidad del
+  documento) y `WN_MAX_PAINT_LAYERS` (65536). El pool wgpu/D3D11 se indexa por
+  profundidad, no por cantidad de grupos hermanos.
+
 El texto no está horneado. El nodo lleva cadena, familia, tamaño, peso y
 `line-height`; DirectWrite mide y shapea, y `text_atlas` cachea glifos y runs.
 Los inputs se editan en `core/input.c` y su spec (`value`, `placeholder`,

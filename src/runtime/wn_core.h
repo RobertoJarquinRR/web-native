@@ -58,10 +58,11 @@ typedef struct {
 } wn_image_batch;
 
 /* ----------------------------------------------------- group layers (v3) */
-/* A node with `opacity < 1` is a CSS group. When it has descendants, the core
- * renders its item and subtree into an offscreen layer and composites the
- * layer once with `opacity`. Leaves keep the direct-alpha fast path (a single
- * primitive has nothing to double-darken).
+/* A node with `opacity < 1` is a CSS group: opacity creates a stacking
+ * context, so the core renders its item and subtree into an offscreen layer
+ * and composites the layer once with `opacity`. Leaves are groups too; a leaf
+ * may paint several passes (border + fill, shadow + fill, input decorations,
+ * background + text/image) that must fade as one flattened result.
  *
  * `layers[0]` is the root layer (opacity 1). Layer ids are allocated in DFS
  * order; `parent` is the enclosing layer. `commands` replay the nesting in

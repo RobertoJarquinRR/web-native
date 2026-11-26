@@ -17,13 +17,15 @@
  *      the known pre-list geometry, and a second build is identical.
  *   3. A forced translate moves solid, glyph and image vertices by exactly
  *      (dx, dy) in view pixels.
- *   4. Opacity boundaries on solid and glyph: 0/negative drop the vertices,
- *      1 keeps them, >1 clamps, 0.5 rounds to 128. A leaf image carries the
- *      same factor in its per-vertex alpha (no geometry when 0).
- *   5. Layers: a group container (opacity < 1 with children) starts a layer
- *      before its own item; its subtree shares that layer and the command list
- *      replays the nesting. Nested groups get parented layers. A leaf with
- *      opacity stays on the direct-alpha path.
+ *   4. Direct-alpha boundaries on solid and glyph: 0/negative drop the
+ *      vertices, 1 keeps them, >1 clamps, 0.5 rounds to 128. A leaf image
+ *      carries the same factor in its per-vertex alpha (no geometry when 0).
+ *      This path is the flat/fallback path; CSS document opacity goes through
+ *      a group layer even for leaves (section 5).
+ *   5. Layers: any node with opacity < 1 starts a layer before its own item;
+ *      its subtree shares that layer and the command list replays the
+ *      nesting. Nested groups get parented layers. Leaves are groups too, so a
+ *      leaf and the same box with an extra child have identical layer shape.
  *   6. Layers: distinct layers sort stably in O(n log n); an all-equal list
  *      takes the no-copy fast path and keeps the exact DFS order.
  *   7. The culling helper decides correctly, and a real .wnui fixture locks the
@@ -205,7 +207,7 @@ static wn_core *make_group_core(void)
     g_group_nodes[3].height = 30.0f;
     g_group_nodes[3].background = COLOR_TEXT;
 
-    /* Leaf: direct alpha, no layer. */
+    /* Leaf: opacity < 1 also makes it a group (its own layer). */
     g_group_nodes[4].parent = 0;
     g_group_nodes[4].kind = R2_NODE_BLOCK;
     g_group_nodes[4].width = 10.0f;
@@ -248,6 +250,60 @@ static wn_core *make_group_core(void)
     g_group_doc.viewport_height = (int)VIEW_H;
     g_group_doc.refs = WN_DOCUMENT_STATIC_REFS;
     return wn_core_create(&g_group_doc);
+}
+
+/* ------------------------------- leaf group vs the same box with a child */
+
+#define LEAF_NODES 3
+static wn_document g_leaf_doc;
+static UiNode g_leaf_nodes[LEAF_NODES];
+static const char *const g_leaf_names[LEAF_NODES] = {
+    "body.root", "body.root/div.pair", "body.root/div.pair/div.child"
+};
+
+/* with_child == 0: the faded box is a leaf. with_child == 1: the identical box
+ * gets a zero-size child, so it is a group container. CSS opacity must produce
+ * the same result in both cases. */
+static wn_core *make_leaf_core(int with_child)
+{
+    memset(g_leaf_nodes, 0, sizeof(g_leaf_nodes));
+    memset(&g_leaf_doc, 0, sizeof(g_leaf_doc));
+
+    g_leaf_nodes[0].parent = -1;
+    g_leaf_nodes[0].kind = R2_NODE_BLOCK;
+    g_leaf_nodes[0].width = VIEW_W;
+    g_leaf_nodes[0].height = VIEW_H;
+
+    g_leaf_nodes[1].parent = 0;
+    g_leaf_nodes[1].kind = R2_NODE_BLOCK;
+    g_leaf_nodes[1].width = 40.0f;
+    g_leaf_nodes[1].height = 30.0f;
+    g_leaf_nodes[1].opacity = 0.5f;
+    g_leaf_nodes[1].background = COLOR_A;
+    g_leaf_nodes[1].border_width = 4.0f;
+    g_leaf_nodes[1].border_color = COLOR_B;
+
+    g_leaf_nodes[2].parent = with_child ? 1 : -1;
+    g_leaf_nodes[2].kind = R2_NODE_BLOCK;
+    g_leaf_nodes[2].width = with_child ? 0.0f : 40.0f;
+    g_leaf_nodes[2].height = with_child ? 0.0f : 30.0f;
+
+    for (int i = 0; i < LEAF_NODES; ++i) {
+        if (g_leaf_nodes[i].opacity == 0.0f) {
+            g_leaf_nodes[i].opacity = 1.0f;
+        }
+        g_leaf_nodes[i].font_size = FAKE_SIZE;
+        g_leaf_nodes[i].flex_shrink = 1.0f;
+        g_leaf_nodes[i].flex_basis = -1.0f;
+    }
+
+    g_leaf_doc.nodes = g_leaf_nodes;
+    g_leaf_doc.node_count = with_child ? LEAF_NODES : 2;
+    g_leaf_doc.names = g_leaf_names;
+    g_leaf_doc.viewport_width = (int)VIEW_W;
+    g_leaf_doc.viewport_height = (int)VIEW_H;
+    g_leaf_doc.refs = WN_DOCUMENT_STATIC_REFS;
+    return wn_core_create(&g_leaf_doc);
 }
 
 /* ------------------------------------------- culling fixture (.wnui blob)
@@ -616,14 +672,16 @@ int main(void)
             { WN_PAINT_CMD_DRAW, -1 },
             { WN_PAINT_CMD_DRAW, -1 },
             { WN_PAINT_CMD_END_LAYER, 1 },
-            { WN_PAINT_CMD_DRAW, -1 },
             { WN_PAINT_CMD_BEGIN_LAYER, 2 },
             { WN_PAINT_CMD_DRAW, -1 },
+            { WN_PAINT_CMD_END_LAYER, 2 },
             { WN_PAINT_CMD_BEGIN_LAYER, 3 },
             { WN_PAINT_CMD_DRAW, -1 },
+            { WN_PAINT_CMD_BEGIN_LAYER, 4 },
             { WN_PAINT_CMD_DRAW, -1 },
+            { WN_PAINT_CMD_DRAW, -1 },
+            { WN_PAINT_CMD_END_LAYER, 4 },
             { WN_PAINT_CMD_END_LAYER, 3 },
-            { WN_PAINT_CMD_END_LAYER, 2 },
         };
         int ok;
         if (!check("group core is created", group != NULL)) {
@@ -631,8 +689,8 @@ int main(void)
             return 1;
         }
         glist = wn_core_display_list(group);
-        check("one root layer plus one per group container",
-              glist->layer_count == 4 && glist->layers[0].parent == -1 &&
+        check("one root layer plus one per opacity node",
+              glist->layer_count == 5 && glist->layers[0].parent == -1 &&
                   glist->layers[0].opacity == 1.0f);
 
         ok = group->paint_item_count == GROUP_NODES;
@@ -643,15 +701,17 @@ int main(void)
              group->paint_items[item_index_for_node(group, 3)].layer == 1;
         check("group container keeps its subtree in layer 1", ok);
 
-        ok = group->paint_items[item_index_for_node(group, 4)].layer == 0 &&
-             group->paint_items[item_index_for_node(group, 4)].opacity == 0.5f;
-        check("leaf opacity stays on the direct-alpha path (layer 0)", ok);
+        ok = group->paint_items[item_index_for_node(group, 4)].layer == 2 &&
+             group->paint_items[item_index_for_node(group, 4)].opacity == 1.0f &&
+             glist->layers[2].node == 4 && glist->layers[2].parent == 0 &&
+             glist->layers[2].opacity == 0.5f;
+        check("opacity leaf gets its own layer (item alpha stays 1)", ok);
 
         ok = glist->layers[1].node == 1 && glist->layers[1].parent == 0 &&
              glist->layers[1].opacity == 0.5f &&
-             glist->layers[2].node == 5 && glist->layers[2].parent == 0 &&
-             glist->layers[3].node == 6 && glist->layers[3].parent == 2 &&
-             glist->layers[3].opacity == 0.5f;
+             glist->layers[3].node == 5 && glist->layers[3].parent == 0 &&
+             glist->layers[4].node == 6 && glist->layers[4].parent == 3 &&
+             glist->layers[4].opacity == 0.5f;
         check("nested groups get parented layers (0.5 inside 0.5)", ok);
 
         ok = glist->command_count ==
@@ -678,15 +738,58 @@ int main(void)
         reset_items(group);
         glist = wn_core_display_list(group);
         check("group opacity 0 keeps the layer with alpha 0",
-              glist->layer_count == 4 && glist->layers[1].opacity == 0.0f &&
+              glist->layer_count == 5 && glist->layers[1].opacity == 0.0f &&
                   glist->command_count == (int)(sizeof(expected) / sizeof(expected[0])));
 
         group->nodes[4].opacity = 0.0f;
         reset_items(group);
         glist = wn_core_display_list(group);
-        ok = glist->draws[item_index_for_node(group, 4)].solid.count == 0;
-        check("leaf opacity 0 drops its own geometry", ok);
+        ok = glist->layers[2].node == 4 && glist->layers[2].opacity == 0.0f &&
+             glist->draws[item_index_for_node(group, 4)].solid.count == 6;
+        check("leaf opacity 0 keeps its layer at alpha 0", ok);
         wn_core_destroy(group);
+    }
+
+    /* -------------------------------- leaf vs same box with an extra child */
+    {
+        int leaf_layers = 0, group_layers = 0;
+        int leaf_opacity_ok = 0, group_opacity_ok = 0;
+        int leaf_solids = 0, group_solids = 0;
+        wn_core *leaf = make_leaf_core(0);
+        wn_core *with_child = NULL;
+        if (check("leaf core is created", leaf != NULL)) {
+            const wn_display_list *llist = wn_core_display_list(leaf);
+            leaf_layers = llist->layer_count;
+            leaf_solids = llist->draws[item_index_for_node(leaf, 1)].solid.count;
+            leaf_opacity_ok = llist->layers[1].node == 1 &&
+                              llist->layers[1].opacity == 0.5f &&
+                              leaf->paint_items[item_index_for_node(leaf, 1)].layer == 1 &&
+                              leaf->paint_items[item_index_for_node(leaf, 1)].opacity == 1.0f;
+            check("leaf opacity is a group layer (root + leaf)",
+                  llist->layer_count == 2 && leaf_opacity_ok);
+            check("leaf group replays root DRAW then BEGIN/DRAW/END",
+                  llist->command_count == 4 &&
+                      llist->commands[0].kind == WN_PAINT_CMD_DRAW &&
+                      llist->commands[1].kind == WN_PAINT_CMD_BEGIN_LAYER &&
+                      llist->commands[2].kind == WN_PAINT_CMD_DRAW &&
+                      llist->commands[3].kind == WN_PAINT_CMD_END_LAYER);
+            wn_core_destroy(leaf);
+        }
+        with_child = make_leaf_core(1);
+        if (check("leaf+child core is created", with_child != NULL)) {
+            const wn_display_list *clist = wn_core_display_list(with_child);
+            group_layers = clist->layer_count;
+            group_solids = clist->draws[item_index_for_node(with_child, 1)].solid.count;
+            group_opacity_ok = clist->layers[1].node == 1 &&
+                               clist->layers[1].opacity == 0.5f &&
+                               with_child->paint_items[item_index_for_node(with_child, 1)].layer == 1;
+            wn_core_destroy(with_child);
+        }
+        check("the same box with or without a child has the same layer shape",
+              leaf_layers == group_layers && leaf_layers == 2 &&
+                  leaf_opacity_ok == 1 && group_opacity_ok == 1);
+        check("the group box paints the same border+fill passes",
+              leaf_solids == 12 && group_solids == 12);
     }
 
     /* ------------------------------------------------------ 5. layers */

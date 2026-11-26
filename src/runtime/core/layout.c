@@ -896,12 +896,15 @@ static float paint_node_opacity(const wn_core *c, int node)
     return opacity;
 }
 
-/* A node with `opacity < 1` and descendants is a CSS group: its own item and
- * its whole subtree are rendered into an offscreen layer and composited once.
- * Leaves (no children) keep the direct-alpha path, which is pixel-exact. */
+/* Any node with `opacity < 1` is a CSS group: opacity creates a stacking
+ * context, so the node's own item and its whole subtree render into an
+ * offscreen layer and composite once. Leaves are groups too. A leaf can paint
+ * several passes (border over background, shadow under fill, input ring/body/
+ * selection/caret, text or an image over a background); fading each pass
+ * separately is not the same as fading the flattened result. */
 static int paint_group_root(const wn_core *c, int node)
 {
-    return c->nodes[node].opacity < 1.0f && c->first_child[node] >= 0;
+    return c->nodes[node].opacity < 1.0f;
 }
 
 static int paint_layers_reserve(wn_core *c, int needed)

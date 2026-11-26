@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -318,6 +319,30 @@ static int write_bad_font_size_copy(const char *source, const char *target,
                 break;
             }
         }
+    }
+    free(data);
+    return ok;
+}
+
+/* Overwrites node 0's opacity. The fixture always has at least one node. */
+static int write_opacity_copy(const char *source, const char *target,
+                              float opacity)
+{
+    long length = 0;
+    unsigned char *data = read_whole_file(source, &length);
+    WnBlobSection *nodes_section;
+    int ok = 0;
+
+    if (data == NULL) {
+        return 0;
+    }
+    nodes_section = find_blob_section(data, WN_BLOB_SECTION_NODES);
+    if (nodes_section != NULL &&
+        nodes_section->size >= (uint32_t)sizeof(WnBlobNode) &&
+        (uint32_t)length >= nodes_section->offset + nodes_section->size) {
+        WnBlobNode *nodes = (WnBlobNode *)(data + nodes_section->offset);
+        nodes[0].opacity = opacity;
+        ok = write_file(target, data, (size_t)length);
     }
     free(data);
     return ok;
@@ -800,6 +825,49 @@ int main(int argc, char **argv)
             check("bad font size copy written", 0);
         } else {
             printf("  (no sized node in this fixture)\n");
+        }
+    }
+
+    {
+        /* The loader accepts the inclusive range and rejects everything else,
+         * including NaN (both comparisons false) and infinity. */
+        static const struct {
+            float value;
+            int accepted;
+            const char *label;
+        } opacity_cases[] = {
+            { 0.0f, 1, "opacity 0 is accepted" },
+            { 1.0f, 1, "opacity 1 is accepted" },
+            { -0.001f, 0, "negative opacity is rejected" },
+            { 1.001f, 0, "opacity above 1 is rejected" },
+            { (float)NAN, 0, "NaN opacity is rejected" },
+            { (float)INFINITY, 0, "infinite opacity is rejected" },
+        };
+        const char *opacity_file = "opacity_range.wnui";
+        int c;
+        for (c = 0; c < (int)(sizeof(opacity_cases) / sizeof(opacity_cases[0])); ++c) {
+            wn_document *candidate = NULL;
+            const char *error;
+            int written = write_opacity_copy(path, opacity_file,
+                                             opacity_cases[c].value);
+            if (written) {
+                candidate = wn_document_load_blob(opacity_file);
+            }
+            error = wn_last_error();
+            if (opacity_cases[c].accepted) {
+                check(opacity_cases[c].label, written && candidate != NULL);
+            } else {
+                check(opacity_cases[c].label,
+                      written && candidate == NULL && error != NULL &&
+                          strstr(error, "opacity") != NULL);
+                printf("  error: %s\n", error != NULL ? error : "(none)");
+            }
+            if (candidate != NULL) {
+                wn_document_destroy(candidate);
+            }
+            if (written) {
+                remove(opacity_file);
+            }
         }
     }
 

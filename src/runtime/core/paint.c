@@ -161,8 +161,9 @@ static void paint_map_point(const wn_core *c, float *x, float *y)
     *y = t->m1 * px + t->m3 * py + t->m5;
 }
 
-/* Effective item opacity. The core bakes leaf opacity into vertex alpha; group
- * roots are 1.0 and their layer carries the group alpha instead. Identity
+/* Effective item opacity. Document opacity < 1 is carried by the item's group
+ * layer (the item itself stays 1.0); this factor is the flat path and the
+ * layer-cap fallback, plus the per-item value tests inject directly. Identity
  * returns 1.0 with no float math so the fast path stays byte-identical. */
 static float paint_opacity(const wn_core *c)
 {

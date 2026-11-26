@@ -77,7 +77,7 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | `line-height`                             | Sí       | No      | Sí      | px o número; afecta altura y baseline (half-leading)                                          |
 | `text-align`                              | Sí       | No      | Sí      | `left`/`center`/`right` por línea; el texto envuelve                                          |
 | `color`, `background`, `background-color` | Sí       | Sí      | Sí      | `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()`                                             |
-| `opacity`                                 | Sí       | Parcial | Sí      | grupo offscreen si tiene hijos (compone una vez); hoja = alfa directo; 0..1 |
+| `opacity`                                 | Sí       | Parcial | Sí      | todo nodo < 1 es grupo offscreen (también hojas); compone una vez; 0..1 |
 | `font-face`, web fonts                    | No       | No      | No      | no-goal                                                                                       |
 | gradientes                                | No       | No      | No      | fuera del subset                                                                              |
 
