@@ -16,6 +16,10 @@ typedef struct {
     int measure_calls;
     int shape_calls;
     int raster_calls;
+    /* No-hint `height` reported by measure, as a multiple of the font size.
+     * 0 keeps the 1.25 line box. The measured-height variant raises it so the
+     * block can be exercised where the backend box and the line box differ. */
+    float measured_scale;
 } WnFakeState;
 
 static WnFakeState g_fake;
@@ -109,7 +113,9 @@ static int fake_measure(void *context, const char *utf8, const wn_text_style *st
         out->height = fake_line_height(size) * 3.0f;
     } else {
         out->width = fake_advance(size) * (float)codepoints;
-        out->height = fake_line_height(size);
+        out->height = state != NULL && state->measured_scale > 0.0f
+                          ? size * state->measured_scale
+                          : fake_line_height(size);
     }
     return 0;
 }
@@ -257,9 +263,42 @@ static const wn_text_ops g_fake_failing_ops = {
     fake_cache_stats,
 };
 
+/* Same deterministic backend, but the no-hint measure reports a taller box than
+ * the ascent+descent line: layout must keep that measured height only for
+ * unconstrained single-line TEXT, while paint follows the line box. */
+static WnFakeState g_fake_measured;
+
+static int fake_measured_init(void **context)
+{
+    if (context == NULL) {
+        return 1;
+    }
+    memset(&g_fake_measured, 0, sizeof(g_fake_measured));
+    g_fake_measured.measured_scale = 1.4f;
+    *context = &g_fake_measured;
+    return 0;
+}
+
+static const wn_text_ops g_fake_measured_ops = {
+    "fake-measured",
+    fake_measured_init,
+    fake_destroy,
+    fake_measure,
+    fake_shape,
+    fake_rasterize,
+    fake_cache_misses,
+    fake_has_family,
+    fake_cache_stats,
+};
+
 const wn_text_ops *wn_text_fake(void)
 {
     return &g_fake_ops;
+}
+
+const wn_text_ops *wn_text_fake_measured(void)
+{
+    return &g_fake_measured_ops;
 }
 
 const wn_text_ops *wn_text_fake_failing_init(void)

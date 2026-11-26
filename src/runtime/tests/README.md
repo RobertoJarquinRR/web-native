@@ -35,8 +35,11 @@ backend, el corte greedy con slices exactos, `set_text` (medida + geometría
 pintada), el aislamiento de la caché de líneas por texto/tamaño/peso/ancho —todas
 las comprobaciones usan la familia `"fake"`, así que la separación por familia no
 se ejerce— y la supervivencia de entradas publicadas a una tormenta de fallos.
-`measure_test.c` es el smoke del backend real: en Windows debe pasar; fuera de
-Windows, donde no hay backend, reporta `SKIP`.
+`text_block_test.c` fija el bloque derivado que comparten layout, paint e input
+(alto de caja, leading medio, altura medida de una línea sin restricción, y el
+espaciado/centrado vertical de las líneas pintadas). `measure_test.c` es el
+smoke del backend real: en Windows debe pasar; fuera de Windows, donde no hay
+backend, reporta `SKIP`.
 
 ## `dump`
 

@@ -734,6 +734,37 @@ const wn_text_line_layout *wn_text_line_layout_get(const char *utf8, const char 
     return &g_lines[slot].layout;
 }
 
+int wn_text_block_get(const char *utf8, const char *family, float size, int weight,
+                      float wrap_width, float line_height_override, wn_text_block *out)
+{
+    const wn_text_line_layout *layout;
+    float natural;
+    float line_height;
+
+    if (out == NULL) {
+        return -1;
+    }
+    layout = wn_text_line_layout_get(utf8, family, size, weight, wrap_width);
+    if (layout == NULL) {
+        memset(out, 0, sizeof(*out));
+        return -1;
+    }
+    /* Same float order layout and paint used: natural first, the override
+     * replaces it when positive, then the line count scales it. */
+    natural = layout->line_height;
+    line_height = line_height_override > 0.0f ? line_height_override : natural;
+    out->layout = layout;
+    out->line_count = layout->line_count;
+    out->natural = natural;
+    out->line_height = line_height;
+    out->box_height = (float)layout->line_count * line_height;
+    out->half_leading = (line_height - natural) * 0.5f;
+    out->ascent = layout->ascent;
+    out->descent = layout->descent;
+    out->measured_height = layout->measured_height;
+    return 0;
+}
+
 /* --------------------------------------------------------------- backend */
 
 static int ensure_backend(void)

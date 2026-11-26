@@ -669,23 +669,19 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
         {
             const char *text = c->text_override[node] != NULL ? c->text_override[node] : n->text;
             float wrap_width = fmaxf(r->w - n->padding[1] - n->padding[3], 0.0f);
-            const wn_text_line_layout *layout = wn_text_line_layout_get(
-                text, n->font_family, n->font_size, n->font_weight, wrap_width);
-            float natural;
-            float line_height;
-            float box_height;
+            wn_text_block block;
+            const wn_text_line_layout *layout;
             float node_leading;
-            float half_leading;
             float avail = 0.0f;
             int align_per_line = 0;
-            if (layout == NULL) {
+            if (wn_text_block_get(text, n->font_family, n->font_size, n->font_weight,
+                                  wrap_width, WN_LINE_HEIGHT(n), &block) != 0) {
                 continue;
             }
-            natural = layout->line_height > 0.0f ? layout->line_height : 1.0f;
-            line_height = WN_LINE_HEIGHT(n) > 0.0f ? WN_LINE_HEIGHT(n) : natural;
-            box_height = (float)layout->line_count * line_height;
-            node_leading = r->h > box_height ? (r->h - box_height) * 0.5f : 0.0f;
-            half_leading = (line_height - natural) * 0.5f;
+            layout = block.layout;
+            node_leading = r->h > block.box_height
+                               ? (r->h - block.box_height) * 0.5f
+                               : 0.0f;
             /* `text-align` shifts each line inside the parent content box.
              * Flex and grid parents already position the text item. */
             if (WN_TEXT_ALIGN(n) != 0 && c->parent[node] >= 0) {
@@ -711,8 +707,8 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
                         align_dx = WN_TEXT_ALIGN(n) == 1 ? room * 0.5f : room;
                     }
                 }
-                baseline = r->y + node_leading + half_leading + layout->ascent +
-                           (float)line_index * line_height;
+                baseline = r->y + node_leading + block.half_leading + block.ascent +
+                           (float)line_index * block.line_height;
                 for (j = 0; j < run->count; ++j) {
                     const wn_text_glyph *glyph = &run->glyphs[j];
                     const wn_atlas_glyph *packed = wn_text_atlas_glyph(

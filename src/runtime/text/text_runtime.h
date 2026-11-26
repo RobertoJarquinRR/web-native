@@ -36,6 +36,31 @@ typedef struct {
     float line_height;    /* natural line box (ascent + descent) */
 } wn_text_line_layout;
 
+/* Derived block metrics shared by layout, paint and the input editor. It is
+ * built from the cached line layout so the wrap computation is never repeated:
+ * `natural` is the backend line box (ascent + descent), `line_height` the style
+ * override when positive or `natural`, and `box_height` the line count times
+ * `line_height`. `measured_height` is the backend's one-line height, which
+ * unconstrained single-line TEXT keeps as its auto height. Internal only: no
+ * public header, no exported symbol. */
+typedef struct {
+    const wn_text_line_layout *layout; /* cached line layout */
+    int line_count;
+    float natural;        /* backend line box (ascent + descent) */
+    float line_height;    /* style override or natural */
+    float box_height;     /* line_count * line_height */
+    float half_leading;   /* (line_height - natural) / 2 */
+    float ascent;
+    float descent;
+    float measured_height;/* one-line height reported by the backend */
+} wn_text_block;
+
+/* Fills `out` from wn_text_line_layout_get(..., wrap_width). `line_height_override`
+ * follows the CSS rule: <= 0 means the natural line box. Returns 0 on success;
+ * on failure `out` is zeroed and -1 is returned. */
+int wn_text_block_get(const char *utf8, const char *family, float size, int weight,
+                      float wrap_width, float line_height_override, wn_text_block *out);
+
 /* Resolve a CSS family list against the backend. Tries every family in order,
  * maps generics (serif/monospace/...) to concrete faces and falls back to the
  * first declared family only when none of them is installed. The result is the

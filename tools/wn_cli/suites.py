@@ -810,6 +810,19 @@ def run_text() -> int:
     contract_text = _run(contract_exe, [], out)
     _expect(contract_text, ["contract_test: PASS"], "text contract test")
     _expect_checks(contract_text, "text contract test", 45)
+
+    log_step("text: derived block (layout/paint/input)")
+    block_exe = out / "text_block_test.exe"
+    _compile(
+        block_exe,
+        [suite / "fake_text.c", suite / "text_block_test.c",
+         *[runtime / item for item in CORE_SOURCES]],
+        [get_paths().root / "include", runtime, fixture],
+        CORE_LIBS,
+    )
+    block_text = _run(block_exe, [], out)
+    _expect(block_text, ["text_block_test: PASS"], "text block test")
+    _expect_checks(block_text, "text block test", 44)
     log_info("runtime text v0: PASS")
     return 0
 
