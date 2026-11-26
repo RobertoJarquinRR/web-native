@@ -404,7 +404,21 @@ def run_fidelity() -> int:
     )
     kind_text = _run(kind_exe, [], out)
     _expect(kind_text, ["kind_ops_test: PASS"], "kind ops test")
-    _expect_checks(kind_text, "kind ops test", 50)
+    # 9 checks per kind entry (6 kinds) + 5 table-level checks. Deleting one
+    # kind iteration drops this to 50, so the floor is the full 59.
+    _expect_checks(kind_text, "kind ops test", 59)
+
+    log_step("fidelity: TEXT percentage height")
+    pct_exe = out / "text_pct_height_test.exe"
+    _compile(
+        pct_exe,
+        [_suite_dir("core") / "text_pct_height_test.c", *[runtime / source for source in CORE_SOURCES]],
+        [get_paths().root / "include", runtime, out / "emit"],
+        CORE_LIBS,
+    )
+    pct_text = _run(pct_exe, [], out)
+    _expect(pct_text, ["text_pct_height_test: PASS"], "TEXT percentage height test")
+    _expect_checks(pct_text, "TEXT percentage height test", 9)
 
     log_step("fidelity: compile runtime + renders")
     runtime_exe = out / "runtime_fidelity.exe"

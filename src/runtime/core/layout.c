@@ -749,6 +749,12 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
      * state needs no write either: only the container path below (and
      * hit_test, gated on scroll_max > 0) ever changes it, so a leaf's
      * scroll/scroll_max stay at the zero the arena is initialised with. */
+    /* One declared-height rule for every leaf, TEXT included: the percentage is
+     * the content box, so WN_DECL_H adds the padding back for content-box and
+     * is zero for border-box. IMAGE/INPUT always resolved this way; TEXT used
+     * to stop at the clipped content_h. The HTML/CSS emitter never emits a
+     * percentage height on TEXT today, but .wnui is public, so the loader can
+     * (locked by tests/core/text_pct_height_test.c). */
     if (ops->is_leaf) {
         float h;
         if (n->height >= 0.0f) {
