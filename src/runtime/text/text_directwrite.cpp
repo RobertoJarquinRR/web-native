@@ -282,14 +282,18 @@ static float clamp_font_size(float size)
 }
 
 /* CSS `font-weight` (100..=900) -> DWRITE_FONT_WEIGHT. The canonical CSS
- * numbers are the DWRITE constants; an in-between value (e.g. 450) picks the
- * nearest canonical weight. 400 and 700 map to NORMAL/BOLD exactly as before,
- * so pages that only used those weights keep byte-identical output.
+ * numbers are the DWRITE constants; an in-between value (e.g. 450 or 550) picks
+ * the nearest canonical weight (450 -> 400, 550 -> 500). That is deliberately
+ * *not* CSS Fonts 4's 400-500 preference, which would pick 500 for 450: the
+ * runtime follows the DirectWrite canonical scale so measure and shape agree.
+ * 400 and 700 map to NORMAL/BOLD exactly as before, so pages that only used
+ * those weights keep byte-identical output.
  *
  * DirectWrite then selects the nearest *installed* face of the family
- * (`GetFirstMatchingFont` / text-format fallback). It never synthesizes bold:
- * a family without the requested weight renders with the closest real face
- * (or with the family fallback if the family itself is missing). */
+ * (`GetFirstMatchingFont` / text-format fallback). Synthesis is not forced:
+ * when the family lacks the requested weight DirectWrite may simulate bold,
+ * otherwise it renders with the closest real face (or with the family fallback
+ * if the family itself is missing). */
 static DWRITE_FONT_WEIGHT dwrite_weight(int weight)
 {
     if (weight < 150) {

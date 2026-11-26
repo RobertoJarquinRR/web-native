@@ -225,6 +225,14 @@ fn offer(
     key: Key,
     from_state: bool,
 ) {
+    // CSS drops an invalid declaration while parsing, before the cascade picks
+    // a winner. Doing the same here means `#a{font-weight:600}` followed by
+    // `#a{font-weight:bogus}` (or an inline `font-weight:bogus`) keeps the
+    // earlier valid 600 instead of masking it and inheriting the parent's
+    // weight. The subset still reports the invalid value.
+    if name == "font-weight" && parse_font_weight(value).is_none() {
+        return;
+    }
     match map.get(name) {
         Some((current, _, _)) if *current > key => {}
         _ => {
@@ -622,9 +630,11 @@ fn resolve_box_length(
 /// CSS `font-weight`: `normal | bold | <integer 100..=900>`.
 ///
 /// CSS `font-weight` is inherited. A declaration outside the grammar or range
-/// is invalid and the cascade drops it: the node keeps the inherited computed
-/// weight (`parent_font_weight`), exactly like CSS. `subset` reports the value
-/// instead of letting it disappear.
+/// is invalid: `offer` drops it before winner selection, exactly like CSS's
+/// parse step. The earlier valid declaration therefore still wins; with no
+/// valid declaration the node keeps the inherited computed weight
+/// (`parent_font_weight`). `subset` reports the value instead of letting it
+/// disappear.
 pub(crate) fn parse_font_weight(value: &str) -> Option<i32> {
     let text = value.trim();
     if text.eq_ignore_ascii_case("normal") {

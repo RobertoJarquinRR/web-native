@@ -217,8 +217,16 @@ int main(void)
     if (face_count > 0) {
         int compared = 0;
         int distinct = 0;
-        check("400 and 700 are distinct installed faces",
-              has_face(face_weights, face_count, 400) && has_face(face_weights, face_count, 700));
+        if (has_face(face_weights, face_count, 400) &&
+            has_face(face_weights, face_count, 700)) {
+            check("400 and 700 are distinct installed faces", 1);
+        } else {
+            /* A family can ship regular without bold (or vice versa): the
+             * nearest-face fallback already covers the missing side, so skip
+             * this pair instead of encoding this machine's face set. */
+            printf("  text_weight_test: SKIP 400/700 pair (%s lacks regular or bold)\n",
+                   FAMILY);
+        }
         for (int i = 0; i < weight_count; ++i) {
             if (!face_installed[i]) {
                 continue;
@@ -238,7 +246,11 @@ int main(void)
             }
         }
         printf("  distinct installed pairs: %d/%d differ in width\n", distinct, compared);
-        check("distinct installed faces have distinct metrics", compared > 0 && distinct == compared);
+        if (compared > 0) {
+            check("distinct installed faces have distinct metrics", distinct == compared);
+        } else {
+            printf("  text_weight_test: SKIP distinct metrics (need two installed faces)\n");
+        }
     }
 
     /* ------------------------------------------ weight is a cache key */

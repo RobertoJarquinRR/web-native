@@ -175,6 +175,54 @@ fn invalid_weights_are_diagnosed_and_keep_the_inherited_value() {
 }
 
 #[test]
+fn invalid_declaration_does_not_mask_an_earlier_valid_one() {
+    // CSS drops the invalid declaration before the cascade picks a winner, so
+    // the earlier valid 600 survives in both the same-selector and inline
+    // cases. Falling back to the inherited 500 would be wrong.
+    let html = r##"<!doctype html>
+<html><head><style>
+  body { display: block; font-weight: 500; }
+  #same { font-weight: 600; }
+  #same { font-weight: bogus; }
+  #inline { font-weight: 600; }
+  #late { font-weight: bogus; }
+  #late { font-weight: 600; }
+</style></head>
+<body>
+  <div id="same">same selector</div>
+  <div id="inline" style="font-weight: bogus">inline</div>
+  <div id="late">invalid first</div>
+</body></html>
+"##;
+    let dir = temp_dir("font-weight-invalid-masking");
+    let tree = build(&dir, html);
+
+    assert_eq!(
+        node(&tree, "same").style.font_weight,
+        "600",
+        "a later invalid rule must not mask the earlier 600"
+    );
+    assert_eq!(
+        node(&tree, "inline").style.font_weight,
+        "600",
+        "an invalid inline value must not mask the rule's 600"
+    );
+    assert_eq!(
+        node(&tree, "late").style.font_weight,
+        "600",
+        "an earlier invalid rule must not mask the later 600"
+    );
+
+    // The diagnostic still reports every invalid declaration.
+    let rendered = diagnostics("font-weight-invalid-masking-subset", html);
+    let weight_diagnostics: Vec<&String> = rendered
+        .iter()
+        .filter(|line| line.contains("'font-weight'") && line.contains("bogus"))
+        .collect();
+    assert_eq!(weight_diagnostics.len(), 3, "{rendered:#?}");
+}
+
+#[test]
 fn invalid_root_weight_falls_back_to_400() {
     let dir = temp_dir("font-weight-root");
     let html = r##"<!doctype html><html><head><style>

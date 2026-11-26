@@ -75,11 +75,13 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 - `opacity` (0–1; valores fuera de rango se recortan, porcentajes no se
   aceptan en v1).
 
-> **Runtime actual:** `font-weight` 100–900 se mapea a `DWRITE_FONT_WEIGHT`
-> (los valores canónicos son los números CSS; valores intermedios eligen el más
-> cercano) y DirectWrite selecciona la cara instalada más próxima de la familia.
-> No hay bold sintético: si la familia no tiene ese peso se usa la cara real más
-> cercana. `line-height` y `text-align` se aplican en R2 (E1), `margin: auto`
+> **Runtime actual:** `font-weight` 100–900 se mapea a `DWRITE_FONT_WEIGHT`.
+> Un valor intermedio elige el canónico más cercano, no la preferencia 400–500
+> de CSS Fonts 4: `450` cae en `400` y `550` en `500`. Después DirectWrite
+> selecciona la cara instalada más próxima de la familia. No se fuerza
+> síntesis: si la familia no trae el peso, DirectWrite puede simular bold (o
+> usar la cara real más cercana). `line-height` y `text-align` se aplican en R2
+> (E1), `margin: auto`
 > funciona en block y flex. Todo nodo con `opacity < 1` crea un **grupo**: su
 > caja y su subárbol se pintan en una capa offscreen y se componen una sola vez.
 > Las hojas también, porque pueden pintar varias pasadas (borde+fondo, sombra+
