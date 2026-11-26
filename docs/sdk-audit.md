@@ -72,9 +72,9 @@ Pendiente de la lista: B1, B7, B10, C2–C10 (C11 en revisión).
 | C1 | CI | No hay CI: wgpu no está versionado y no hay script de descarga | se borró el workflow R1 | workflow con `WN_NO_WGPU` (B8) o fetch con hash |
 | C2 | Paridad visual | `benchmarks/visual-parity/tools/render_native.py` apunta a `c-r2` y no hay runner | R1 retirado | retirar a `archive/` o reescribir sobre `wn-cli` |
 | C3 | Métricas | `engine-metrics` sin ejecutar desde que se quitó R1 | rama R1 eliminada sin re-baseline | correr `wn-cli bench metrics` y actualizar `BASELINE.md` |
-| C4 | Tests | `test all` regenera `tests/*/page/ui.json` trackeados y deja el árbol sucio | fixtures dentro del repo | generarlos en `out/` o commitearlos como golden y no regenerarlos |
-| C5 | Compilador | Rust escribe `.wnui` y `ui_data.h`; el emisor Python sigue en el pipeline | transición a medias | **C12** retira el header y el emisor; hasta entonces `--emit-header` es temporal |
-| C12 | Documento | Dos formatos de documento (`ui_data.h` compilado y `.wnui`) y `ui.json` como etapa/schema: mantenimiento duplicado y deriva entre caminos | builtin en tablas C + pipeline JSON→emisor | **fase 1 hecha**: builtin y tests usan blob (loader por memoria); queda retirar `--emit-ui`/`--emit-header`/emisor y añadir `wnui-dump` |
+| C4 | Tests | **resuelto**: los suites emiten blobs en `out/` y no regeneran fixtures trackeados | fixtures dentro del repo | cerrado con la consolidación del documento |
+| C5 | Compilador | **resuelto**: el frontend Rust emite solo `.wnui`; `--emit-header` y `header.rs` ya no existen | había dos serializadores | cerrado; el emisor Python queda solo para los fixtures CSS hasta 2b |
+| C12 | Documento | **fase 1 y 2a hechas**: runtime blob-only (builtin embebido, loader por memoria), frontend `--emit-blob` único, `wnui-dump` y hashes fijados | quedaba `ui.json`/`ui_data.h` en build y tests | **2b**: migrar los fixtures CSS a HTML/CSS y borrar `emit_ui.py` |
 | C6 | Blob | Solo hay versión exacta; sin política de compatibilidad | loader exige `version == 2` | aceptar versiones ≤ actual con secciones opcionales |
 | C7 | Hilos | `text_runtime` es singleton global con buffer estático | asume un hilo de UI | documentar o pasar contexto por core |
 | C8 | Errores | Mezcla de `-1/-2` y `wn_status`; no hay código estructurado | crecimiento histórico | normalizar a `wn_status` + `wn_last_error` |
@@ -95,9 +95,9 @@ Pendiente de la lista: B1, B7, B10, C2–C10 (C11 en revisión).
 ## Lo que ya está maduro
 
 - Texto: medición, shaping y raster en runtime; atlas dinámico; sin glifos en el documento.
-- Documento: blob v2 versionado, loader con mmap, offsets validados (salvo A5), escritor Rust byte-idéntico al de referencia.
-- ABI v5: identidad de nodo en eventos, navegación de subárbol, carga de documento, stats.
-- Suites: 9/9 con comparación de píxeles exacta (blob/offscreen) y piloto 48/48.
+- Documento: blob v2 versionado, loader con mmap y por memoria, builtin embebido, hashes fijados por suite, escritor Rust byte-idéntico al de referencia.
+- ABI v6: identidad de nodo, estado por nodo, getters, eventos con botón, tick y refcount.
+- Suites: 10/10 con comparación de píxeles exacta (blob/offscreen), dump y piloto 48/48.
 
 ## Validado por la app
 
@@ -111,8 +111,8 @@ no son del motor (diálogo de carpeta, persistencia) están marcados P3 allí.
 ## Orden recomendado
 
 1. ~~A1, A3, A4~~ (hecho), ~~A6, A7~~ (hecho), ~~B2–B5~~ (hecho en v6).
-2. C11 (paridad de color con tinycss2): desbloquea retirar el emisor Python.
-3. C5 + B1: cambiar `wn-cli`/suites a `--emit-header` y limpiar la API heredada.
+2. ~~C11~~ (color con tinycss2): hecho; el emisor ya no diverge en color.
+3. **C12 fase 2b**: migrar los fixtures CSS a HTML/CSS y borrar `emit_ui.py`; después C5/C4 quedan cerrados del todo.
 4. Input v2 (IME, multilínea, undo/redo) e imágenes (decode asíncrono, formatos).
 5. A2/A9 ~~hechos~~; quedan A5 (checksum del blob), B7 (DPI), B10 (async),
    C2–C10 (tooling, accesibilidad, undo de UI).
