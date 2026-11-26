@@ -33,7 +33,11 @@
 7. Un probe o harness temporal que descubra un contrato o un bug se convierte
    en test permanente de la suite antes de cerrar el hallazgo; el probe se
    borra. Los tests de contrato no dependen de un backend concreto: usan la
-   vtable o un backend falso; el backend real queda como smoke. Ejemplo:
+   vtable o un backend falso; el backend real queda como smoke.
+8. Los commits son del usuario: no se añaden trailers de co-autoría de IA
+   (`Co-authored-by: Copilot/Claude/...`). Si una herramienta los añade, se
+   eliminan antes de commitear. Un co-autor solo se pone si el usuario lo pide
+   con nombre y email exactos. Ejemplo:
    `src/runtime/tests/text/contract_test.c` corre sobre `fake_text.c` y fija
    que `max_width` sea solo una pista (el backend falso miente a propósito),
    mientras `measure_test.c` queda como smoke del backend real.
