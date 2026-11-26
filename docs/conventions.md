@@ -30,6 +30,10 @@
    `benchmarks/frontend-parity/SPEC.md` y viven en `archive/frontends-legacy/`.
    No se actualizan con features nuevas de Rust; un cambio del SPEC decide si
    se actualizan o quedan fuera del subset.
+7. Un probe o harness temporal que descubra un contrato o un bug se convierte
+   en test permanente de la suite antes de cerrar el hallazgo; el probe se
+   borra. Los tests de contrato no dependen de un backend concreto: usan la
+   vtable o un backend falso; el backend real queda como smoke.
 
 ## Mapa actual
 
