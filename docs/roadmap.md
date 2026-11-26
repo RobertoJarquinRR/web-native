@@ -8,7 +8,8 @@
 - R1 estático (ventana/PNG, rects + texto) — **[archivado](archive/r1-static/README.md)**
   tras la consolidación: duplicaba layout y renderer.
 - Motor dinámico (layout runtime, eventos, resize, estados) en `src/runtime`.
-- Rust `--emit-ui` → `ui.json` → `emit_ui.py --ui-json` → `ui_data.h`.
+- Rust `--emit-blob` → `.wnui` (documento único); builtin embebido en la DLL.
+  `ui.json`/`ui_data.h` quedan como oráculo temporal del frontend.
 - Repo git + docs base.
 
 ## Workstreams E1–E8 (estado 2026-11)
@@ -38,9 +39,10 @@ Un stream no toca los archivos de otro; se integra por contrato.
 - ✅ Runtime C en módulos (`core/`, `document/`, `text/`), grid/scroll/imágenes.
 - ✅ **Texto en runtime**: medición, shaping y atlas dinámico; el documento no
   lleva glifos, runs ni atlas, tampoco para inputs.
-- ✅ **Blob v2 `.wnui`**: escritor en Rust (`--emit-blob`, byte-idéntico al
-  emisor) y loader C con mmap; `wn_app_load_document` en la ABI.
-- ✅ **SDK genérica**: `webnative.dll` (217 KB con wgpu, 195 KB sin él) +
+- ✅ **Blob v2 `.wnui`**: escritor en Rust (byte-idéntico al emisor), loader C
+  con mmap y **loader por memoria**; el builtin de la DLL es un blob embebido
+  parseado por el mismo loader. `wn_app_load_document` en la ABI.
+- ✅ **SDK genérica**: `webnative.dll` (181 KiB con wgpu, 160 KiB sin él) +
   `app.wnui`; la galería (`C:\Proyects\gallery`) consume solo `sdk/` y su
   documento.
 - ✅ ABI v4: dinámica, input de una línea, stats públicas; v5: identidad de
@@ -49,8 +51,8 @@ Un stream no toca los archivos de otro; se integra por contrato.
 - ✅ CSS core v1 (41/41), E1 (23/23), dynamic (61/61), input (83 + 118/118),
   text (144), offscreen (100 % exacto), blob; `test all` 9/9 y piloto 48/48.
 - ✅ Frontend Rust por etapas (`parse/style/emit/cli`); R1 retirado y su
-  benchmark archivado (`archive/benchmarks-r1/`). `.wnui` y `ui_data.h` se
-  emiten desde Rust (`--emit-blob`, `--emit-header`).
+  benchmark archivado (`archive/benchmarks-r1/`). `.wnui` se emite desde Rust;
+  `ui_data.h`/`ui.json` sobreviven solo para el oráculo hasta retirarlos.
 - ✅ **E6**: CI de dos jobs — D3D11 offline y wgpu con artefacto fijado por
   SHA-256. La paridad visual sigue sin runner.
 - ⏭ Siguiente: C11 (paridad de color) y retirar el emisor Python, input v2

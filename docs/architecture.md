@@ -7,11 +7,12 @@
 │ 1. Frontends                                                 │
 │    Rust (canónico) · Python (oráculo) · C++/C# (frozen)      │
 ├──────────────────────────────────────────────────────────────┤
-│ 2. IR (contratos)                                            │
-│    ui.json / ui_data.h / app.wnui (style tree pre-layout)    │
+│ 2. Documento (contrato runtime)                              │
+│    app.wnui (blob v2) · builtin embebido                     │
+│    ui.json / ui_data.h: solo oráculo/tests (en retirada)     │
 ├──────────────────────────────────────────────────────────────┤
-│ 3. Emitters (build time)                                     │
-│    emit_ui.py                                                │
+│ 3. Serializadores (build time)                               │
+│    frontend Rust (--emit-blob) · emit_ui.py (oráculo)        │
 ├──────────────────────────────────────────────────────────────┤
 │ 4. Core C                                                    │
 │    tree · styles · layout · state · hit test · display list  │
@@ -43,19 +44,18 @@
 
 | Frontera | Formato | Productor | Consumidor |
 |---|---|---|---|
-| HTML/CSS → UI tree | `ui.json` | frontend | `emit_ui` |
-| UI tree → datos C | `ui_data.h` | emitter | runtime |
-| UI tree → documento | `app.wnui` | emitter | `wn_document_load_blob` |
+| HTML/CSS → UI tree | en memoria | frontend | blob writer |
+| UI tree → documento | `app.wnui` / `builtin.wnui` | frontend | `wn_document_load_blob(_memory)` |
 | App ↔ engine | `include/webnative.h` | engine | host (C/C++/Rust/C#/Python) |
 | Engine ↔ GPU | vtable `wn_renderer` | core | D3D11 o wgpu |
 | Engine ↔ OS | vtable `wn_host` | core | Win32 host |
+| *Transición* | `ui.json` + `ui_data.h` | frontend + `emit_ui.py` | oráculo y tests de CSS |
 
 ## Flujo
 
 ```
-HTML/CSS → frontend Rust ──> ui.json ──┬─> --emit-header ──> ui_data.h (builtin)
-                        │             └─> --emit-blob ────> app.wnui (SDK)
-                        └─ emit_ui.py (oráculo test-only, mismo header)
+HTML/CSS → frontend Rust ──> --emit-blob ──> app.wnui ──┬─> SDK (wn_document_load_blob)
+                                                       └─> embed ──> builtin_blob.h (kBuiltinBlob)
 runtime: eventos → estado → layout C (mide el texto) → display list
          → renderer → ventana
 host: ABI v6 → set_visible/set_image/set_text/clone (v3) + input (v4)
@@ -76,22 +76,21 @@ El texto no se hornea: el documento lleva cadena, familia, tamaño, peso y
 
 `wn-cli build` produce también `webnative.dll` (objetivo CMake `webnative`,
 `WN_BUILD_DLL`), que un consumidor externo puede enlazar sin ver el repo. La
-DLL se compila una vez con el documento canónico como fallback; cada app carga
-su `app.wnui` con `wn_app_load_document()`. El compilador del SDK es
-`frontend-rust --emit-ui --emit-blob`: el emisor Python solo hace falta para
-regenerar el `ui_data.h` de respaldo.
+DLL se compila una vez con el documento canónico embebido como fallback; cada
+app carga su `app.wnui` con `wn_app_load_document()`. El compilador del SDK es
+`frontend-rust --emit-blob`; la página builtin se embebe como bytes y la parsea
+el mismo loader (`wn_document_load_blob_memory`).
 
 ### Documento compilado (`.wnui`)
 
-El mismo árbol que sale a `ui_data.h` se serializa a un blob v2: cabecera de
-32 bytes (`WNUI`, versión 2) y secciones de nodos, nombres, strings e inputs. No
-hay glifos, runs, atlas ni piscina ASCII: el texto de los inputs también lo
-shapea el runtime. Los nodos son enteros y floats con offsets al pool de
-strings (0 = NULL).
+El árbol se serializa a un blob v2: cabecera de 32 bytes (`WNUI`, versión 2) y
+secciones de nodos, nombres, strings e inputs. No hay glifos, runs, atlas ni
+piscina ASCII: el texto de los inputs también lo shapea el runtime. Los nodos
+son enteros y floats con offsets al pool de strings (0 = NULL).
 
 `wn_document_load_blob` mapea el archivo en solo lectura (Windows:
 `CreateFileMapping`/`MapViewOfFile`; resto: `malloc`) y devuelve el documento
-hasta `wn_document_destroy`. `wn_app_load_document` lo carga en una app viva,
+hasta la última referencia. `wn_app_load_document` lo carga en una app viva,
 conserva el renderer y devuelve `WN_ERR_IO` con blob inválido. La página
 canónica pesa 17.557 bytes como header y 7.512 bytes como blob.
 

@@ -3,11 +3,16 @@
 Motor experimental de **HTML + CSS a UI nativa GPU**, sin navegador, sin
 WebView, sin Skia y sin Electron.
 
-El contrato central es el **árbol de estilos pre-layout** (`ui.json` →
-`ui_data.h`): el frontend Rust lo produce en build time, `emit_ui.py` lo
-convierte en datos C, y el motor calcula layout, estado y pintado en runtime
-sobre una vtable de backend: **D3D11** en Windows y **wgpu-native**
-(D3D12 / Vulkan / Metal) como alternativa y fallback.
+El contrato central es el **documento `.wnui`** (blob v2): el frontend Rust lo
+produce en build time desde HTML/CSS, y el motor calcula layout, estado y
+pintado en runtime sobre una vtable de backend: **D3D11** en Windows y
+**wgpu-native** (D3D12 / Vulkan / Metal) como alternativa y fallback. La página
+builtin va embebida como blob en la DLL y la carga el mismo loader que un
+consumidor.
+
+> **En transición:** `ui.json` y `ui_data.h` siguen existiendo solo para el
+> oráculo Python y los tests de CSS; el runtime ya no los consume. El siguiente
+> carril los retira y deja `wnui-dump` como vista de debug del blob.
 
 > **R1 está archivado.** La primera prueba del proyecto —hornear un
 > `display_list.json` post-layout en un `.exe` estático— duplicaba renderizador
@@ -39,7 +44,7 @@ src/
   ir/                 contrato del IR + schema
   frontend/           frontend canónico en Rust (Cargo.toml + src/ + tests/)
   runtime/            motor C: layout en runtime, eventos, resize, renderer
-  emitter/python/     emit_ui.py (estilos -> ui_data.h; oráculo test-only)
+  emitter/python/     emit_ui.py (oráculo temporal de ui_data.h)
 tools/
   cli.py              wn-cli: entry point de build/run/test/bench/setup
   wn_cli/             implementación del CLI (comandos y rutas del repo)

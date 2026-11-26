@@ -68,7 +68,7 @@ Pendiente de la lista: B1, B7, B10, C2–C10 (C11 en revisión).
 | C3 | Métricas | `engine-metrics` sin ejecutar desde que se quitó R1 | rama R1 eliminada sin re-baseline | correr `wn-cli bench metrics` y actualizar `BASELINE.md` |
 | C4 | Tests | `test all` regenera `tests/*/page/ui.json` trackeados y deja el árbol sucio | fixtures dentro del repo | generarlos en `out/` o commitearlos como golden y no regenerarlos |
 | C5 | Compilador | Rust escribe `.wnui` y `ui_data.h`; el emisor Python sigue en el pipeline | transición a medias | **C12** retira el header y el emisor; hasta entonces `--emit-header` es temporal |
-| C12 | Documento | Dos formatos de documento (`ui_data.h` compilado y `.wnui`) y `ui.json` como etapa/schema: mantenimiento duplicado y deriva entre caminos | builtin en tablas C + pipeline JSON→emisor | **en curso**: blob único, builtin embebido, `wnui-dump`, retirar `--emit-ui`/`--emit-header`/emisor |
+| C12 | Documento | Dos formatos de documento (`ui_data.h` compilado y `.wnui`) y `ui.json` como etapa/schema: mantenimiento duplicado y deriva entre caminos | builtin en tablas C + pipeline JSON→emisor | **fase 1 hecha**: builtin y tests usan blob (loader por memoria); queda retirar `--emit-ui`/`--emit-header`/emisor y añadir `wnui-dump` |
 | C6 | Blob | Solo hay versión exacta; sin política de compatibilidad | loader exige `version == 2` | aceptar versiones ≤ actual con secciones opcionales |
 | C7 | Hilos | `text_runtime` es singleton global con buffer estático | asume un hilo de UI | documentar o pasar contexto por core |
 | C8 | Errores | Mezcla de `-1/-2` y `wn_status`; no hay código estructurado | crecimiento histórico | normalizar a `wn_status` + `wn_last_error` |

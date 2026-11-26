@@ -109,7 +109,7 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | Bordes / radius / sombras v1                 | ✅  | radio/borde uniforme; primera sombra; sin per-side/inset |
 | Virtualización / culling                     | ❌  | pendiente                                                |
 | Text shaping runtime                         | ✅  | DirectWrite; medición, shaping y atlas dinámico          |
-| Documento `.wnui` (blob)                     | ✅  | mmap, refcount (`retain/release`), carga en app viva     |
+| Documento `.wnui` (blob)                     | ✅  | mmap + memoria, refcount; builtin embebido en la DLL     |
 | Wrapping / line breaking                     | ✅  | greedy por palabras; `line-height` y `text-align` por línea |
 | Ellipsis / truncado por ancho                | ❌  | pendiente (el host compacta)                             |
 | Timers / reloj público                       | ✅  | `wn_app_set_tick_ms` + `wn_view_tick`; blink interno aparte |

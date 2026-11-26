@@ -1,4 +1,11 @@
-# R2 — runtime C dinámico (`src/runtime/c-r2`)
+# R2 — runtime C dinámico (`src/runtime`)
+
+> **Documento histórico (2026-11-24).** Este README describe R2 antes de
+> texto en runtime, blob-only y ABI v6; varias afirmaciones ya no aplican
+> (atlas pre-shapeado, piscina ASCII, `ui_data.h` como entrada, wgpu por
+> defecto). La fuente viva es [`docs/support.md`](../docs/support.md),
+> [`docs/abi.md`](../docs/abi.md) y [`docs/architecture.md`](../docs/architecture.md).
+> Se reescribe en la fase 2 de la consolidación del documento.
 
 **Estado: PASS (69/69 checks).** Layout calculado en C en runtime, ventana
 Win32 redimensionable, reflow real en `WM_SIZE`, hit testing y estados
