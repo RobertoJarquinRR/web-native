@@ -55,8 +55,25 @@ static inline const WnKindOps *wn_kind_ops(int kind)
 }
 
 /* Max-content width: the caller's declared px/% rule, then the kind hook.
- * Recursive so parent hooks ask their children the same question. */
-float wn_intrinsic_width(wn_core *c, int node, float available);
+ * Recursive so parent hooks ask their children the same question. Inline for
+ * the same reason as wn_kind_ops: flex measurement asks it per item. */
+static inline float wn_intrinsic_width(wn_core *c, int node, float available)
+{
+    const UiNode *n = &c->nodes[node];
+    const WnKindOps *ops;
+    if (n->width >= 0.0f) {
+        return n->width + WN_DECL_W(n);
+    }
+    if (n->width_pct > 0.0f) {
+        return available * n->width_pct * 0.01f + WN_DECL_W(n);
+    }
+    ops = wn_kind_ops(n->kind);
+    /* A corrupt kind keeps the historical block behaviour. */
+    if (ops == NULL) {
+        ops = wn_kind_ops(R2_NODE_BLOCK);
+    }
+    return ops->intrinsic_width(c, node, available);
+}
 
 /* Children algorithms exposed for the table. All return the y cursor after the
  * last child; the flex/grid wrappers reproduce the exact cursor arithmetic

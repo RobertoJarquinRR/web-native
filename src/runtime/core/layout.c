@@ -756,7 +756,10 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
     const float content_y = y + pad_t;
 
     /* Leaves never run children: the kind entry owns their height and the
-     * early return keeps the historical "no children, no scroll" contract. */
+     * early return keeps the historical "no children" contract. Their scroll
+     * state needs no write either: only the container path below (and
+     * hit_test, gated on scroll_max > 0) ever changes it, so a leaf's
+     * scroll/scroll_max stay at the zero the arena is initialised with. */
     if (ops->is_leaf) {
         float h;
         if (n->height >= 0.0f) {
@@ -770,10 +773,6 @@ static float layout_node(wn_core *c, int node, float origin_x, float origin_y,
         c->rects[node].y = y;
         c->rects[node].w = w;
         c->rects[node].h = h;
-        /* Layout only ever sets scroll_max on containers, so leaves always
-         * carry zero scroll; this keeps the old INPUT reset explicit. */
-        c->scroll_max[node] = 0.0f;
-        c->scroll[node] = 0.0f;
         return h + n->margin[2];
     }
 

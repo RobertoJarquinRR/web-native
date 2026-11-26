@@ -229,8 +229,7 @@ static float input_intrinsic_width(wn_core *c, int node, float available)
 /* ------------------------------------------------------------------ table */
 
 /* One entry per R2_NODE_*, in enum order. */
-const WnKindOps wn_kind_table[WN_KIND_COUNT] = {
-    /* R2_NODE_BLOCK */
+const WnKindOps wn_kind_table[WN_KIND_COUNT] = {    /* R2_NODE_BLOCK */
     { "block", 0, NULL, NULL, block_intrinsic_width, wn_layout_block_children },
     /* R2_NODE_FLEX */
     { "flex", 0, NULL, NULL, flex_intrinsic_width, wn_layout_flex_children },
@@ -243,20 +242,3 @@ const WnKindOps wn_kind_table[WN_KIND_COUNT] = {
     /* R2_NODE_INPUT */
     { "input", 1, NULL, input_auto_height, input_intrinsic_width, NULL },
 };
-
-float wn_intrinsic_width(wn_core *c, int node, float available)
-{
-    const UiNode *n = &c->nodes[node];
-    const WnKindOps *ops = wn_kind_ops(n->kind);
-    if (n->width >= 0.0f) {
-        return n->width + WN_DECL_W(n);
-    }
-    if (n->width_pct > 0.0f) {
-        return available * n->width_pct * 0.01f + WN_DECL_W(n);
-    }
-    /* A corrupt kind keeps the historical block behaviour. */
-    if (ops == NULL) {
-        ops = wn_kind_ops(R2_NODE_BLOCK);
-    }
-    return ops->intrinsic_width(c, node, available);
-}
