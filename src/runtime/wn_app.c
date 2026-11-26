@@ -483,6 +483,7 @@ wn_status wn_node_set_state(wn_app *app, wn_node_id node, uint32_t state,
 
 uint32_t wn_node_get_state(wn_app *app, wn_node_id node)
 {
+    wn_clear_error();
     if (app == NULL || app->view == NULL) {
         return 0;
     }
@@ -523,22 +524,33 @@ wn_status wn_node_scroll_into_view(wn_app *app, wn_node_id node, float margin)
 
 wn_status wn_app_focus_input(wn_app *app, wn_node_id node)
 {
+    wn_status status;
     wn_clear_error();
     if (app == NULL || app->view == NULL) {
         wn_set_error("wn_app_focus_input: app is NULL");
         return WN_ERR_INVALID_ARGUMENT;
     }
-    return wn_view_focus_input(app->view, node);
+    status = wn_view_focus_input(app->view, node);
+    /* Called outside an event dispatch, so the blink timer would not sync. */
+    if (status == WN_OK) {
+        app_sync_caret_blink(app);
+    }
+    return status;
 }
 
 wn_status wn_app_blur_input(wn_app *app)
 {
+    wn_status status;
     wn_clear_error();
     if (app == NULL || app->view == NULL) {
         wn_set_error("wn_app_blur_input: app is NULL");
         return WN_ERR_INVALID_ARGUMENT;
     }
-    return wn_view_blur_input(app->view);
+    status = wn_view_blur_input(app->view);
+    if (status == WN_OK) {
+        app_sync_caret_blink(app);
+    }
+    return status;
 }
 
 wn_status wn_node_set_image_size(wn_app *app, wn_node_id node,

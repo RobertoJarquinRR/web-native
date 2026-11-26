@@ -245,7 +245,8 @@ static int test_view_reads(void)
             ok = ok && wn_core_node_rect((wn_core *)wn_view_core(view), index,
                                          &via_core) == 0 &&
                  via_view.x == via_core.x && via_view.y == via_core.y &&
-                 via_view.w == via_core.w && via_view.h == via_core.h;
+                 via_view.w == via_core.w && via_view.h == via_core.h &&
+                 via_view.w > 0.0f && via_view.h > 0.0f;
             ok = ok && root != WN_NODE_INVALID;
             {
                 wn_rect out;

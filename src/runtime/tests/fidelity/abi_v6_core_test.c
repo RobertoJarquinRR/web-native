@@ -10,6 +10,7 @@
  *
  *   abi_v6_core_test.exe
  */
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -162,8 +163,10 @@ int main(void)
               "unknown intrinsic size collapses the auto height");
         check("image size invalid",
               wn_core_set_image_size(g_core, search, 10.0f, 10.0f) == 1 &&
-              wn_core_set_image_size(g_core, image, -1.0f, 2.0f) == -1,
-              "non-image and negative size are rejected");
+              wn_core_set_image_size(g_core, image, -1.0f, 2.0f) == -1 &&
+              wn_core_set_image_size(g_core, image, NAN, 2.0f) == -1 &&
+              wn_core_set_image_size(g_core, image, 2.0f, INFINITY) == -1,
+              "non-image, negative and non-finite sizes are rejected");
         check("image size restore",
               wn_core_set_image_size(g_core, image, 20.0f, 10.0f) == 0,
               "restored for later stages");

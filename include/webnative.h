@@ -32,6 +32,9 @@
  *        (wn_document_retain/release) and wn_node_set_image_size for the
  *        intrinsic size of a replaced image. All additions are append-only:
  *        the v5 layout is unchanged up to the new trailing event members.
+ *        wn_event.node is now also reported for right/middle buttons and for
+ *        left clicks on non-interactive nodes; hosts that act on POINTER_UP
+ *        must gate on `button` (0 is reserved for non-pointer events).
  */
 #ifndef WEBNATIVE_H
 #define WEBNATIVE_H
@@ -339,14 +342,15 @@ WN_API wn_status wn_node_append(wn_app *app, wn_node_id parent, wn_node_id child
 
 /* --------------------------------------------------- node state (ABI v6) */
 /*
- * Per-node interaction state. `state` is one or more WN_STATE_* bits (hover,
- * press, selected); `enabled` sets or clears those bits on `node`. Hover and
- * press remain exclusive (the pointer has a single cursor), but selected is
- * per-node: a host may mark several nodes selected. Painting uses the compiled
- * hover_bg/press_bg/selected_bg colors with the same press > hover > selected
- * priority as before, so the existing single-selection visuals are unchanged.
- * Returns WN_ERR_INVALID_ARGUMENT for a dead handle or an unknown bit.
- * wn_node_get_state() returns the active mask, or 0 for a dead handle.
+ * Per-node interaction state. `state` is a non-zero mask of WN_STATE_* bits
+ * (hover, press, selected); `enabled` sets or clears those bits on `node`.
+ * Hover and press remain exclusive (the pointer has a single cursor), but
+ * selected is per-node: a host may mark several nodes selected. Painting uses
+ * the compiled hover_bg/press_bg/selected_bg colors with the same
+ * press > hover > selected priority as before, so the existing single-selection
+ * visuals are unchanged.
+ * Returns WN_ERR_INVALID_ARGUMENT for a dead handle, a zero mask or an unknown
+ * bit. wn_node_get_state() returns the active mask, or 0 for a dead handle.
  */
 WN_API wn_status wn_node_set_state(wn_app *app, wn_node_id node, uint32_t state,
                                    int enabled);
@@ -384,8 +388,9 @@ WN_API wn_status wn_app_blur_input(wn_app *app);
 /*
  * Override the intrinsic size used by layout/object-fit after wn_node_set_image
  * (0, 0 = unknown). Useful when the host knows the new file's pixel size: an
- * image box without a CSS height then follows the new aspect ratio. The call
- * marks layout dirty; the next frame/render applies it. */
+ * image box without a CSS height then follows the new aspect ratio. Negative,
+ * NaN or infinite sizes are rejected. The call marks layout dirty; the next
+ * frame/render applies it. */
 WN_API wn_status wn_node_set_image_size(wn_app *app, wn_node_id node,
                                         float width, float height);
 

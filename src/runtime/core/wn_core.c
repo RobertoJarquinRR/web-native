@@ -5,6 +5,7 @@
  * text editor in core/input.c and the pointer state machine in core/hit_test.c.
  * The core owns every heap block; the other modules only read and write it.
  */
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -894,7 +895,7 @@ int wn_core_set_image_size(wn_core *core, int node, float width, float height)
     if (core == NULL || !wn_core_node_is_alive(core, node)) {
         return -1;
     }
-    if (width < 0.0f || height < 0.0f) {
+    if (!isfinite(width) || !isfinite(height) || width < 0.0f || height < 0.0f) {
         return -1;
     }
     n = &core->nodes[node];
@@ -1190,6 +1191,6 @@ void wn_core_destroy(wn_core *core)
     wn_free_(core->glyph_batches);
     wn_free_(core->image_vertices);
     wn_free_(core->image_batches);
-    free(core);
+    wn_free_(core);
     wn_document_release((wn_document *)document);
 }
