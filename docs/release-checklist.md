@@ -105,8 +105,8 @@ python tools\cli.py bench pilot
 
 - [ ] R2 **69/69**.
 - [ ] `python tools\cli.py test all` encadena Rust, ABI, **CSS 41/41**,
-      **fidelity 23/23**, **dynamic 61/61**, **input 80 + 118/118**, **blob** y
-      **offscreen** (d3d11 vs wgpu).
+      **fidelity 23/23**, **abi_v6 19**, **dynamic 61/61**, **input 83 + 118/118**,
+      **text**, **blob** y **offscreen** (d3d11 vs wgpu).
 - [ ] Piloto (`python tools\cli.py bench pilot`) y su `verify.py` verdes.
 - [ ] Blob: `wn-cli test suite blob` da 28/28 rects y 100.00% de píxeles
       exactos contra el documento builtin, más el caso de input.
