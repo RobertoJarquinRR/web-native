@@ -1,5 +1,10 @@
 # UI tree v2 — grid, scroll e imágenes
 
+> **Documento histórico.** `webnative.ui-tree/2` era el IR JSON intermedio que
+> el frontend emitía hacia el emisor. El runtime ya no lo consume: el contrato
+> vivo es el blob `.wnui` v2 (`docs/wnui-format.md`). Se conserva para explicar
+> el origen de los campos; no describe el flujo actual.
+
 Schema: `webnative.ui-tree/2`. El emisor sigue aceptando `…/1` para páginas
 existentes. Este documento es el contrato entre el frontend Rust y el runtime R2
 para el piloto de biblioteca.
@@ -84,6 +89,6 @@ embedded reenvía el evento. Sin cambios en el resto de la ABI.
 ## Compatibilidad
 
 - Páginas sin grid/scroll/imágenes emiten `/1` y siguen funcionando.
-- `emit_ui.py` acepta `/1` y `/2`; el runtime consume `ui_data.h`.
+- El runtime consume el blob `.wnui` v2; esta descripción de `/1` y `/2` es histórica.
 - El subset v1 no incluye grid/scroll; el frontend las trata como
   **extensiones del piloto** (warning por defecto, `--pilot` para permitirlas).

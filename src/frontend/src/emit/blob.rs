@@ -2,10 +2,10 @@
 //! `src/emitter/python/emit_ui.py`).
 //!
 //! The tree is already parsed into `NodeOut`; this module only reproduces the
-//! normalizations the Python emitter applies when reading `ui.json`, so the
-//! blob is byte-for-byte identical. `detailed == false` (schema `/1`) implies
-//! `ui.json` carries no v2 section: the contract there is to use `gap` for
-//! `row_gap`/`column_gap`, grid at zero and `overflow` at 0.
+//! normalizations the emitter applies when reading the pre-layout tree, so the
+//! blob is byte-for-byte identical. `detailed == false` (historical schema
+//! `/1`) implies the page carries no v2 section: the contract there is to use
+//! `gap` for `row_gap`/`column_gap`, grid at zero and `overflow` at 0.
 
 use std::collections::HashMap;
 use std::fs;
@@ -215,7 +215,7 @@ fn jpeg_size(data: &[u8]) -> Option<(u32, u32)> {
     None
 }
 
-/// Intrinsic PNG/JPEG size resolved against the `ui.json` directory, same as
+/// Intrinsic PNG/JPEG size resolved against the output directory, same as
 /// the Python emitter's `image_size()`.
 pub(crate) fn image_size(source: Option<&str>, base_dir: &Path) -> (f64, f64) {
     let Some(source) = source else {
@@ -357,19 +357,24 @@ fn push_node_record(
     push_i32(out, font_weight_code(&style.font_weight));
 }
 
-/// Writes the v2 `.wnui` with the same tree as `ui.json`.
+/// Writes the v2 `.wnui` document. `base_dir` is the directory the asset
+/// references (image sources) resolve against; the caller passes the output
+/// directory, matching the previous output location.
 pub(crate) fn write_blob(
     path: &Path,
     nodes: &[NodeOut],
     viewport: (u32, u32),
-    ui_dir: &Path,
     detailed: bool,
 ) -> Result<(), String> {
+    let base_dir = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
     let mut pool = StringPool::new();
 
     let mut node_records = Vec::with_capacity(nodes.len() * 220);
     for node in nodes {
-        push_node_record(&mut node_records, node, &mut pool, detailed, ui_dir);
+        push_node_record(&mut node_records, node, &mut pool, detailed, base_dir);
     }
 
     let mut name_records = Vec::with_capacity(nodes.len() * 4);

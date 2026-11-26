@@ -36,7 +36,7 @@
 //!    everything the pre-lane Rust accepted *and* everything tinycss2 accepts,
 //!    plus `rebeccapurple`, space/slash `rgb()`/`hsl()` and `%` alpha. The
 //!    value is normalized to `#rrggbb` (v1) or `#rrggbb[aa]` (v3) before it
-//!    reaches `ui.json`, so the Python emitter still sees plain hex.
+//!    reaches the document, so declared colors stay plain hex.
 //!
 //! Channel -> byte conversion uses Python's `round()` (round-half-even), the
 //! same path as `emit_ui.argb()`.
@@ -130,7 +130,7 @@ enum ParsedColor {
 ///
 /// This is the **single** ARGB entry point shared by `ui_tree`, `header` and
 /// `blob`; it accepts both raw CSS (`data-hover="rgba(255,0,0,.5)"`) and the
-/// normalized `#rrggbb[aa]` strings written into `ui.json`.
+/// normalized `#rrggbb[aa]` strings written into the document.
 pub(crate) fn argb(value: Option<&str>) -> u32 {
     let Some(raw) = value else { return 0 };
     if raw.is_empty() {
@@ -1343,7 +1343,7 @@ mod tests {
         assert_eq!(argb(Some("rgb(255 0 0)")), 0);
         assert_eq!(argb(Some("rgba(0,0,0,50%)")), 0);
         assert_eq!(argb(Some("hsl(0deg,100%,50%)")), 0);
-        // Normalized hex from `ui.json` still goes through `argb()`.
+        // Normalized hex from the document still goes through `argb()`.
         assert_eq!(argb(Some("#663399")), 0xFF66_3399);
     }
 }

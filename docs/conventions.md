@@ -36,7 +36,7 @@ archive/experiments/          16 experimentos históricos, renombrados por etapa
 src/
   ir/                 contrato del display list + schema
   frontend/           frontend canónico en Rust (producción)
-  emitter/python/     emit_ui.py (estilos -> ui_data.h)
+  emitter/python/     emit_ui.py (solo fixtures CSS; retirada fase 2b)
   runtime/            motor C: layout en runtime, eventos, resize, renderers
 tools/
   cli.py + wn_cli/    wn-cli: build/run/test/bench/setup

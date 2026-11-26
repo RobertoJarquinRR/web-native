@@ -1,5 +1,10 @@
 # ui-tree/3 — input de texto
 
+> **Documento histórico.** `webnative.ui-tree/3` era el IR JSON intermedio; el
+> runtime ya no lo consume. El contrato vivo es el blob `.wnui` v2, donde los
+> inputs viajan en la sección `inputs` (`docs/wnui-format.md`). Se conserva como
+> historia; no describe el flujo actual.
+
 `/3` es aditivo sobre `/2`: una página con `<input type="text">` (y `--pilot`)
 emite nodos `kind:"input"` con su spec. No hay piscina de glifos ni atlas en el
 documento: el runtime shapea y mide el texto como cualquier otro.

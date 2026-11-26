@@ -1,19 +1,23 @@
-//! Integration tests for the `webnative.ui-tree/2` contract.
+//! Integration tests for the v2/v3 pre-layout tree.
 //!
-//! They run the real binary (`--emit-ui`) on temporary fixtures.
-//! They do not use the C runtime or compare against the Python oracle: they
-//! only verify that the Rust frontend parses and emits the v2 fields agreed in
-//! `docs/ui-tree-v2.md`.
+//! They run the library pipeline (`frontend_rust::build_tree`) and inspect the
+//! in-memory [`Tree`]. No process is spawned and no JSON is produced: every
+//! assertion here checks the values the blob writer consumes.
+//!
+//! The historical `ui-tree/1|2|3` schema strings were a JSON transport detail.
+//! What still matters is the *content* decision: [`Tree::detailed`] is `true`
+//! when the page needs the v2/v3 blob fields (grid, scroll, images, CSS v3 or
+//! input). Those checks replaced the old schema-string assertions.
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+
+use frontend_rust::{
+    build_tree, check_document_pilot, Diagnostic, GridAutoRows, NodeOut, Tree, KIND_BLOCK,
+    KIND_GRID, KIND_IMAGE, KIND_INPUT, Unit,
+};
 
 // --------------------------------------------------------------- infra
-
-fn exe() -> &'static str {
-    env!("CARGO_BIN_EXE_frontend-rust")
-}
 
 fn temp_dir(name: &str) -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
@@ -22,299 +26,30 @@ fn temp_dir(name: &str) -> PathBuf {
     dir
 }
 
-fn write(path: &Path, text: &str) {
-    fs::write(path, text).unwrap();
+fn build(dir: &Path, html: &str) -> Tree {
+    build_tree(html, dir, (480, 320)).unwrap_or_else(|err| panic!("pipeline failed: {err}"))
 }
 
-fn run(dir: &Path, html: &str, extra: &[&str]) -> Output {
-    let mut command = Command::new(exe());
-    command
-        .arg("--html")
-        .arg(dir.join(html))
-        .arg("--width")
-        .arg("480")
-        .arg("--height")
-        .arg("320");
-    for arg in extra {
-        command.arg(arg);
-    }
-    command.current_dir(dir).output().unwrap()
-}
-
-fn stderr(output: &Output) -> String {
-    String::from_utf8_lossy(&output.stderr).to_string()
-}
-
-fn emit_ui(dir: &Path, html: &str, out: &str, extra: &[&str]) -> Output {
-    let mut args = vec!["--emit-ui", out];
-    args.extend_from_slice(extra);
-    run(dir, html, &args)
-}
-
-fn read_json(path: &Path) -> Json {
-    let text = fs::read_to_string(path).unwrap_or_else(|err| panic!("{}: {err}", path.display()));
-    let mut parser = JsonParser {
-        bytes: text.as_bytes(),
-        pos: 0,
-    };
-    let value = parser.value();
-    parser.ws();
-    assert_eq!(parser.pos, parser.bytes.len(), "JSON con bytes sobrantes");
-    value
-}
-
-// --------------------------------------------------------------- JSON
-
-#[derive(Debug, Clone, PartialEq)]
-enum Json {
-    Null,
-    Bool(bool),
-    Number(f64),
-    String(String),
-    Array(Vec<Json>),
-    Object(Vec<(String, Json)>),
-}
-
-impl Json {
-    fn get(&self, key: &str) -> Option<&Json> {
-        match self {
-            Json::Object(items) => items
-                .iter()
-                .find(|(name, _)| name == key)
-                .map(|(_, value)| value),
-            _ => None,
-        }
-    }
-
-    fn as_str(&self) -> Option<&str> {
-        match self {
-            Json::String(value) => Some(value),
-            _ => None,
-        }
-    }
-
-    fn as_f64(&self) -> Option<f64> {
-        match self {
-            Json::Number(value) => Some(*value),
-            _ => None,
-        }
-    }
-
-    fn as_array(&self) -> Option<&[Json]> {
-        match self {
-            Json::Array(items) => Some(items),
-            _ => None,
-        }
-    }
-}
-
-struct JsonParser<'a> {
-    bytes: &'a [u8],
-    pos: usize,
-}
-
-impl<'a> JsonParser<'a> {
-    fn ws(&mut self) {
-        while self.pos < self.bytes.len()
-            && matches!(self.bytes[self.pos], b' ' | b'\n' | b'\r' | b'\t')
-        {
-            self.pos += 1;
-        }
-    }
-
-    fn expect(&mut self, byte: u8) {
-        assert_eq!(self.bytes[self.pos], byte, "byte inesperado");
-        self.pos += 1;
-    }
-
-    fn literal(&mut self, text: &str) {
-        assert!(
-            self.bytes[self.pos..].starts_with(text.as_bytes()),
-            "literal {text}"
-        );
-        self.pos += text.len();
-    }
-
-    fn value(&mut self) -> Json {
-        self.ws();
-        match self.bytes[self.pos] {
-            b'{' => self.object(),
-            b'[' => self.array(),
-            b'"' => Json::String(self.string()),
-            b't' => {
-                self.literal("true");
-                Json::Bool(true)
-            }
-            b'f' => {
-                self.literal("false");
-                Json::Bool(false)
-            }
-            b'n' => {
-                self.literal("null");
-                Json::Null
-            }
-            _ => self.number(),
-        }
-    }
-
-    fn object(&mut self) -> Json {
-        self.expect(b'{');
-        let mut items = Vec::new();
-        self.ws();
-        if self.bytes[self.pos] == b'}' {
-            self.pos += 1;
-            return Json::Object(items);
-        }
-        loop {
-            self.ws();
-            let key = self.string();
-            self.ws();
-            self.expect(b':');
-            let value = self.value();
-            items.push((key, value));
-            self.ws();
-            match self.bytes[self.pos] {
-                b',' => self.pos += 1,
-                b'}' => {
-                    self.pos += 1;
-                    break;
-                }
-                other => panic!("objeto: byte {other}"),
-            }
-        }
-        Json::Object(items)
-    }
-
-    fn array(&mut self) -> Json {
-        self.expect(b'[');
-        let mut items = Vec::new();
-        self.ws();
-        if self.bytes[self.pos] == b']' {
-            self.pos += 1;
-            return Json::Array(items);
-        }
-        loop {
-            items.push(self.value());
-            self.ws();
-            match self.bytes[self.pos] {
-                b',' => self.pos += 1,
-                b']' => {
-                    self.pos += 1;
-                    break;
-                }
-                other => panic!("array: byte {other}"),
-            }
-        }
-        Json::Array(items)
-    }
-
-    fn string(&mut self) -> String {
-        self.expect(b'"');
-        let mut out = Vec::new();
-        loop {
-            let byte = self.bytes[self.pos];
-            self.pos += 1;
-            match byte {
-                b'"' => break,
-                b'\\' => {
-                    let escape = self.bytes[self.pos];
-                    self.pos += 1;
-                    match escape {
-                        b'"' => out.push(b'"'),
-                        b'\\' => out.push(b'\\'),
-                        b'/' => out.push(b'/'),
-                        b'b' => out.push(0x08),
-                        b'f' => out.push(0x0c),
-                        b'n' => out.push(b'\n'),
-                        b'r' => out.push(b'\r'),
-                        b't' => out.push(b'\t'),
-                        b'u' => {
-                            let hex =
-                                std::str::from_utf8(&self.bytes[self.pos..self.pos + 4]).unwrap();
-                            self.pos += 4;
-                            let code = u32::from_str_radix(hex, 16).unwrap();
-                            let ch = char::from_u32(code).unwrap();
-                            let mut buffer = [0u8; 4];
-                            out.extend_from_slice(ch.encode_utf8(&mut buffer).as_bytes());
-                        }
-                        other => panic!("escape desconocido: {other}"),
-                    }
-                }
-                other => out.push(other),
-            }
-        }
-        String::from_utf8(out).unwrap()
-    }
-
-    fn number(&mut self) -> Json {
-        let start = self.pos;
-        while self.pos < self.bytes.len()
-            && matches!(
-                self.bytes[self.pos],
-                b'0'..=b'9' | b'+' | b'-' | b'.' | b'e' | b'E'
-            )
-        {
-            self.pos += 1;
-        }
-        let text = std::str::from_utf8(&self.bytes[start..self.pos]).unwrap();
-        Json::Number(text.parse().unwrap())
-    }
-}
-
-// ------------------------------------------------------------ helpers
-
-fn nodes(doc: &Json) -> &[Json] {
-    doc.get("nodes").and_then(Json::as_array).expect("nodes[]")
-}
-
-fn node_with_id<'a>(doc: &'a Json, element_id: &str) -> &'a Json {
-    nodes(doc)
+fn diag_text(diagnostics: &[Diagnostic], strict: bool) -> String {
+    diagnostics
         .iter()
-        .find(|node| {
-            node.get("element_id")
-                .and_then(Json::as_str)
-                .is_some_and(|value| value == element_id)
-        })
+        .map(|diagnostic| diagnostic.render(strict))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn node_with_id<'a>(tree: &'a Tree, element_id: &str) -> &'a NodeOut {
+    tree.nodes
+        .iter()
+        .find(|node| node.element_id.as_deref() == Some(element_id))
         .unwrap_or_else(|| panic!("no hay nodo #{element_id}"))
 }
 
-fn images(doc: &Json) -> Vec<&Json> {
-    nodes(doc)
+fn images(tree: &Tree) -> Vec<&NodeOut> {
+    tree.nodes
         .iter()
-        .filter(|node| node.get("kind").and_then(Json::as_str) == Some("image"))
+        .filter(|node| node.kind == KIND_IMAGE)
         .collect()
-}
-
-fn style_f64(node: &Json, key: &str) -> f64 {
-    node.get("style")
-        .and_then(|style| style.get(key))
-        .and_then(Json::as_f64)
-        .unwrap_or_else(|| panic!("style.{key}"))
-}
-
-fn style_str<'a>(node: &'a Json, key: &str) -> Option<&'a str> {
-    node.get("style")
-        .and_then(|style| style.get(key))
-        .and_then(Json::as_str)
-}
-
-/// Array of 4 (or N) style numbers; `null` entries are kept as `None`.
-fn style_array_opt(node: &Json, key: &str) -> Vec<Option<f64>> {
-    node.get("style")
-        .and_then(|style| style.get(key))
-        .and_then(Json::as_array)
-        .unwrap_or_else(|| panic!("style.{key}"))
-        .iter()
-        .map(Json::as_f64)
-        .collect()
-}
-
-fn style_value<'a>(node: &'a Json, key: &str) -> Option<&'a Json> {
-    node.get("style").and_then(|style| style.get(key))
-}
-
-fn node_str<'a>(node: &'a Json, key: &str) -> Option<&'a str> {
-    node.get(key).and_then(Json::as_str)
 }
 
 // --------------------------------------------------------------- tests
@@ -358,120 +93,84 @@ const GRID_PAGE: &str = r##"<!doctype html>
 "##;
 
 #[test]
-fn grid_overflow_and_images_emit_schema_2() {
+fn grid_overflow_and_images_are_carried_in_the_tree() {
     let dir = temp_dir("grid-image-v2");
-    write(&dir.join("page.html"), GRID_PAGE);
+    let tree = build(&dir, GRID_PAGE);
 
-    let output = emit_ui(&dir, "page.html", "ui.json", &["--pilot"]);
-    assert!(
-        output.status.success(),
-        "exit {:?}\n{}",
-        output.status.code(),
-        stderr(&output)
-    );
-    let doc = read_json(&dir.join("ui.json"));
+    assert!(tree.detailed, "grid/images need the v2 blob fields");
+    assert_eq!(tree.nodes.len(), 7);
 
-    assert_eq!(
-        doc.get("schema").and_then(Json::as_str),
-        Some("webnative.ui-tree/2")
-    );
-    assert_eq!(nodes(&doc).len(), 7, "{doc:#?}");
-
-    let gallery = node_with_id(&doc, "gallery");
-    assert_eq!(node_str(gallery, "kind"), Some("grid"));
-    assert_eq!(style_str(gallery, "display"), Some("grid"));
-    assert_eq!(style_f64(gallery, "gap"), 8.0);
-    assert_eq!(style_f64(gallery, "row_gap"), 12.0);
-    assert_eq!(style_f64(gallery, "column_gap"), 6.0);
-    assert_eq!(style_str(gallery, "overflow"), Some("auto"));
+    let gallery = node_with_id(&tree, "gallery");
+    assert_eq!(gallery.kind, KIND_GRID);
+    assert_eq!(gallery.style.display.as_deref(), Some("grid"));
+    assert_eq!(gallery.style.gap, 8.0);
+    assert_eq!(gallery.style.row_gap, 12.0);
+    assert_eq!(gallery.style.column_gap, 6.0);
+    assert_eq!(gallery.style.overflow.as_deref(), Some("auto"));
     let columns = gallery
-        .get("style")
-        .and_then(|style| style.get("grid_template_columns"))
+        .style
+        .grid_template_columns
+        .as_ref()
         .expect("grid_template_columns");
+    assert_eq!(columns.mode, "auto_fill");
+    assert_eq!(columns.size_px, 180.0);
     assert_eq!(
-        columns.get("mode").and_then(Json::as_str),
-        Some("auto_fill")
-    );
-    assert_eq!(columns.get("size_px").and_then(Json::as_f64), Some(180.0));
-    let rows = gallery
-        .get("style")
-        .and_then(|style| style.get("grid_auto_rows"))
-        .expect("grid_auto_rows");
-    assert_eq!(rows.get("px").and_then(Json::as_f64), Some(240.0));
-
-    let auto = node_with_id(&doc, "auto");
-    assert_eq!(node_str(auto, "kind"), Some("grid"));
-    assert_eq!(style_str(auto, "overflow"), Some("scroll"));
-    assert_eq!(
-        auto.get("style")
-            .and_then(|style| style.get("grid_auto_rows")),
-        Some(&Json::String("auto".to_string()))
+        gallery.style.grid_auto_rows,
+        Some(GridAutoRows::Px(240.0))
     );
 
-    // The body uses no v2 feature, but schema /2 includes the fields.
-    let body = &nodes(&doc)[0];
-    assert_eq!(node_str(body, "kind"), Some("block"));
-    assert_eq!(
-        body.get("style")
-            .and_then(|style| style.get("grid_template_columns")),
-        Some(&Json::Null)
-    );
-    assert_eq!(
-        body.get("style").and_then(|style| style.get("overflow")),
-        Some(&Json::Null)
-    );
+    let auto = node_with_id(&tree, "auto");
+    assert_eq!(auto.kind, KIND_GRID);
+    assert_eq!(auto.style.overflow.as_deref(), Some("scroll"));
+    assert_eq!(auto.style.grid_auto_rows, Some(GridAutoRows::Auto));
 
-    let images = images(&doc);
-    assert_eq!(images.len(), 4, "{doc:#?}");
+    // The body uses no v2 feature; the fields stay absent in the tree.
+    let body = &tree.nodes[0];
+    assert_eq!(body.kind, KIND_BLOCK);
+    assert!(body.style.grid_template_columns.is_none());
+    assert!(body.style.overflow.is_none());
+
+    let images = images(&tree);
+    assert_eq!(images.len(), 4);
 
     let poster = images[0];
-    assert_eq!(node_str(poster, "tag"), Some("img"));
-    assert_eq!(style_f64(poster, "width_px"), 180.0);
-    assert_eq!(style_f64(poster, "height_px"), 240.0);
-    let image = poster.get("image").expect("image");
-    assert_eq!(image.get("src").and_then(Json::as_str), Some("poster.png"));
-    assert_eq!(image.get("alt").and_then(Json::as_str), Some("Demo"));
-    assert_eq!(
-        image.get("object_fit").and_then(Json::as_str),
-        Some("cover")
-    );
+    assert_eq!(poster.tag, "img");
+    assert_eq!(poster.style.width_px, 180.0);
+    assert_eq!(poster.style.height_px, 240.0);
+    let image = poster.image.as_ref().expect("image");
+    assert_eq!(image.src.as_deref(), Some("poster.png"));
+    assert_eq!(image.alt.as_deref(), Some("Demo"));
+    assert_eq!(image.object_fit, "cover");
 
     // CSS wins over attributes; without object-fit the default is fill.
     let css_sized = images[1];
-    assert_eq!(style_f64(css_sized, "width_px"), 180.0);
-    assert_eq!(style_f64(css_sized, "height_px"), 240.0);
+    assert_eq!(css_sized.style.width_px, 180.0);
+    assert_eq!(css_sized.style.height_px, 240.0);
     assert_eq!(
-        css_sized
-            .get("image")
-            .and_then(|image| image.get("object_fit"))
-            .and_then(Json::as_str),
+        css_sized.image.as_ref().map(|image| image.object_fit.as_str()),
         Some("fill")
     );
 
     // Only `width`; height stays auto (-1) for the intrinsic size.
     let width_only = images[2];
-    assert_eq!(style_f64(width_only, "width_px"), 100.0);
-    assert_eq!(style_f64(width_only, "height_px"), -1.0);
-    assert_eq!(
-        width_only.get("image").and_then(|image| image.get("alt")),
-        Some(&Json::Null)
-    );
+    assert_eq!(width_only.style.width_px, 100.0);
+    assert_eq!(width_only.style.height_px, -1.0);
+    assert_eq!(width_only.image.as_ref().and_then(|image| image.alt.as_deref()), None);
 
     // `width: auto`/`height: auto` in CSS win over the attributes: the runtime
     // measures the intrinsic size.
     let css_auto = images[3];
-    assert_eq!(style_f64(css_auto, "width_px"), -1.0);
-    assert_eq!(style_f64(css_auto, "height_px"), -1.0);
+    assert_eq!(css_auto.style.width_px, -1.0);
+    assert_eq!(css_auto.style.height_px, -1.0);
 
     // `image` only exists on image nodes.
-    for node in nodes(&doc) {
-        let is_image = node.get("kind").and_then(Json::as_str) == Some("image");
-        assert_eq!(node.get("image").is_some(), is_image, "{node:#?}");
+    for node in &tree.nodes {
+        assert_eq!(node.image.is_some(), node.kind == KIND_IMAGE, "{}", node.name);
     }
 }
 
 #[test]
-fn v1_page_stays_schema_1_without_v2_fields() {
+fn v1_page_stays_compact_and_blob_output_is_deterministic() {
     let dir = temp_dir("v1-unchanged");
     let html = r##"<!doctype html>
 <html>
@@ -485,74 +184,50 @@ body { background: #ffffff; }
 <body><div class="row"><div class="box"></div></div></body>
 </html>
 "##;
-    write(&dir.join("page.html"), html);
+    let tree = build(&dir, html);
+    assert!(!tree.detailed, "a v1 page must not claim v2 fields");
 
-    let first = emit_ui(&dir, "page.html", "ui-a.json", &[]);
-    assert!(first.status.success(), "{}", stderr(&first));
-    let second = emit_ui(&dir, "page.html", "ui-b.json", &[]);
-    assert!(second.status.success(), "{}", stderr(&second));
+    let row = &tree.nodes[1];
+    assert_eq!(row.kind, frontend_rust::KIND_FLEX);
+    assert_eq!(row.style.gap, 4.0);
+    let boxed = &tree.nodes[2];
+    assert_eq!(boxed.style.width_px, 10.0);
+    assert_eq!(boxed.style.height_px, 10.0);
+    assert_eq!(boxed.style.background.as_deref(), Some("#111111"));
+    // `overflow: hidden` existed in v1: it does not force the v2 fields.
+    assert_eq!(boxed.style.overflow.as_deref(), Some("hidden"));
+    assert!(boxed.style.grid_template_columns.is_none());
+    assert!(boxed.style.grid_auto_rows.is_none());
+    assert!(boxed.image.is_none());
 
-    let first_bytes = fs::read(dir.join("ui-a.json")).unwrap();
-    let second_bytes = fs::read(dir.join("ui-b.json")).unwrap();
+    let first = dir.join("a.wnui");
+    let second = dir.join("b.wnui");
+    tree.write_blob(&first).unwrap();
+    tree.write_blob(&second).unwrap();
     assert_eq!(
-        first_bytes, second_bytes,
-        "dos ejecuciones deben ser iguales"
+        fs::read(&first).unwrap(),
+        fs::read(&second).unwrap(),
+        "two emissions must be byte-identical"
     );
-
-    let text = String::from_utf8(first_bytes).unwrap();
-    assert!(
-        text.contains("\"schema\": \"webnative.ui-tree/1\""),
-        "{text}"
-    );
-    for absent in [
-        "grid_template_columns",
-        "grid_auto_rows",
-        "row_gap",
-        "column_gap",
-        "\"image\"",
-        "\"overflow\"",
-        "border_width_px",
-        "border_radius_px",
-        "border_sides",
-        "box_shadow",
-        "width_em",
-        "min_width_px",
-        "padding_em",
-        "\"opacity\"",
-    ] {
-        assert!(!text.contains(absent), "/1 no debe contener {absent}");
-    }
 }
 
 #[test]
 fn subset_rejects_pilot_features_without_pilot_and_allows_them_with_it() {
     let dir = temp_dir("subset-pilot");
-    write(&dir.join("page.html"), GRID_PAGE);
+    let path = dir.join("page.html");
+    fs::write(&path, GRID_PAGE).unwrap();
 
-    let strict = emit_ui(&dir, "page.html", "strict.json", &["--strict-subset"]);
-    assert!(!strict.status.success(), "sin --pilot debe fallar");
-    let strict_err = stderr(&strict);
-    assert!(strict_err.contains("error[subset]"), "{strict_err}");
-    assert!(strict_err.contains("piloto v2"), "{strict_err}");
+    let strict = diag_text(&check_document_pilot(GRID_PAGE, &path, &dir, false), true);
+    assert!(strict.contains("error[subset]"), "{strict}");
+    assert!(strict.contains("piloto v2"), "{strict}");
 
-    let allowed = emit_ui(
-        &dir,
-        "page.html",
-        "allowed.json",
-        &["--strict-subset", "--pilot"],
-    );
-    assert!(
-        allowed.status.success(),
-        "con --pilot debe pasar: {}",
-        stderr(&allowed)
-    );
-    assert!(!stderr(&allowed).contains("error[subset]"));
+    let allowed = check_document_pilot(GRID_PAGE, &path, &dir, true);
+    assert!(allowed.is_empty(), "{}", diag_text(&allowed, true));
 
-    let default = emit_ui(&dir, "page.html", "default.json", &[]);
-    assert!(default.status.success(), "{}", stderr(&default));
-    let default_err = stderr(&default);
-    assert!(default_err.contains("warning[subset]"), "{default_err}");
-    assert!(default_err.contains("piloto v2"), "{default_err}");
+    // Without `--strict-subset` the same findings are warnings.
+    let default = diag_text(&check_document_pilot(GRID_PAGE, &path, &dir, false), false);
+    assert!(default.contains("warning[subset]"), "{default}");
+    assert!(default.contains("piloto v2"), "{default}");
 }
 
 #[test]
@@ -562,27 +237,17 @@ fn object_fit_defaults_to_fill_without_css() {
 <html><head><style>.g { display: grid; }</style></head>
 <body><div class="g"><img src="a.png"></div></body></html>
 "##;
-    write(&dir.join("page.html"), html);
-
-    let output = emit_ui(&dir, "page.html", "ui.json", &["--pilot"]);
-    assert!(output.status.success(), "{}", stderr(&output));
-    let doc = read_json(&dir.join("ui.json"));
-    assert_eq!(
-        doc.get("schema").and_then(Json::as_str),
-        Some("webnative.ui-tree/2")
-    );
-    let images = images(&doc);
+    let tree = build(&dir, html);
+    assert!(tree.detailed);
+    let images = images(&tree);
     assert_eq!(images.len(), 1);
     assert_eq!(
-        images[0]
-            .get("image")
-            .and_then(|image| image.get("object_fit"))
-            .and_then(Json::as_str),
+        images[0].image.as_ref().map(|image| image.object_fit.as_str()),
         Some("fill")
     );
     // No size: the runtime uses the intrinsic one (WIC).
-    assert_eq!(style_f64(images[0], "width_px"), -1.0);
-    assert_eq!(style_f64(images[0], "height_px"), -1.0);
+    assert_eq!(images[0].style.width_px, -1.0);
+    assert_eq!(images[0].style.height_px, -1.0);
 }
 
 // ------------------------------------------------------- CSS v3 (borders/radii/shadows/units)
@@ -625,169 +290,127 @@ body { margin: 0; }
 "##;
 
 #[test]
-fn css_v3_emits_border_radius_shadow_and_relative_units() {
+fn css_v3_carries_border_radius_shadow_and_relative_units() {
     let dir = temp_dir("css-v3-card");
-    write(&dir.join("page.html"), CSS_V3_PAGE);
+    let tree = build(&dir, CSS_V3_PAGE);
+    assert!(tree.detailed);
 
-    let output = emit_ui(&dir, "page.html", "ui.json", &["--pilot"]);
-    assert!(
-        output.status.success(),
-        "exit {:?}\n{}",
-        output.status.code(),
-        stderr(&output)
-    );
-    let doc = read_json(&dir.join("ui.json"));
-    assert_eq!(
-        doc.get("schema").and_then(Json::as_str),
-        Some("webnative.ui-tree/2")
-    );
+    let card = node_with_id(&tree, "card");
+    let (border_width, _) = card.style.css3.border.uniform_width();
+    assert_eq!(border_width, 2.0);
+    assert_eq!(card.style.css3.border.visible_color(), Some("#334155"));
+    assert_eq!(card.style.css3.border.style_name(), "solid");
+    assert_eq!(card.style.css3.border_radius, [12.0, 12.0, 12.0, 12.0]);
 
-    let card = node_with_id(&doc, "card");
-    assert_eq!(style_f64(card, "border_width_px"), 2.0);
-    assert_eq!(style_str(card, "border_color"), Some("#334155"));
-    assert_eq!(style_str(card, "border_style"), Some("solid"));
-    assert_eq!(style_f64(card, "border_radius_px"), 12.0);
-    assert_eq!(
-        style_array_opt(card, "border_radii_px"),
-        vec![Some(12.0), Some(12.0), Some(12.0), Some(12.0)]
-    );
-
-    let shadows = style_value(card, "box_shadow")
-        .and_then(Json::as_array)
-        .expect("box_shadow[]");
-    assert_eq!(shadows.len(), 2, "{card:#?}");
-    assert_eq!(
-        shadows[0].get("offset_x_px").and_then(Json::as_f64),
-        Some(0.0)
-    );
-    assert_eq!(
-        shadows[0].get("offset_y_px").and_then(Json::as_f64),
-        Some(4.0)
-    );
-    assert_eq!(shadows[0].get("blur_px").and_then(Json::as_f64), Some(12.0));
-    assert_eq!(
-        shadows[0].get("color").and_then(Json::as_str),
-        Some("#00000066")
-    );
-    assert_eq!(shadows[0].get("inset"), Some(&Json::Bool(false)));
-    assert_eq!(shadows[1].get("inset"), Some(&Json::Bool(true)));
-    assert_eq!(
-        shadows[1].get("offset_x_px").and_then(Json::as_f64),
-        Some(1.0)
-    );
-    assert_eq!(
-        shadows[1].get("color").and_then(Json::as_str),
-        Some("#ff0000")
-    );
+    let shadows = &card.style.css3.box_shadow;
+    assert_eq!(shadows.len(), 2);
+    assert_eq!(shadows[0].offset_x_px, 0.0);
+    assert_eq!(shadows[0].offset_y_px, 4.0);
+    assert_eq!(shadows[0].blur_px, 12.0);
+    assert_eq!(shadows[0].color, "#00000066");
+    assert!(!shadows[0].inset);
+    assert!(shadows[1].inset);
+    assert_eq!(shadows[1].offset_x_px, 1.0);
+    assert_eq!(shadows[1].color, "#ff0000");
 
     // em uses the node's font-size (20px); rem uses html's (16px).
-    assert_eq!(style_f64(card, "width_px"), 400.0);
-    assert_eq!(style_f64(card, "width_em"), 20.0);
-    assert_eq!(style_value(card, "width_rem"), Some(&Json::Null));
-    assert_eq!(style_f64(card, "height_px"), 240.0);
-    assert_eq!(style_f64(card, "height_rem"), 15.0);
-    assert_eq!(style_value(card, "height_em"), Some(&Json::Null));
+    assert_eq!(card.style.width_px, 400.0);
+    assert_eq!(card.style.css3.width_rel.unwrap().in_unit(Unit::Em), Some(20.0));
+    assert_eq!(card.style.height_px, 240.0);
+    assert_eq!(
+        card.style.css3.height_rel.unwrap().in_unit(Unit::Rem),
+        Some(15.0)
+    );
 
     // min/max px/%/relative.
-    assert_eq!(style_f64(card, "min_width_px"), 240.0);
-    assert_eq!(style_f64(card, "max_width_px"), 288.0);
-    assert_eq!(style_f64(card, "max_width_vw"), 60.0);
-    assert_eq!(style_f64(card, "min_height_px"), 64.0);
-    assert_eq!(style_f64(card, "max_height_px"), 288.0);
-    assert_eq!(style_f64(card, "max_height_vh"), 90.0);
+    assert_eq!(card.style.css3.min_width, Some(240.0));
+    assert_eq!(card.style.css3.max_width, Some(288.0));
+    assert_eq!(
+        card.style.css3.max_width_rel.unwrap().in_unit(Unit::Vw),
+        Some(60.0)
+    );
+    assert_eq!(card.style.css3.min_height, Some(64.0));
+    assert_eq!(card.style.css3.max_height, Some(288.0));
+    assert_eq!(
+        card.style.css3.max_height_rel.unwrap().in_unit(Unit::Vh),
+        Some(90.0)
+    );
 
     // padding/margin/gap keep the resolved px and the declared unit.
-    assert_eq!(
-        style_array_opt(card, "padding"),
-        vec![Some(20.0), Some(32.0), Some(20.0), Some(32.0)]
-    );
-    assert_eq!(
-        style_array_opt(card, "padding_em"),
-        vec![Some(1.0), None, Some(1.0), None]
-    );
-    assert_eq!(
-        style_array_opt(card, "padding_rem"),
-        vec![None, Some(2.0), None, Some(2.0)]
-    );
-    assert_eq!(
-        style_array_opt(card, "margin_em"),
-        vec![Some(0.5), Some(0.5), Some(0.5), Some(0.5)]
-    );
-    assert_eq!(style_f64(card, "gap"), 3.2);
-    assert_eq!(style_f64(card, "gap_vh"), 1.0);
-    assert_eq!(style_f64(card, "row_gap_vh"), 1.0);
-    assert_eq!(style_f64(card, "column_gap_vh"), 1.0);
+    assert_eq!(card.style.padding, [20.0, 32.0, 20.0, 32.0]);
+    assert_eq!(card.style.css3.padding_rel[0].unwrap().in_unit(Unit::Em), Some(1.0));
+    assert_eq!(card.style.css3.padding_rel[1].unwrap().in_unit(Unit::Rem), Some(2.0));
+    assert_eq!(card.style.css3.padding_rel[2].unwrap().in_unit(Unit::Em), Some(1.0));
+    assert_eq!(card.style.css3.padding_rel[3].unwrap().in_unit(Unit::Rem), Some(2.0));
+    for side in card.style.css3.margin_rel {
+        assert_eq!(side.unwrap().in_unit(Unit::Em), Some(0.5));
+    }
+    assert_eq!(card.style.gap, 3.2);
+    assert_eq!(card.style.css3.gap_rel.unwrap().in_unit(Unit::Vh), Some(1.0));
+    assert_eq!(card.style.css3.row_gap_rel.unwrap().in_unit(Unit::Vh), Some(1.0));
+    assert_eq!(card.style.css3.column_gap_rel.unwrap().in_unit(Unit::Vh), Some(1.0));
 
     // Child: `%` is kept as width_pct and `2vw` resolves to 9.6 px.
-    let inner = node_with_id(&doc, "inner");
-    assert_eq!(style_f64(inner, "width_px"), -1.0);
-    assert_eq!(style_f64(inner, "width_pct"), 50.0);
-    assert_eq!(style_f64(inner, "height_px"), 9.6);
-    assert_eq!(style_f64(inner, "height_vw"), 2.0);
+    let inner = node_with_id(&tree, "inner");
+    assert_eq!(inner.style.width_px, -1.0);
+    assert_eq!(inner.style.width_pct, 50.0);
+    assert_eq!(inner.style.height_px, 9.6);
+    assert_eq!(
+        inner.style.css3.height_rel.unwrap().in_unit(Unit::Vw),
+        Some(2.0)
+    );
 
     // Per-side longhands: a longhand after the shorthand wins.
-    let edge = node_with_id(&doc, "edge");
-    assert_eq!(style_f64(edge, "border_width_px"), 16.0);
-    assert_eq!(style_str(edge, "border_style"), Some("solid"));
-    let sides = style_value(edge, "border_sides").expect("border_sides");
-    let top = sides.get("top").expect("border_sides.top");
-    assert_eq!(top.get("width_px").and_then(Json::as_f64), Some(3.0));
-    assert_eq!(top.get("color").and_then(Json::as_str), Some("#ff0000"));
-    assert_eq!(top.get("style").and_then(Json::as_str), Some("solid"));
-    let right = sides.get("right").expect("border_sides.right");
-    assert_eq!(right.get("width_px").and_then(Json::as_f64), Some(16.0));
-    assert_eq!(right.get("color").and_then(Json::as_str), Some("#0000ff"));
-    let bottom = sides.get("bottom").expect("border_sides.bottom");
-    assert_eq!(bottom.get("style").and_then(Json::as_str), Some("none"));
+    let edge = node_with_id(&tree, "edge");
+    let (edge_width, _) = edge.style.css3.border.uniform_width();
+    assert_eq!(edge_width, 16.0);
+    assert_eq!(edge.style.css3.border.style_name(), "solid");
+    let top = &edge.style.css3.border.top;
+    assert_eq!(top.width_px, 3.0);
+    assert_eq!(top.color.as_deref(), Some("#ff0000"));
+    assert_eq!(top.style, "solid");
+    let right = &edge.style.css3.border.right;
+    assert_eq!(right.width_px, 16.0);
+    assert_eq!(right.color.as_deref(), Some("#0000ff"));
+    assert_eq!(edge.style.css3.border.bottom.style, "none");
 
     // `border-style: none` turns the border off even if width/color stay declared.
-    let none = node_with_id(&doc, "none");
-    assert_eq!(style_f64(none, "border_width_px"), 0.0);
-    assert_eq!(style_str(none, "border_style"), Some("none"));
-    assert_eq!(style_value(none, "border_color"), Some(&Json::Null));
-    let none_top = style_value(none, "border_sides")
-        .and_then(|sides| sides.get("top"))
-        .expect("border_sides.top");
-    assert_eq!(none_top.get("width_px").and_then(Json::as_f64), Some(5.0));
+    let none = node_with_id(&tree, "none");
+    let (none_width, _) = none.style.css3.border.uniform_width();
+    assert_eq!(none_width, 0.0);
+    assert_eq!(none.style.css3.border.style_name(), "none");
+    assert_eq!(none.style.css3.border.visible_color(), None);
+    assert_eq!(none.style.css3.border.top.width_px, 5.0);
 
     // Uniform border with a relative width: resolved px + declared unit.
-    let relative = node_with_id(&doc, "rel");
-    assert_eq!(style_f64(relative, "border_width_px"), 16.0);
-    assert_eq!(style_f64(relative, "border_width_em"), 1.0);
-    assert_eq!(style_str(relative, "border_color"), Some("#123456"));
-    assert_eq!(style_f64(relative, "border_radius_px"), 8.0);
-    assert_eq!(style_f64(relative, "border_radius_rem"), 0.5);
+    let relative = node_with_id(&tree, "rel");
+    let (relative_width, relative_rel) = relative.style.css3.border.uniform_width();
+    assert_eq!(relative_width, 16.0);
+    assert_eq!(relative_rel.unwrap().in_unit(Unit::Em), Some(1.0));
+    assert_eq!(relative.style.css3.border.visible_color(), Some("#123456"));
+    assert_eq!(relative.style.css3.border_radius, [8.0; 4]);
+    assert_eq!(
+        relative.style.css3.border_radius_rel.unwrap().in_unit(Unit::Rem),
+        Some(0.5)
+    );
 }
 
 #[test]
 fn css_v3_features_are_pilot_extensions() {
     let dir = temp_dir("css-v3-subset");
-    write(&dir.join("page.html"), CSS_V3_PAGE);
+    let path = dir.join("page.html");
+    fs::write(&path, CSS_V3_PAGE).unwrap();
 
-    let default = emit_ui(&dir, "page.html", "default.json", &[]);
-    assert!(default.status.success(), "{}", stderr(&default));
-    let default_err = stderr(&default);
-    assert!(default_err.contains("warning[subset]"), "{default_err}");
-    assert!(default_err.contains("piloto v3"), "{default_err}");
+    let default = diag_text(&check_document_pilot(CSS_V3_PAGE, &path, &dir, false), false);
+    assert!(default.contains("warning[subset]"), "{default}");
+    assert!(default.contains("piloto v3"), "{default}");
 
-    let strict = emit_ui(&dir, "page.html", "strict.json", &["--strict-subset"]);
-    assert!(!strict.status.success(), "sin --pilot debe fallar");
-    let strict_err = stderr(&strict);
-    assert!(strict_err.contains("error[subset]"), "{strict_err}");
-    assert!(strict_err.contains("piloto v3"), "{strict_err}");
+    let strict = diag_text(&check_document_pilot(CSS_V3_PAGE, &path, &dir, false), true);
+    assert!(strict.contains("error[subset]"), "{strict}");
+    assert!(strict.contains("piloto v3"), "{strict}");
 
-    let allowed = emit_ui(
-        &dir,
-        "page.html",
-        "allowed.json",
-        &["--strict-subset", "--pilot"],
-    );
-    assert!(
-        allowed.status.success(),
-        "con --pilot debe pasar: {}",
-        stderr(&allowed)
-    );
-    assert!(!stderr(&allowed).contains("[subset]"));
+    let allowed = check_document_pilot(CSS_V3_PAGE, &path, &dir, true);
+    assert!(allowed.is_empty(), "{}", diag_text(&allowed, true));
 }
 
 // --------------------------------------------- declared colors (superset)
@@ -823,77 +446,67 @@ body { margin: 0; }
 </body>
 </html>
 "##;
-    write(&dir.join("page.html"), page);
+    let tree = build(&dir, page);
 
     // `--pilot --strict-subset`: box-shadow is an allowed v3 extension and the
     // declared colors must not produce diagnostics.
-    let output = emit_ui(
-        &dir,
-        "page.html",
-        "ui.json",
-        &["--pilot", "--strict-subset"],
-    );
+    let path = dir.join("page.html");
+    let diagnostics = check_document_pilot(page, &path, &dir, true);
     assert!(
-        output.status.success(),
+        diagnostics.is_empty(),
         "strict subset rejected a declared color\n{}",
-        stderr(&output)
+        diag_text(&diagnostics, true)
     );
-    assert!(!stderr(&output).contains("[subset]"), "{}", stderr(&output));
 
-    let doc = read_json(&dir.join("ui.json"));
     for (id, background) in [
         ("fb1", "#663399"),
         ("fb2", "#ff0000"),
         ("fb3", "#008000"),
         ("fb4", "#000000"),
     ] {
-        let node = node_with_id(&doc, id);
+        let node = node_with_id(&tree, id);
         assert_eq!(
-            style_str(node, "background"),
+            node.style.background.as_deref(),
             Some(background),
             "{id} background"
         );
     }
     for (id, color) in [("fc1", "#663399"), ("fc2", "#ff0000")] {
-        let node = node_with_id(&doc, id);
-        assert_eq!(style_str(node, "color"), Some(color), "{id} color");
+        let node = node_with_id(&tree, id);
+        assert_eq!(node.style.color, color, "{id} color");
     }
 
     // The shorthand must stay expanded: width + style + color.
     for id in ["border5", "bc6"] {
-        let node = node_with_id(&doc, id);
-        assert_eq!(style_f64(node, "border_width_px"), 2.0, "{id} width");
-        assert_eq!(style_str(node, "border_style"), Some("solid"), "{id} style");
+        let node = node_with_id(&tree, id);
+        let (width, _) = node.style.css3.border.uniform_width();
+        assert_eq!(width, 2.0, "{id} width");
+        assert_eq!(node.style.css3.border.style_name(), "solid", "{id} style");
         assert_eq!(
-            style_str(node, "border_color"),
+            node.style.css3.border.visible_color(),
             Some("#663399"),
             "{id} color"
         );
-        let top = style_value(node, "border_sides")
-            .and_then(|sides| sides.get("top"))
-            .expect("border_sides.top");
-        assert_eq!(top.get("width_px").and_then(Json::as_f64), Some(2.0));
-        assert_eq!(top.get("color").and_then(Json::as_str), Some("#663399"));
-        assert_eq!(top.get("style").and_then(Json::as_str), Some("solid"));
+        let top = &node.style.css3.border.top;
+        assert_eq!(top.width_px, 2.0);
+        assert_eq!(top.color.as_deref(), Some("#663399"));
+        assert_eq!(top.style, "solid");
     }
 
     // A 50% alpha keeps the alpha channel in the v3 color string.
-    let alpha_border = node_with_id(&doc, "bc4");
-    assert_eq!(style_f64(alpha_border, "border_width_px"), 1.0);
-    assert_eq!(style_str(alpha_border, "border_color"), Some("#00000080"));
-
-    let shadow = node_with_id(&doc, "shadow7");
-    let shadows = style_value(shadow, "box_shadow")
-        .and_then(Json::as_array)
-        .expect("box_shadow[]");
-    assert_eq!(shadows.len(), 1, "{shadow:#?}");
+    let alpha_border = node_with_id(&tree, "bc4");
+    assert_eq!(alpha_border.style.css3.border.top.width_px, 1.0);
     assert_eq!(
-        shadows[0].get("color").and_then(Json::as_str),
-        Some("#663399")
+        alpha_border.style.css3.border.visible_color(),
+        Some("#00000080")
     );
+
+    let shadow = node_with_id(&tree, "shadow7");
+    assert_eq!(shadow.style.css3.box_shadow.len(), 1);
+    assert_eq!(shadow.style.css3.box_shadow[0].color, "#663399");
 }
 
-// ------------------------------------------------------- ui-tree/3 (input)
+// ------------------------------------------------------- input nodes
 
 const INPUT_PAGE: &str = r##"<!doctype html>
 <html>
@@ -915,115 +528,51 @@ body { margin: 0; }
 "##;
 
 #[test]
-fn input_emits_schema_3_with_spec_only() {
+fn input_nodes_carry_the_edit_spec() {
     let dir = temp_dir("input-v3");
-    write(&dir.join("page.html"), INPUT_PAGE);
+    let tree = build(&dir, INPUT_PAGE);
+    assert!(tree.detailed);
+    assert_eq!(tree.nodes.len(), 4);
 
-    let output = emit_ui(&dir, "page.html", "ui.json", &["--pilot"]);
-    assert!(
-        output.status.success(),
-        "exit {:?}\n{}",
-        output.status.code(),
-        stderr(&output)
-    );
-    let doc = read_json(&dir.join("ui.json"));
-    assert_eq!(
-        doc.get("schema").and_then(Json::as_str),
-        Some("webnative.ui-tree/3")
-    );
-    assert_eq!(nodes(&doc).len(), 4, "{doc:#?}");
-
-    let search = node_with_id(&doc, "search");
-    assert_eq!(node_str(search, "kind"), Some("input"));
-    assert_eq!(node_str(search, "tag"), Some("input"));
-    let input = search.get("input").expect("input object");
-    assert_eq!(input.get("value").and_then(Json::as_str), Some("abc"));
-    assert_eq!(
-        input.get("placeholder").and_then(Json::as_str),
-        Some("Buscar...")
-    );
-    assert_eq!(input.get("max_length").and_then(Json::as_f64), Some(5.0));
-    assert_eq!(input.get("password"), Some(&Json::Bool(false)));
-    // The runtime shapes the text: no glyphs or line metrics are baked.
-    for field in ["glyphs", "baseline", "line_height"] {
-        assert!(input.get(field).is_none(), "input must not carry {field}");
-    }
-    // No atlas is written: the document declares it null and leaves no files.
-    assert_eq!(doc.get("atlas"), Some(&Json::Null));
-    assert!(
-        !dir.join("atlas.bin").is_file(),
-        "no atlas.bin is written"
-    );
-    assert!(
-        !dir.join("atlas.json").is_file(),
-        "no atlas.json is written"
-    );
-
-    // /3 inherits the v2 style fields (additive, not regressive).
-    assert_eq!(style_f64(search, "width_px"), 320.0);
-    assert_eq!(style_f64(search, "height_px"), 34.0);
-    assert_eq!(style_f64(search, "gap"), 0.0);
-    assert!(
-        search
-            .get("style")
-            .and_then(|style| style.get("row_gap"))
-            .is_some(),
-        "/3 keeps the v2 style fields"
-    );
+    let search = node_with_id(&tree, "search");
+    assert_eq!(search.kind, KIND_INPUT);
+    assert_eq!(search.tag, "input");
+    let input = search.input.as_ref().expect("input spec");
+    assert_eq!(input.value, "abc");
+    assert_eq!(input.placeholder, "Buscar...");
+    assert_eq!(input.max_length, 5);
+    assert!(!input.password);
+    // The runtime shapes the text: the spec has no glyphs or line metrics.
+    assert_eq!(search.style.width_px, 320.0);
+    assert_eq!(search.style.height_px, 34.0);
+    assert_eq!(search.style.gap, 0.0);
 
     // maxlength truncates the initial value; without `type` it is assumed text.
-    let empty = node_with_id(&doc, "empty");
-    let empty_input = empty.get("input").expect("input object");
-    assert_eq!(empty_input.get("value").and_then(Json::as_str), Some("abcde"));
-    assert_eq!(empty_input.get("max_length").and_then(Json::as_f64), Some(5.0));
-    assert_eq!(
-        empty_input.get("placeholder").and_then(Json::as_str),
-        Some("Otro")
-    );
+    let empty = node_with_id(&tree, "empty");
+    let empty_input = empty.input.as_ref().expect("input spec");
+    assert_eq!(empty_input.value, "abcde");
+    assert_eq!(empty_input.max_length, 5);
+    assert_eq!(empty_input.placeholder, "Otro");
 
     // Only input nodes carry `input`.
-    for node in nodes(&doc) {
-        let is_input = node.get("kind").and_then(Json::as_str) == Some("input");
-        assert_eq!(node.get("input").is_some(), is_input, "{node:#?}");
+    for node in &tree.nodes {
+        assert_eq!(node.input.is_some(), node.kind == KIND_INPUT, "{}", node.name);
     }
 }
 
 #[test]
 fn input_is_a_pilot_extension() {
     let dir = temp_dir("input-subset");
-    write(&dir.join("page.html"), INPUT_PAGE);
+    let path = dir.join("page.html");
+    fs::write(&path, INPUT_PAGE).unwrap();
 
-    let strict = emit_ui(&dir, "page.html", "strict.json", &["--strict-subset"]);
-    assert!(!strict.status.success(), "sin --pilot debe fallar");
-    let strict_err = stderr(&strict);
-    assert!(strict_err.contains("error[subset]"), "{strict_err}");
-    assert!(strict_err.contains("piloto v2"), "{strict_err}");
-    assert!(strict_err.contains("<input>"), "{strict_err}");
+    let strict = diag_text(&check_document_pilot(INPUT_PAGE, &path, &dir, false), true);
+    assert!(strict.contains("error[subset]"), "{strict}");
+    assert!(strict.contains("piloto v2"), "{strict}");
+    assert!(strict.contains("<input>"), "{strict}");
 
-    let allowed = emit_ui(
-        &dir,
-        "page.html",
-        "allowed.json",
-        &["--strict-subset", "--pilot"],
-    );
-    assert!(
-        allowed.status.success(),
-        "con --pilot debe pasar: {}",
-        stderr(&allowed)
-    );
-    assert!(!stderr(&allowed).contains("[subset]"));
-}
-
-#[test]
-fn emit_ui_is_required() {
-    let dir = temp_dir("emit-ui-required");
-    write(&dir.join("page.html"), INPUT_PAGE);
-
-    let output = run(&dir, "page.html", &[]);
-    assert!(!output.status.success(), "sin --emit-ui debe fallar");
-    let err = stderr(&output);
-    assert!(err.contains("falta --emit-ui"), "{err}");
-    assert!(err.contains("--emit-ui <ui.json>"), "{err}");
+    let allowed = check_document_pilot(INPUT_PAGE, &path, &dir, true);
+    assert!(allowed.is_empty(), "{}", diag_text(&allowed, true));
 }
 
 #[test]
@@ -1033,23 +582,21 @@ fn input_does_not_leak_into_v1_or_v2_pages() {
 <html><head><style>body { background: #ffffff; }</style></head>
 <body><div style="width: 10px; height: 10px; background: #111111"></div></body></html>
 "##;
-    write(&dir.join("v1.html"), v1);
-    let first = emit_ui(&dir, "v1.html", "v1-a.json", &[]);
-    assert!(first.status.success(), "{}", stderr(&first));
-    let text = fs::read_to_string(dir.join("v1-a.json")).unwrap();
-    assert!(text.contains("webnative.ui-tree/1"), "{text}");
-    assert!(!text.contains("\"input\""), "{text}");
-    assert!(!text.contains("row_gap"), "{text}");
+    let first = build(&dir, v1);
+    assert!(!first.detailed);
+    assert!(first.nodes.iter().all(|node| node.kind != KIND_INPUT));
+    assert!(first.nodes.iter().all(|node| node.input.is_none()));
 
     let v2 = r##"<!doctype html>
 <html><head><style>.g { display: grid; grid-template-columns: repeat(auto-fill, 80px); }</style></head>
 <body><div class="g"><div style="width: 80px; height: 40px"></div></div></body></html>
 "##;
-    write(&dir.join("v2.html"), v2);
-    let second = emit_ui(&dir, "v2.html", "v2.json", &["--pilot"]);
-    assert!(second.status.success(), "{}", stderr(&second));
-    let text = fs::read_to_string(dir.join("v2.json")).unwrap();
-    assert!(text.contains("webnative.ui-tree/2"), "{text}");
-    assert!(!text.contains("\"input\""), "{text}");
-    assert!(text.contains("row_gap"), "{text}");
+    let second = build(&dir, v2);
+    assert!(second.detailed);
+    assert!(second.nodes.iter().all(|node| node.kind != KIND_INPUT));
+    assert!(second.nodes.iter().all(|node| node.input.is_none()));
+    assert!(second
+        .nodes
+        .iter()
+        .any(|node| node.style.grid_template_columns.is_some()));
 }

@@ -10,9 +10,10 @@ pintado en runtime sobre una vtable de backend: **D3D11** en Windows y
 builtin va embebida como blob en la DLL y la carga el mismo loader que un
 consumidor.
 
-> **En transición:** `ui.json` y `ui_data.h` siguen existiendo solo para el
-> oráculo Python y los tests de CSS; el runtime ya no los consume. El siguiente
-> carril los retira y deja `wnui-dump` como vista de debug del blob.
+> **Estado:** el runtime es blob-only. El frontend Rust produce `.wnui` con
+> `--emit-blob`; el builtin es un blob embebido. `wnui-dump` imprime una
+> proyección de debug del blob (texto o `--json`), que **no es un contrato**.
+> `emit_ui.py` sobrevive solo para los fixtures CSS y se retira en la fase 2b.
 
 > **R1 está archivado.** La primera prueba del proyecto —hornear un
 > `display_list.json` post-layout en un `.exe` estático— duplicaba renderizador
@@ -41,10 +42,10 @@ eventos. El detalle de lo que se puede usar hoy está en
 
 ```
 src/
-  ir/                 contrato del IR + schema
+  ir/                 histórico del IR retirado (no producción)
   frontend/           frontend canónico en Rust (Cargo.toml + src/ + tests/)
   runtime/            motor C: layout en runtime, eventos, resize, renderer
-  emitter/python/     emit_ui.py (oráculo temporal de ui_data.h)
+  emitter/python/     emit_ui.py (solo fixtures CSS; retirada fase 2b)
 tools/
   cli.py              wn-cli: entry point de build/run/test/bench/setup
   wn_cli/             implementación del CLI (comandos y rutas del repo)
@@ -57,7 +58,7 @@ archive/
   ps1-legacy/         orquestadores PowerShell archivados (sin reemplazo vivo)
   r1-static/          R1 horneado (archivado): escena estática + su renderer
 spec/                 fixtures originales del contrato
-docs/                 arquitectura, IR y convenciones
+docs/                 arquitectura, blob, ABI y convenciones
 third_party/          wgpu-native v29.0.1.1 (headers; binaries vía wn-cli setup wgpu)
 ```
 
@@ -70,8 +71,8 @@ third_party/          wgpu-native v29.0.1.1 (headers; binaries vía wn-cli setup
 | **C++**    | referencia de paridad **congelada**      | `archive/frontends-legacy/cpp`; fixtures de SPEC.md  |
 | **C#**     | referencia de paridad **congelada**      | `archive/frontends-legacy/csharp`; fixtures SPEC.md  |
 
-La paridad medible es el argumento central del proyecto: mismo input, mismo IR,
-mismos píxeles. El gate vivo compara el frontend Rust contra el oráculo Python;
+La paridad medible es el argumento central del proyecto: mismo input, mismo
+blob, mismos píxeles. El gate vivo compara el frontend Rust contra el oráculo Python;
 C++/C# quedan congelados en el subset de `SPEC.md` dentro de
 `archive/frontends-legacy/` y las features nuevas de Rust (CSS v3, input, etc.)
 no les obligan a seguirlas. Los resultados se versionan en
@@ -84,8 +85,8 @@ no les obligan a seguirlas. Los resultados se versionan en
 | Frontend **Rust** (canónico)  | ✅ paridad byte-idéntica, ~10 ms wall, 1.05 MB                              |
 | Frontend Python (oráculo)     | ✅ test-only en `archive/frontends-legacy/python`; no sigue features nuevas |
 | Frontend C++/C# (frozen)      | ✅ referencias congeladas en `archive/frontends-legacy`                     |
-| IR de estilos (`ui.json`)     | ✅ schema + goldens                                                         |
-| Emitter                       | ✅ `--emit-header` en Rust, byte-idéntico a `emit_ui.py` (oráculo, 4 páginas) |
+| Documento `.wnui` (blob v2)   | ✅ schema binario + hash canónico                                            |
+| Debug del blob                | ✅ `wnui-dump` (texto/JSON; proyección, no contrato)                        |
 | Runtime C                     | ✅ `src/runtime` — layout, grid, scroll, imágenes y eventos (69/69)         |
 | ABI C v6                      | ✅ standalone/embedded; v3 dinámica + v4 input + v5 nodos + v6 estado/lecturas |
 | Dynamic UI (v3)               | ✅ `set_visible`, `set_image`, `set_text`, clone/append/remove (61/61)      |
@@ -103,10 +104,10 @@ no les obligan a seguirlas. Los resultados se versionan en
 El contrato cerrado es [`docs/subset-v1.md`](docs/subset-v1.md). Las
 extensiones del piloto son opt-in con `--pilot`:
 
-| Extensión | Qué añade                                              | Schema      |
-| --------- | ------------------------------------------------------ | ----------- |
-| **v2**    | grid, scroll vertical, imágenes, `object-fit`          | `ui-tree/2` |
-| **v3**    | input UTF-8, bordes/radius/sombras, unidades relativas | `ui-tree/3` |
+| Extensión | Qué añade                                              | En el blob   |
+| --------- | ------------------------------------------------------ | ------------ |
+| **v2**    | grid, scroll vertical, imágenes, `object-fit`          | campos v2    |
+| **v3**    | input UTF-8, bordes/radius/sombras, unidades relativas | `inputs` + CSS |
 
 Resumen de lo que hay hoy:
 
@@ -130,7 +131,7 @@ feature fuera del contrato en error.
 # Dependencias nativas: descarga wgpu-native v29.0.1.1 y verifica su SHA-256
 python tools\cli.py setup wgpu
 
-# Build del frontend Rust + emitter + runtime; binarios limpios en build\release
+# Build del frontend Rust + runtime; binarios limpios en build\release
 python tools\cli.py build
 
 # Suites de verificación (frontend Rust + ABI C + runtime)
@@ -162,7 +163,8 @@ restaure un runner, no forma parte del flujo de verificación.
 - [`docs/support.md`](docs/support.md) — matriz de soportado / no soportado.
 - [`docs/subset-v1.md`](docs/subset-v1.md) — contrato HTML/CSS v1.
 - [`docs/architecture.md`](docs/architecture.md) — pipeline, contratos y lanes.
-- [`docs/ui-tree-v3.md`](docs/ui-tree-v3.md) — input y schema `/3`.
+- [`docs/wnui-format.md`](docs/wnui-format.md) — secciones del blob y `wnui-dump` (no contrato).
+- [`docs/ui-tree-v3.md`](docs/ui-tree-v3.md) — histórico del IR retirado (input y schema `/3`).
 - [`src/runtime/README.md`](src/runtime/README.md) — runtime R2, ABI y tests.
 - [`benchmarks/frontend-parity/SPEC.md`](benchmarks/frontend-parity/SPEC.md) — subset de paridad y reglas.
 - [`docs/conventions.md`](docs/conventions.md) — nombres y reglas del repo.
@@ -171,10 +173,10 @@ restaure un runner, no forma parte del flujo de verificación.
 ## Principios
 
 1. **Sin navegador.** Nada de WebView, Chromium, Skia ni Electron.
-2. **El IR es el contrato.** Cualquier lenguaje puede producir o consumir el IR.
+2. **El documento `.wnui` es el contrato.** Cualquier lenguaje puede producir o consumir el blob.
 3. **Build time vs runtime.** El frontend puede correr en build time (AOT) o en
    runtime (R2), pero el `.exe` no depende de Python.
-4. **Paridad medible.** Mismo input → mismo IR → mismos píxeles.
+4. **Paridad medible.** Mismo input → mismo blob → mismos píxeles.
 
 ## Licencia
 

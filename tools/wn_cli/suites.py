@@ -205,23 +205,25 @@ def _embed_blob(blob: Path, header: Path) -> None:
     )
 
 
-def _emit_ui_json(ui_json: Path, out_dir: Path, with_blob: bool = False) -> None:
+def _emit_css_fixture(ui_json: Path, out_dir: Path) -> None:
+    """CSS-only legacy path (phase 2b removes it).
+
+    The CSS fixtures are still hand-authored `ui.json` files, so they keep
+    going through `emit_ui.py --ui-json`. Every other suite uses
+    `frontend-rust --emit-blob` and never touches the Python emitter.
+    """
     out_dir.mkdir(parents=True, exist_ok=True)
-    arguments = [
-        "--ui-json", str(ui_json),
-        "--out", str(out_dir / "ui_data.h"),
-        "--meta", str(out_dir / "ui_meta.json"),
-    ]
-    blob = out_dir / "app.wnui"
-    if with_blob:
-        arguments.extend(["--blob", str(blob)])
     _python(
         get_paths().emitter,
-        arguments,
+        [
+            "--ui-json", str(ui_json),
+            "--out", str(out_dir / "ui_data.h"),
+            "--meta", str(out_dir / "ui_meta.json"),
+            "--blob", str(out_dir / "app.wnui"),
+        ],
         cwd=get_paths().root,
     )
-    if with_blob:
-        _embed_blob(blob, out_dir / "builtin_blob.h")
+    _embed_blob(out_dir / "app.wnui", out_dir / "builtin_blob.h")
 
 
 def run_css() -> int:
@@ -234,8 +236,8 @@ def run_css() -> int:
     _python(suite / "make_images.py", [], cwd=suite)
 
     for name in ("card", "control", "none"):
-        log_step(f"css: emit {name} ui_data.h + builtin blob")
-        _emit_ui_json(page / f"{name}.json", out / "emit" / name, with_blob=True)
+        log_step(f"css: emit {name} ui_data.h + builtin blob (legacy JSON path)")
+        _emit_css_fixture(page / f"{name}.json", out / "emit" / name)
 
     log_step("css: legacy header self-compare")
     legacy = suite / "fixture" / "legacy_ui_data.h"
@@ -286,35 +288,25 @@ def run_fidelity() -> int:
     log_step("fidelity: deterministic ratio image")
     _python(suite / "make_images.py", [], cwd=suite)
 
-    log_step("fidelity: frontend-rust --emit-ui --emit-blob")
+    log_step("fidelity: frontend-rust --emit-blob")
     run_cmd(
         [rust_exe, "--html", "page/index.html", "--width", "480", "--height", "560",
-         "--emit-ui", str(out / "ui.json"),
          "--emit-blob", str(out / "fidelity.wnui"), "--pilot"],
         cwd=suite,
     )
 
-    log_step("fidelity: emit ui_data.h + embedded builtin blob")
-    _emit_ui_json(out / "ui.json", out / "emit")
+    log_step("fidelity: embed the builtin blob")
     _embed_blob(out / "fidelity.wnui", out / "emit" / "builtin_blob.h")
-    header = (out / "emit" / "ui_data.h").read_text(encoding="utf-8")
-    if "#define UI_STYLE_EXTRAS 1" not in header:
-        raise CliError("fidelity header is missing UI_STYLE_EXTRAS")
-    if "text_align" in header and "int text_align;" not in header:
-        raise CliError("fidelity header has text_align data but no field")
 
-    log_step("fidelity: emitter determinism guard")
-    first = out / "legacy_input.h"
-    second = out / "legacy_input_second.h"
-    for target in (first, second):
-        _python(
-            get_paths().emitter,
-            ["--ui-json", str(get_paths().runtime / "tests" / "input" / "page" / "ui.json"),
-             "--out", str(target), "--meta", str(out / f"{target.stem}_meta.json")],
-            cwd=get_paths().root,
-        )
-    if first.read_bytes() != second.read_bytes():
-        raise CliError("emitter output for tests/input is not deterministic")
+    log_step("fidelity: blob determinism guard")
+    second_blob = out / "fidelity_second.wnui"
+    run_cmd(
+        [rust_exe, "--html", "page/index.html", "--width", "480", "--height", "560",
+         "--emit-blob", str(second_blob), "--pilot"],
+        cwd=suite,
+    )
+    if (out / "fidelity.wnui").read_bytes() != second_blob.read_bytes():
+        raise CliError("frontend-rust blob output for the fidelity page is not deterministic")
 
     runtime = get_paths().runtime
     log_step("fidelity: compile+run core test")
@@ -355,30 +347,27 @@ def run_fidelity() -> int:
     return 0
 
 
-def _emit_fixture(suite: Path, page: Path, width: int, height: int, header: Path, pilot: bool = False) -> None:
+def _emit_fixture(suite: Path, page: Path, width: int, height: int, fixture: Path,
+                  pilot: bool = False) -> Path:
     rust_exe = get_paths().frontend_rust / "target" / "release" / "frontend-rust.exe"
     if not rust_exe.is_file():
         raise CliError("frontend-rust.exe is missing; run: wn-cli frontend build")
-    header.parent.mkdir(parents=True, exist_ok=True)
-    blob = header.parent / "app.wnui"
+    fixture.mkdir(parents=True, exist_ok=True)
+    blob = fixture / "app.wnui"
     arguments = [
         "--html", "page/index.html",
         "--css", "page/style.css",
         "--width", str(width),
         "--height", str(height),
-        "--emit-ui", str(page / "ui.json"),
         "--emit-blob", str(blob),
     ]
     if pilot:
         arguments.append("--pilot")
     run_cmd([rust_exe, *arguments], cwd=suite)
-    _python(
-        get_paths().emitter,
-        ["--ui-json", str(page / "ui.json"), "--out", str(header),
-         "--meta", str(header.parent / "ui_meta.json")],
-        cwd=get_paths().root,
-    )
-    _embed_blob(blob, header.parent / "builtin_blob.h")
+    if not blob.is_file():
+        raise CliError("frontend-rust did not write app.wnui")
+    _embed_blob(blob, fixture / "builtin_blob.h")
+    return blob
 
 
 def _expect(text: str, needles: Sequence[str], label: str) -> None:
@@ -399,8 +388,8 @@ def run_dynamic() -> int:
             _python(suite / "make_images.py", [str(page / "images")], cwd=suite)
             break
 
-    log_step("dynamic: fixture header")
-    _emit_fixture(suite, page, 400, 300, fixture / "ui_data.h")
+    log_step("dynamic: fixture blob")
+    _emit_fixture(suite, page, 400, 300, fixture)
 
     runtime = get_paths().runtime
     includes = runtime_includes(fixture)
@@ -460,8 +449,8 @@ def run_input() -> int:
     out.mkdir(parents=True, exist_ok=True)
     fixture.mkdir(parents=True, exist_ok=True)
 
-    log_step("input: fixture header")
-    _emit_fixture(suite, page, 480, 240, fixture / "ui_data.h", pilot=True)
+    log_step("input: fixture blob")
+    _emit_fixture(suite, page, 480, 240, fixture, pilot=True)
 
     runtime = get_paths().runtime
     includes = runtime_includes(fixture)
@@ -538,7 +527,7 @@ def run_offscreen() -> int:
     runtime = get_paths().runtime
     wgpu = wgpu_available()
 
-    log_step("offscreen: canonical fixture")
+    log_step("offscreen: canonical fixture blob")
     rust_exe = get_paths().frontend_rust / "target" / "release" / "frontend-rust.exe"
     if not rust_exe.is_file():
         raise CliError("frontend-rust.exe is missing; run: wn-cli frontend build")
@@ -546,15 +535,8 @@ def run_offscreen() -> int:
     run_cmd(
         [rust_exe, "--html", str(page / "index.html"), "--css", str(page / "style.css"),
          "--width", "960", "--height", "640",
-         "--emit-ui", str(fixture / "ui.json"),
          "--emit-blob", str(fixture / "app.wnui")],
         cwd=runtime,
-    )
-    _python(
-        get_paths().emitter,
-        ["--ui-json", str(fixture / "ui.json"), "--out", str(fixture / "ui_data.h"),
-         "--meta", str(fixture / "ui_meta.json")],
-        cwd=get_paths().root,
     )
     _embed_blob(fixture / "app.wnui", fixture / "builtin_blob.h")
 
@@ -613,9 +595,9 @@ def run_offscreen() -> int:
             )
         )
 
-    log_step("offscreen: image cache fixture")
+    log_step("offscreen: image cache fixture blob")
     _python(suite / "make_posters.py", [], cwd=suite)
-    _emit_ui_json(suite / "cache_page" / "cache.json", cache_fixture, with_blob=True)
+    _blob_emit(suite / "cache_page", cache_fixture, 800, 300, False)
     cache_exe = out / "image_cache_test.exe"
     _compile(
         cache_exe,
@@ -664,7 +646,7 @@ def run_text() -> int:
     )
     _expect(_run(atlas_exe, [], out), ["atlas_test: PASS"], "text atlas test")
 
-    log_step("text: canonical document fixture")
+    log_step("text: canonical document fixture blob")
     rust_exe = get_paths().frontend_rust / "target" / "release" / "frontend-rust.exe"
     if not rust_exe.is_file():
         raise CliError("frontend-rust.exe is missing; run: wn-cli frontend build")
@@ -672,15 +654,8 @@ def run_text() -> int:
     run_cmd(
         [rust_exe, "--html", str(page / "index.html"), "--css", str(page / "style.css"),
          "--width", "960", "--height", "640",
-         "--emit-ui", str(fixture / "ui.json"),
          "--emit-blob", str(fixture / "app.wnui")],
         cwd=runtime,
-    )
-    _python(
-        get_paths().emitter,
-        ["--ui-json", str(fixture / "ui.json"), "--out", str(fixture / "ui_data.h"),
-         "--meta", str(fixture / "ui_meta.json")],
-        cwd=get_paths().root,
     )
     _embed_blob(fixture / "app.wnui", fixture / "builtin_blob.h")
 
@@ -717,18 +692,11 @@ def _blob_emit(page_dir: Path, fixture: Path, width: int, height: int,
         "--css", str(page_dir / "style.css"),
         "--width", str(width),
         "--height", str(height),
-        "--emit-ui", str(fixture / "ui.json"),
         "--emit-blob", str(fixture / "app.wnui"),
     ]
     if pilot:
         arguments.append("--pilot")
     run_cmd([rust_exe, *arguments], cwd=runtime)
-    _python(
-        get_paths().emitter,
-        ["--ui-json", str(fixture / "ui.json"), "--out", str(fixture / "ui_data.h"),
-         "--meta", str(fixture / "ui_meta.json")],
-        cwd=get_paths().root,
-    )
     blob = fixture / "app.wnui"
     if not blob.is_file():
         raise CliError("frontend-rust did not write app.wnui")
@@ -818,6 +786,88 @@ def run_blob() -> int:
     return 0
 
 
+def run_dump() -> int:
+    suite = _suite_dir("dump")
+    out = suite / "out"
+    out.mkdir(parents=True, exist_ok=True)
+    runtime = get_paths().runtime
+    rust_exe = get_paths().frontend_rust / "target" / "release" / "frontend-rust.exe"
+    if not rust_exe.is_file():
+        raise CliError("frontend-rust.exe is missing; run: wn-cli frontend build")
+
+    log_step("dump: canonical blob")
+    canonical_fixture = out / "fixture" / "canonical"
+    canonical = _blob_emit(runtime / "page", canonical_fixture, 960, 640, False)
+
+    log_step("dump: compile wnui-dump")
+    exe = out / "wnui-dump.exe"
+    _compile(
+        exe,
+        [runtime / "tools" / "wn_dump.c",
+         *[runtime / source for source in CORE_SOURCES]],
+        [get_paths().root / "include", runtime, canonical_fixture],
+        CORE_LIBS,
+    )
+
+    log_step("dump: canonical text projection vs golden")
+    text = _run(exe, [str(canonical)], out).replace("\r\n", "\n")
+    golden_path = suite / "canonical.txt"
+    if not golden_path.is_file():
+        raise CliError(f"missing dump golden: {golden_path}")
+    golden = golden_path.read_text(encoding="utf-8").replace("\r\n", "\n")
+    if text != golden:
+        actual_path = out / "canonical.actual.txt"
+        actual_path.write_text(text, encoding="utf-8")
+        raise CliError(
+            "wnui-dump text output changed; inspect "
+            f"{actual_path} and update {golden_path} only for an intended dump change"
+        )
+
+    log_step("dump: canonical JSON projection")
+    document = json.loads(_run(exe, ["--json", str(canonical)], out))
+    if document.get("format") != "wnui/2":
+        raise CliError(f"unexpected dump format: {document.get('format')!r}")
+    if document.get("viewport") != {"width": 960, "height": 640}:
+        raise CliError(f"unexpected dump viewport: {document.get('viewport')!r}")
+    if len(document.get("nodes", [])) != document.get("node_count"):
+        raise CliError("dump nodes[] does not match node_count")
+    if document.get("input_count") != 0 or document.get("inputs") != []:
+        raise CliError("canonical page must not carry inputs")
+
+    log_step("dump: input page projection")
+    input_fixture = out / "fixture" / "input"
+    input_blob = _blob_emit(runtime / "tests" / "input" / "page", input_fixture, 480, 240, True)
+    input_text = _run(exe, [str(input_blob)], out)
+    _expect(input_text, [
+        "nodes=4 inputs=2",
+        " kind=input ",
+        'name="body.root/div.bar/input#search.search"',
+        'value=""',
+        'placeholder="Buscar..."',
+        "max-length=12",
+        'placeholder="Otro"',
+        "max-length=5",
+    ], "wnui-dump input projection")
+
+    log_step("dump: missing and corrupt files fail clearly")
+    for name, payload in (("missing.wnui", None), ("corrupt.wnui", b"not a wnui blob")):
+        bad = out / name
+        if payload is not None:
+            bad.write_bytes(payload)
+        else:
+            bad.unlink(missing_ok=True)
+        completed = subprocess.run([str(exe), str(bad)], cwd=out,
+                                   capture_output=True, text=True)
+        combined = completed.stdout + completed.stderr
+        if completed.returncode == 0:
+            raise CliError(f"wnui-dump accepted {name}")
+        if "wnui-dump:" not in combined or str(bad) not in combined:
+            raise CliError(f"wnui-dump did not report {name} clearly: {combined!r}")
+
+    log_info("wnui-dump: PASS")
+    return 0
+
+
 SUITES = {
     "css": ("CSS core v1 (rounded boxes, border, shadow, image)", run_css),
     "fidelity": ("E1 visual/layout fidelity (headless core + renders)", run_fidelity),
@@ -826,6 +876,7 @@ SUITES = {
     "offscreen": ("offscreen vtable (d3d11 vs wgpu readback)", run_offscreen),
     "text": ("runtime text v0 (DirectWrite measurement + cache)", run_text),
     "blob": ("blob v2 (.wnui load, layout and pixels)", run_blob),
+    "dump": ("wnui-dump debug projection (text/JSON/errors)", run_dump),
 }
 
 

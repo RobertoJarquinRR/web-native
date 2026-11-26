@@ -1,56 +1,71 @@
 # Frontend Rust
 
-Compilador de UI de WebNative: convierte HTML + CSS en el árbol de estilos
-**pre-layout** (`ui.json`) que consume el runtime C. No calcula geometría ni
-hornea texto; el motor mide, shapea y pinta en runtime.
+Compilador de UI de WebNative: convierte HTML + CSS en el **documento `.wnui`**
+(blob v2) que consume el runtime C. No calcula geometría ni hornea texto: el
+motor mide, shapea y pinta en runtime.
 
 ## Uso
 
 ```
 frontend-rust.exe --html app/index.html --width 1280 --height 800 \
-                  --emit-ui app/ui.json [--emit-header app/ui_data.h] \
-                  [--emit-blob app.wnui] [--css app/styles.css] \
+                  --emit-blob app.wnui [--css app/styles.css] \
                   [--strict-subset] [--pilot]
 ```
 
 | Flag | Efecto |
 |---|---|
-| `--html`, `--css` | página a compilar; `--css` es opcional si el HTML enlaza la hoja |
-| `--width`, `--height` | viewport de referencia (resuelve `%`, `vw/vh`, media queries) |
-| `--emit-ui` | salida `ui.json`; obligatorio |
-| `--emit-header` | `ui_data.h` opcional, byte a byte igual al del emisor Python |
-| `--emit-blob` | documento `.wnui` v2 opcional, byte a byte igual al del emisor |
+| `--html` | página a compilar |
+| `--width`, `--height` | viewport de referencia (resuelve `%`, `vw/vh`) |
+| `--emit-blob` | salida `.wnui` v2; es la **única** salida y es obligatoria |
+| `--css` | aceptado por compatibilidad; las hojas se descubren del `<link>`/`<style>` del documento |
 | `--strict-subset` | cualquier feature fuera de `docs/subset-v1.md` es error (exit != 0) |
 | `--pilot` | habilita grid, scroll, imágenes y `<input>` (extensiones v2/v3) |
 
-Sin `--emit-ui` el binario no escribe nada y devuelve error de uso.
+Sin `--emit-blob` el binario no escribe nada y devuelve error de uso. Ya no se
+generan `ui.json` ni `ui_data.h`: el blob es el contrato.
 
 ## Etapas
 
 ```
 HTML/CSS → parse (dom, css) → cascade → style_ext (grid/scroll/imágenes)
-        → ui_tree (nodos pre-orden) → ui.json
+        → ui_tree (nodos pre-orden) → .wnui
 ```
 
-Con `--emit-blob` el binario escribe el `.wnui` v2 y con `--emit-header`
-escribe `ui_data.h` idéntico al de `src/emitter/python/emit_ui.py --ui-json`
-(sin atlas ni tablas de glifos): el emisor Python ya no hace falta para
-compilar una página.
+El pipeline completo vive en la **librería** (`src/lib.rs`), no en `main.rs`:
 
-## Contrato `ui.json`
+```rust
+use frontend_rust::{build_tree, build_tree_from_file};
 
-- `webnative.ui-tree/1`: página base.
-- `/2`: añade grid, scroll e imágenes.
-- `/3`: añade `<input type="text">` (solo con `--pilot`).
+let tree = build_tree_from_file(Path::new("page/index.html"), (960, 640))?;
+for node in &tree.nodes {
+    // node.kind, node.tag, node.classes, node.element_id, node.style, ...
+}
+tree.write_blob(Path::new("app.wnui"))?;
+```
+
+- `build_tree(html, base_dir, viewport)` ejecuta parseo + cascada y devuelve un
+  `Tree` **en memoria**. `base_dir` resuelve los `<link>` relativos.
+- `Tree.nodes` expone `kind`, `tag`, `classes`, `element_id`, `style`
+  (incluye `css3`: bordes, radios, sombras y unidades relativas), `data`,
+  `argb`, `text`, `image` e `input`.
+- `Tree.detailed` indica si la página necesita los campos v2/v3 del blob (grid,
+  scroll, imágenes, CSS v3 o input).
+- `Tree::write_blob(path)` escribe el `.wnui` canónico.
+
+Los tests de integración usan esa API y no lanzan procesos ni serializan JSON.
+
+## Contenido del árbol
 
 Cada nodo lleva `parent`, `kind`, geometría declarada, márgenes/padding,
 colores, `data-*`, y para texto: `content`, `font_family`, `font_size`,
 `font_weight` y `line_height`. No hay glifos, posiciones ni atlas: el runtime
-mide y shapea. Los nodos de texto salen con `width/height = -1`.
+mide y shapea. Los nodos de texto salen con `width/height = -1` en el blob.
 
 Los inputs llevan solo `value`, `placeholder`, `max_length` y `password`.
 
-`atlas` es siempre `null`; no se escribe `atlas.bin`.
+El formato binario y la vista de debug están en
+[`docs/wnui-format.md`](../../docs/wnui-format.md). El dump (`wnui-dump`) es una
+proyección de debug, **no un contrato**; la invariante es el hash del blob.
 
 ## Diagnósticos
 
@@ -65,12 +80,16 @@ Los inputs llevan solo `value`, `placeholder`, `max_length` y `password`.
 cargo test --release
 ```
 
-Cubren parseo/cascada, extensiones v2/v3, subset estricto y el contrato de
-`ui.json`. Los fixtures del runtime se regeneran con `wn-cli` (`test suite
-fidelity` compara el emisor contra sí mismo).
+Cubren parseo/cascada, colores, grid, bordes/sombras, unidades relativas,
+subset estricto, la API de librería y el determinismo del blob. Los fixtures
+del runtime se regeneran con `wn-cli`; `wn-cli test suite blob` compara el blob
+contra el documento builtin y `wn-cli test suite dump` fija la proyección de
+debug.
 
 ## Histórico
 
-El frontend también emitía el IR estático de R1 (`display_list.json`) y
-horneaba texto con HarfBuzz/FreeType. Retirado: el runtime R1 vive en
-`archive/r1-static/` y su benchmark congelado en `archive/benchmarks-r1/`.
+El frontend también emitía el IR estático de R1 (`display_list.json`),
+`ui.json`/`ui_data.h` para el oráculo Python y horneaba texto con
+HarfBuzz/FreeType. El IR estático vive en `archive/r1-static/`; los documentos
+`docs/ui-tree-v2.md`, `docs/ui-tree-v3.md` y `docs/ir-schema.md` describen el IR
+retirado y se conservan solo como historia.

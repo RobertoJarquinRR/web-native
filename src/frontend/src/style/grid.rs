@@ -10,24 +10,24 @@
 
 use crate::style::color::length;
 
-/// `repeat(auto-fill, <px>)` already normalized for `ui.json`.
+/// `repeat(auto-fill, <px>)` already normalized for the blob.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct GridTemplateColumns {
+pub struct GridTemplateColumns {
     /// Always `"auto_fill"` in v2.
-    pub(crate) mode: String,
-    pub(crate) size_px: f64,
+    pub mode: String,
+    pub size_px: f64,
 }
 
 /// `grid-auto-rows: <px> | auto`.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) enum GridAutoRows {
+pub enum GridAutoRows {
     Px(f64),
     /// `auto` = maximum height of the children (computed by the runtime).
     Auto,
 }
 
 /// `repeat(auto-fill, 180px)` -> `{ mode: "auto_fill", size_px: 180.0 }`.
-pub(crate) fn parse_grid_template_columns(value: &str) -> Option<GridTemplateColumns> {
+pub fn parse_grid_template_columns(value: &str) -> Option<GridTemplateColumns> {
     let text = value.trim();
     let open = text.find('(')?;
     let close = text.rfind(')')?;
@@ -52,7 +52,7 @@ pub(crate) fn parse_grid_template_columns(value: &str) -> Option<GridTemplateCol
 }
 
 /// `240px` -> `Px(240.0)`; `auto` -> `Auto`.
-pub(crate) fn parse_grid_auto_rows(value: &str) -> Option<GridAutoRows> {
+pub fn parse_grid_auto_rows(value: &str) -> Option<GridAutoRows> {
     let text = value.trim();
     if text.eq_ignore_ascii_case("auto") {
         return Some(GridAutoRows::Auto);

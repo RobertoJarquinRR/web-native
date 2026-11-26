@@ -1,5 +1,10 @@
 # IR: display list
 
+> **Documento histórico.** Este IR JSON (`display_list.json`) pertenece al R1
+> archivado (`archive/r1-static/`). El runtime actual no lo emite ni lo consume:
+> el contrato vivo es el blob `.wnui` v2 (`docs/wnui-format.md`). Se conserva
+> como referencia del pipeline retirado.
+
 El contrato entre el frontend y todo lo demás es un JSON con dos claves:
 
 ```json

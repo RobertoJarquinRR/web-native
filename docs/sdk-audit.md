@@ -1,5 +1,11 @@
 # Auditoría del SDK
 
+> **Nota (post fase 2a):** este documento es un snapshot del audit. Las filas
+> C5/C12/B1 describen el estado anterior: el frontend ya no emite `ui.json` ni
+> `ui_data.h`, `--emit-header` ya no existe y `wnui-dump` cubre la vista de
+> debug del blob. Se conserva como historia; el contrato vivo está en
+> `docs/wnui-format.md`.
+
 Inventario de deudas heredadas y límites que hoy bloquean madurar el motor.
 No es una spec: es la lista de trabajo, ordenada por riesgo. Cada fila dice el
 síntoma real y el arreglo propuesto; "aditivo" significa que no rompe contratos

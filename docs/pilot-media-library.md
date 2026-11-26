@@ -71,7 +71,7 @@ más apps se promueven al subset v2.
 
 ## Bloqueos de engine v0
 
-La ABI v0 renderiza un **árbol compilado** (`ui_data.h`); no parsea HTML/CSS en
+La ABI v0 renderiza un **documento compilado** (hoy `.wnui`); no parsea HTML/CSS en
 runtime, `set_text` es limitado y no hay scroll/imágenes/listas dinámicas/input.
 Por tanto, el piloto A1 no es implementable solo con v0. Orden propuesto:
 

@@ -62,11 +62,11 @@ const ALLOWED_PSEUDO_CLASSES: [&str; 8] = [
 ];
 
 #[derive(Debug, Clone)]
-pub(crate) struct Diagnostic {
-    pub(crate) file: String,
-    pub(crate) line: Option<u32>,
-    pub(crate) context: Option<String>,
-    pub(crate) message: String,
+pub struct Diagnostic {
+    pub file: String,
+    pub line: Option<u32>,
+    pub context: Option<String>,
+    pub message: String,
 }
 
 impl Diagnostic {
@@ -79,7 +79,7 @@ impl Diagnostic {
         }
     }
 
-    pub(crate) fn render(&self, strict: bool) -> String {
+    pub fn render(&self, strict: bool) -> String {
         let level = if strict { "error" } else { "warning" };
         let location = match self.line {
             Some(line) => format!("{}:{}", self.file, line),
@@ -94,7 +94,7 @@ impl Diagnostic {
     }
 }
 
-pub(crate) fn print_diagnostics(diagnostics: &[Diagnostic], strict: bool) {
+pub fn print_diagnostics(diagnostics: &[Diagnostic], strict: bool) {
     for diagnostic in diagnostics {
         eprintln!("{}", diagnostic.render(strict));
     }
@@ -123,7 +123,7 @@ pub(crate) fn check_document(html: &str, html_path: &Path, base_dir: &Path) -> V
 /// Same as [`check_document`] but with the v2 pilot extensions:
 /// `display: grid`, scroll (`overflow: auto|scroll`), `grid-*` and `object-fit`
 /// stop being diagnosed when `pilot` is `true`.
-pub(crate) fn check_document_pilot(
+pub fn check_document_pilot(
     html: &str,
     html_path: &Path,
     base_dir: &Path,
