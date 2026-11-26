@@ -37,7 +37,12 @@
 8. Los commits son del usuario: no se añaden trailers de co-autoría de IA
    (`Co-authored-by: Copilot/Claude/...`). Si una herramienta los añade, se
    eliminan antes de commitear. Un co-autor solo se pone si el usuario lo pide
-   con nombre y email exactos. Ejemplo:
+   con nombre y email exactos.
+9. Versiones: `WN_ABI_VERSION` solo sube por cambios incompatibles (layout de
+   struct, quitar/renombrar, cambiar semántica); bits/funciones/eventos
+   aditivos comparten la versión de la ola. `WN_BLOB_VERSION` sube cuando
+   cambia el registro o una sección existente; durante una ola se congela y lo
+   aditivo va en secciones opcionales. No se sube una versión por feature. Ejemplo:
    `src/runtime/tests/text/contract_test.c` corre sobre `fake_text.c` y fija
    que `max_width` sea solo una pista (el backend falso miente a propósito),
    mientras `measure_test.c` queda como smoke del backend real.
