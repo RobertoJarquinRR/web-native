@@ -13,7 +13,7 @@ consumidor.
 > **Estado:** el runtime es blob-only. El frontend Rust produce `.wnui` con
 > `--emit-blob`; el builtin es un blob embebido. `wnui-dump` imprime una
 > proyección de debug del blob (texto o `--json`), que **no es un contrato**.
-> `emit_ui.py` sobrevive solo para los fixtures CSS y se retira en la fase 2b.
+> Todos los fixtures de test, incluidos los CSS, compilan HTML/CSS a `.wnui`.
 
 > **R1 está archivado.** La primera prueba del proyecto —hornear un
 > `display_list.json` post-layout en un `.exe` estático— duplicaba renderizador
@@ -45,7 +45,6 @@ src/
   ir/                 histórico del IR retirado (no producción)
   frontend/           frontend canónico en Rust (Cargo.toml + src/ + tests/)
   runtime/            motor C: layout en runtime, eventos, resize, renderer
-  emitter/python/     emit_ui.py (solo fixtures CSS; retirada fase 2b)
 tools/
   cli.py              wn-cli: entry point de build/run/test/bench/setup
   wn_cli/             implementación del CLI (comandos y rutas del repo)
@@ -93,7 +92,7 @@ no les obligan a seguirlas. Los resultados se versionan en
 | Text input (v4)               | ✅ UTF-8 single-line, caret/selección/drag/blink, `WN_EVENT_INPUT` (80+118) |
 | Texto en runtime              | ✅ DirectWrite, wrapping, atlas dinámico y cachés (66/34/4/40)              |
 | CSS v3 (frontend)             | ✅ bordes/radius/sombras/unidades                                           |
-| CSS core v1                   | ✅ radius/borde uniforme + primera sombra (41/41)                           |
+| CSS core v1                   | ✅ radius/borde uniforme + primera sombra (52/52)                           |
 | Renderer                      | ✅ D3D11 hardware por defecto; wgpu como fallback                           |
 | Host C# (piloto)              | ✅ galería real (`C:\Proyects\gallery`, 33/33 selftest) + piloto 48/48       |
 | AOT HTML → `.exe`             | 🗄️ archivado en `archive/r1-static` (histórico)                             |
@@ -142,15 +141,11 @@ python tools\cli.py bench pilot
 
 # Render offscreen de la UI staged con el runtime
 python tools\cli.py run -- --render 1280 800 out.png
-
-# Benchmark de paridad del frontend Rust (goldens del subset v1)
-python benchmarks\frontend-parity\tools\bench.py --runs 3
-
-# Verificar un IR contra el golden
-python benchmarks\frontend-parity\tools\verify_ir.py `
-  benchmarks\frontend-parity\golden\contract.ir.json `
-  benchmarks\frontend-parity\results\rust\contract.ir.json
 ```
+
+El snapshot de paridad de frontends (`benchmarks/frontend-parity/results/`) se
+conserva como historia y **no tiene runner**: sus números no forman parte de los
+gates actuales.
 
 La paridad visual contra Chromium (`benchmarks/visual-parity/`) todavía no
 tiene runner: su orquestador PowerShell está archivado en `archive/ps1-legacy`

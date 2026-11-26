@@ -11,8 +11,8 @@
 │    app.wnui (blob v2) · builtin embebido                     │
 │    wnui-dump: proyección de debug, no contrato                │
 ├──────────────────────────────────────────────────────────────┤
-│ 3. Serializadores (build time)                               │
-│    frontend Rust (--emit-blob) · emit_ui.py (solo CSS)       │
+│ 3. Serializador (build time)                                 │
+│    frontend Rust (--emit-blob): el único compilador          │
 ├──────────────────────────────────────────────────────────────┤
 │ 4. Core C                                                    │
 │    tree · styles · layout · state · hit test · display list  │
@@ -116,7 +116,6 @@ src/
   frontend/            canónico en Rust (Cargo.toml, src/, tests/)
   runtime/             motor (core/, document/, text/) + ABI + renderers
   ir/                  histórico del IR retirado (no producción)
-  emitter/python/      emit_ui (solo fixtures CSS; retirada fase 2b)
 tools/
   cli.py + wn_cli/     wn-cli (build/run/test/bench/setup)
 include/webnative.h    ABI C v6 (v3 dinámica + v4 input + v5 nodos + v6 estado)

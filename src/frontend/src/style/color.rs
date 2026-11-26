@@ -5,7 +5,7 @@
 //!
 //! 1. [`argb`] is a faithful port of `tinycss2.color3.parse_color` **1.5.1**
 //!    (legacy CSS Color Level 3 syntax only), because that function is the
-//!    oracle behind `emit_ui.argb()` and it is what re-parses the raw
+//!    oracle behind the archived `argb()` and it is what re-parses the raw
 //!    `data-hover` / `data-press` / `data-selected` attributes:
 //!
 //!    * `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa` (4 digits = rgba),
@@ -39,7 +39,7 @@
 //!    reaches the document, so declared colors stay plain hex.
 //!
 //! Channel -> byte conversion uses Python's `round()` (round-half-even), the
-//! same path as `emit_ui.argb()`.
+//! same path as the archived oracle's `argb()`.
 
 use crate::emit::round_py;
 
@@ -90,8 +90,8 @@ fn is_css_number(text: &str) -> bool {
 
 /// CSS percentage (`30%`) -> `30.0`; anything else -> `0.0`.
 ///
-/// Same semantics as `_PCT` in `emit_ui.py`: no `+` sign, no exponents and a
-/// mandatory trailing `%`.
+/// Same semantics as the archived oracle's `_PCT`: no `+` sign, no exponents
+/// and a mandatory trailing `%`.
 pub(crate) fn percentage(value: Option<&str>) -> f64 {
     let Some(raw) = value else { return 0.0 };
     let text = raw.trim().to_ascii_lowercase();
@@ -125,8 +125,8 @@ enum ParsedColor {
     CurrentColor,
 }
 
-/// `emit_ui.argb()`: `0xAARRGGBB`, or 0 when the value is absent, invalid or
-/// fully transparent.
+/// The archived oracle's `argb()`: `0xAARRGGBB`, or 0 when the value is
+/// absent, invalid or fully transparent.
 ///
 /// This is the **single** ARGB entry point shared by `ui_tree`, `header` and
 /// `blob`; it accepts both raw CSS (`data-hover="rgba(255,0,0,.5)"`) and the
@@ -1171,7 +1171,7 @@ mod tests {
             assert_eq!(
                 argb(Some(input)),
                 *expected,
-                "argb({input:?}) differs from tinycss2/emit_ui.argb"
+                "argb({input:?}) differs from the tinycss2 oracle"
             );
         }
     }
@@ -1191,7 +1191,7 @@ mod tests {
 
     #[test]
     fn currentcolor_returns_zero_instead_of_the_python_crash() {
-        // tinycss2 returns the string 'currentColor'; emit_ui.argb() then
+        // tinycss2 returns the string 'currentColor'; the oracle's argb() then
         // raises AttributeError on `color.alpha`. We document the bug and do
         // not reproduce it.
         assert_eq!(argb(Some("currentcolor")), 0);
@@ -1335,7 +1335,7 @@ mod tests {
     }
 
     /// `argb()` must keep tinycss2 1.5.1 semantics because it re-parses the
-    /// raw `data-hover`/`data-press`/`data-selected` strings for `emit_ui.py`.
+    /// raw `data-hover`/`data-press`/`data-selected` strings for the oracle.
     /// The declared superset must not leak into it.
     #[test]
     fn argb_keeps_tinycss2_semantics_for_raw_attributes() {

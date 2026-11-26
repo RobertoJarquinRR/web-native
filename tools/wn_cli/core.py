@@ -16,7 +16,6 @@ class RepoPaths:
     root: Path
     runtime: Path
     frontend_rust: Path
-    emitter: Path
     generated: Path
     runtime_build_release: Path
     runtime_build_debug: Path
@@ -31,7 +30,6 @@ def get_paths() -> RepoPaths:
         root=root,
         runtime=runtime_dir,
         frontend_rust=root / "src" / "frontend",
-        emitter=root / "src" / "emitter" / "python" / "emit_ui.py",
         generated=runtime_dir / "generated",
         runtime_build_release=runtime_dir / "build" / "release",
         runtime_build_debug=runtime_dir / "build" / "debug",

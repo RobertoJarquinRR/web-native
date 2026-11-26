@@ -31,7 +31,7 @@ El script:
 3. (opcional) compila R1 con `src/build.ps1` en `work/r1-build` si el script
    todavía existe; si no, omite las filas de R1 y sigue;
 4. compila una variante de R2 con **100 nodos** en `work/layout100` (mismo
-   `runtime_r2.c`, `ui_data.h` distinto) para medir el layout del presupuesto;
+   `runtime_r2.c`, árbol de nodos distinto) para medir el layout del presupuesto;
 5. mide 10 runs por métrica y escribe `baseline.json` + `BASELINE.md`.
 
 Opciones:
@@ -93,7 +93,7 @@ y verificación de recompilación).
 | **RSS** | memoria residente pico | `PeakWorkingSetSize` con `GetProcessMemoryInfo` (Win32), muestreado cada 2 ms; se cruza con `psutil.Process.memory_info().peak_wset`. Se reporta el mayor. También se guarda el pico de *pagefile/commit* como dato informativo (no es RSS). |
 | **CPU frame** | coste de CPU por frame sin vsync | R2 imprime `window: cpu frame X ms average` (upload + encode + submit; sin layout ni present/vsync). R1 **no instrumenta** CPU puro: se marca `n/a` y se reporta su `ms/frame average` limitado por vsync como referencia. |
 | **Layout** | recalcular el árbol | `runtime_r2.exe --report` ejecuta el layout 100 veces por viewport (960/720/560) e imprime `layout_ms_best/avg`; se agrega la mediana entre procesos. El fixture canónico tiene **28 nodos**. |
-| **Layout ~100 nodos** | escalado del layout | variante de R2 compilada contra un `ui_data.h` de **100 nodos** (`fixtures/layout-100`). Solo mide layout; no entra en install/engine size. |
+| **Layout ~100 nodos** | escalado del layout | variante de R2 compilada contra un árbol de **100 nodos** (`fixtures/layout-100`). Solo mide layout; no entra en install/engine size. |
 | **Offscreen render** | frame + readback + PNG | wall del proceso `--render W H out.png`, más los tiempos internos del runtime (`layout`, `frame`, `gpu encode+submit`, `readback/map`, `png`). Solo se renderiza en R2; R1 usa `render_png.exe`. |
 | **Backend** | D3D12/WARP/hardware | línea `adapter:` del runtime. WARP = `type=cpu` + `vendorID=0x1414`. |
 | **Frame de ventana** | pared con vsync | `ms/frame average` del runtime; está limitado por present (~16 ms), no es CPU puro. |
@@ -171,7 +171,7 @@ Para que el baseline sea reproducible:
    `snapshot.json` con commit, tamaños y SHA-256.
 2. `measure.py` solo ejecuta `snapshot/runtime_r2.exe`, nunca el build vivo.
 3. Se verifica la procedencia: recompilar `runtime_r2.c` del commit con el
-   `ui_data.h` del build produce el mismo tamaño de `.exe` y un PNG 960×640
+   el árbol de nodos del build produce el mismo tamaño de `.exe` y un PNG 960×640
    **byte-idéntico** (`5ed6b6c0…`). El hash del `.exe` completo difiere solo por
    el timestamp que MSVC incrusta en el PE.
 4. Se comprueba determinismo: dos `--render 960 640` dan el mismo SHA-256.

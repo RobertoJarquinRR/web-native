@@ -58,7 +58,6 @@ def _r2_page_sources() -> list[Path]:
     runtime = root / "src" / "runtime" / "c-r2"
     return [
         root / "src" / "frontend" / "rust" / "target" / "release" / "frontend-rust.exe",
-        root / "src" / "emitter" / "python" / "emit_ui.py",
         runtime / "build.ps1",
         runtime / "runtime_r2.c",
         runtime / "wn_core.c",
@@ -205,7 +204,6 @@ def check(args: argparse.Namespace, out_dir: Path) -> int:
             missing = {
                 "build.ps1": _repo() / "src" / "runtime" / "c-r2" / "build.ps1",
                 "frontend-rust": _repo() / "src" / "frontend" / "rust" / "target" / "release" / "frontend-rust.exe",
-                "emit_ui.py": _repo() / "src" / "emitter" / "python" / "emit_ui.py",
             }
             entry["missing"] = {name: str(path) for name, path in missing.items() if not path.exists()}
             entry["cached"] = _is_file(exe)

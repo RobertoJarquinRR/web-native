@@ -14,7 +14,7 @@ Backend: **D3D12** · type=cpu · vendor=0x1414 device=0x008C · Microsoft Basic
 - `snapshot/wgpu_native.dll` — 9,117,696 B / 9.12 MB — SHA-256 `5e26249c40dcdac43f5adca3195fcf40e4ec6c67472b38510165f411fcc198e7`
 - `snapshot/assets/atlas.bin` — 65,536 B / 0.07 MB (horneado en el exe, no se carga en runtime)
 - Procedencia: `src/runtime/c-r2/build` en commit `522499e`; hashes verificados: sí
-- Recompilación de control: `runtime_r2.c` del commit `522499e` + `build/ui_data.h` → 299,008 B (mismo tamaño que el snapshot); PNG 960×640 idéntico (`5ed6b6c02f690cac71346cc051674e12b3fb3b47f3685ed6862708356df26054`).
+- Recompilación de control: `runtime_r2.c` del commit `522499e` + árbol de nodos embebido → 299,008 B (mismo tamaño que el snapshot); PNG 960×640 idéntico (`5ed6b6c02f690cac71346cc051674e12b3fb3b47f3685ed6862708356df26054`).
 - Determinismo del snapshot: dos `--render 960 640` → mismo SHA-256 (`5ed6b6c02f690cac71346cc051674e12b3fb3b47f3685ed6862708356df26054`).
 - R1: build de `benchmarks\frontend-parity\fixtures\flex-page\index.html` a 480x320 con `src/build.ps1` (binario desechable en `work/r1-build`)
 
@@ -113,7 +113,7 @@ La fila «commit pico (pagefile)» es la carga de commit máxima, no memoria res
 
 Layout R2: `layout_report.json` reporta **28 nodos** y 100 iteraciones por viewport; se mide el `layout_ms_avg` de cada ejecución y se agrega la mediana de las ejecuciones.
 
-Layout ~100 nodos: fixture `benchmarks/engine-metrics/fixtures/layout-100/index.html` con **100 nodos**, mismo `runtime_r2.c` recompilado contra su `ui_data.h`. Solo mide layout; no entra en install/engine size.
+Layout ~100 nodos: fixture `benchmarks/engine-metrics/fixtures/layout-100/index.html` con **100 nodos**, mismo `runtime_r2.c` recompilado contra su árbol de nodos. Solo mide layout; no entra en install/engine size.
 
 ## Observaciones (derivadas de esta medición)
 
@@ -135,7 +135,7 @@ Ninguna: todas las ejecuciones terminaron con exit 0.
 - **startup**: init reportado por el runtime en la ejecución de ventana (arranque del loop -> instancia/adaptador/dispositivo/pipelines listos; el primer frame viene inmediatamente después). El wall externo de `--frames 1` se reporta como cota superior porque incluye spawn del proceso y teardown.
 - **rss**: PeakWorkingSetSize vía Win32 GetProcessMemoryInfo muestreado cada 2 ms mientras corre el proceso (cruce con psutil `memory_info().peak_wset`); se reporta el mayor de los dos. También se guarda el pico de pagefile (commit) como dato informativo.
 - **cpu_frame**: R2 imprime `window: cpu frame X ms average` (upload+encode+submit, sin layout ni present/vsync). R1 no instrumenta CPU-only: `n/a`; se reporta su `ms/frame average` limitado por vsync como referencia.
-- **layout**: `--report` de R2 ejecuta el layout 100 veces por viewport e imprime best/avg; se reporta la mediana entre ejecuciones del `layout_ms_avg`. El escenario de ~100 nodos usa un fixture propio y un binario R2 variante (mismo runtime_r2.c, ui_data.h de 100 nodos).
+- **layout**: `--report` de R2 ejecuta el layout 100 veces por viewport e imprime best/avg; se reporta la mediana entre ejecuciones del `layout_ms_avg`. El escenario de ~100 nodos usa un fixture propio y un binario R2 variante (mismo runtime_r2.c, árbol de 100 nodos).
 - **offscreen**: wall de `--render W H out.png` (proceso completo) más los tiempos internos que imprime el runtime (layout/frame/gpu/readback/png). En R1 el total interno incluye init+pipeline+render+map+png.
 - **backend**: línea de adaptador del runtime; WARP es type=cpu + vendorID=0x1414
 

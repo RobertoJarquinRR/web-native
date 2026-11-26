@@ -30,14 +30,13 @@ benchmarks/pilot-media-library/
   page/index.html       30 cards estáticas, sidebar, búsqueda, panel de detalle
   page/style.css        contrato CSS del grid/scroll/imagen (extensiones marcadas)
   verify.py             verificador de fixtures + runtime offscreen
-  tools/split_c_escapes.py  workaround temporal del emisor (ver §5)
-  build/                ui.json/ui_data.h, runtime piloto y salida del verificador
+  build/                blob, runtime piloto y salida del verificador
                         (gitignored; build/verify/ contiene el evidence)
   .venv/                Pillow local (gitignored)
 ```
 
-Todo vive bajo este directorio. El piloto **no modifica** runtime, frontend,
-emisores, `build.ps1` ni docs.
+Todo vive bajo este directorio. El piloto **no modifica** runtime, frontend ni
+docs.
 
 ### Datos
 
@@ -217,11 +216,10 @@ respecto al HTML; `--runtime-cwd` permite otro directorio.
 
 ### Verificado
 
-El working tree de esta sesión ya contiene la implementación v2 (frontend Rust,
-`emit_ui.py` y runtime R2). Con un runtime piloto compilado localmente desde
-`page/index.html`:
+El working tree de esta sesión ya contiene la implementación v2 (frontend Rust
+y runtime R2). Con el runtime piloto compilado desde `page/index.html`:
 
-- frontend: 301 nodos, 1352 glyphs, 101 runs, schema `webnative.ui-tree/2`;
+- frontend: 301 nodos y 101 runs de texto en el blob `.wnui` v2;
 - `--report`: grid 280,24 976x752 a 1280x800 y 184,24 592x552 a 800x600;
   30 cards y 30 imágenes con rects exactos;
 - `--render`: tamaño, colores de posters, gap, clip y scroll (100 px, 400 px,
@@ -230,47 +228,34 @@ El working tree de esta sesión ya contiene la implementación v2 (frontend Rust
   `build/verify/` (gitignored).
 - `--fixtures-only`: **14 checks** y PASS sin runtime.
 
-El build compartido `src/runtime/c-r2/build/runtime_r2.exe` sigue siendo el
-fixture de 28 nodos. `verify.py` usa primero `build/runtime_r2_pilot.exe`; si no
+El build canónico (`src/runtime/page`) sigue siendo el fixture de 28 nodos.
+`verify.py` usa primero `build/runtime_r2_pilot.exe`; si no
 existe, cae al build compartido solo para dar un diagnóstico claro de qué falta.
 
-### Build local del runtime piloto
+### Build del runtime piloto
 
-El build se hizo **sin modificar** frontend, emisor, runtime ni `build.ps1`; los
-artefactos quedaron bajo `build/`:
+El build está automatizado en el CLI; no hay pasos manuales ni artefactos
+intermedios versionados:
 
 ```powershell
-# 1. arbol ui-tree/2 desde la pagina
-src\frontend\rust\target\release\frontend-rust.exe --html benchmarks\pilot-media-library\page\index.html --css benchmarks\pilot-media-library\page\style.css --width 1280 --height 800 --emit-ui benchmarks\pilot-media-library\build\ui.json --pilot
+# emite el blob, compila el runtime y ejecuta verify.py
+python tools\cli.py bench pilot
 
-# 2. ui_data.h (imagenes resueltas contra build\..\posters)
-src\frontend\python\.venv\Scripts\python.exe src\emitter\python\emit_ui.py --ui-json benchmarks\pilot-media-library\build\ui.json --out benchmarks\pilot-media-library\build\ui_data.h --meta benchmarks\pilot-media-library\build\ui_meta.json
-
-# 3. workaround temporal del bloqueo de escapes C (ver abajo)
-benchmarks\pilot-media-library\.venv\Scripts\python.exe benchmarks\pilot-media-library\tools\split_c_escapes.py --in benchmarks\pilot-media-library\build\ui_data.h
-
-# 4. compilar runtime_r2.c + wn_core.c + wn_common.c con /DWN_STATIC,
-#    incluyendo include/, src/runtime/c-r2, third_party/wgpu-native/include y build/,
-#    enlazando wgpu_native.dll.lib + windowscodecs/ole32/user32/gdi32
-#    -> build/runtime_r2_pilot.exe; copiar third_party/wgpu-native/bin/wgpu_native.dll
-
-# 5. verificar
-benchmarks\pilot-media-library\.venv\Scripts\python.exe benchmarks\pilot-media-library\verify.py --runtime benchmarks\pilot-media-library\build\runtime_r2_pilot.exe
+# variante D3D11-only
+python tools\cli.py bench pilot --no-wgpu
 ```
 
-El patrón exacto de compilación (mismos flags y librerías) está en
-`src/runtime/c-r2/tests/pilot-media-library/run_pilot.ps1`; solo cambia el
-`ui_data.h` de entrada. El `build.ps1` actual apunta al fixture de 28 nodos; el
-stream de engine debería añadir un parámetro de fixture (o documentar este
-build) para que el piloto no dependa de comandos manuales.
+`bench pilot` compila `page/index.html` con `frontend-rust --emit-blob` (1280x800,
+`--pilot`), embebe el blob, compila el runtime y corre
+`verify.py --runtime <build>/runtime_r2.exe`.
 
 ### Bloqueos y pendientes
 
 | Tema | Estado |
 |---|---|
 | grid + imágenes + scroll/clip v2 | **implementado y verificado** en el working tree; ya no es blocker |
-| emisor `ui_data.h`: escapes C ambiguos | **abierto**: `emit_ui.py` escribe bytes no ASCII como `\xNN`; si el byte siguiente es un dígito hex, C lo absorbe (`"\xd72160"`). Afecta a `3840×2160`, `Geometría`, `Órbita`, `tecnología`, `montaña`, `geografía`, `astronomía`. `tools/split_c_escapes.py` inserta `""` como workaround; el fix real es del emisor |
-| `build.ps1` con fixture piloto | **abierto**: el build fue manual; no hay flag de fixture |
+| texto no ASCII en el documento | **resuelto**: el blob guarda UTF-8 por offsets, sin escapes C que interpretar |
+| build del fixture piloto | **resuelto**: `python tools\cli.py bench pilot` (sin pasos manuales) |
 | CLI `--scroll` | opcional; el R2 actual expone `--wheel <x> <y> <dy>` y el verificador acepta también la forma ABI de 4 valores |
 | A1 | input/IME, texto/lista dinámica, virtualización, catálogo/favoritos/abrir en el host |
 

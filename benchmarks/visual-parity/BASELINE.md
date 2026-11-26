@@ -32,7 +32,7 @@ La primera corrida (SSIM 0.898 en `flex-page`, 0.564 en `media-library`) señal�
 dos causas, y ambas están corregidas:
 
 1. **Modelo de caja.** El motor asumía *border-box*; CSS usa *content-box* por
-   defecto. Ahora `box-sizing` se parsea, viaja en `ui.json` y el motor aplica
+   defecto. Ahora `box-sizing` se parsea, viaja en el documento intermedio y el motor aplica
    content-box salvo que la página declare `border-box`.
 2. **Márgenes de bloque.** El flujo avanzaba por la altura del hijo sin sumar
    su `margin-top`, así que el siguiente hermano quedaba un margen más arriba

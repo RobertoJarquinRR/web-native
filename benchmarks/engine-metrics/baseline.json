@@ -61,7 +61,7 @@
     "startup": "init reportado por el runtime en la ejecución de ventana (arranque del loop -> instancia/adaptador/dispositivo/pipelines listos; el primer frame viene inmediatamente después). El wall externo de `--frames 1` se reporta como cota superior porque incluye spawn del proceso y teardown.",
     "rss": "PeakWorkingSetSize vía Win32 GetProcessMemoryInfo muestreado cada 2 ms mientras corre el proceso (cruce con psutil `memory_info().peak_wset`); se reporta el mayor de los dos. También se guarda el pico de pagefile (commit) como dato informativo.",
     "cpu_frame": "R2 imprime `window: cpu frame X ms average` (upload+encode+submit, sin layout ni present/vsync). R1 no instrumenta CPU-only: `n/a`; se reporta su `ms/frame average` limitado por vsync como referencia.",
-    "layout": "`--report` de R2 ejecuta el layout 100 veces por viewport e imprime best/avg; se reporta la mediana entre ejecuciones del `layout_ms_avg`. El escenario de ~100 nodos usa un fixture propio y un binario R2 variante (mismo runtime_r2.c, ui_data.h de 100 nodos).",
+    "layout": "`--report` de R2 ejecuta el layout 100 veces por viewport e imprime best/avg; se reporta la mediana entre ejecuciones del `layout_ms_avg`. El escenario de ~100 nodos usa un fixture propio y un binario R2 variante (mismo runtime_r2.c, árbol de 100 nodos).",
     "offscreen": "wall de `--render W H out.png` (proceso completo) más los tiempos internos que imprime el runtime (layout/frame/gpu/readback/png). En R1 el total interno incluye init+pipeline+render+map+png.",
     "backend": "línea de adaptador del runtime; WARP es type=cpu + vendorID=0x1414"
   },
@@ -1074,7 +1074,7 @@
       "exe": "benchmarks\\engine-metrics\\work\\layout100\\runtime_r2_layout100.exe",
       "node_count": 100,
       "fixture": "benchmarks/engine-metrics/fixtures/layout-100/index.html",
-      "note": "mismo runtime_r2.c recompilado contra un ui_data.h de 100 nodos; solo mide layout, no forma parte del install/engine size",
+      "note": "mismo runtime_r2.c recompilado contra un árbol de 100 nodos; solo mide layout, no forma parte del install/engine size",
       "sizes": {
         "560x640": {
           "avg_ms": {

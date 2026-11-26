@@ -104,11 +104,12 @@ python tools\cli.py bench pilot
 ```
 
 - [ ] R2 **69/69**.
-- [ ] `python tools\cli.py test all` encadena Rust, ABI, **CSS 41/41**,
+- [ ] `python tools\cli.py test all` encadena Rust, ABI, **CSS 52/52**,
       **fidelity 23/23**, **abi_v6 19**, **dynamic 61/61**, **input 83 + 118/118**,
       **text**, **blob**, **offscreen** (d3d11 vs wgpu) y **dump** (10/10 suites).
-- [ ] Los seis blobs fijados (canonical/input/fidelity/pilot/dynamic/cache)
-      coinciden con `PINNED_BLOBS`; un byte de diferencia falla el build.
+- [ ] Los nueve blobs fijados (canonical/input/fidelity/pilot/dynamic/cache
+      más css_card/css_control/css_none) coinciden con `PINNED_BLOBS`; un byte
+      de diferencia falla el build.
 - [ ] Piloto (`python tools\cli.py bench pilot`) y su `verify.py` verdes.
 - [ ] Blob: `wn-cli test suite blob` da 28/28 rects y 100.00% de píxeles
       exactos contra el documento builtin, más el caso de input.
@@ -118,7 +119,8 @@ python tools\cli.py bench pilot
       tamaño exacto y no vacío.
 - [ ] Subset: un fixture con feature fuera de v1 falla con `--strict-subset`
       (exit ≠ 0) y solo avisa sin el flag.
-- [ ] Paridad del frontend Rust: `bench.py --runs 1 --warmup 0` → PASS.
+- [ ] `python tools\cli.py test unit` (cargo test + CTest) verde. El snapshot
+      de paridad de `benchmarks/frontend-parity` es histórico y no tiene runner.
 - [ ] Paridad visual: `docs/visual-parity.md` en modo informativo; se adjunta
       `report.md` si el harness ya existe.
 - [ ] D3D11: si el stream del renderer está cerrado, su test de paridad contra

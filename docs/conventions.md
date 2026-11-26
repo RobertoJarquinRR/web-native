@@ -9,7 +9,7 @@
     `runtime`, `e2e`, `showcase`.
   - `slug`: descripción corta en inglés.
 - Implementaciones canónicas del pipeline: `src/<layer>/`
-  - layers: `ir`, `frontend` (Rust), `emitter`, `runtime` (C).
+  - layers: `ir` (histórico), `frontend` (Rust), `runtime` (C).
 - Benchmarks: `benchmarks/<name>/` con `fixtures/`, `golden/`, `tools/`,
   `results/`.
 - Dependencias externas: `third_party/<name>/`.
@@ -42,7 +42,6 @@ archive/experiments/          16 experimentos históricos, renombrados por etapa
 src/
   ir/                 contrato del display list + schema
   frontend/           frontend canónico en Rust (producción)
-  emitter/python/     emit_ui.py (solo fixtures CSS; retirada fase 2b)
   runtime/            motor C: layout en runtime, eventos, resize, renderers
 tools/
   cli.py + wn_cli/    wn-cli: build/run/test/bench/setup

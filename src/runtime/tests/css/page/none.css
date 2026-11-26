@@ -1,0 +1,20 @@
+/* 120x80 fixture: a 40x40 box whose border is declared but has style none. */
+html { height: 100%; }
+
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: flex-start;
+  background: #ffffff;
+}
+
+.none {
+  width: 40px;
+  height: 40px;
+  margin: 20px 20px 0 20px;
+  background: #000000;
+  border: 6px solid #ff0000;
+  border-style: none;
+}

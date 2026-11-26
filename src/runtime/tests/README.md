@@ -10,7 +10,7 @@ python tools\cli.py test suite <nombre>
 
 | Suite | Directorio | Cubre |
 |---|---|---|
-| `css` | `css/` | radios, borde uniforme, sombra, imagen; **única** ruta que aún usa `emit_ui.py` sobre `page/*.json` (fase 2b) |
+| `css` | `css/` | radios, borde uniforme, sombra, imagen; píxeles + campos vía `wnui-dump --json` |
 | `fidelity` | `fidelity/` | E1: font-weight, `text-align`, `line-height`, `margin:auto`, flex |
 | `dynamic` | `dynamic/` | `set_visible`, clone/append/remove, demo ABI |
 | `input` | `input/` | caret, selección, clipboard, demo ABI |
@@ -19,9 +19,9 @@ python tools\cli.py test suite <nombre>
 | `blob` | `blob/` | loader `.wnui`, builtin vs archivo, píxeles (`max=0`) |
 | `dump` | `dump/` | `wnui-dump` texto/JSON, golden y errores de archivo |
 
-Todos los fixtures excepto `css/` emiten el documento con
-`frontend-rust --emit-blob` y lo embeben como `builtin_blob.h`. No se generan
-`ui.json` ni `ui_data.h` para esos suites.
+Todos los fixtures emiten el documento con `frontend-rust --emit-blob` desde
+HTML/CSS y lo embeben como `builtin_blob.h`. No hay árbol JSON intermedio ni
+cabeceras de nodos generadas.
 
 ## `dump`
 
@@ -32,17 +32,15 @@ la invariante primaria es el SHA-256 del `app.wnui` y el render idéntico al
 builtin (`blob`). Si el formato del dump cambia a propósito, se regenera el
 golden junto con el blob.
 
-## `css` (excepción temporal)
+## `css`
 
-`css/page/{card,control,none}.json` son fixtures JSON escritos a mano; la suite
-los pasa por `emit_ui.py --ui-json` para producir `ui_data.h` + `app.wnui` y
-`verify_css.py` conserva sus comprobaciones de campos sobre el header. Es la
-única dependencia Python/CSS que queda para la fase 2b, que migrará estos
-fixtures a HTML/CSS y borrará `emit_ui.py`.
+`css/page/{card,control,none}.html` + `.css` son páginas reales; la suite las
+compila con `frontend-rust --emit-blob`, fija sus tres hashes y comprueba los
+campos del documento con `wnui-dump --json`. `verify_css.py` conserva además las
+comprobaciones de píxeles contra `expected/control_legacy.png`, que no se
+modifica: `control` demuestra que la ruta sin CSS v3 es idéntica a la de antes.
 
 ## Histórico
 
-`tests/pilot-media-library/` (y `emitter-escapes/`, retirado) pertenecen a
-carriles anteriores. El piloto vivo es
-`benchmarks/pilot-media-library/` y se ejecuta con
-`python tools\cli.py bench pilot`; el runtime ya no consume JSON intermedio.
+El piloto vivo es `benchmarks/pilot-media-library/` y se ejecuta con
+`python tools\cli.py bench pilot`; el runtime no consume JSON intermedio.

@@ -4,8 +4,8 @@
 //! Text travels as a string plus style; the runtime measures, shapes and
 //! rasterizes it.
 //!
-//! Flattening mirrors the historical `Emitter` in
-//! `src/emitter/python/emit_ui.py`: pre-order, own text before children,
+//! Flattening mirrors the archived Python oracle's `Emitter`: pre-order, own
+//! text before children,
 //! `tag#id.class` names with an `[n]` suffix for duplicates, and `%` kept as
 //! `width_pct`.
 //!
@@ -562,7 +562,7 @@ impl<'a> Builder<'a> {
 }
 
 fn text_color(style: &ComputedStyle) -> u32 {
-    // `argb(style.color) or 0xFF000000` in `emit_ui.py`.
+    // `argb(style.color) or 0xFF000000` in the archived oracle.
     let value = argb(Some(style.color.as_str()));
     if value == 0 {
         0xFF00_0000

@@ -1,5 +1,5 @@
-//! `--emit-blob`: the `.wnui` v2 document (same sections as `write_blob` in
-//! `src/emitter/python/emit_ui.py`).
+//! `--emit-blob`: the `.wnui` v2 document (same section layout as the
+//! archived Python oracle's `write_blob`).
 //!
 //! The tree is already parsed into `NodeOut`; this module only reproduces the
 //! normalizations the emitter applies when reading the pre-layout tree, so the

@@ -3,9 +3,10 @@
 **Subset:** `benchmarks/frontend-parity/SPEC.md` v1 (rect-only: `contract` y
 `flex-page`). **Fecha:** 2026-11-24. **Código medido:** `55b8f7f`.
 
-> **Snapshot histórico.** Hoy `tools/bench.py` mide solo el frontend Rust
-> canónico; C++/C#/Python quedan congelados en `archive/frontends-legacy/`. Las
-> filas de abajo documentan la corrida de cuatro frontends de esa fecha.
+> **Snapshot histórico, sin runner.** El harness (incluido el comparador de
+> estilos) ya no existe y este directorio no forma parte del flujo de
+> verificación. C++/C#/Python quedan congelados en `archive/frontends-legacy/`;
+> las filas de abajo documentan la corrida de cuatro frontends de esa fecha.
 
 Los cuatro frontends pasaban la paridad byte-idéntica contra los goldens, con
 tolerancia 0.01 px:
@@ -50,13 +51,9 @@ Los binarios actuales pueden variar; lo estable es la comparación relativa.
 
 ## Reproducir
 
-```powershell
-python benchmarks\frontend-parity\tools\bench.py --runs 3
-```
-
-El comando reescribe `SUMMARY.md`, `benchmark.json` y `results/rust/` (el único
-frontend que ejecuta hoy). Este `README.md` es el snapshot estable; los otros
-archivos son regenerables.
+No hay comando de reproducción: el runner se retiró junto con el IR intermedio.
+Este `README.md` y los resultados de la corrida se conservan como snapshot
+estable; los gates vivos son `wn-cli` (`test all`, `bench pilot`).
 
 ## Archivos
 
