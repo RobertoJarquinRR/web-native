@@ -465,16 +465,22 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
                     return NULL;
                 }
                 src = blob_string(strings, strings_size, record->src);
-                if (src == NULL || src[0] == '\0') {
-                    wn_set_error("wn_document_load_blob: %s: node %d has an "
-                                 "empty media src", origin, (int)record->node);
-                    return NULL;
-                }
-                if (strstr(src, "://") != NULL) {
-                    wn_set_error("wn_document_load_blob: %s: node %d media src "
-                                 "'%s' is not a local path", origin,
-                                 (int)record->node, src);
-                    return NULL;
+                /* Blob v7 clarification: src == 0 is the host-bound player
+                 * node (no source yet). A non-zero offset must be a non-empty
+                 * local path; the media record itself is still mandatory. */
+                if (record->src != 0u) {
+                    if (src == NULL || src[0] == '\0') {
+                        wn_set_error("wn_document_load_blob: %s: node %d has an "
+                                     "empty media src", origin,
+                                     (int)record->node);
+                        return NULL;
+                    }
+                    if (strstr(src, "://") != NULL) {
+                        wn_set_error("wn_document_load_blob: %s: node %d media "
+                                     "src '%s' is not a local path", origin,
+                                     (int)record->node, src);
+                        return NULL;
+                    }
                 }
                 poster = blob_string(strings, strings_size, record->poster);
                 if (record->poster != 0u &&

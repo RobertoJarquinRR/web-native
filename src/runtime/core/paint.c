@@ -111,6 +111,23 @@ static void ensure_image_batch_capacity(wn_core *c, int needed)
     }
 }
 
+static void ensure_video_batch_capacity(wn_core *c, int needed)
+{
+    if (needed <= c->video_batch_capacity) {
+        return;
+    }
+    int capacity = c->video_batch_capacity > 0 ? c->video_batch_capacity : 8;
+    while (capacity < needed) {
+        capacity *= 2;
+    }
+    wn_video_batch *grown = (wn_video_batch *)realloc(
+        c->video_batches, (size_t)capacity * sizeof(wn_video_batch));
+    if (grown != NULL) {
+        c->video_batches = grown;
+        c->video_batch_capacity = capacity;
+    }
+}
+
 /* ------------------------------------------------------- state colors */
 
 /* Generated text runs follow the state of their owning element (their parent
@@ -946,16 +963,96 @@ static void push_image_quad(wn_core *c, int node, const wn_rect *clip)
 }
 
 /* A video poster is painted through the same image path; the poster file is
- * part of the document's media intent and the renderer's path-keyed cache. The
- * intrinsic aspect is the documented 300x150 default until a later phase probes
- * the poster or a provider reports its display size. */
+ * part of the document's media intent and the renderer's path-keyed cache. */
 #define WN_VIDEO_INTRINSIC_W 300.0f
 #define WN_VIDEO_INTRINSIC_H 150.0f
 
 static void push_video_poster(wn_core *c, int node, const wn_rect *clip)
 {
-    push_replaced_quad(c, node, clip, wn_core_node_media_poster(c, node),
-                       WN_VIDEO_INTRINSIC_W, WN_VIDEO_INTRINSIC_H);
+    const WnMediaNode *m = &c->media[node];
+    float iw = m->intrinsic_w > 0.0f ? m->intrinsic_w : WN_VIDEO_INTRINSIC_W;
+    float ih = m->intrinsic_h > 0.0f ? m->intrinsic_h : WN_VIDEO_INTRINSIC_H;
+    push_replaced_quad(c, node, clip, wn_core_node_media_poster(c, node), iw, ih);
+}
+
+/* The latest decoded frame, uploaded by the renderer's video sink. The quad
+ * reuses the image vertex stream; the batch carries the opaque texture id. */
+static void push_video_frame(wn_core *c, int node, const wn_rect *clip)
+{
+    const UiNode *n = &c->nodes[node];
+    const WnMediaNode *m = &c->media[node];
+    const wn_rect *r = &c->rects[node];
+    wn_video_batch *batch;
+    float x = r->x + n->padding[3];
+    float y = r->y + n->padding[0];
+    float w = fmaxf(r->w - n->padding[1] - n->padding[3], 0.0f);
+    float h = fmaxf(r->h - n->padding[0] - n->padding[2], 0.0f);
+    float iw = (float)m->frame_width;
+    float ih = (float)m->frame_height;
+    float u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f;
+    float radius;
+    int vertices;
+    int first;
+
+    if (m->frame_texture == 0 || iw <= 0.0f || ih <= 0.0f ||
+        w <= 0.0f || h <= 0.0f || paint_opacity(c) <= 0.0f) {
+        return;
+    }
+    if (n->object_fit == R2_OBJECT_FIT_COVER) {
+        float sx = w / iw;
+        float sy = h / ih;
+        float scale = sx > sy ? sx : sy;
+        float vis_w = w / scale;
+        float vis_h = h / scale;
+        u0 = ((iw - vis_w) * 0.5f) / iw;
+        v0 = ((ih - vis_h) * 0.5f) / ih;
+        u1 = 1.0f - u0;
+        v1 = 1.0f - v0;
+    } else if (n->object_fit == R2_OBJECT_FIT_CONTAIN) {
+        float sx = w / iw;
+        float sy = h / ih;
+        float scale = sx < sy ? sx : sy;
+        float draw_w = iw * scale;
+        float draw_h = ih * scale;
+        x += (w - draw_w) * 0.5f;
+        y += (h - draw_h) * 0.5f;
+        w = draw_w;
+        h = draw_h;
+    }
+    radius = image_corner_radius(c, node, w, h);
+    vertices = radius > 0.5f ? WN_ROUND_POINTS * 3 : 6;
+    ensure_video_batch_capacity(c, c->video_batch_count + 1);
+    if (c->video_batch_count >= c->video_batch_capacity) {
+        return;
+    }
+    first = c->image_vertex_count;
+    if (c->video_batch_count > 0) {
+        wn_video_batch *last = &c->video_batches[c->video_batch_count - 1];
+        if (last->texture == m->frame_texture &&
+            last->clip_x == clip->x && last->clip_y == clip->y &&
+            last->clip_w == clip->w && last->clip_h == clip->h) {
+            last->count += vertices;
+            push_image_textured(c, x, y, w, h, u0, v0, u1, v1, radius);
+            return;
+        }
+    }
+    batch = &c->video_batches[c->video_batch_count++];
+    batch->first = first;
+    batch->count = vertices;
+    batch->clip_x = clip->x;
+    batch->clip_y = clip->y;
+    batch->clip_w = clip->w;
+    batch->clip_h = clip->h;
+    batch->texture = m->frame_texture;
+    batch->format = m->frame_format;
+    batch->color = m->frame_color;
+    batch->flags = 0;
+    push_image_textured(c, x, y, w, h, u0, v0, u1, v1, radius);
+}
+
+static int video_has_frame(const wn_core *c, int node)
+{
+    return c->media != NULL && c->media[node].frame_texture != 0;
 }
 
 /* Neutral fill used while a video has no poster. It is not a frame and not a
@@ -1292,6 +1389,7 @@ void wn_core_build_display_list(wn_core *core)
                 draw->decoration.clip = core->paint_items[i].clip;
                 draw->scrollbar.clip = core->paint_items[i].clip;
                 draw->image.clip = core->paint_items[i].clip;
+                draw->video.clip = core->paint_items[i].clip;
                 draw->glyph.clip = core->paint_items[i].clip;
                 draw->image_src = wn_core_node_image_src(core, draw->node);
             }
@@ -1303,6 +1401,7 @@ void wn_core_build_display_list(wn_core *core)
     core->glyph_batch_count = 0;
     core->image_vertex_count = 0;
     core->image_batch_count = 0;
+    core->video_batch_count = 0;
 
     for (i = 0; i < core->paint_item_count; ++i) {
         const WnPaintItem *item = &core->paint_items[i];
@@ -1341,12 +1440,14 @@ void wn_core_build_display_list(wn_core *core)
                                n->border_radius, color);
             }
         }
-        /* A video with no poster paints a neutral placeholder in its content
-         * box. It belongs to the solid pass so layered replay (opacity/z-index)
-         * carries it with the rest of the node. */
+        /* A video with no poster and no frame paints a neutral placeholder in
+         * its content box. It belongs to the solid pass so layered replay
+         * (opacity/z-index) carries it with the rest of the node. Once a frame
+         * was uploaded the frame covers the box and no placeholder is drawn. */
         if (n->kind == R2_NODE_VIDEO) {
             const char *poster = wn_core_node_media_poster(core, node);
-            if (poster == NULL || poster[0] == '\0') {
+            if ((poster == NULL || poster[0] == '\0') &&
+                !video_has_frame(core, node)) {
                 push_video_placeholder(core, node, &item->clip);
             }
         }
@@ -1361,12 +1462,19 @@ void wn_core_build_display_list(wn_core *core)
         const WnPaintItem *item = &core->paint_items[i];
         wn_paint_draw *draw;
         int image_first = core->image_vertex_count;
+        int video_first = image_first;
+        int video_made = 0;
         if (core->nodes[item->node].kind == R2_NODE_IMAGE) {
             wn_paint_use_item(core, item);
             push_image_quad(core, item->node, &item->clip);
         } else if (core->nodes[item->node].kind == R2_NODE_VIDEO) {
             const char *poster = wn_core_node_media_poster(core, item->node);
-            if (poster != NULL && poster[0] != '\0') {
+            if (video_has_frame(core, item->node)) {
+                video_first = core->image_vertex_count;
+                wn_paint_use_item(core, item);
+                push_video_frame(core, item->node, &item->clip);
+                video_made = core->image_vertex_count > video_first;
+            } else if (poster != NULL && poster[0] != '\0') {
                 wn_paint_use_item(core, item);
                 push_video_poster(core, item->node, &item->clip);
             }
@@ -1376,7 +1484,14 @@ void wn_core_build_display_list(wn_core *core)
             paint_range_set(&draw->image, image_first, core->image_vertex_count,
                             item->clip);
             if (core->nodes[item->node].kind == R2_NODE_VIDEO) {
-                draw->image_src = wn_core_node_media_poster(core, item->node);
+                const char *poster = wn_core_node_media_poster(core, item->node);
+                draw->image_src =
+                    video_has_frame(core, item->node) ? NULL : poster;
+                draw->video_texture = core->media[item->node].frame_texture;
+                if (video_made) {
+                    paint_range_set(&draw->video, video_first,
+                                    core->image_vertex_count, item->clip);
+                }
             } else {
                 draw->image_src = wn_core_node_image_src(core, item->node);
             }
@@ -1416,6 +1531,8 @@ void wn_core_build_display_list(wn_core *core)
     core->list.image_vertex_count = core->image_vertex_count;
     core->list.image_batches = core->image_batches;
     core->list.image_batch_count = core->image_batch_count;
+    core->list.video_batches = core->video_batches;
+    core->list.video_batch_count = core->video_batch_count;
     if (layered) {
         core->list.layers = core->paint_layers;
         core->list.layer_count = core->paint_layer_count;

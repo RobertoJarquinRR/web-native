@@ -61,6 +61,9 @@ struct wn_view {
     } *media_providers;
     int media_provider_count;
     int media_provider_capacity;
+    /* Injectable media clock so tests advance playback deterministically. */
+    int64_t (*media_now_us)(void *context);
+    void *media_now_context;
     /* Re-entrancy guard: a callback may destroy this view while it is still
      * dispatching (own event or a nested wn_view_event on another view). The
      * free is deferred until the outermost dispatch returns so the flags below
@@ -79,6 +82,12 @@ static void view_mark_geometry(wn_view *view)
 /* Actual teardown. wn_view_destroy() defers it while dispatch_depth > 0. */
 static void view_free(wn_view *view)
 {
+    /* Sessions own provider handles and renderer textures: close them while
+     * both the core and the backend are still alive. */
+    if (view->core != NULL) {
+        wn_core_media_shutdown(view->core);
+        wn_core_set_media_sink(view->core, NULL, NULL);
+    }
     if (view->ops != NULL && view->renderer != NULL) {
         view->ops->destroy(view->renderer);
     }
@@ -418,6 +427,23 @@ static int view_init_renderer(wn_view *view, const wn_surface_desc *surface,
     return 1;
 }
 
+/* Installs the backend video sink and the (optionally injected) media clock on
+ * a core. The sink context is the renderer: only the UI thread touches it. */
+static void view_install_media(wn_view *view, wn_core *core)
+{
+    const wn_video_sink_ops *sink = NULL;
+    if (view == NULL || core == NULL) {
+        return;
+    }
+    if (view->ops != NULL && view->renderer != NULL &&
+        view->ops->video_sink != NULL) {
+        sink = view->ops->video_sink(view->renderer);
+    }
+    wn_core_set_media_sink(core, sink,
+                           sink != NULL ? view->renderer : NULL);
+    wn_core_set_media_clock(core, view->media_now_us, view->media_now_context);
+}
+
 /* Common constructor: the surface decides window vs offscreen. */
 static wn_view *view_create_with_surface(const wn_surface_desc *surface,
                                          int32_t width, int32_t height,
@@ -461,6 +487,7 @@ static wn_view *view_create_with_surface(const wn_surface_desc *surface,
         return NULL;
     }
     wn_core_resize(view->core, width, height);
+    view_install_media(view, view->core);
     view->geometry_dirty = 1;
     view->upload_dirty = 1;
     return view;
@@ -596,6 +623,10 @@ int wn_view_replace_document(wn_view *view, wn_document *document)
         return 1;
     }
     if (view->owns_core && view->core != NULL) {
+        /* Close sessions and release their textures before the old core and
+         * its renderer-side ids go away. */
+        wn_core_media_shutdown(view->core);
+        wn_core_set_media_sink(view->core, NULL, NULL);
         /* The registry belongs to the view, not to one core: move it before
          * destroying the old core so provider contexts are not destroyed and
          * later reused. */
@@ -605,6 +636,8 @@ int wn_view_replace_document(wn_view *view, wn_document *document)
     } else if (view->core != NULL) {
         /* Borrowed core: release the platform IME even though the caller keeps
          * ownership of the core itself. */
+        wn_core_media_shutdown(view->core);
+        wn_core_set_media_sink(view->core, NULL, NULL);
         wn_core_ime_abort(view->core);
     }
     if (view->document != NULL) {
@@ -621,6 +654,8 @@ int wn_view_replace_document(wn_view *view, wn_document *document)
     /* ABI v7 regression: the backend belongs to the view, so the new core must
      * receive it before any focus is restored or reported to the platform. */
     wn_core_set_ime(core, view->ime_ops, view->ime_context);
+    /* ABI v8: the video sink and injected clock also belong to the view. */
+    view_install_media(view, core);
     /* ABI v8: the registry belongs to the view, so a fresh core gets every
      * explicit provider back (media_null is created by the core itself). */
     if (moved_registry != NULL) {
@@ -1086,6 +1121,10 @@ wn_status wn_view_render(wn_view *view)
     }
 
     t0 = wn_now_ms();
+    /* E4 inline media loop: advance the state machine, then upload at most one
+     * frame per node through the renderer sink before the list is built. */
+    wn_core_media_tick(view->core);
+    (void)wn_core_media_present(view->core);
     if (wn_core_dirty(view->core)) {
         /* Host mutations mark the core dirty; make sure the display list is
          * rebuilt even when the setter did not touch view->geometry_dirty. */
@@ -1188,6 +1227,9 @@ int wn_view_needs_render(const wn_view *view)
         return 1;
     }
     if (wn_core_needs_layout(view->core) || wn_core_dirty(view->core)) {
+        return 1;
+    }
+    if (wn_core_media_active(view->core)) {
         return 1;
     }
     return 0;
@@ -2339,8 +2381,22 @@ wn_status wn_view_tick(wn_view *view)
     }
     wn_core_mark_dirty(view->core);
     view->geometry_dirty = 1;
+    wn_core_media_tick(view->core);
     view_flush_media_events(view);
     return WN_OK;
+}
+
+void wn_view_set_media_clock(wn_view *view, int64_t (*now_us)(void *context),
+                             void *context)
+{
+    if (view == NULL) {
+        return;
+    }
+    view->media_now_us = now_us;
+    view->media_now_context = context;
+    if (view->core != NULL) {
+        wn_core_set_media_clock(view->core, now_us, context);
+    }
 }
 
 void wn_view_set_ime(wn_view *view, const wn_ime_ops *ops, void *context)

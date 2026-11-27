@@ -218,14 +218,21 @@ propiedad del motor y solo vive durante el callback.
 `wn_node_media_get_state` devuelve `wn_media_state_info` (tamaño 48): `state`,
 `error`, `position_us`, `duration_us`, `stream_flags`, `volume`, `muted`,
 `loop`. Sin proveedor real el estado es `IDLE` antes de `open` y `ERROR` con
-`WN_MEDIA_UNSUPPORTED_CONTAINER` después; `play` sobre `ERROR` devuelve
-`WN_ERR_STATE` y `set_source` vuelve a `IDLE`.
+`WN_MEDIA_UNSUPPORTED_CONTAINER` después; `open` devuelve `WN_OK` (la petición
+se aceptó) y el fallo llega como `WN_MEDIA_EVENT_ERROR`; `play` sobre `ERROR`
+devuelve `WN_ERR_STATE` y `set_source` vuelve a `IDLE`. Un nodo con `src = 0`
+(host-bound player) devuelve `WN_ERR_STATE` en `open` hasta que el host llame
+`set_source`.
 
-**Fase actual (E3a):** el elemento, el blob, el registro, `media_null` y los
-errores tipados están implementados. **No hay decodificador, demuxer, sink de
-audio, reloj A/V, subtítulos ni UI de reproducción**; un proveedor registrado
-no reproduce todavía (`WN_MEDIA_INTERNAL`, sin fingir `OPENED`/`PLAYING`). El
-detalle de fases está en `docs/media-v1.md`.
+**Fase actual (E4):** el elemento, el blob, el registro, `media_null`, el driver
+de sesión inline (`OPENING → PAUSED/PLAYING → BUFFERING → SEEKING →
+ENDED/ERROR`), los eventos, el proveedor sintético de test y el sink RGBA D3D11
+del primer frame están implementados. **No hay decodificador/demuxer real,
+sink de audio, reloj A/V con audio, subtítulos, NV12/P010, MF/FFmpeg ni UI de
+reproducción**; las funciones de subtítulos siguen devolviendo
+`WN_ERR_UNSUPPORTED`. No cambia ningún símbolo público en E4: la ABI sigue en
+v8 y `WN_MEDIA_ABI_VERSION 1`. El detalle de fases está en
+`docs/media-v1.md`.
 
 ### Text input (v4)
 
@@ -514,11 +521,12 @@ private static partial nint wn_node_get_value(nint app, ulong node);
   estado con otras propiedades, o con el estado en un compuesto ancestro
   (`.card:hover .label`), se diagnostica y no se compila.
 - `scroll_into_view` es vertical y mueve solo el ancestro scrollable más cercano.
-- `<video>` (blob v7) pinta póster o placeholder y expone la ABI de media,
-  pero **no reproduce**: no hay decodificador, audio, subtítulos, reloj ni
-  controles del motor. `open` sin proveedor real acaba en
-  `WN_MEDIA_EVENT_ERROR`; con un proveedor registrado acaba en
-  `WN_MEDIA_INTERNAL` hasta que exista el driver de sesión (E3b).
+- `<video>` (blob v7) pinta póster/placeholder y, con un proveedor real, el
+  último frame RGBA subido al sink D3D11; expone la ABI de media y el driver de
+  sesión inline. No hay decodificador real, audio, subtítulos, reloj de audio ni
+  controles del motor; `open` sin proveedor real acaba en
+  `WN_MEDIA_EVENT_ERROR` (media_null) y un proveedor registrado decide el
+  resultado con `probe`/`open`.
 - Sin virtualización, culling de sólidos, accesibilidad/UIA, DPI/multi-monitor
   ni cross-platform todavía.
 - Sin path offscreen en la ABI (sigue en `runtime_r2.exe --render/--states`).

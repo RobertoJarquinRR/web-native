@@ -12,6 +12,16 @@ set(WN_GENERATED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/generated" CACHE PATH "directo
 
 option(WN_WGPU "Build the wgpu-native renderer backend" ON)
 
+# E4 runs the media loop inline from the UI tick (deterministic, no locks).
+# The per-session worker thread is E4b; turning this ON must fail instead of
+# silently behaving like OFF.
+option(WN_MEDIA_THREADS "media thread per session (not implemented before E4b)" OFF)
+
+if(WN_MEDIA_THREADS)
+    message(FATAL_ERROR
+        "WN_MEDIA_THREADS=ON is not implemented yet: E4 runs the media loop inline")
+endif()
+
 if(WN_WGPU)
     set(WN_WGPU_DEFINE WN_WGPU=1)
 else()

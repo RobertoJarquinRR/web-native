@@ -2453,7 +2453,8 @@ static const wn_renderer_ops g_wgpu_ops = {
     renderer_get_stats,
     renderer_readback,
     renderer_image_cache_count,
-    renderer_image_cache_bytes
+    renderer_image_cache_bytes,
+    NULL /* video_sink: RGBA upload is D3D11-first (E4b adds wgpu) */
 };
 
 const wn_renderer_ops *wn_renderer_wgpu(void)

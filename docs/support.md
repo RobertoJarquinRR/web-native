@@ -28,7 +28,7 @@ Leyenda:
 | IME (IMM32, una línea)  | eventos v7 + `wn_ime_ops`  | Parcial: composición/commit/cancel con backend falso; smoke manual Win32 pendiente |
 | ABI C                   | `WN_ABI_VERSION 8`         | ✅ standalone + embedded |
 | Estados CSS             | sección `states` del blob  | ✅ hover/press/focus/disabled (color; `disabled` en HTML siembra el bit) |
-| Media (`<video>`)       | blob v7 + `WN_MEDIA_ABI_VERSION 1` | Parcial: nodo, layout, póster/placeholder, registro y `media_null`; sin decodificador ni reproducción (E3b) |
+| Media (`<video>`)       | blob v7 + `WN_MEDIA_ABI_VERSION 1` | Parcial: nodo, layout, póster/placeholder/frame RGBA, registro, `media_null`, driver de sesión inline y `media_test` (tests); sin decodificador real, audio ni subtítulos (E5) |
 
 ## HTML
 
@@ -37,7 +37,7 @@ Leyenda:
 | `html`, `head`, `body`, `div`, `span`, `p`, `h1`–`h6`        | Sí       | Sí      | Sí  | base                |
 | `button`                                                     | Sí       | Sí      | Sí  | estado por `data-*` |
 | `img` local                                                  | Sí       | Parcial | Sí  | WIC; sin red        |
-| `video` local (blob v7, ABI v8)                              | Sí       | No      | Sí  | nodo reemplazado, póster/placeholder, `object-fit`, 300×150 por defecto; sin decodificador ni reproducción (E3b) |
+| `video` local (blob v7, ABI v8)                              | Sí       | No      | Sí  | nodo reemplazado, póster/placeholder/frame RGBA, `object-fit`, 300×150 por defecto, `src` opcional (nodo del host, `src=0`); sin decodificador real, audio ni subtítulos (E5) |
 | `ul`, `ol`, `li`                                             | Sí       | Sí      | Sí  | listas estáticas    |
 | `link` stylesheet, `style`                                   | Sí       | Sí      | Sí  | CSS local           |
 | `input type="text"`                                          | Pilot v3 | warning | Sí  | UTF-8 en edición; IME en runtime (no cambia el blob) |

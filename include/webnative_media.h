@@ -11,13 +11,15 @@
  *   - no GPU headers and no backend types: native handles are opaque.
  *
  * The engine never links a decoder and never interprets codec bytes. A build
- * with no provider is valid: `<video>` still lays out, paints its poster or a
- * neutral placeholder, and reports WN_MEDIA_UNSUPPORTED_CONTAINER when the host
- * tries to open. `media_null` is always present and never matches.
+ * with no provider is valid: `<video>` still lays out, paints its poster, a
+ * neutral placeholder or the last uploaded frame, and reports
+ * WN_MEDIA_UNSUPPORTED_CONTAINER when the host tries to open. `media_null` is
+ * always present and never matches.
  *
- * Only the first phase of docs/media-v1.md is implemented today: this header,
- * the provider registry, media_null and the documented error paths. The
- * session driver (decode, audio, clocks, subtitles) is a later phase.
+ * E4 implements the provider ABI, the registry, media_null, the inline session
+ * driver (state machine, seek/loop/autoplay, events) and an RGBA8 frame sink.
+ * Real demuxers/decoders, audio, subtitles, NV12/P010 and NV12 shaders are
+ * later phases; the ABI here does not change for them.
  */
 #ifndef WEBNATIVE_MEDIA_H
 #define WEBNATIVE_MEDIA_H

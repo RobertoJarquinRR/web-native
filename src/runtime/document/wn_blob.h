@@ -195,11 +195,14 @@ typedef struct {
  *   WnBlobMediaRecord { int32 node; uint32 src; uint32 poster;
  *                       uint8 flags; uint8 preload; uint8 reserved[2]; }
  *
- * `src` is a mandatory non-empty strings offset and must not contain a scheme
- * (`://`). `poster` is a strings offset or 0. `flags` uses WN_MEDIA_FLAG_* and
- * bits 4..7 are rejected. `preload` is 0 none, 1 metadata (default), 2 auto.
- * The section is absent when the document has no video node, every video node
- * has exactly one record, and a record may not target any other kind.
+ * `src` is a strings offset or 0. Offset 0 means "no source yet" (a host-bound
+ * player node: the gallery creates the box/poster and the host calls
+ * wn_node_media_set_source before open). A non-zero offset must be non-empty
+ * and must not contain a scheme (`://`). `poster` is a strings offset or 0.
+ * `flags` uses WN_MEDIA_FLAG_* and bits 4..7 are rejected. `preload` is 0
+ * none, 1 metadata (default), 2 auto. The section is absent when the document
+ * has no video node, every video node has exactly one record, and a record may
+ * not target any other kind.
  */
 #define WN_MEDIA_FLAG_CONTROLS 0x01u
 #define WN_MEDIA_FLAG_AUTOPLAY 0x02u

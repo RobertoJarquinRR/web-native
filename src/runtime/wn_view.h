@@ -132,6 +132,10 @@ wn_status wn_view_media_set_source(wn_view *view, wn_node_id node,
                                    const char *path_utf8);
 wn_status wn_view_media_get_state(wn_view *view, wn_node_id node,
                                   wn_media_state_info *out);
+/* Test/tooling: replaces the wall clock used by the inline media loop. NULL
+ * restores wn_now_ms(); the view keeps the pair across document replacement. */
+void wn_view_set_media_clock(wn_view *view,
+                             int64_t (*now_us)(void *context), void *context);
 
 /* ABI v7 internal: installs the platform IME backend on the view. The backend
  * (ops + opaque context) is retained by the view and re-installed on the core

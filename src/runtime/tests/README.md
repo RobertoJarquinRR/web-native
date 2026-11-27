@@ -17,7 +17,7 @@ python tools\cli.py test suite <nombre>
 | `offscreen` | `offscreen/` | readback, caché de imágenes, D3D11 vs wgpu |
 | `text` | `text/` | contrato de texto (backend falso), medición DirectWrite, atlas, wrapping, documento |
 | `blob` | `blob/` | loader `.wnui`, builtin vs archivo, píxeles (`max=0`) |
-| `media` | `media/` | blob v7 `<video>`, layout/paint póster+placeholder, `media_null`, ABI v8 |
+| `media` | `media/` | blob v7 `<video>` (`src=0` incluido), layout/paint, `media_null`, ABI v8, sesión inline + `media_test` + sink RGBA D3D11 |
 | `dump` | `dump/` | `wnui-dump` texto/JSON, golden y errores de archivo |
 
 Todos los fixtures emiten el documento con `frontend-rust --emit-blob` desde
@@ -52,11 +52,25 @@ backend, reporta `SKIP`.
 póster, `object-fit: contain`, `object-fit: cover` y sin tamaño CSS (default
 300×150). `make_poster.py` genera un póster determinista 300×150. La suite fija
 el hash del blob v7, verifica la sección `media` y sus rechazos de loader
-(`media_blob_test.c`), el HTML→blob→load→layout/paint (`media_layout_test.c`),
-`media_null` y el orden/handshake de proveedores (`media_abi_test.c`), y pinta
-ambos backends disponibles en `out/media_<backend>.png`; `verify_media.py`
-comprueba geometría exacta, el placeholder neutro y el letterbox de `contain`.
-No hay decodificador: el evento esperado de `open` es
+(`media_blob_test.c`, incluido `src = 0` para el nodo reproductor del host), el
+HTML→blob→load→layout/paint (`media_layout_test.c`), la cadena de proveedores,
+el handshake, los eventos y la ABI (`media_abi_test.c`).
+
+E4 añade el camino real de frame con el proveedor sintético `media_test`
+(solo tests; no está en el CMake de producto):
+
+- `media_test_provider_test.c`: PTS monótono, duración, determinismo,
+  seek y contrato de `wn_frame_lease`.
+- `media_session_test.c`: máquina de estados completa, preload/autoplay,
+  idempotencia, seek/clamp, loop, ENDED→restart, nodo sin fuente y fugas de
+  buffer. Reloj inyectado, sin hilos.
+- `media_frame_test.c` + `verify_media_frames.py`: póster → primer frame →
+  seek → pausa sobre D3D11 offscreen (`frame_poster/first/seek/paused.png`),
+  tres `wn_video_batch` con textura real y `object-fit` fill/contain/cover.
+
+`runtime_media.exe` sigue pintando póster/placeholder sin proveedor;
+`verify_media.py` conserva la comprobación exacta de geometría y color de esa
+ruta. No hay decodificador real todavía: el evento de `open` sin proveedor es
 `WN_MEDIA_UNSUPPORTED_CONTAINER`.
 
 ## `dump`

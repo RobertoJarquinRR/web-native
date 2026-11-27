@@ -225,13 +225,17 @@ int main(void)
     variant.media->reserved[1] = 1u;
     expect_reject("non-zero media reserved bytes are rejected", &variant);
 
-    /* 8. Mandatory non-empty src. */
+    /* 8. src: 0 is a source-less host-bound player node; a non-zero offset
+     * must be a non-empty local path. */
     RESET_VARIANT();
     variant.media->src = 0u;
-    expect_reject("missing media src is rejected", &variant);
+    document = load(&variant);
+    check("src=0 (host-bound player node) is accepted",
+          document != NULL && document->nodes[1].media_src == NULL);
+    wn_document_release(document);
     RESET_VARIANT();
     variant.media->src = SRC_EMPTY;
-    expect_reject("empty media src is rejected", &variant);
+    expect_reject("empty non-zero media src is rejected", &variant);
 
     /* 9. Local paths only. */
     RESET_VARIANT();

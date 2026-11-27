@@ -22,7 +22,8 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 - `id`, `class`, `style` (subset de propiedades).
 - `data-hover`, `data-press`, `data-selected`, `data-action` (estado R2).
 - `src` en `img` (archivo local; sin red en v1).
-- `src`, `poster`, `width`, `height`, `controls`, `autoplay`, `muted`, `loop`,
+- `src` (opcional: sin él, el nodo es un reproductor del host con `src=0`),
+  `poster`, `width`, `height`, `controls`, `autoplay`, `muted`, `loop`,
   `preload` en `video` (rutas locales; sin esquema `://` ni red).
 - `href` en `link` (stylesheet local).
 - `title` (tooltip básico, futuro).
