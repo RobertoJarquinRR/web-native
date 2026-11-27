@@ -366,6 +366,7 @@ static int state_styles_equal(const UiNode *a, const UiNode *b)
         const UiStateStyle *left = &a->state_styles[i];
         const UiStateStyle *right = &b->state_styles[i];
         if (left->state != right->state || left->present != right->present ||
+            left->reserved != right->reserved ||
             left->background != right->background || left->text != right->text ||
             left->border_color != right->border_color) {
             return 0;
@@ -420,6 +421,7 @@ static int node_equal(const UiNode *a, const UiNode *b)
            a->position == b->position &&
            memcmp(a->inset, b->inset, sizeof(a->inset)) == 0 &&
            a->inset_mask == b->inset_mask && a->z_index == b->z_index &&
+           a->text_flags == b->text_flags &&
            state_styles_equal(a, b);
 }
 

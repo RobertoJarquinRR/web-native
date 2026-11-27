@@ -30,6 +30,12 @@ pub(crate) const STATE_HOVER: u8 = 1 << 0;
 pub(crate) const STATE_ACTIVE: u8 = 1 << 1;
 pub(crate) const STATE_FOCUS: u8 = 1 << 2;
 pub(crate) const STATE_DISABLED: u8 = 1 << 3;
+/// `:focus-visible`: keyboard/programmatic focus only. The runtime carries the
+/// bit separately; a focus-visible entry also folds in `:focus` declarations.
+pub(crate) const STATE_FOCUS_VISIBLE: u8 = 1 << 4;
+/// `:focus-within`: the element or one of its descendants is focused. The
+/// runtime maintains the bit on the focused node and every ancestor.
+pub(crate) const STATE_FOCUS_WITHIN: u8 = 1 << 5;
 
 fn pseudo_state(name: &str) -> Option<u8> {
     match name {
@@ -37,6 +43,8 @@ fn pseudo_state(name: &str) -> Option<u8> {
         "active" => Some(STATE_ACTIVE),
         "focus" => Some(STATE_FOCUS),
         "disabled" => Some(STATE_DISABLED),
+        "focus-visible" => Some(STATE_FOCUS_VISIBLE),
+        "focus-within" => Some(STATE_FOCUS_WITHIN),
         _ => None,
     }
 }
@@ -49,6 +57,8 @@ enum Simple {
     Id(String),
     Attr { name: String, value: Option<String> },
     Pseudo(String),
+    /// `:nth-child(an+b)` / `:nth-of-type(an+b)` as static structural matching.
+    Nth { of_type: bool, a: i64, b: i64 },
     Never,
 }
 
@@ -153,6 +163,7 @@ fn compound_matches(dom: &Dom, node: usize, compound: &Compound, state_mask: u8)
                     .map_or(true, |expected| actual == expected.as_str()),
             },
             Simple::Pseudo(name) => pseudo_matches(dom, node, name, state_mask),
+            Simple::Nth { of_type, a, b } => nth_matches(dom, node, *of_type, *a, *b),
             Simple::Never => false,
         };
         if !ok {
@@ -182,6 +193,89 @@ fn pseudo_matches(dom: &Dom, node: usize, name: &str, state_mask: u8) -> bool {
         },
         _ => false,
     }
+}
+
+/// CSS `:nth-child(an+b)` / `:nth-of-type(an+b)` static match.
+///
+/// The index is 1-based among the parent's children (elements only: this DOM
+/// drops text/comment nodes). `of_type` restricts the count to siblings with
+/// the same tag. A matched index must be `a*n + b` for an integer `n >= 0`.
+fn nth_matches(dom: &Dom, node: usize, of_type: bool, a: i64, b: i64) -> bool {
+    let Some(parent) = dom.nodes[node].parent else {
+        return false;
+    };
+    let tag = dom.nodes[node].tag.as_str();
+    let mut index = 0i64;
+    for child in &dom.nodes[parent].children {
+        if of_type && dom.nodes[*child].tag.as_str() != tag {
+            continue;
+        }
+        index += 1;
+        if *child == node {
+            return nth_index_matches(index, a, b);
+        }
+    }
+    false
+}
+
+fn nth_index_matches(index: i64, a: i64, b: i64) -> bool {
+    if a == 0 {
+        return index == b;
+    }
+    let diff = index - b;
+    diff % a == 0 && diff / a >= 0
+}
+
+/// Parses the An+B microsyntax: `odd`, `even`, `<integer>`, `an+b` with
+/// optional signs and whitespace around the `b` sign. `:nth-child(2n of .x)`
+/// and every other unsupported form return `None` (the caller drops the rule
+/// and the subset layer reports it).
+pub(crate) fn parse_an_plus_b(text: &str) -> Option<(i64, i64)> {
+    let lowered = text.trim().to_ascii_lowercase();
+    match lowered.as_str() {
+        "odd" => return Some((2, 1)),
+        "even" => return Some((2, 0)),
+        _ => {}
+    }
+    if let Some(position) = lowered.find('n') {
+        // `3 n` / `3\t n` are invalid: whitespace cannot separate the
+        // coefficient from the `n`.
+        if lowered[..position].trim_end().len() != position {
+            return None;
+        }
+        let coefficient = lowered[..position].trim();
+        let a = match coefficient {
+            "" | "+" => 1,
+            "-" => -1,
+            _ => parse_nth_integer(coefficient)?,
+        };
+        let rest = lowered[position + 1..].trim();
+        let b = if rest.is_empty() {
+            0
+        } else {
+            if !rest.starts_with('+') && !rest.starts_with('-') {
+                return None;
+            }
+            let compact: String = rest.chars().filter(|c| !c.is_whitespace()).collect();
+            parse_nth_integer(&compact)?
+        };
+        return Some((a, b));
+    }
+    // A bare integer has no internal whitespace.
+    Some((0, parse_nth_integer(lowered.as_str())?))
+}
+
+/// Optional sign followed by one or more ASCII digits (no units, no decimals).
+fn parse_nth_integer(text: &str) -> Option<i64> {
+    let value = text.trim();
+    if value.is_empty() {
+        return None;
+    }
+    let digits = value.strip_prefix(['+', '-']).unwrap_or(value);
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    value.parse::<i64>().ok()
 }
 
 // ---------------------------------------------------------------- stylesheet
@@ -641,8 +735,26 @@ fn parse_compound(chars: &[char], mut index: usize) -> Option<(Compound, usize)>
                 let (name, next) = parse_ident(chars, index)?;
                 index = next;
                 if index < chars.len() && chars[index] == '(' {
-                    index = skip_balanced(chars, index)?;
-                    simples.push(Simple::Never);
+                    let open = index;
+                    let after = skip_balanced(chars, index)?;
+                    let argument: String = chars[open + 1..after.saturating_sub(1)]
+                        .iter()
+                        .collect();
+                    if !doubled && matches!(name.as_str(), "nth-child" | "nth-of-type") {
+                        if let Some((a, b)) = parse_an_plus_b(&argument) {
+                            simples.push(Simple::Nth {
+                                of_type: name == "nth-of-type",
+                                a,
+                                b,
+                            });
+                            spec.1 += 1;
+                        } else {
+                            simples.push(Simple::Never);
+                        }
+                    } else {
+                        simples.push(Simple::Never);
+                    }
+                    index = after;
                 } else if doubled
                     || !matches!(
                         name.as_str(),
@@ -653,6 +765,8 @@ fn parse_compound(chars: &[char], mut index: usize) -> Option<(Compound, usize)>
                             | "hover"
                             | "active"
                             | "focus"
+                            | "focus-visible"
+                            | "focus-within"
                             | "disabled"
                     )
                 {

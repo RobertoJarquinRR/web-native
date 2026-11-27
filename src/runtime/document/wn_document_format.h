@@ -64,26 +64,33 @@ typedef enum {
 
 /* Blob v6: per-state color overrides, keyed by the node. The order matches the
  * blob state codes. The runtime chooses fields by the state priority documented
- * in docs/wnui-format.md: disabled > press > hover > focus > base. */
+ * in docs/wnui-format.md: disabled > press > hover > focus-visible > focus >
+ * focus-within > base. */
 enum {
     R2_STATE_STYLE_HOVER = 0,
     R2_STATE_STYLE_PRESS = 1,
     R2_STATE_STYLE_FOCUS = 2,
     R2_STATE_STYLE_DISABLED = 3,
-    R2_STATE_STYLE_COUNT = 4
+    /* Additive v6 entries (state_count max is 6; the 16-byte record did not
+     * change). */
+    R2_STATE_STYLE_FOCUS_VISIBLE = 4,
+    R2_STATE_STYLE_FOCUS_WITHIN = 5,
+    R2_STATE_STYLE_COUNT = 6
 };
 
 /* Presence bits of one UiStateStyle. A zero bit means "keep the base value". */
 enum {
     R2_STATE_FIELD_BACKGROUND = 1u << 0,
     R2_STATE_FIELD_TEXT = 1u << 1,
-    R2_STATE_FIELD_BORDER = 1u << 2
+    R2_STATE_FIELD_BORDER = 1u << 2,
+    /* Additive v6: the weight lives in the record's reserved u16. */
+    R2_STATE_FIELD_FONT_WEIGHT = 1u << 3
 };
 
 typedef struct {
     unsigned char state;       /* R2_STATE_STYLE_* */
     unsigned char present;     /* R2_STATE_FIELD_* bits */
-    unsigned short reserved;
+    unsigned short reserved;   /* v6 additive: state font-weight (100..900) */
     unsigned int background;   /* 0xAARRGGBB */
     unsigned int text;
     unsigned int border_color; /* uniform recolor of the visible border */
@@ -155,6 +162,8 @@ typedef struct {
     unsigned char state_style_count;
     /* Blob v6: runtime state bits the node starts with (HTML `disabled`). */
     unsigned char initial_state;
+    /* Blob v6 optional `text_extras` flags (bit 0 = ellipsis). */
+    unsigned int text_flags;
 } UiNode;
 
 typedef struct {

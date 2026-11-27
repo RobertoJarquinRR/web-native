@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>webnative extended state fixture</title>
+  <link rel="stylesheet" href="state_ext.css">
+</head>
+<body>
+  <!-- Static structural selectors: child 2 is red, the odd children green. -->
+  <div class="row">
+    <div id="n1" class="nth"></div>
+    <div id="n2" class="nth"></div>
+    <div id="n3" class="nth"></div>
+    <div id="n4" class="nth"></div>
+  </div>
+  <!-- Keyboard focus (0x28) vs pointer focus (0x08). -->
+  <div class="row">
+    <div id="focus-plain" class="focus"></div>
+    <div id="focus-visible" class="focus"></div>
+  </div>
+  <!-- Derived focus-within on an ancestor; hover state font-weight. -->
+  <div class="row">
+    <div id="within" class="within"><div class="label">Inside</div></div>
+    <div id="weight" class="weight">Weight</div>
+  </div>
+  <!-- Single-line ellipsis inside a clipped box. -->
+  <div id="ellipsis" class="ellipsis">A long label that must be clipped</div>
+</body>
+</html>

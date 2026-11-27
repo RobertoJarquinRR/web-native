@@ -35,6 +35,7 @@ Las secciones empiezan alineadas a 8 bytes:
 | 3 | strings | pool NUL-terminado; offset 0 = NULL |
 | 4 | inputs | registros `WnBlobInput` (20 bytes); ausente si no hay inputs |
 | 5 | states | estilos de estado CSS (v6); **ausente** si ningún nodo tiene estados |
+| 6 | text_extras | flags de texto (v6, aditivo; p. ej. ellipsis); **ausente** si no hay flags |
 
 El registro de nodo guarda `parent`, `kind`, dirección/justify/align/wrap,
 geometría declarada, márgenes/padding, colores ARGB resueltos, offsets de
@@ -59,7 +60,7 @@ La sección 5 es una secuencia de registros variables, en orden estricto de
 índice de nodo (creciente, sin duplicados):
 
 ```
-WnBlobStateRecord (8 bytes)   int32 node; uint8 state_count (0..4);
+WnBlobStateRecord (8 bytes)   int32 node; uint8 state_count (0..6);
                               uint8 initial_state; uint8 reserved[2]
   WnBlobStateStyle (16 bytes) uint8 state; uint8 present; uint16 reserved;
                               uint32 background; uint32 text; uint32 border_color
@@ -70,9 +71,15 @@ WnBlobStateRecord (8 bytes)   int32 node; uint8 state_count (0..4);
   `WN_STATE_DISABLED` (0x10) desde el atributo `disabled` de `button`/`input`;
   el loader rechaza cualquier otro bit. Un nodo con `disabled` y sin reglas
   `:disabled` igualmente lleva registro (`state_count = 0`).
-- `state`: `0` hover, `1` press, `2` focus, `3` disabled.
-- `present`: bit 0 = background, bit 1 = text color, bit 2 = border color. Sólo
-  los campos presentes se aplican; el resto conserva el valor base.
+- `state`: `0` hover, `1` press, `2` focus, `3` disabled, `4` focus-visible,
+  `5` focus-within. Los códigos 4–5 son aditivos en v6: el registro sigue
+  midiendo 16 bytes y `state_count` sólo puede crecer hasta 6.
+- `present`: bit 0 = background, bit 1 = text color, bit 2 = border color,
+  bit 3 = `font-weight` (aditivo v6). Sólo los campos presentes se aplican; el
+  resto conserva el valor base.
+- El `font-weight` de estado viaja en el `uint16 reserved` del registro
+  (`100..=900`) cuando el bit 3 está presente. Sin el bit, `reserved` debe ser
+  0; el loader valida ambos casos. No hay cambio de tamaño ni de versión.
 - Los colores son ARGB. Un campo presente con color `0x00000000` se rechaza:
   esta lane no representa `transparent` como override de estado (el frontend
   normaliza a `#rrggbb` opaco, descarta alfa ≤ 0 y **diagnostica** ese color en
@@ -83,7 +90,7 @@ WnBlobStateRecord (8 bytes)   int32 node; uint8 state_count (0..4);
   distinto de cero (p. ej. `disabled` sin reglas `:disabled`). Un documento sin
   estados no lleva la sección y conserva el coste anterior.
 
-**Combinación (build time).** El frontend resuelve cuatro estilos efectivos por
+**Combinación (build time).** El frontend resuelve seis estilos efectivos por
 nodo aplicando la cascada normal (especificidad, `!important`, orden) con un
 conjunto de estados activo:
 
@@ -93,16 +100,18 @@ conjunto de estados activo:
 | press | `:hover` + `:active` | press **incluye** hover: una regla `:active` pisa a `:hover` por orden/especificidad |
 | focus | `:focus` | sólo focus |
 | disabled | `:disabled` | sólo en nodos que pueden deshabilitarse (`button`/`input`) |
+| focus-visible | `:focus` + `:focus-visible` | se materializa sólo si una regla `:focus-visible` aplica; la cascada decide `:focus` vs `:focus-visible` |
+| focus-within | `:focus-within` | sólo su propia regla; el runtime la hace efectiva en el nodo enfocado y sus ancestros |
 
 Un estilo de estado sólo guarda un campo si la declaración ganadora proviene de
-una regla con pseudo-clase de estado (o si el nodo no tiene `color` propio y
-hereda el color de estado de su ancestro). Por eso un `:hover` que sólo cambia
-texto no pisa el `selected_bg` de la app con el fondo base.
+una regla con pseudo-clase de estado (o si el nodo no tiene `color`/`font-weight`
+propio y hereda el valor de estado de su ancestro). Por eso un `:hover` que sólo
+cambia texto no pisa el `selected_bg` de la app con el fondo base.
 
 **Prioridad de pintado (runtime).** Por campo, en este orden:
 
 ```
-disabled > press > hover > focus > base
+disabled > press > hover > focus-visible > focus > focus-within > base
 ```
 
 `selected` es el color base de la app (`data-selected`), no un estado de la
@@ -111,15 +120,45 @@ tabla: se ve cuando ningún estado superior define ese campo. Así
 siguen funcionando como azúcar para variantes sin CSS; los estilos CSS tienen
 precedencia. `:disabled` gana siempre y suprime hover/press/selected.
 
-**Diferido:** `:checked`, `:focus-visible`, `:focus-within`, `:nth-*`,
-transiciones/animaciones, opacidad o layout por estado, y combinaciones de más
-de un estado salvo `:hover:active` (el subset las diagnostica). Un estado en un
-compuesto **ancestro** (`.card:hover .label`) tampoco se compila: el estado sólo
-se aplica al compuesto sujeto y el subset lo diagnostica. Una regla de estado
-sólo transporta colores (`background`, `color` y color de borde uniforme); las
-demás propiedades de la regla se diagnostican y no se aplican. El color de
-borde de estado es uniforme (recolorea los lados visibles); no cambia
-ancho/estilo por lado.
+**Prioridad de `font-weight`.** Usa la misma tabla que los colores. Layout,
+shaping, atlas y pintura piden el peso efectivo por nodo; una regla
+`:hover { font-weight: 700 }` recalcula el ancho/avance y el atlas usa el peso
+como parte de la clave.
+
+**Focus-visible y focus-within (runtime).** `WN_STATE_FOCUS_VISIBLE` (0x20) es
+un bit aditivo de ABI 7: el host marca foco de teclado/programático pasándolo
+junto con `WN_STATE_FOCUSED`; el click de puntero deja sólo `FOCUSED`.
+`WN_STATE_FOCUS_WITHIN` (0x40) es derivado: el core lo enciende en el nodo
+enfocado y todos sus ancestros, y lo recalcula al cambiar el foco, deshabilitar
+un subárbol, quitar/reinsertar nodos. No viaja en el blob (los estilos ya están
+por nodo).
+
+**Diferido:** `:checked` (no hay widget checkbox/radio; el subset lo
+diagnostica), transiciones/animaciones, opacidad o layout por estado salvo el
+`font-weight`, y combinaciones de más de un estado salvo `:hover:active` (el
+subset las diagnostica). Un estado en un compuesto **ancestro**
+(`.card:hover .label`) tampoco se compila: el estado sólo se aplica al compuesto
+sujeto y el subset lo diagnostica. Una regla de estado transporta colores
+(`background`, `color` y color de borde uniforme) y `font-weight`; las demás
+propiedades se diagnostican y no se aplican. El color de borde de estado es
+uniforme (recolorea los lados visibles); no cambia ancho/estilo por lado.
+
+### Sección `text_extras` (v6, aditiva)
+
+La sección 6 es opcional y sólo aparece si algún run de texto lleva flags.
+Contiene registros de 8 bytes en orden estricto de índice de nodo:
+
+```
+WnBlobTextExtras (8 bytes) int32 node; uint8 flags; uint8 reserved[3]
+```
+
+- `flags` bit 0 = `text-overflow: ellipsis` en una caja con `overflow: hidden`.
+  El loader rechaza flags desconocidos, `flags == 0`, nodos fuera de rango,
+  orden no creciente y `reserved` distinto de 0.
+- El frontend escribe el flag en el **run de texto generado** del elemento, no
+  en la caja propietaria. El runtime sólo lo aplica si el layout produce una
+  sola línea y el texto excede el ancho; en multilínea es inerte.
+- No cambia el registro de nodo (252 bytes), ni la versión del blob.
 
 ### Semántica de `position` e insets (v4)
 

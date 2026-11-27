@@ -219,6 +219,9 @@ pub struct NodeOut {
     pub states: StateStyles,
     /// Blob v6: state bits the node starts with (`disabled` attribute).
     pub initial_state: u8,
+    /// Blob v6 optional `text_extras` flag byte (bit 0 = ellipsis). Only
+    /// generated text runs carry it.
+    pub text_flags: u8,
     pub argb: ArgbOut,
     pub text: Option<TextOut>,
     pub image: Option<ImageOut>,
@@ -438,6 +441,7 @@ impl<'a> Builder<'a> {
             } else {
                 0
             },
+            text_flags: 0,
             argb: ArgbOut {
                 // `background`/`color` are already normalized to `#rrggbb`;
                 // `data-*` travel raw so alpha and every tinycss2 form survive.
@@ -586,6 +590,7 @@ impl<'a> Builder<'a> {
             // the text color of each state is relevant.
             states: style.states.text_only(),
             initial_state: 0,
+            text_flags: text_extras(style),
             argb: ArgbOut {
                 background: 0,
                 text: text_color(style),
@@ -611,6 +616,18 @@ fn text_color(style: &ComputedStyle) -> u32 {
         0xFF00_0000
     } else {
         value
+    }
+}
+
+/// Optional `text_extras` flags for a generated text run. Ellipsis only makes
+/// sense on a clipped box; the runtime additionally requires a single line.
+fn text_extras(style: &ComputedStyle) -> u8 {
+    let clipped = style.overflow.as_deref() == Some("hidden");
+    let ellipsis = style.text_overflow.as_deref() == Some("ellipsis");
+    if clipped && ellipsis {
+        1
+    } else {
+        0
     }
 }
 

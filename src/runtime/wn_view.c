@@ -555,7 +555,8 @@ wn_status wn_view_set_state(wn_view *view, int node, int state, int enabled)
     }
     if (state <= 0 || (state & ~(WN_STATE_HOVER | WN_STATE_PRESS |
                                  WN_STATE_SELECTED | WN_STATE_FOCUSED |
-                                 WN_STATE_DISABLED)) != 0) {
+                                 WN_STATE_DISABLED | WN_STATE_FOCUS_VISIBLE |
+                                 WN_STATE_FOCUS_WITHIN)) != 0) {
         wn_set_error("wn_view_set_state: unknown state 0x%X", (unsigned)state);
         return WN_ERR_INVALID_ARGUMENT;
     }

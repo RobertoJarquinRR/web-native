@@ -34,7 +34,10 @@ typedef enum {
     WN_BLOB_SECTION_STRINGS = 3,
     WN_BLOB_SECTION_INPUTS = 4,
     /* Blob v6: optional per-node state styles. Absent when no node has one. */
-    WN_BLOB_SECTION_STATES = 5
+    WN_BLOB_SECTION_STATES = 5,
+    /* Blob v6: optional per-node text extras (ellipsis). Additive section;
+     * absent when no text run carries a flag. */
+    WN_BLOB_SECTION_TEXT_EXTRAS = 6
 } wn_blob_section_id;
 
 typedef struct {
@@ -144,9 +147,11 @@ typedef struct {
  * bits and the record boundaries.
  */
 typedef struct {
-    uint8_t state;       /* 0 hover, 1 press, 2 focus, 3 disabled */
-    uint8_t present;     /* bit0 background, bit1 text, bit2 border */
-    uint16_t reserved;
+    uint8_t state;       /* 0 hover, 1 press, 2 focus, 3 disabled,
+                          * 4 focus-visible, 5 focus-within */
+    uint8_t present;     /* bit0 background, bit1 text, bit2 border,
+                          * bit3 font-weight (in `reserved`) */
+    uint16_t reserved;   /* v6 additive: state font-weight 100..900 */
     uint32_t background; /* ARGB, valid when present bit 0 */
     uint32_t text;       /* ARGB, valid when present bit 1 */
     uint32_t border_color; /* ARGB, valid when present bit 2 */
@@ -154,11 +159,26 @@ typedef struct {
 
 typedef struct {
     int32_t node;
-    uint8_t state_count;    /* 0..4 style entries */
+    uint8_t state_count;    /* 0..6 style entries */
     uint8_t initial_state;  /* runtime bits seeded at load (disabled = 0x10) */
     uint8_t reserved[2];
     /* WnBlobStateStyle entries follow in the section. */
 } WnBlobStateRecord;
+
+/* Blob v6 optional text extras section. A sequence of 8-byte records in
+ * strictly increasing node order:
+ *
+ *   WnBlobTextExtras { int32 node; uint8 flags; uint8 reserved[3]; }
+ *
+ * Only text nodes with a nonzero flag byte carry a record. Bit 0 marks
+ * `text-overflow: ellipsis` on a clipped (`overflow: hidden`) box. */
+typedef struct {
+    int32_t node;
+    uint8_t flags;
+    uint8_t reserved[3];
+} WnBlobTextExtras;
+
+#define WN_TEXT_FLAG_ELLIPSIS 0x01u
 
 struct wn_document;
 

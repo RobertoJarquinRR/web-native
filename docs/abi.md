@@ -161,7 +161,7 @@ pinta. No hay `commit` separado.
 
 | Función | Uso |
 |---|---|
-| `wn_node_set_state(app, node, mask, enabled)` | enciende/apaga `WN_STATE_HOVER/PRESS/SELECTED/FOCUSED/DISABLED` |
+| `wn_node_set_state(app, node, mask, enabled)` | enciende/apaga `WN_STATE_HOVER/PRESS/SELECTED/FOCUSED/DISABLED/FOCUS_VISIBLE/FOCUS_WITHIN` |
 | `wn_node_get_state(app, node)` | máscara activa; 0 si el handle está muerto |
 
 - `selected` y `focused` son por nodo: el host puede marcar varios nodos.
@@ -169,6 +169,14 @@ pinta. No hay `commit` separado.
 - **v7:** `WN_STATE_FOCUSED` (0x08) y `WN_STATE_DISABLED` (0x10) son aditivos.
   `wn_app_focus_input`/`wn_app_blur_input` encienden/apagan el bit de foco en el
   input; el host puede marcar cualquier nodo con `set_state`.
+- **v7 aditivo:** `WN_STATE_FOCUS_VISIBLE` (0x20) distingue foco de
+  teclado/programático del foco por puntero. El host marca teclado pasando
+  `FOCUSED | FOCUS_VISIBLE`; un click deja sólo `FOCUSED`. El foco programático
+  de un input (`wn_app_focus_input`) enciende ambos; el click en un input limpia
+  `FOCUS_VISIBLE`. `WN_STATE_FOCUS_WITHIN` (0x40) es **derivado**: el core lo
+  enciende en el nodo enfocado y todos sus ancestros y lo recalcula al cambiar
+  el foco, deshabilitar un subárbol o quitar/reinsertar nodos; el host no
+  necesita fijarlo (se acepta para diagnóstico/fixtures).
 - Un nodo deshabilitado (o dentro de un subárbol deshabilitado) es **inerte** al
   puntero: no recibe hover, press ni selección, y no puede enfocarse. El blob
   v6 siembra el bit desde el atributo `disabled` de `button`/`input`; el host
@@ -181,11 +189,13 @@ pinta. No hay `commit` separado.
   está deshabilitado. Mientras un nodo está deshabilitado,
   `set_state(HOVER|PRESS|FOCUSED, enabled=1)` se rechaza (no-op); apagar bits
   siempre se permite.
-- **Prioridad de color** (por campo background/text/border):
-  `disabled > press > hover > focus > base`. `selected` es el color base de la
-  app: se ve si ningún estado superior define ese campo, así que
-  `selected + hover` muestra hover. Los estilos CSS del blob v6 ganan a
-  `data-hover`/`data-press`/`data-selected`; estos quedan como fallback.
+- **Prioridad de color y peso** (por campo background/text/border/font-weight):
+  `disabled > press > hover > focus-visible > focus > focus-within > base`.
+  `selected` es el color base de la app: se ve si ningún estado superior define
+  ese campo, así que `selected + hover` muestra hover. Los estilos CSS del blob
+  v6 ganan a `data-hover`/`data-press`/`data-selected`; estos quedan como
+  fallback. El `font-weight` de estado afecta layout/shaping/atlas, no sólo el
+  color.
 - El click de selección sigue reemplazando la selección para conservar el
   comportamiento y los píxeles de la v5.
 - `wn_app_set_class` sigue siendo por nombre y solo para clases compiladas; no
@@ -343,10 +353,12 @@ private static partial nint wn_node_get_value(nint app, ulong node);
   fallback de fuentes todavía.
 - `selected` y `focused` ya son por nodo, pero las clases siguen siendo por
   nombre compilado (no hay `set_class` por handle).
-- Los estilos de estado (blob v6) sólo cubren `background`, `color` y el color
-  de borde uniforme. No hay transiciones, `:checked`, `:focus-visible`,
-  `:focus-within`, `:nth-*` ni cambios de layout/opacidad por estado. Una regla
-  de estado con otras propiedades, o con el estado en un compuesto ancestro
+- Los estilos de estado (blob v6) cubren `background`, `color`, el color de
+  borde uniforme y `font-weight` (aditivo en v6, sin cambiar el registro). No
+  hay transiciones, `:checked` (no hay widget checkbox/radio), ni cambios de
+  layout/opacidad por estado salvo el peso. `:focus-visible`, `:focus-within` y
+  `:nth-child`/`:nth-of-type` (An+B estático) sí se compilan. Una regla de
+  estado con otras propiedades, o con el estado en un compuesto ancestro
   (`.card:hover .label`), se diagnostica y no se compila.
 - `scroll_into_view` es vertical y mueve solo el ancestro scrollable más cercano.
 - Sin virtualización, culling de sólidos, accesibilidad/UIA, DPI/multi-monitor

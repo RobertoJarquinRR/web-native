@@ -87,7 +87,7 @@ no les obligan a seguirlas. Los resultados se versionan en
 | Documento `.wnui` (blob v6)   | ✅ schema binario + hash canónico                                            |
 | Debug del blob                | ✅ `wnui-dump` (texto/JSON; proyección, no contrato)                        |
 | Runtime C                     | ✅ `src/runtime` — layout, grid, scroll, imágenes y eventos (69/69)         |
-| ABI C v7                      | ✅ standalone/embedded; v3 dinámica + v4 input + v5 nodos + v6 estado/lecturas + v7 foco/disabled |
+| ABI C v7                      | ✅ standalone/embedded; v3 dinámica + v4 input + v5 nodos + v6 estado/lecturas + v7 foco/disabled/foco-visible/foco-dentro (bits aditivos) |
 | Dynamic UI (v3)               | ✅ `set_visible`, `set_image`, `set_text`, clone/append/remove (61/61)      |
 | Text input (v4)               | ✅ UTF-8 single-line, caret/selección/drag/blink, `WN_EVENT_INPUT` (80+118) |
 | Texto en runtime              | ✅ DirectWrite, wrapping, atlas dinámico y cachés (66/34/4/40)              |
@@ -110,6 +110,7 @@ sin flag:
 | **v3**    | input UTF-8, bordes/radius/sombras, unidades relativas | `inputs` + CSS |
 | **v4**    | `position: relative\|absolute` + `top/right/bottom/left` | `position` + `inset`/`inset_mask` |
 | **v5**    | `z-index` y stacking contexts (orden CSS simplificado) | `z_index` (INT32_MIN = auto) |
+| **v6**    | estados CSS (hover/press/focus/disabled/focus-visible/focus-within, `font-weight` de estado) y `text_extras` (ellipsis) | `states` + `text_extras` (secciones opcionales) |
 
 Resumen de lo que hay hoy:
 
@@ -118,9 +119,9 @@ Resumen de lo que hay hoy:
 | Layout      | block, flex, grid, scroll vertical, resize, relative/absolute v4        |
 | Renderer    | D3D11 hardware (Windows, por defecto); wgpu-native (D3D12/Vulkan/Metal) |
 | Contenido   | texto shapeado en runtime, imágenes locales (WIC, caché LRU)            |
-| Interacción | hover/press/selected por nodo, botones/doble clic, wheel, input de una línea + IME IMM32 |
+| Interacción | hover/press/selected/focus/focus-visible/focus-within/disabled por nodo, botones/doble clic, wheel, input de una línea + IME IMM32 |
 | Dinamismo   | visibilidad, `set_image`, clone/append/remove                           |
-| CSS visual  | radius/bordes/sombras v1; per-side/per-corner/inset pendiente           |
+| CSS visual  | radius/bordes/sombras v1; `:nth-child`/`:nth-of-type`; ellipsis de una línea; per-side/per-corner/inset pendiente |
 | Fuera       | JS, iframes, red, parser runtime, formularios web, UIA                  |
 
 La matriz completa —frontend, runtime y limitaciones— está en

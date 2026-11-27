@@ -163,7 +163,7 @@ static const wn_atlas_run *input_run(const wn_core *c, int node, const char *tex
         return NULL;
     }
     return wn_text_atlas_shape(c->text_atlas, text, n->font_family, n->font_size,
-                               n->font_weight);
+                               wn_core_node_font_weight(c, node));
 }
 
 static float input_prefix_width(const wn_core *c, int node, const char *text, int upto)
@@ -192,8 +192,9 @@ static int input_line_metrics(const wn_core *c, int node, float *ascent, float *
      * key. When the backend measure failed, the block still builds a synthetic
      * line box; the editor keeps its historical 1.35*size fallback for that
      * path (input_line_height), so report the block as unavailable. */
-    if (wn_text_block_get("Mg", n->font_family, n->font_size, n->font_weight,
-                          0.0f, 0.0f, &block) != 0 ||
+    if (wn_text_block_get("Mg", n->font_family, n->font_size,
+                           wn_core_node_font_weight(c, node),
+                           0.0f, 0.0f, &block) != 0 ||
         !block.measured) {
         return 1;
     }
@@ -878,6 +879,8 @@ int wn_core_focus_input(wn_core *core, int node, float pointer_x)
             core->input_anchor[core->input_focus] = -1;
             core->state[core->input_focus] =
                 WN_STATE_CLEAR(core->state[core->input_focus], WN_STATE_FOCUSED);
+            core->state[core->input_focus] = WN_STATE_CLEAR(
+                core->state[core->input_focus], WN_STATE_FOCUS_VISIBLE);
         } else {
             /* Re-focusing the same input drops a stale composition; the next
              * IME event rebuilds it. */
@@ -886,12 +889,19 @@ int wn_core_focus_input(wn_core *core, int node, float pointer_x)
     }
     core->input_focus = node;
     core->state[node] |= (unsigned char)WN_STATE_FOCUSED;
+    /* Pointer focus: `:focus-visible` stays off. The programmatic entry point
+     * sets it right after this call. */
+    core->state[node] =
+        WN_STATE_CLEAR(core->state[node], WN_STATE_FOCUS_VISIBLE);
+    wn_core_refresh_focus_within(core);
     core->input_anchor[node] = -1;
     input_update_scroll(core, node);
     core->input_cursor[node] = input_caret_from_x(core, node, pointer_x);
     input_blink_reset(core);
     input_ime_focus(core);
     core->dirty = 1;
+    /* A focus state can carry a font-weight; layout must re-measure. */
+    core->needs_layout = 1;
     return node;
 }
 
@@ -905,6 +915,9 @@ int wn_core_focus_input_at_end(wn_core *core, int node)
     if (wn_core_focus_input(core, node, 3.0e38f) < 0) {
         return -1;
     }
+    /* Programmatic/keyboard focus: CSS `:focus-visible` applies. */
+    core->state[node] |= (unsigned char)WN_STATE_FOCUS_VISIBLE;
+    wn_core_refresh_focus_within(core);
     core->input_cursor[node] = input_length(core, node);
     core->input_anchor[node] = -1;
     input_update_scroll(core, node);
@@ -926,8 +939,11 @@ int wn_core_blur_input(wn_core *core)
     wn_core_ime_abort(core);
     core->input_anchor[node] = -1;
     core->state[node] = WN_STATE_CLEAR(core->state[node], WN_STATE_FOCUSED);
+    core->state[node] = WN_STATE_CLEAR(core->state[node], WN_STATE_FOCUS_VISIBLE);
     core->input_focus = -1;
+    wn_core_refresh_focus_within(core);
     core->dirty = 1;
+    core->needs_layout = 1;
     return 0;
 }
 
@@ -1429,11 +1445,13 @@ void build_input_text_geometry(wn_core *c, float viewport_w, float viewport_h)
         float scroll;
         int use_placeholder;
         int composing;
+        int weight;
         wn_paint_draw *draw = wn_core_draw_for_item(c, order_index);
         int glyph_first = c->glyph_vertex_count;
         if (n->kind != R2_NODE_INPUT || record == NULL) {
             continue;
         }
+        weight = wn_core_node_font_weight(c, node);
         value = input_text(c, node);
         composing = c->ime_node == node;
         /* While composing, the composition replaces the placeholder and is
@@ -1475,7 +1493,7 @@ void build_input_text_geometry(wn_core *c, float viewport_w, float viewport_h)
             if (run != NULL) {
                 for (int i = 0; i < run->count; ++i) {
                     const wn_atlas_glyph *packed = wn_text_atlas_glyph(
-                        c->text_atlas, n->font_family, n->font_size, n->font_weight,
+                        c->text_atlas, n->font_family, n->font_size, weight,
                         run->glyphs[i].glyph);
                     if (packed == NULL || packed->width <= 0 || packed->height <= 0) {
                         continue;
@@ -1501,7 +1519,7 @@ void build_input_text_geometry(wn_core *c, float viewport_w, float viewport_h)
                     for (int i = 0; i < ime_run->count; ++i) {
                         const wn_atlas_glyph *packed = wn_text_atlas_glyph(
                             c->text_atlas, n->font_family, n->font_size,
-                            n->font_weight, ime_run->glyphs[i].glyph);
+                            weight, ime_run->glyphs[i].glyph);
                         if (packed == NULL || packed->width <= 0 ||
                             packed->height <= 0) {
                             continue;

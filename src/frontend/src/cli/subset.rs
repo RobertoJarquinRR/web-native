@@ -18,6 +18,7 @@ use std::path::Path;
 
 use cssparser::{Delimiter, ParseError, Parser, ParserInput, Token};
 
+use crate::parse::css::parse_an_plus_b;
 use crate::style::cascade::parse_font_weight;
 use crate::style::color::{is_declared_color, parse_color};
 use crate::style::grid::{parse_grid_auto_rows, parse_grid_template_columns};
@@ -50,8 +51,9 @@ const GLOBAL_ATTRIBUTES: [&str; 8] = [
 
 /// Accepted pseudo-classes. `:root` and the structural ones are already
 /// resolved by the engine; the first four are the states named by the
-/// contract.
-const ALLOWED_PSEUDO_CLASSES: [&str; 8] = [
+/// contract. `:nth-child()`/`:nth-of-type()` are validated separately because
+/// their argument grammar decides support.
+const ALLOWED_PSEUDO_CLASSES: [&str; 12] = [
     "hover",
     "active",
     "focus",
@@ -60,13 +62,22 @@ const ALLOWED_PSEUDO_CLASSES: [&str; 8] = [
     "first-child",
     "last-child",
     "only-child",
+    "focus-visible",
+    "focus-within",
+    "nth-child",
+    "nth-of-type",
 ];
+
+/// `:nth-of-type()` shares the `:nth-child()` argument grammar.
+const NTH_OF_TYPE: &str = "nth-of-type";
 
 /// State pseudo-classes supported by blob v6, local to the diagnostic.
 const HOOK_STATE_HOVER: u8 = 1 << 0;
 const HOOK_STATE_ACTIVE: u8 = 1 << 1;
 const HOOK_STATE_FOCUS: u8 = 1 << 2;
 const HOOK_STATE_DISABLED: u8 = 1 << 3;
+const HOOK_STATE_FOCUS_VISIBLE: u8 = 1 << 4;
+const HOOK_STATE_FOCUS_WITHIN: u8 = 1 << 5;
 
 fn hook_state_bit(name: &str) -> Option<u8> {
     match name {
@@ -74,6 +85,8 @@ fn hook_state_bit(name: &str) -> Option<u8> {
         "active" => Some(HOOK_STATE_ACTIVE),
         "focus" => Some(HOOK_STATE_FOCUS),
         "disabled" => Some(HOOK_STATE_DISABLED),
+        "focus-visible" => Some(HOOK_STATE_FOCUS_VISIBLE),
+        "focus-within" => Some(HOOK_STATE_FOCUS_WITHIN),
         _ => None,
     }
 }
@@ -977,6 +990,15 @@ fn check_selector(
                     index += 1;
                 }
                 let name = selector[name_start..index].to_ascii_lowercase();
+                let mut argument: Option<&str> = None;
+                if index < bytes.len() && bytes[index] == b'(' {
+                    let open = index;
+                    let after = skip_balanced(bytes, index);
+                    if after > open + 1 && after <= bytes.len() && bytes[after - 1] == b')' {
+                        argument = Some(&selector[open + 1..after - 1]);
+                    }
+                    index = after;
+                }
                 if doubled {
                     diagnostics.push(Diagnostic::new(
                         path,
@@ -987,6 +1009,16 @@ fn check_selector(
                         ),
                     ));
                     unsupported = true;
+                } else if name == "checked" {
+                    diagnostics.push(Diagnostic::new(
+                        path,
+                        line,
+                        Some(format!("selector '{selector}'")),
+                        "pseudo-clase ':checked' diferida: no hay widget checkbox/radio en esta \
+                         lane (no se simula)"
+                            .to_string(),
+                    ));
+                    unsupported = true;
                 } else if !ALLOWED_PSEUDO_CLASSES.contains(&name.as_str()) {
                     diagnostics.push(Diagnostic::new(
                         path,
@@ -995,11 +1027,23 @@ fn check_selector(
                         format!("pseudo-clase ':{name}' no soportada por subset v1"),
                     ));
                     unsupported = true;
+                } else if name == "nth-child" || name == NTH_OF_TYPE {
+                    let supported = argument.is_some_and(nth_argument_supported);
+                    if !supported {
+                        diagnostics.push(Diagnostic::new(
+                            path,
+                            line,
+                            Some(format!("selector '{selector}'")),
+                            format!(
+                                "forma no soportada en ':{name}()': usa an+b, odd, even o un \
+                                 entero (las variantes con 'of', 'nth-last-*' y otros argumentos \
+                                 no se compilan)"
+                            ),
+                        ));
+                        unsupported = true;
+                    }
                 } else if let Some(bit) = hook_state_bit(&name) {
                     state_bits |= bit;
-                }
-                if index < bytes.len() && bytes[index] == b'(' {
-                    index = skip_balanced(bytes, index);
                 }
             }
             b'+' | b'~' => {
@@ -1047,6 +1091,11 @@ fn report_state_combination(
 
 fn is_ident_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_' || byte >= 0x80
+}
+
+/// The subset accepts exactly the An+B forms the selector parser compiles.
+fn nth_argument_supported(argument: &str) -> bool {
+    parse_an_plus_b(argument).is_some()
 }
 
 fn skip_balanced(bytes: &[u8], mut index: usize) -> usize {
@@ -1109,8 +1158,9 @@ fn at_rule_name(prelude: &str) -> String {
 
 // --------------------------------------------------------------- properties
 
-/// The only properties a blob v6 state style carries: background, text color
-/// and the uniform border color (including the per-side color longhands).
+/// The only properties a blob v6 state style carries: background, text color,
+/// the uniform border color (including the per-side color longhands) and the
+/// additive `font-weight`.
 fn state_color_property(name: &str) -> bool {
     matches!(
         name,
@@ -1122,6 +1172,7 @@ fn state_color_property(name: &str) -> bool {
             | "border-right-color"
             | "border-bottom-color"
             | "border-left-color"
+            | "font-weight"
     )
 }
 
@@ -1182,7 +1233,8 @@ fn check_property(
             } else {
                 report(format!(
                     "propiedad '{name}' no soportada en una regla de estado: solo aplican \
-                     background/background-color, color y border-color (color de borde uniforme)"
+                     background/background-color, color, border-color (color de borde uniforme) \
+                     y font-weight"
                 ));
             }
             return;
@@ -1347,6 +1399,13 @@ fn check_property(
             } else {
                 report(format!(
                     "valor '{trimmed}' no soportado en 'overflow' (v1: hidden; piloto v2: auto | scroll)"
+                ));
+            }
+        }
+        "text-overflow" => {
+            if lowered != "ellipsis" && lowered != "clip" {
+                report(format!(
+                    "valor '{trimmed}' no soportado en 'text-overflow' (solo ellipsis | clip)"
                 ));
             }
         }

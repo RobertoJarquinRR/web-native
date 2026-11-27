@@ -249,6 +249,8 @@ struct wn_core {
 void build_hierarchy(wn_core *c);
 void layout_page(wn_core *c, float viewport_w, float viewport_h);
 void ensure_layout_for_hit(wn_core *core);
+/* Rebuilds the derived WN_STATE_FOCUS_WITHIN bits from the FOCUSED mask. */
+void wn_core_refresh_focus_within(wn_core *c);
 
 wn_rect rect_intersection(wn_rect a, wn_rect b);
 int rect_is_empty(wn_rect r);

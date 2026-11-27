@@ -69,6 +69,7 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | `position: static/relative/absolute` + `top/right/bottom/left` | Sí (v4)  | No | Sí | nodos relativos/absolutos, containing block, px/%/auto; ver `wnui-format.md` |
 | `z-index: auto | <integer>` (v5)                     | Sí       | No      | Sí      | contextos de apilado; solo posicionados (static se ignora); ver `wnui-format.md` |
 | `position: fixed/sticky`, `inset`                    | No       | No      | No      | fuera de esta lane; se diagnostican                          |
+| `:nth-child` / `:nth-of-type` (An+B)                 | Sí       | No      | n/a     | match estático en el frontend; `odd`/`even`; se diagnostican `of` y `nth-last-*` |
 | `float`                                              | No       | No      | No      | fuera del subset                                             |
 | `transform`, `transition`, `animation`               | No       | No      | No      | fuera del subset                                           |
 
@@ -78,7 +79,7 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | ----------------------------------------- | -------- | ------- | ------- | --------------------------------------------------------------------------------------------- |
 | `font-family`                             | Sí       | Sí      | Sí      | fuentes del sistema                                                                           |
 | `font-size`                               | Sí       | Sí      | Sí      | px                                                                                            |
-| `font-weight`                             | Sí       | Sí      | Sí      | `normal`=400, `bold`=700 y enteros 100–900; DirectWrite mapea a `DWRITE_FONT_WEIGHT` y usa la cara instalada más cercana; un valor intermedio toma el canónico más cercano (`450`→400, `550`→500), no la preferencia 400–500 de CSS Fonts 4; no se fuerza síntesis (DirectWrite puede simular bold si falta el peso) |
+| `font-weight`                             | Sí       | Sí      | Sí      | `normal`=400, `bold`=700 y enteros 100–900; DirectWrite mapea a `DWRITE_FONT_WEIGHT` y usa la cara instalada más cercana; un valor intermedio toma el canónico más cercano (`450`→400, `550`→500), no la preferencia 400–500 de CSS Fonts 4; no se fuerza síntesis (DirectWrite puede simular bold si falta el peso). En una regla de estado (v6) el peso se guarda en el `u16 reserved` y afecta avance/métricas/atlas |
 | `line-height`                             | Sí       | No      | Sí      | px o número; afecta altura y baseline (half-leading)                                          |
 | `text-align`                              | Sí       | No      | Sí      | `left`/`center`/`right` por línea; el texto envuelve                                          |
 | `color`, `background`, `background-color` | Sí       | Sí      | Sí      | `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()`                                             |
@@ -106,7 +107,7 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | Scroll vertical + clip                       | ✅  | scrollbar track+thumb (sin drag); thumb sigue el wheel   |
 | Imágenes WIC + cache                         | ✅  | LRU con presupuesto (`WN_IMAGE_CACHE_MB`, 256 MB)        |
 | Tamaño intrínseco tras `set_image`            | ✅  | `wn_node_set_image_size` re-layout y `object-fit` (A9)   |
-| Hover / press / selected / focus / disabled  | ✅  | bitset por nodo (v7); selección/foco múltiples, hover/press exclusivos; disabled inerte |
+| Hover / press / selected / focus / disabled  | ✅  | bitset por nodo (v7); selección/foco múltiples, hover/press exclusivos; disabled inerte. Aditivo v7: `FOCUS_VISIBLE` (0x20) y `FOCUS_WITHIN` (0x40, derivado) |
 | Lecturas y navegación                        | ✅  | `get_text`, `get_rect`, `scroll_into_view`, foco/blur     |
 | Resize                                       | ✅  | re-layout                                                |
 | Wheel                                        | ✅  | `WN_EVENT_WHEEL`; `delta_x` horizontal llega, el core no lo usa |
@@ -120,7 +121,7 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | Text shaping runtime                         | ✅  | DirectWrite; medición, shaping y atlas dinámico          |
 | Documento `.wnui` (blob)                     | ✅  | mmap + memoria, refcount; builtin embebido en la DLL     |
 | Wrapping / line breaking                     | ✅  | greedy por palabras; `line-height` y `text-align` por línea |
-| Ellipsis / truncado por ancho                | ❌  | pendiente (el host compacta)                             |
+| Ellipsis / truncado por ancho                | Parcial | `text-overflow: ellipsis` en caja de una línea con `overflow: hidden` (sección aditiva `text_extras` del blob v6); multilínea pospuesta |
 | Timers / reloj público                       | ✅  | `wn_app_set_tick_ms` + `wn_view_tick`; blink interno aparte |
 | Bidi, CJK, emoji                             | ❌  | pendiente (el IME compone texto CJK, pero el motor no implementa bidi/emoji) |
 | Accesibilidad / UIA                          | ❌  | pendiente                                                |

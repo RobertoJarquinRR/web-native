@@ -45,7 +45,8 @@
  *        composition on the focused single-line input (IMM32 today). No struct
  *        layout changed: the composition UTF-8 rides in `target_id`, the
  *        codepoint cursor in `key`, and the caret rect in x/y/width/height.
- */
+ *        Same-version follow-ups: WN_STATE_FOCUS_VISIBLE (keyboard/programmatic
+ *        focus) and WN_STATE_FOCUS_WITHIN (engine-derived ancestor focus). */
 #ifndef WEBNATIVE_H
 #define WEBNATIVE_H
 
@@ -86,12 +87,24 @@ extern "C" {
  * ABI v7: WN_STATE_FOCUSED lets a host mark any node as focused (CSS `:focus`
  * styles). WN_STATE_DISABLED makes the node and its subtree inert to the
  * pointer machine; :disabled styles stored by the frontend start applying.
- * Both are additive bits, accepted by set_state and returned by get_state. */
+ * Both are additive bits, accepted by set_state and returned by get_state.
+ *
+ * v7 follow-ups (additive, same version):
+ * - WN_STATE_FOCUS_VISIBLE distinguishes keyboard/programmatic focus from
+ *   pointer focus (CSS `:focus-visible`). A host marks keyboard focus by
+ *   setting FOCUS_VISIBLE together with FOCUSED; a pointer click sets only
+ *   FOCUSED. The engine sets FOCUS_VISIBLE on programmatic/keyboard focus and
+ *   clears it on a pointer focus.
+ * - WN_STATE_FOCUS_WITHIN is engine-derived (CSS `:focus-within`): the focused
+ *   node and every ancestor carry it while a focus exists. Hosts should not
+ *   need to set it; get_state reports it. */
 #define WN_STATE_HOVER    0x01u
 #define WN_STATE_PRESS    0x02u
 #define WN_STATE_SELECTED 0x04u
 #define WN_STATE_FOCUSED  0x08u
 #define WN_STATE_DISABLED 0x10u
+#define WN_STATE_FOCUS_VISIBLE 0x20u
+#define WN_STATE_FOCUS_WITHIN  0x40u
 
 /* Reserved flags; must be 0 in v0. */
 #define WN_FLAG_NONE 0u

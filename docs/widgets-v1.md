@@ -32,12 +32,14 @@ formularios web: sin `form`, `action`, validación ni `submit`.
 Estados específicos (`readonly`, `error`, `loading`, `indeterminado`) se suman a
 esta base y se documentan en la fila del widget.
 
-**Implementado (blob v6 / ABI v7):** `:hover`, `:active`, `:focus` y
-`:disabled` se compilan a cuatro estilos efectivos por nodo y el runtime elige
-por campo con `disabled > press > hover > focus > base`. Sólo viajan
-`background`, `color` y el color de borde uniforme; `:disabled` se guarda para
-`button`/`input` y el bit del host decide cuándo aplica. `:checked`,
-`:focus-visible`, `:focus-within`, `:nth-*` y transiciones siguen diferidos.
+**Implementado (blob v6 / ABI v7):** `:hover`, `:active`, `:focus`,
+`:disabled`, `:focus-visible` y `:focus-within` se compilan a estilos efectivos
+por nodo y el runtime elige por campo con
+`disabled > press > hover > focus-visible > focus > focus-within > base`.
+Viajan `background`, `color`, el color de borde uniforme y `font-weight`;
+`:disabled` se guarda para `button`/`input` y el bit del host decide cuándo
+aplica. `:checked` (no hay widget checkbox/radio) y las transiciones siguen
+diferidos.
 
 ### Foco y teclado
 

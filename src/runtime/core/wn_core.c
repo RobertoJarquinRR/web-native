@@ -297,6 +297,130 @@ int wn_core_node_disabled(const wn_core *core, int node)
     return 0;
 }
 
+/* Rebuilds `WN_STATE_FOCUS_WITHIN` from the current FOCUSED bits: clear every
+ * derived bit, then mark the focused node and all its ancestors. Focus changes
+ * are rare, so the O(n) scan keeps the invariant simple and exact. */
+void wn_core_refresh_focus_within(wn_core *c)
+{
+    int i;
+    if (c == NULL || c->state == NULL) {
+        return;
+    }
+    for (i = 0; i < c->node_count; ++i) {
+        if (c->alive[i]) {
+            c->state[i] = WN_STATE_CLEAR(c->state[i], WN_STATE_FOCUS_WITHIN);
+        }
+    }
+    for (i = 0; i < c->node_count; ++i) {
+        int walk;
+        if (!c->alive[i] || (c->state[i] & WN_STATE_FOCUSED) == 0u) {
+            continue;
+        }
+        walk = i;
+        while (walk >= 0) {
+            c->state[walk] |= (unsigned char)WN_STATE_FOCUS_WITHIN;
+            walk = c->parent[walk];
+        }
+    }
+}
+
+/* Does this node carry an additive state font-weight for `code`? State weight
+ * changes layout, unlike the color fields, so state transitions must request a
+ * relayout only when a weight can actually change. */
+static int node_state_weight(const UiNode *n, int code)
+{
+    unsigned char i;
+    for (i = 0; i < n->state_style_count; ++i) {
+        const UiStateStyle *style = &n->state_styles[i];
+        if (style->state == (unsigned char)code &&
+            (style->present & R2_STATE_FIELD_FONT_WEIGHT) != 0u) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* `node` plus its generated text runs (the runs follow the owner's state). */
+static int owner_or_text_weight(const wn_core *c, int node, int code)
+{
+    int child;
+    if (node_state_weight(&c->nodes[node], code)) {
+        return 1;
+    }
+    for (child = c->first_child[node]; child >= 0;
+         child = c->next_sibling[child]) {
+        if (c->alive[child] && c->nodes[child].kind == R2_NODE_TEXT &&
+            node_state_weight(&c->nodes[child], code)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Any weight in the disabled subtree? A disabled ancestor switches every
+ * descendant to its disabled entry, so the whole subtree matters. */
+static int subtree_has_weight(const wn_core *c, int node, int code)
+{
+    int child;
+    if (node_state_weight(&c->nodes[node], code)) {
+        return 1;
+    }
+    for (child = c->first_child[node]; child >= 0;
+         child = c->next_sibling[child]) {
+        if (c->alive[child] && subtree_has_weight(c, child, code)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int ancestor_within_weight(const wn_core *c, int node)
+{
+    int walk = c->parent[node];
+    while (walk >= 0) {
+        if (node_state_weight(&c->nodes[walk], R2_STATE_STYLE_FOCUS_WITHIN)) {
+            return 1;
+        }
+        walk = c->parent[walk];
+    }
+    return 0;
+}
+
+/* Disabling clears hover/press/focus across the subtree, so any state weight
+ * in it can change, not only the disabled entry. */
+static int subtree_any_weight(const wn_core *c, int node)
+{
+    int code;
+    for (code = 0; code < R2_STATE_STYLE_COUNT; ++code) {
+        if (subtree_has_weight(c, node, code)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Sets needs_layout when a state transition can change the effective weight. */
+static void mark_state_layout(wn_core *c, int node, int state)
+{
+    int needs = 0;
+    if (state == WN_STATE_DISABLED) {
+        needs = subtree_any_weight(c, node) || ancestor_within_weight(c, node);
+    } else if (state == WN_STATE_FOCUSED || state == WN_STATE_FOCUS_VISIBLE) {
+        needs = owner_or_text_weight(c, node, R2_STATE_STYLE_FOCUS) ||
+                owner_or_text_weight(c, node, R2_STATE_STYLE_FOCUS_VISIBLE) ||
+                ancestor_within_weight(c, node);
+    } else if (state == WN_STATE_FOCUS_WITHIN) {
+        needs = owner_or_text_weight(c, node, R2_STATE_STYLE_FOCUS_WITHIN);
+    } else if (state == WN_STATE_HOVER) {
+        needs = owner_or_text_weight(c, node, R2_STATE_STYLE_HOVER);
+    } else if (state == WN_STATE_PRESS) {
+        needs = owner_or_text_weight(c, node, R2_STATE_STYLE_PRESS);
+    }
+    if (needs) {
+        c->needs_layout = 1;
+    }
+}
+
 /* Drops hover/press/focused from `node` and every descendant and blurs the
  * input focus when it points inside. Disabling a container must not leave a
  * focused (blinking, editable) input behind in its subtree. */
@@ -310,6 +434,7 @@ static void clear_interaction_subtree(wn_core *c, int node)
     c->state[node] = WN_STATE_CLEAR(c->state[node], WN_STATE_HOVER);
     c->state[node] = WN_STATE_CLEAR(c->state[node], WN_STATE_PRESS);
     c->state[node] = WN_STATE_CLEAR(c->state[node], WN_STATE_FOCUSED);
+    c->state[node] = WN_STATE_CLEAR(c->state[node], WN_STATE_FOCUS_VISIBLE);
     if (c->hover == node) {
         c->hover = -1;
     }
@@ -339,8 +464,10 @@ void wn_core_force_state_mask(wn_core *core, int node, unsigned int mask)
         node >= core->node_count || !core->alive[node]) {
         return;
     }
-    core->state[node] |= (unsigned char)(mask & 0x1Fu);
+    core->state[node] |= (unsigned char)(mask & 0x7Fu);
     core->dirty = 1;
+    /* Fixture hook: a forced state may carry a font-weight, so relayout. */
+    core->needs_layout = 1;
 }
 
 void wn_core_set_state(wn_core *core, int node, int state, int enabled)
@@ -353,7 +480,8 @@ void wn_core_set_state(wn_core *core, int node, int state, int enabled)
      * interactive bits: hosts may keep driving state, but it must not make the
      * node look hovered/focused. Clearing is always allowed. */
     if (enabled && (state == WN_STATE_HOVER || state == WN_STATE_PRESS ||
-                    state == WN_STATE_FOCUSED) &&
+                    state == WN_STATE_FOCUSED ||
+                    state == WN_STATE_FOCUS_VISIBLE) &&
         wn_core_node_disabled(core, node)) {
         return;
     }
@@ -391,11 +519,36 @@ void wn_core_set_state(wn_core *core, int node, int state, int enabled)
         }
     } else if (state == WN_STATE_FOCUSED) {
         /* Per-node, like selected: the host may mark any node focused. Input
-         * focus is the only engine-driven producer. */
+         * focus is the only engine-driven producer. A pointer focus clears the
+         * visible bit; keyboard/programmatic focus sets it separately. */
         if (enabled) {
             core->state[node] |= (unsigned char)WN_STATE_FOCUSED;
         } else {
             core->state[node] = WN_STATE_CLEAR(core->state[node], WN_STATE_FOCUSED);
+            core->state[node] =
+                WN_STATE_CLEAR(core->state[node], WN_STATE_FOCUS_VISIBLE);
+        }
+        wn_core_refresh_focus_within(core);
+    } else if (state == WN_STATE_FOCUS_VISIBLE) {
+        /* `:focus-visible` only makes sense while focused. A host marks a
+         * keyboard/programmatic focus by passing both bits (or by using the
+         * programmatic focus entry point, which sets them together). */
+        if (enabled) {
+            core->state[node] |= (unsigned char)WN_STATE_FOCUSED;
+            core->state[node] |= (unsigned char)WN_STATE_FOCUS_VISIBLE;
+        } else {
+            core->state[node] =
+                WN_STATE_CLEAR(core->state[node], WN_STATE_FOCUS_VISIBLE);
+        }
+        wn_core_refresh_focus_within(core);
+    } else if (state == WN_STATE_FOCUS_WITHIN) {
+        /* Derived from FOCUSED; accepted for diagnostics/fixtures without a
+         * recompute so a forced ancestor style can be tested directly. */
+        if (enabled) {
+            core->state[node] |= (unsigned char)WN_STATE_FOCUS_WITHIN;
+        } else {
+            core->state[node] =
+                WN_STATE_CLEAR(core->state[node], WN_STATE_FOCUS_WITHIN);
         }
     } else if (state == WN_STATE_DISABLED) {
         if (enabled) {
@@ -407,12 +560,14 @@ void wn_core_set_state(wn_core *core, int node, int state, int enabled)
              * drive states directly. */
             clear_interaction_subtree(core, node);
             core->state[node] |= (unsigned char)WN_STATE_DISABLED;
+            wn_core_refresh_focus_within(core);
         } else {
             core->state[node] = WN_STATE_CLEAR(core->state[node], WN_STATE_DISABLED);
         }
     } else {
         return;
     }
+    mark_state_layout(core, node, state);
     core->dirty = 1;
 }
 
@@ -1250,6 +1405,7 @@ int wn_core_remove(wn_core *core, int node)
     for (i = count - 1; i >= 0; --i) {
         arena_release(core, ids[i]);
     }
+    wn_core_refresh_focus_within(core);
     free(ids);
     mark_core_dirty(core);
     return 0;
@@ -1301,6 +1457,7 @@ int wn_core_append(wn_core *core, int parent, int child)
     unlink_child(core, child);
     core->order_key[child] = core->next_order++;
     link_child(core, parent, child);
+    wn_core_refresh_focus_within(core);
     mark_core_dirty(core);
     return 0;
 }

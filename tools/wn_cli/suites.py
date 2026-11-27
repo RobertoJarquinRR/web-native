@@ -79,6 +79,9 @@ PINNED_BLOBS = {
     "z": "58ccea5f399d9084afddb65f88fdac1ace96faeb5a7bc6cc0566fabc5d2872e1",
     # CSS state fixture (blob v6, d3d11 + wgpu).
     "state": "ccdeb8aead50cbcefab324b71db07e5fe71b88a638002b2316d2db1bfaf0067f",
+    # Extended state fixture: nth-child, focus-visible/within, state weight,
+    # ellipsis (blob v6 additive, d3d11 + wgpu).
+    "state_ext": "ec40e0b365c4d899f756fedccc389b21458c0a12e4c4825aa5572f7a412eaf63",
 }
 
 
@@ -591,6 +594,74 @@ def run_css() -> int:
         if completed.returncode != 0:
             raise CliError("state pixel comparison failed")
 
+    log_step("state_ext: nth/focus-visible/focus-within/weight/ellipsis (d3d11" +
+             (" + wgpu)" if wgpu_available() else ")"))
+    ext_blob = _emit_css_fixture("state_ext", page, 400, 164,
+                                 out / "emit" / "state_ext")
+    _assert_pinned_blob("state_ext", ext_blob)
+    ext_backends = ["d3d11"] + (["wgpu"] if wgpu_available() else [])
+    for ext_backend in ext_backends:
+        png = out / f"render_state_ext_{ext_backend}.png"
+        report = out / f"layout_state_ext_{ext_backend}.json"
+        environment = {"WN_RENDERER": ext_backend}
+        _run(card_exe, ["--document", str(ext_blob),
+                        "--report", str(report), "--sizes", "400x164"],
+             page, environment)
+        ids = {}
+        report_json = json.loads(report.read_text(encoding="utf-8"))
+        for item in report_json["sizes"][0]["nodes"]:
+            leaf = item["name"].rsplit("/", 1)[-1]
+            for element_id in ("focus-plain", "focus-visible", "within",
+                               "weight"):
+                if (f"#{element_id}." in leaf or
+                        leaf.endswith(f"#{element_id}")):
+                    ids[element_id] = item["id"]
+        missing = [name for name in ("focus-plain", "focus-visible", "within",
+                                     "weight") if name not in ids]
+        if missing:
+            raise CliError(f"state_ext fixture is missing nodes: {missing}")
+        force = [
+            (ids["focus-plain"], 0x08),
+            (ids["focus-visible"], 0x08 | 0x20),
+            (ids["within"], 0x40),
+            (ids["weight"], 0x01),
+        ]
+        arguments = ["--document", str(ext_blob),
+                     "--render", "400", "164", str(png)]
+        for node_id, mask in force:
+            arguments += ["--force-state", f"{node_id}:{mask}"]
+        _run(card_exe, arguments, page, environment)
+        # 16 checks: capture + wnui/6, the four new dump fields (visible,
+        # within, weight, text-flags), JSON weight/text_flags and nine pixel
+        # probes (nth row, focus pair, within, weight, ellipsis).
+        _expect_reported_checks(
+            _python(suite / "verify_state_ext.py",
+                    ["--png", str(png), "--report", str(report),
+                     "--blob", str(ext_blob), "--dump", str(dump_exe),
+                     "--backend", ext_backend], cwd=suite),
+            f"state_ext verify ({ext_backend})", 16)
+    if wgpu_available():
+        log_step("state_ext: compare d3d11 and wgpu")
+        compare = out / "state_ext_compare.json"
+        completed = subprocess.run(
+            [
+                str(get_python_exe()),
+                str(runtime / "tests" / "d3d11" / "verify_d3d11.py"),
+                "--capture", str(out / "render_state_ext_d3d11.png"),
+                "--reference", str(out / "render_state_ext_wgpu.png"),
+                "--report", str(compare),
+                "--label", "state-ext-d3d11-vs-wgpu",
+            ],
+            cwd=out,
+            capture_output=True,
+            text=True,
+        )
+        for line in (completed.stdout + completed.stderr).splitlines():
+            if line.strip():
+                log_info(line.rstrip())
+        if completed.returncode != 0:
+            raise CliError("state_ext pixel comparison failed")
+
     log_info("css core v1: PASS")
     return 0
 
@@ -764,6 +835,37 @@ def run_fidelity() -> int:
     # char/key/paste rejected even with a leaked focus, interactive set_state
     # refused while disabled) and the initial-disabled seed.
     _expect_checks(states_text, "state styles test", 53)
+
+    log_step("fidelity: state font-weight + ellipsis (fake weight backend)")
+    weight_state_exe = out / "state_weight_test.exe"
+    _compile(
+        weight_state_exe,
+        [_suite_dir("core") / "state_weight_test.c",
+         _suite_dir("text") / "fake_text.c",
+         *[runtime / source for source in CORE_SOURCES]],
+        [get_paths().root / "include", runtime, out / "emit"],
+        CORE_LIBS,
+    )
+    weight_state_text = _run(weight_state_exe, [], out)
+    _expect(weight_state_text, ["state_weight_test: PASS"],
+            "state weight test")
+    # 11 checks: base/effective weight, hover advance change and atlas key,
+    # the relayout request, focus priority, ellipsis truncation, base restore
+    # and flag-off geometry.
+    _expect_checks(weight_state_text, "state_weight_test", 11)
+
+    log_step("fidelity: blob v6 text_extras (ellipsis section)")
+    extras_exe = out / "text_extras_test.exe"
+    _compile(
+        extras_exe,
+        [_suite_dir("core") / "text_extras_test.c",
+         *[runtime / source for source in CORE_SOURCES]],
+        [get_paths().root / "include", runtime, out / "emit"],
+        CORE_LIBS,
+    )
+    extras_text = _run(extras_exe, [], out)
+    _expect(extras_text, ["text_extras_test: PASS"], "text extras loader test")
+    _expect_checks(extras_text, "text_extras_test", 5)
 
     log_step("fidelity: paint item list (identity, transform, opacity, layers)")
     paint_exe = out / "paint_list_test.exe"
