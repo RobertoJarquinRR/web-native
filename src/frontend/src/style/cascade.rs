@@ -19,6 +19,9 @@ use crate::style::style_ext::{
     parse_box_shadows, parse_number, parse_rel_length, resolve_border_radius, resolve_border_side,
     BorderOut, LengthCtx, RelLength, StyleV3,
 };
+use crate::style::vars::{
+    has_var_function, is_custom_property, resolve_custom_properties, substitute_vars,
+};
 
 const SIDES: [&str; 4] = ["top", "right", "bottom", "left"];
 
@@ -114,6 +117,9 @@ pub(crate) struct ComputedStyle {
     /// `disabled` attribute on a `button`/`input`: the initial runtime
     /// WN_STATE_DISABLED bit (blob v6 states record).
     pub(crate) initial_disabled: bool,
+    /// Resolved CSS custom properties (`--token`) after inheritance and
+    /// `var()` substitution. Never emitted: the blob keeps concrete values.
+    pub(crate) custom_props: HashMap<String, String>,
 }
 
 pub(crate) fn compute_styles(
@@ -151,8 +157,37 @@ pub(crate) fn compute_styles(
 
         // Base cascade: no state pseudo-class is active.
         let winners = collect_winners(dom, id, rules, 0);
+        // Custom properties inherit like other properties, but their values
+        // are computed: the parent map already holds substituted values, and
+        // this node's declarations (normal cascade + inline) win over them.
+        let mut custom_raw = dom
+            .nodes[id]
+            .parent
+            .and_then(|parent| styles[parent].as_ref())
+            .map(|parent| parent.custom_props.clone())
+            .unwrap_or_default();
+        for (name, (_, value, _)) in &winners {
+            if is_custom_property(name) {
+                custom_raw.insert(name.clone(), value.clone());
+            }
+        }
+        let custom_props = resolve_custom_properties(&custom_raw);
+
         for (name, (_, value, _)) in winners {
-            raw.insert(name, value);
+            if is_custom_property(&name) {
+                continue;
+            }
+            if has_var_function(&value) {
+                // CSS Variables: an unresolved `var()` without fallback makes
+                // the declaration invalid at computed-value time. Leaving the
+                // inherited entry (or no entry) in `raw` gives the property its
+                // inherited/initial value instead of a bogus number.
+                if let Some(resolved) = substitute_vars(&value, &custom_props) {
+                    raw.insert(name, resolved);
+                }
+            } else {
+                raw.insert(name, value);
+            }
         }
         let mut style = resolve(
             dom,
@@ -163,6 +198,7 @@ pub(crate) fn compute_styles(
             root_font_size,
             viewport,
         );
+        style.custom_props = custom_props;
         let parent_style = dom.nodes[id].parent.and_then(|parent| styles[parent].as_ref());
         style.states = compute_state_styles(dom, id, rules, &style, parent_style);
         if dom.nodes[id].tag == "html" {
@@ -235,8 +271,12 @@ fn offer(
     // a winner. Doing the same here means `#a{font-weight:600}` followed by
     // `#a{font-weight:bogus}` (or an inline `font-weight:bogus`) keeps the
     // earlier valid 600 instead of masking it and inheriting the parent's
-    // weight. The subset still reports the invalid value.
-    if name == "font-weight" && parse_font_weight(value).is_none() {
+    // weight. The subset still reports the invalid value. A `var()` value is
+    // not known yet; it is validated after substitution.
+    if name == "font-weight"
+        && !has_var_function(value)
+        && parse_font_weight(value).is_none()
+    {
         return;
     }
     match map.get(name) {
@@ -329,7 +369,8 @@ fn compute_state(
     parent: Option<&ComputedStyle>,
     state_mask: u8,
 ) -> Option<StateStyle> {
-    let winners = collect_winners(dom, id, rules, state_mask);
+    let winners =
+        resolve_state_vars(collect_winners(dom, id, rules, state_mask), &base.custom_props);
     let parent_text = parent.and_then(|style| parent_state_text(style, state_mask));
     let parent_weight = parent.and_then(|style| parent_state_weight(style, state_mask));
     let background = state_color(&winners, "background-color")
@@ -365,6 +406,30 @@ fn compute_state(
     } else {
         Some(style)
     }
+}
+
+/// Substitutes `var()` in the state winner values with the node's computed
+/// custom properties. A state declaration whose `var()` cannot be resolved is
+/// removed, exactly like the base cascade (the state carries no override).
+fn resolve_state_vars(mut winners: Winners, custom: &HashMap<String, String>) -> Winners {
+    let unresolved: Vec<String> = winners
+        .iter()
+        .filter(|(_, (_, value, _))| {
+            has_var_function(value) && substitute_vars(value, custom).is_none()
+        })
+        .map(|(name, _)| name.clone())
+        .collect();
+    for name in unresolved {
+        winners.remove(&name);
+    }
+    for (_, (_, value, _)) in winners.iter_mut() {
+        if has_var_function(value) {
+            if let Some(resolved) = substitute_vars(value, custom) {
+                *value = resolved;
+            }
+        }
+    }
+    winners
 }
 
 /// `font-weight` declared by an *active state rule*; `None` for base/inline
@@ -663,6 +728,7 @@ fn resolve(
         },
         states,
         initial_disabled,
+        custom_props: HashMap::new(),
         raw,
     }
 }

@@ -68,8 +68,9 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | `overflow: auto/scroll`                              | Pilot v2 | warning | Sí      | scroll vertical                                            |
 | `position: static/relative/absolute/fixed/sticky` + `top/right/bottom/left` | Sí (v4)  | No | Sí | relative/absolute/fixed/sticky; containing block, px/%/auto; fixed=viewport sin scroll; sticky=scroll container más cercano (solo `overflow: scroll`; scrollport=content box); ver `wnui-format.md` |
 | `z-index: auto | <integer>` (v5)                     | Sí       | No      | Sí      | contextos de apilado; posicionados y ítems flex/grid `static`; `auto` no crea contexto; en otro static se ignora; ver `wnui-format.md` |
-| shorthand `inset`                                    | No       | No      | No      | fuera de esta lane; se diagnostica                          |
+| `inset` (shorthand, 1-4 valores)                     | Sí       | No      | Sí      | se expande en el frontend a `top/right/bottom/left` (px/%/auto); el blob es el mismo |
 | `:nth-child` / `:nth-of-type` (An+B)                 | Sí       | No      | n/a     | match estático en el frontend; `odd`/`even`; se diagnostican `of` y `nth-last-*` |
+| `:has(<compuesto>)` / `:has(> <compuesto>)`          | Sí       | No      | n/a     | match estático (descendiente o hijo directo); listas, combinadores internos, estados y `:has` anidado se diagnostican |
 | `float`                                              | No       | No      | No      | fuera del subset                                             |
 | `transform`, `transition`, `animation`               | No       | No      | No      | fuera del subset                                           |
 
@@ -84,6 +85,8 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | `text-align`                              | Sí       | No      | Sí      | `left`/`center`/`right` por línea; el texto envuelve                                          |
 | `color`, `background`, `background-color` | Sí       | Sí      | Sí      | `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()`                                             |
 | `opacity`                                 | Sí       | Parcial | Sí      | todo nodo < 1 es grupo offscreen (también hojas); compone una vez; 0..1 |
+| `--*` + `var()` / `var(--x, fallback)`    | Sí       | No      | n/a     | resueltas en la cascada del frontend (herencia, ciclos inválidos); el blob lleva valores concretos; `var()` en el shorthand `border` se diagnostica |
+| `calc()`, `clamp()`                       | No       | No      | No      | diferido; solo longitudes simples px/%/auto                                                   |
 | `font-face`, web fonts                    | No       | No      | No      | no-goal                                                                                       |
 | gradientes                                | No       | No      | No      | fuera del subset                                                                              |
 

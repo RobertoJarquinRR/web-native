@@ -13,16 +13,21 @@
 //! without the flag they are reported as extensions and `--strict-subset`
 //! rejects them.
 
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
 
 use cssparser::{Delimiter, ParseError, Parser, ParserInput, Token};
 
-use crate::parse::css::parse_an_plus_b;
+use crate::parse::css::{has_argument_supported, parse_an_plus_b};
 use crate::style::cascade::parse_font_weight;
 use crate::style::color::{is_declared_color, parse_color};
 use crate::style::grid::{parse_grid_auto_rows, parse_grid_template_columns};
 use crate::style::style_ext::{box_shadow_is_valid, is_relative_length};
+use crate::style::vars::{
+    collect_custom_property_definitions, collect_var_issues, has_var_function, is_custom_property,
+    VarIssue,
+};
 
 /// Tags of the v1 subset. `input` is the v2 pilot extension (text input
 /// widget, `ui-tree/3`) and is diagnosed without `--pilot`.
@@ -53,7 +58,7 @@ const GLOBAL_ATTRIBUTES: [&str; 8] = [
 /// resolved by the engine; the first four are the states named by the
 /// contract. `:nth-child()`/`:nth-of-type()` are validated separately because
 /// their argument grammar decides support.
-const ALLOWED_PSEUDO_CLASSES: [&str; 12] = [
+const ALLOWED_PSEUDO_CLASSES: [&str; 13] = [
     "hover",
     "active",
     "focus",
@@ -66,6 +71,7 @@ const ALLOWED_PSEUDO_CLASSES: [&str; 12] = [
     "focus-within",
     "nth-child",
     "nth-of-type",
+    "has",
 ];
 
 /// `:nth-of-type()` shares the `:nth-child()` argument grammar.
@@ -159,18 +165,38 @@ pub fn check_document_pilot(
     base_dir: &Path,
     pilot: bool,
 ) -> Vec<Diagnostic> {
+    // `var(--token)` diagnostics need the document-wide set of declared custom
+    // properties: a token may live in a `<style>`, an inline `style=""` or a
+    // linked stylesheet that is checked before or after the reference.
+    let defined = document_custom_properties(html, base_dir);
     let mut scanner = HtmlScanner {
         html,
         bytes: html.as_bytes(),
         path: html_path,
         base_dir,
         pilot,
+        defined: &defined,
         pos: 0,
         line: 1,
         diagnostics: Vec::new(),
     };
     scanner.scan();
     scanner.diagnostics
+}
+
+/// Best-effort lexical scan of every custom property declaration in the
+/// document and its local stylesheets. Over-approximating only avoids false
+/// `undefined token` diagnostics.
+fn document_custom_properties(html: &str, base_dir: &Path) -> HashSet<String> {
+    let mut defined = HashSet::new();
+    collect_custom_property_definitions(html, &mut defined);
+    let document = crate::parse::dom::parse_html(html);
+    if let Ok(texts) = crate::parse::dom::stylesheet_texts(&document, base_dir) {
+        for text in &texts {
+            collect_custom_property_definitions(text, &mut defined);
+        }
+    }
+    defined
 }
 
 // ------------------------------------------------------------------- HTML
@@ -182,6 +208,8 @@ struct HtmlScanner<'a> {
     base_dir: &'a Path,
     /// v2 pilot extensions allowed (`--pilot`).
     pilot: bool,
+    /// Document-wide custom property names (`var()` diagnostics).
+    defined: &'a HashSet<String>,
     pos: usize,
     line: u32,
     diagnostics: Vec<Diagnostic>,
@@ -357,11 +385,12 @@ impl<'a> HtmlScanner<'a> {
             find_raw_text_end(self.bytes, tag, content_start).unwrap_or(self.bytes.len());
         if is_css {
             let content = self.html[content_start..content_end].to_string();
-            check_stylesheet_pilot(
+            check_stylesheet_with_defs(
                 &content,
                 self.path,
                 content_line,
                 self.pilot,
+                self.defined,
                 &mut self.diagnostics,
             );
         }
@@ -446,11 +475,12 @@ impl<'a> HtmlScanner<'a> {
                     );
                     if is_sheet {
                         if let Some((text, path)) = read_linked_stylesheet(value, self.base_dir) {
-                            check_stylesheet_pilot(
+                            check_stylesheet_with_defs(
                                 &text,
                                 &path,
                                 1,
                                 self.pilot,
+                                self.defined,
                                 &mut self.diagnostics,
                             );
                         }
@@ -458,12 +488,13 @@ impl<'a> HtmlScanner<'a> {
                 }
                 (_, "style") => {
                     let context = format!("style inline en <{tag}>");
-                    check_inline_style_pilot(
+                    check_inline_style_with_defs(
                         value,
                         self.path,
                         *attr_line,
                         &context,
                         self.pilot,
+                        self.defined,
                         &mut self.diagnostics,
                     );
                 }
@@ -595,6 +626,19 @@ pub(crate) fn check_stylesheet_pilot(
     pilot: bool,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
+    let mut defined = HashSet::new();
+    collect_custom_property_definitions(text, &mut defined);
+    check_stylesheet_with_defs(text, path, base_line, pilot, &defined, diagnostics)
+}
+
+fn check_stylesheet_with_defs(
+    text: &str,
+    path: &Path,
+    base_line: u32,
+    pilot: bool,
+    defined: &HashSet<String>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
     let masked = mask_comments(text);
     let text = masked.as_str();
     let mut input = ParserInput::new(text);
@@ -633,6 +677,7 @@ pub(crate) fn check_stylesheet_pilot(
                         &prelude,
                         selector_is_state_scoped(&prelude),
                         pilot,
+                        defined,
                         diagnostics,
                     );
                 }
@@ -669,6 +714,7 @@ fn check_block<'i, 't>(
     selector: &str,
     state_rule: bool,
     pilot: bool,
+    defined: &HashSet<String>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let where_context = format!("selector '{selector}'");
@@ -693,6 +739,7 @@ fn check_block<'i, 't>(
                         &where_context,
                         state_rule,
                         pilot,
+                        defined,
                         diagnostics,
                     );
                 }
@@ -727,6 +774,20 @@ pub(crate) fn check_inline_style_pilot(
     pilot: bool,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
+    let mut defined = HashSet::new();
+    collect_custom_property_definitions(text, &mut defined);
+    check_inline_style_with_defs(text, path, base_line, context, pilot, &defined, diagnostics)
+}
+
+fn check_inline_style_with_defs(
+    text: &str,
+    path: &Path,
+    base_line: u32,
+    context: &str,
+    pilot: bool,
+    defined: &HashSet<String>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
     let masked = mask_comments(text);
     let text = masked.as_str();
     let mut input = ParserInput::new(text);
@@ -743,7 +804,17 @@ pub(crate) fn check_inline_style_pilot(
         if !raw.is_empty() {
             if let Some((name, value, _important)) = split_declaration(raw) {
                 let line = line_at(text, base_line, decl_start);
-                check_property(&name, &value, path, line, context, false, pilot, diagnostics);
+                check_property(
+                    &name,
+                    &value,
+                    path,
+                    line,
+                    context,
+                    false,
+                    pilot,
+                    defined,
+                    diagnostics,
+                );
             }
         }
         if parser.next_including_whitespace_and_comments().is_err() {
@@ -1042,6 +1113,20 @@ fn check_selector(
                         ));
                         unsupported = true;
                     }
+                } else if name == "has" {
+                    if !argument.is_some_and(has_argument_supported) {
+                        diagnostics.push(Diagnostic::new(
+                            path,
+                            line,
+                            Some(format!("selector '{selector}'")),
+                            "forma no soportada en ':has()': solo un compuesto simple, \
+                             opcionalmente con el combinador hijo '>' (p. ej. ':has(.x)' o \
+                             ':has(> .x)'); listas, combinadores internos, estados y ':has' \
+                             anidado se descartan"
+                                .to_string(),
+                        ));
+                        unsupported = true;
+                    }
                 } else if let Some(bit) = hook_state_bit(&name) {
                     state_bits |= bit;
                 }
@@ -1208,6 +1293,7 @@ fn check_property(
     where_context: &str,
     state_rule: bool,
     pilot: bool,
+    defined: &HashSet<String>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let context = Some(format!("{where_context}, propiedad '{name}'"));
@@ -1218,6 +1304,28 @@ fn check_property(
     let trimmed = value.trim();
     if trimmed.is_empty() {
         report(format!("valor vacio en '{name}'"));
+        return;
+    }
+    // Custom properties accept any value by design; the cascade substitutes
+    // `var()` later. A state rule cannot carry them (blob v6 stores colors
+    // only), and the reference validation still runs on their value.
+    if name.starts_with("--") {
+        if state_rule {
+            report(format!(
+                "custom property '{name}' no soportada en una regla de estado: blob v6 solo \
+                 guarda colores y font-weight"
+            ));
+            return;
+        }
+        if !is_custom_property(name) {
+            report(format!(
+                "custom property '{name}' invalida: el nombre debe ser '--' seguido de un identificador"
+            ));
+            return;
+        }
+        if has_var_function(trimmed) {
+            report_var_issues(trimmed, defined, name, &mut report);
+        }
         return;
     }
     // A state rule is not a full declaration block: blob v6 only carries the
@@ -1246,13 +1354,34 @@ fn check_property(
             ));
         }
     }
+    // `var()` values are validated statically only for their references: the
+    // concrete value is produced by the cascade, so the property grammar is
+    // checked after substitution there.
+    if has_var_function(trimmed) {
+        if !property_supported(name) {
+            report(format!("propiedad CSS '{name}' no soportada por subset v1"));
+            return;
+        }
+        if is_border_shorthand(name) {
+            report(format!(
+                "var() en '{name}' no soportado: la expansion del shorthand ocurre antes de \
+                 resolver var(); usa border-color/border-width longhands"
+            ));
+            return;
+        }
+        report_var_issues(trimmed, defined, name, &mut report);
+        return;
+    }
     let lowered = trimmed.to_ascii_lowercase();
     for (needle, message) in [
         (
             "calc(",
-            "calc() no soportado (subset v1: px/%/valores simples)",
+            "calc() no soportado (diferido; subset v1: px/%/valores simples)",
         ),
-        ("var(", "var()/custom properties no soportadas"),
+        (
+            "clamp(",
+            "clamp() no soportado (diferido; subset v1: px/%/valores simples)",
+        ),
         ("env(", "env() no soportado"),
         ("gradient(", "gradientes no soportados (fuera de v1)"),
         (
@@ -1321,9 +1450,19 @@ fn check_property(
             );
         }
         "inset" => {
-            report(
-                "shorthand 'inset' no soportado en esta lane; usa top/right/bottom/left"
-                    .to_string(),
+            // 1-4 values, px/%/auto, mapped by the parser onto the existing
+            // `top/right/bottom/left` fields (no blob change).
+            check_lengths(
+                name,
+                trimmed,
+                4,
+                true,
+                true,
+                true,
+                false,
+                pilot,
+                "1-4 valores px | % | auto",
+                &mut report,
             );
         }
         "z-index" => {
@@ -1723,6 +1862,106 @@ fn check_property(
     }
 }
 
+fn report_var_issues(
+    value: &str,
+    defined: &HashSet<String>,
+    name: &str,
+    report: &mut impl FnMut(String),
+) {
+    for issue in collect_var_issues(value, defined) {
+        match issue {
+            VarIssue::Malformed => report(format!(
+                "var() mal formada en '{name}': usa var(--token) o var(--token, fallback)"
+            )),
+            VarIssue::Undefined(token) => report(format!(
+                "token '{token}' no definido en el documento y sin fallback en '{name}': declara \
+                 '{token}: <valor>' o usa var({token}, fallback)"
+            )),
+        }
+    }
+}
+
+/// Properties with a branch in [`check_property`]. Used when the value carries
+/// a `var()`, so an unsupported property is still reported even though its
+/// concrete value is only known after substitution.
+fn property_supported(name: &str) -> bool {
+    matches!(
+        name,
+        "display"
+            | "position"
+            | "top"
+            | "right"
+            | "bottom"
+            | "left"
+            | "inset"
+            | "z-index"
+            | "flex-direction"
+            | "justify-content"
+            | "align-items"
+            | "flex-wrap"
+            | "box-sizing"
+            | "flex-grow"
+            | "flex-shrink"
+            | "flex-basis"
+            | "flex"
+            | "border-style"
+            | "overflow"
+            | "text-overflow"
+            | "grid-template-columns"
+            | "grid-auto-rows"
+            | "object-fit"
+            | "font-weight"
+            | "text-align"
+            | "width"
+            | "height"
+            | "font-size"
+            | "line-height"
+            | "gap"
+            | "row-gap"
+            | "column-gap"
+            | "margin"
+            | "margin-top"
+            | "margin-right"
+            | "margin-bottom"
+            | "margin-left"
+            | "padding"
+            | "padding-top"
+            | "padding-right"
+            | "padding-bottom"
+            | "padding-left"
+            | "border-width"
+            | "border-radius"
+            | "border"
+            | "border-color"
+            | "border-top"
+            | "border-right"
+            | "border-bottom"
+            | "border-left"
+            | "border-top-width"
+            | "border-right-width"
+            | "border-bottom-width"
+            | "border-left-width"
+            | "border-top-style"
+            | "border-right-style"
+            | "border-bottom-style"
+            | "border-left-style"
+            | "border-top-color"
+            | "border-right-color"
+            | "border-bottom-color"
+            | "border-left-color"
+            | "box-shadow"
+            | "min-width"
+            | "max-width"
+            | "min-height"
+            | "max-height"
+            | "color"
+            | "background"
+            | "background-color"
+            | "opacity"
+            | "font-family"
+    )
+}
+
 fn check_keyword(
     name: &str,
     value: &str,
@@ -1930,10 +2169,17 @@ fn is_supported_color(token: &str) -> bool {
 
 fn split_declaration(raw: &str) -> Option<(String, String, bool)> {
     let colon = raw.find(':')?;
-    let name = raw[..colon].trim().to_ascii_lowercase();
-    if name.is_empty() {
+    let raw_name = raw[..colon].trim();
+    if raw_name.is_empty() {
         return None;
     }
+    // CSS custom property names are case-sensitive; every other declaration
+    // name is ASCII case-insensitive.
+    let name = if raw_name.starts_with("--") {
+        raw_name.to_string()
+    } else {
+        raw_name.to_ascii_lowercase()
+    };
     let mut value = raw[colon + 1..].trim().to_string();
     let mut important = false;
     let lowered = value.to_ascii_lowercase();
@@ -2219,6 +2465,23 @@ mod tests {
         for item in &diagnostics {
             assert!(
                 item.message.contains("no soportado"),
+                "unexpected message: {}",
+                item.message
+            );
+        }
+    }
+
+    /// `calc()`/`clamp()` are deferred: they are diagnosed instead of being
+    /// compiled as a bogus length.
+    #[test]
+    fn calc_and_clamp_are_diagnosed_as_deferred() {
+        let diagnostics = css(
+            ".a {\n  width: calc(100% - 10px);\n}\n.b {\n  font-size: clamp(10px, 2vw, 20px);\n}\n",
+        );
+        assert_eq!(diagnostics.len(), 2, "{diagnostics:#?}");
+        for item in &diagnostics {
+            assert!(
+                item.message.contains("diferido"),
                 "unexpected message: {}",
                 item.message
             );

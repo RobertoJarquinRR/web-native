@@ -162,8 +162,10 @@ fn unsupported_values_and_deferred_features_are_diagnosed() {
             .any(|line| line.contains("top") && line.contains("10em")),
         "missing inset unit diagnostic: {report:#?}"
     );
+    // `inset` is now supported by the frontend (expanded to the four
+    // longhands), so it must stay clean here.
     assert!(
-        report.iter().any(|line| line.contains("'inset'")),
-        "missing inset shorthand diagnostic: {report:#?}"
+        !report.iter().any(|line| line.contains("'inset'")),
+        "the inset shorthand is supported now: {report:#?}"
     );
 }

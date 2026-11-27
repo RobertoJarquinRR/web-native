@@ -7,8 +7,9 @@
 use cssparser::{Delimiter, ParseError, Parser, ParserInput, Token};
 
 use crate::parse::dom::Dom;
-use crate::style::color::color_with_alpha;
-use crate::style::style_ext::{parse_rel_length, split_components};
+use crate::style::color::{color_with_alpha, length};
+use crate::style::style_ext::{parse_number, parse_rel_length, split_components};
+use crate::style::vars::has_var_function;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Declaration {
@@ -59,10 +60,13 @@ enum Simple {
     Pseudo(String),
     /// `:nth-child(an+b)` / `:nth-of-type(an+b)` as static structural matching.
     Nth { of_type: bool, a: i64, b: i64 },
+    /// `:has(<compound>)` / `:has(> <compound>)`, static and narrow: a single
+    /// compound matched against any descendant or a direct child.
+    Has { child: bool, compound: Box<Compound> },
     Never,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct Compound {
     simples: Vec<Simple>,
     spec: (u32, u32, u32),
@@ -164,6 +168,7 @@ fn compound_matches(dom: &Dom, node: usize, compound: &Compound, state_mask: u8)
             },
             Simple::Pseudo(name) => pseudo_matches(dom, node, name, state_mask),
             Simple::Nth { of_type, a, b } => nth_matches(dom, node, *of_type, *a, *b),
+            Simple::Has { child, compound } => has_matches(dom, node, *child, compound),
             Simple::Never => false,
         };
         if !ok {
@@ -171,6 +176,25 @@ fn compound_matches(dom: &Dom, node: usize, compound: &Compound, state_mask: u8)
         }
     }
     true
+}
+
+/// Static `:has()`: the inner compound is matched against the descendants of
+/// `node` (or only its direct children with `>`).
+fn has_matches(dom: &Dom, node: usize, child_only: bool, compound: &Compound) -> bool {
+    if child_only {
+        return dom.nodes[node]
+            .children
+            .iter()
+            .any(|child| compound_matches(dom, *child, compound, 0));
+    }
+    let mut stack: Vec<usize> = dom.nodes[node].children.clone();
+    while let Some(candidate) = stack.pop() {
+        if compound_matches(dom, candidate, compound, 0) {
+            return true;
+        }
+        stack.extend(dom.nodes[candidate].children.iter().copied());
+    }
+    false
 }
 
 fn pseudo_matches(dom: &Dom, node: usize, name: &str, state_mask: u8) -> bool {
@@ -451,10 +475,17 @@ pub(crate) fn parse_declarations(text: &str) -> Vec<Declaration> {
 
 fn split_declaration(raw: &str) -> Option<(String, String, bool)> {
     let colon = raw.find(':')?;
-    let name = raw[..colon].trim().to_ascii_lowercase();
-    if name.is_empty() {
+    let raw_name = raw[..colon].trim();
+    if raw_name.is_empty() {
         return None;
     }
+    // CSS custom property names are case-sensitive; every other declaration
+    // name is ASCII case-insensitive.
+    let name = if raw_name.starts_with("--") {
+        raw_name.to_string()
+    } else {
+        raw_name.to_ascii_lowercase()
+    };
     let mut value = raw[colon + 1..].trim().to_string();
     let mut important = false;
     let lowered = value.to_ascii_lowercase();
@@ -485,6 +516,30 @@ fn expand_shorthand(name: &str, value: &str) -> Vec<(String, String)> {
                 .map(|(side, item)| (format!("{name}-{side}"), item))
                 .collect()
         }
+        // CSS `inset` maps straight onto the v4 `top/right/bottom/left` fields:
+        // the blob does not change. Percentages/`auto` keep their longhand
+        // semantics; an unsupported unit is dropped by the cascade and reported
+        // by the subset.
+        "inset" => {
+            let parts = split_components(value);
+            // CSS drops the whole shorthand when any component is invalid; the
+            // four longhands are not partially applied. `var()` is accepted
+            // here and checked after substitution.
+            if parts.is_empty()
+                || parts.len() > 4
+                || !parts.iter().all(|part| inset_value_valid(part))
+            {
+                return Vec::new();
+            }
+            let Some(expanded) = expand_four(&parts) else {
+                return Vec::new();
+            };
+            ["top", "right", "bottom", "left"]
+                .iter()
+                .zip(expanded)
+                .map(|(side, item)| (side.to_string(), item))
+                .collect()
+        }
         "border-width" | "border-style" | "border-color" => {
             let parts = split_components(value);
             let Some(expanded) = expand_four(&parts) else {
@@ -504,6 +559,22 @@ fn expand_shorthand(name: &str, value: &str) -> Vec<(String, String)> {
         }
         _ => vec![(name.to_string(), value.to_string())],
     }
+}
+
+/// `inset` component: `auto`, px (or a bare number, as elsewhere in the
+/// frontend) or `%`. A `var()` token is left for the cascade.
+fn inset_value_valid(token: &str) -> bool {
+    let text = token.trim();
+    if text.is_empty() {
+        return false;
+    }
+    if text.eq_ignore_ascii_case("auto") || has_var_function(text) {
+        return true;
+    }
+    if let Some(number) = text.strip_suffix('%') {
+        return parse_number(number).is_some();
+    }
+    length(Some(text)).is_some()
 }
 
 /// 1-4 values with CSS semantics (top, right, bottom, left).
@@ -608,6 +679,48 @@ fn split_top_level_commas(text: &str) -> Vec<&str> {
 }
 
 // ------------------------------------------------------------------ selectors
+
+/// Narrow static `:has()` subset: one compound, optionally preceded by the
+/// child combinator (`:has(.x)`, `:has(> .x)`). Selector lists, descendant or
+/// sibling combinators inside the argument, state pseudo-classes and nested
+/// `:has()` are rejected (the rule becomes `Never` and the subset reports it).
+fn parse_has_argument(text: &str) -> Option<(bool, Compound)> {
+    let trimmed = text.trim();
+    let (child, rest) = match trimmed.strip_prefix('>') {
+        Some(rest) => (true, rest.trim_start()),
+        None => (false, trimmed),
+    };
+    if rest.is_empty() {
+        return None;
+    }
+    let chars: Vec<char> = rest.chars().collect();
+    let (compound, mut next) = parse_compound(&chars, 0)?;
+    skip_ws(&chars, &mut next);
+    if next != chars.len() || compound.simples.is_empty() {
+        return None;
+    }
+    if !has_argument_compound_supported(&compound) {
+        return None;
+    }
+    Some((child, compound))
+}
+
+/// The inner compound may use the static simple selectors (type, universal,
+/// class, id, attribute, structural pseudo-class and An+B) but not states or a
+/// nested `:has()`: those would need the runtime state model or recursion.
+fn has_argument_compound_supported(compound: &Compound) -> bool {
+    compound.simples.iter().all(|simple| match simple {
+        Simple::Has { .. } | Simple::Never => false,
+        Simple::Pseudo(name) => pseudo_state(name).is_none(),
+        _ => true,
+    })
+}
+
+/// Public entry point for the subset diagnostics: the same grammar the
+/// selector parser compiles decides what is reported.
+pub(crate) fn has_argument_supported(text: &str) -> bool {
+    parse_has_argument(text).is_some()
+}
 
 fn parse_selector(text: &str) -> Option<Selector> {
     let chars: Vec<char> = text.trim().chars().collect();
@@ -777,6 +890,19 @@ fn parse_compound(chars: &[char], mut index: usize) -> Option<(Compound, usize)>
                             spec.1 += 1;
                         } else {
                             simples.push(Simple::Never);
+                        }
+                    } else if !doubled && name == "has" {
+                        match parse_has_argument(&argument) {
+                            Some((child, inner)) => {
+                                spec.0 += inner.spec.0;
+                                spec.1 += inner.spec.1;
+                                spec.2 += inner.spec.2;
+                                simples.push(Simple::Has {
+                                    child,
+                                    compound: Box::new(inner),
+                                });
+                            }
+                            None => simples.push(Simple::Never),
                         }
                     } else {
                         simples.push(Simple::Never);
