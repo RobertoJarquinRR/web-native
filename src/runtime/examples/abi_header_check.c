@@ -31,13 +31,20 @@ int main(void)
     wn_node_id node = WN_NODE_INVALID;
     size_t event_size = sizeof(event);
     size_t node_size = sizeof(node);
+    wn_status (*set_size)(wn_app *, wn_node_id, float, float) = wn_node_set_size;
+    wn_status (*set_position)(wn_app *, wn_node_id, float, float) =
+        wn_node_set_position;
+    float auto_value = WN_AUTO;
     uint32_t states = WN_STATE_HOVER | WN_STATE_PRESS | WN_STATE_SELECTED |
                       WN_STATE_FOCUSED | WN_STATE_DISABLED |
                       WN_STATE_FOCUS_VISIBLE | WN_STATE_FOCUS_WITHIN;
     (void)callback;
     (void)config;
     (void)status;
+    (void)set_size;
+    (void)set_position;
     event.node = node;
     return event_size > 0 && node_size == sizeof(uint64_t) &&
-           event.node == WN_NODE_INVALID && states == 0x7Fu ? 0 : 1;
+           event.node == WN_NODE_INVALID && states == 0x7Fu &&
+           auto_value < 0.0f ? 0 : 1;
 }

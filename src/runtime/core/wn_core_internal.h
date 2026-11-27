@@ -117,6 +117,16 @@ typedef struct {
 #define R2_NODE_INPUT 5
 #endif
 
+/* ABI v7: compiled geometry restored by the WN_AUTO sentinel of the runtime
+ * layout overrides. Clones copy the template's base, so "auto" restores the
+ * clone's own starting geometry instead of the template handle's current one. */
+typedef struct {
+    float width, height;
+    float width_pct, height_pct;
+    float inset[4];
+    unsigned int inset_mask;
+} WnNodeBase;
+
 struct wn_core {
     const wn_document *doc;
 
@@ -125,6 +135,7 @@ struct wn_core {
      * recycled through free_list; generation[i] invalidates handles that were
      * issued before the slot was reused. */
     UiNode *nodes;
+    WnNodeBase *base;            /* compiled size/inset snapshot per slot */
     const char **names;          /* compiled names are borrowed from wn_document */
     int node_count;              /* high-water mark */
     int live_count;

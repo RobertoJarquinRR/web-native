@@ -753,6 +753,7 @@ wn_core *wn_core_create(const wn_document *document)
 
     bytes = (size_t)capacity;
     c->nodes = (UiNode *)calloc(bytes, sizeof(UiNode));
+    c->base = (WnNodeBase *)calloc(bytes, sizeof(WnNodeBase));
     c->names = (const char **)calloc(bytes, sizeof(char *));
     c->generation = (uint32_t *)calloc(bytes, sizeof(uint32_t));
     c->alive = (unsigned char *)calloc(bytes, sizeof(unsigned char));
@@ -806,6 +807,7 @@ wn_core *wn_core_create(const wn_document *document)
 
     if (c->nodes == NULL || c->names == NULL || c->generation == NULL ||
         c->alive == NULL ||
+        c->base == NULL ||
         c->dynamic_node == NULL || c->visible == NULL || c->visible_eff == NULL ||
         c->state == NULL ||
         c->parent == NULL || c->order_key == NULL ||
@@ -829,6 +831,13 @@ wn_core *wn_core_create(const wn_document *document)
 
     memcpy(c->nodes, document->nodes, (size_t)count * sizeof(UiNode));
     for (i = 0; i < count; ++i) {
+        c->base[i].width = c->nodes[i].width;
+        c->base[i].height = c->nodes[i].height;
+        c->base[i].width_pct = c->nodes[i].width_pct;
+        c->base[i].height_pct = c->nodes[i].height_pct;
+        memcpy(c->base[i].inset, c->nodes[i].inset,
+               sizeof(c->base[i].inset));
+        c->base[i].inset_mask = c->nodes[i].inset_mask;
         c->names[i] = document->names[i];
         c->generation[i] = 1;
         c->alive[i] = 1;
@@ -944,6 +953,7 @@ static int arena_reserve(wn_core *c, int minimum)
     }
 
     WN_GROW_ARRAY(c, nodes, capacity);
+    WN_GROW_ARRAY(c, base, capacity);
     WN_GROW_ARRAY(c, names, capacity);
     WN_GROW_ARRAY(c, generation, capacity);
     WN_GROW_ARRAY(c, alive, capacity);
@@ -1004,6 +1014,7 @@ static int arena_alloc(wn_core *c)
     memset(&c->nodes[id], 0, sizeof(UiNode));
     c->nodes[id].parent = -1;
     c->nodes[id].object_fit = R2_OBJECT_FIT_FILL;
+    memset(&c->base[id], 0, sizeof(WnNodeBase));
     c->names[id] = NULL;
     c->alive[id] = 1;
     c->dynamic_node[id] = 1;
@@ -1232,6 +1243,95 @@ int wn_core_set_image_size(wn_core *core, int node, float width, float height)
     return 0;
 }
 
+/* ABI v7: restore one horizontal/vertical inset pair (left/right or top/bottom)
+ * from the compiled snapshot, including the percentage bits. */
+static void restore_inset_axis(UiNode *n, const WnNodeBase *base,
+                               int side, int opposite)
+{
+    unsigned int pair = (1u << side) | (1u << opposite) |
+                        (1u << (4 + side)) | (1u << (4 + opposite));
+    n->inset[side] = base->inset[side];
+    n->inset[opposite] = base->inset[opposite];
+    n->inset_mask = (n->inset_mask & ~pair) | (base->inset_mask & pair);
+}
+
+/* ABI v7: declare one inset side in px and clear the opposite side plus any
+ * percentage flag on that axis, matching a CSS `left`/`top` declaration. */
+static void set_inset_axis(UiNode *n, int side, int opposite, float value)
+{
+    unsigned int clear = (1u << opposite) | (1u << (4 + opposite)) |
+                         (1u << (4 + side));
+    n->inset[side] = value;
+    n->inset_mask = (n->inset_mask & ~clear) | (1u << side);
+}
+
+/* ABI v7: runtime width/height override. A negative size (including WN_AUTO)
+ * restores the compiled value for that axis, including a compiled percentage.
+ * Explicit sizes must be finite and non-negative. */
+int wn_core_set_size(wn_core *core, int node, float width, float height)
+{
+    UiNode *n;
+    const WnNodeBase *base;
+    if (core == NULL || !wn_core_node_is_alive(core, node)) {
+        return -1;
+    }
+    if (!isfinite(width) || !isfinite(height)) {
+        return -1;
+    }
+    n = &core->nodes[node];
+    base = &core->base[node];
+    if (width < 0.0f) {
+        n->width = base->width;
+        n->width_pct = base->width_pct;
+    } else {
+        n->width = width;
+        n->width_pct = 0.0f;
+    }
+    if (height < 0.0f) {
+        n->height = base->height;
+        n->height_pct = base->height_pct;
+    } else {
+        n->height = height;
+        n->height_pct = 0.0f;
+    }
+    mark_core_dirty(core);
+    return 0;
+}
+
+/* ABI v7: runtime left/top override for a positioned node. WN_AUTO restores
+ * the compiled left/right pair on the horizontal axis and top/bottom on the
+ * vertical one; an explicit value clears the opposite side and its percentage
+ * flag. A static node has no containing-block offset to override, so it is
+ * rejected instead of silently mutating an in-flow box. */
+int wn_core_set_position(wn_core *core, int node, float x, float y)
+{
+    UiNode *n;
+    const WnNodeBase *base;
+    if (core == NULL || !wn_core_node_is_alive(core, node)) {
+        return -1;
+    }
+    if (!isfinite(x) || !isfinite(y)) {
+        return -1;
+    }
+    n = &core->nodes[node];
+    if (n->position == R2_POSITION_STATIC) {
+        return 1;
+    }
+    base = &core->base[node];
+    if (x == WN_AUTO) {
+        restore_inset_axis(n, base, 3, 1);
+    } else {
+        set_inset_axis(n, 3, 1, x);
+    }
+    if (y == WN_AUTO) {
+        restore_inset_axis(n, base, 0, 2);
+    } else {
+        set_inset_axis(n, 0, 2, y);
+    }
+    mark_core_dirty(core);
+    return 0;
+}
+
 static void collect_subtree(wn_core *c, int node, int *out, int *count)
 {
     int child;
@@ -1307,6 +1407,7 @@ int wn_core_clone(wn_core *core, int template_node, int parent)
         int src_parent = core->parent[src];
         core->nodes[dst] = core->nodes[src];
         core->nodes[dst].parent = -1;
+        core->base[dst] = core->base[src];
         core->parent[dst] = (src_parent >= 0 && map[src_parent] >= 0)
                                 ? new_ids[map[src_parent]]
                                 : parent;
@@ -1487,6 +1588,7 @@ void wn_core_destroy(wn_core *core)
         }
     }
     wn_free_(core->nodes);
+    wn_free_(core->base);
     wn_free_((void *)core->names);
     wn_free_(core->generation);
     wn_free_(core->alive);

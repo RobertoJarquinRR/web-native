@@ -106,6 +106,9 @@ int main(int argc, char **argv)
     wn_node_id image0;
     wn_node_id text0;
     wn_node_id clone;
+    wn_rect card_before;
+    wn_rect card_sized;
+    wn_rect card_restored;
     int32_t count_initial;
     int32_t count_cloned;
     int32_t count_after_remove;
@@ -164,6 +167,35 @@ int main(int argc, char **argv)
         wn_app_destroy(app);
         return 1;
     }
+
+    /* ABI v7 layout override: change a compiled box at runtime and restore it
+     * with WN_AUTO. `get_rect` forces layout, so this is the public ABI path
+     * without waiting for a frame. */
+    memset(&card_before, 0, sizeof(card_before));
+    memset(&card_sized, 0, sizeof(card_sized));
+    memset(&card_restored, 0, sizeof(card_restored));
+    (void)wn_node_get_rect(app, card0, &card_before);
+    expect_status("set_size(card,160,140)",
+                  wn_node_set_size(app, card0, 160.0f, 140.0f), WN_OK);
+    (void)wn_node_get_rect(app, card0, &card_sized);
+    expect_status("set_size(card,auto)",
+                  wn_node_set_size(app, card0, WN_AUTO, WN_AUTO), WN_OK);
+    (void)wn_node_get_rect(app, card0, &card_restored);
+    {
+        int size_ok = card_before.w == 120.0f && card_before.h == 120.0f &&
+                      card_sized.w == 160.0f && card_sized.h == 140.0f &&
+                      card_restored.w == 120.0f && card_restored.h == 120.0f;
+        printf("dynamic: layout size %.0fx%.0f -> %.0fx%.0f -> auto %.0fx%.0f -> %s\n",
+               card_before.w, card_before.h, card_sized.w, card_sized.h,
+               card_restored.w, card_restored.h, size_ok ? "restored" : "FAIL");
+        if (!size_ok) {
+            ++g_failures;
+        }
+    }
+    /* A static card has no positioned containing block to override. */
+    expect_status("set_position(static)",
+                  wn_node_set_position(app, card0, 5.0f, 5.0f),
+                  WN_ERR_INVALID_ARGUMENT);
 
     expect_status("set_visible(card,0)", wn_node_set_visible(app, card0, 0), WN_OK);
     expect_status("set_visible(card,1)", wn_node_set_visible(app, card0, 1), WN_OK);

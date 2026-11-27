@@ -62,6 +62,15 @@ campos del documento con `wnui-dump --json`. `verify_css.py` conserva además la
 comprobaciones de píxeles contra `expected/control_legacy.png`, que no se
 modifica: `control` demuestra que la ruta sin CSS v3 es idéntica a la de antes.
 
+## Layout overrides (ABI v7)
+
+`core/layout_override_test.c` corre dentro del suite `fidelity` con un blob
+construido en memoria (sin GPU ni fixtures): fija tamaño y posición, comprueba
+el rect resultante y la reconstrucción de la display list, restaura con
+`WN_AUTO` (incluido un ancho porcentual y un par `right`/`bottom`), valida la
+base de un clon y confirma que handles/valores inválidos y un nodo `static`
+para `set_position` no cambian nada.
+
 ## Histórico
 
 El piloto vivo es `benchmarks/pilot-media-library/` y se ejecuta con

@@ -582,6 +582,29 @@ wn_status wn_node_set_image_size(wn_app *app, wn_node_id node,
     return wn_view_set_image_size(app->view, node, width, height);
 }
 
+/* ------------------------------------------------- layout overrides (ABI v7) */
+
+wn_status wn_node_set_size(wn_app *app, wn_node_id node,
+                           float width, float height)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_set_size: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_set_size(app->view, node, width, height);
+}
+
+wn_status wn_node_set_position(wn_app *app, wn_node_id node, float x, float y)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_set_position: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_set_position(app->view, node, x, y);
+}
+
 /* ------------------------------------------------------ text input (v4) */
 
 wn_status wn_node_set_value(wn_app *app, wn_node_id node, const char *utf8)
