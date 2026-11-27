@@ -754,6 +754,7 @@ wn_core *wn_core_create(const wn_document *document)
     bytes = (size_t)capacity;
     c->nodes = (UiNode *)calloc(bytes, sizeof(UiNode));
     c->base = (WnNodeBase *)calloc(bytes, sizeof(WnNodeBase));
+    c->style = (WnNodeStyle *)calloc(bytes, sizeof(WnNodeStyle));
     c->names = (const char **)calloc(bytes, sizeof(char *));
     c->generation = (uint32_t *)calloc(bytes, sizeof(uint32_t));
     c->alive = (unsigned char *)calloc(bytes, sizeof(unsigned char));
@@ -807,7 +808,7 @@ wn_core *wn_core_create(const wn_document *document)
 
     if (c->nodes == NULL || c->names == NULL || c->generation == NULL ||
         c->alive == NULL ||
-        c->base == NULL ||
+        c->base == NULL || c->style == NULL ||
         c->dynamic_node == NULL || c->visible == NULL || c->visible_eff == NULL ||
         c->state == NULL ||
         c->parent == NULL || c->order_key == NULL ||
@@ -912,6 +913,10 @@ static void free_node_payload(wn_core *c, int node)
         }
         c->class_count[node] = 0;
     }
+    if (c->style != NULL) {
+        wn_free_(c->style[node].font_family);
+        memset(&c->style[node], 0, sizeof(c->style[node]));
+    }
 }
 
 /* realloc one parallel array. On failure the previous block stays valid: the
@@ -954,6 +959,7 @@ static int arena_reserve(wn_core *c, int minimum)
 
     WN_GROW_ARRAY(c, nodes, capacity);
     WN_GROW_ARRAY(c, base, capacity);
+    WN_GROW_ARRAY(c, style, capacity);
     WN_GROW_ARRAY(c, names, capacity);
     WN_GROW_ARRAY(c, generation, capacity);
     WN_GROW_ARRAY(c, alive, capacity);
@@ -1015,6 +1021,7 @@ static int arena_alloc(wn_core *c)
     c->nodes[id].parent = -1;
     c->nodes[id].object_fit = R2_OBJECT_FIT_FILL;
     memset(&c->base[id], 0, sizeof(WnNodeBase));
+    memset(&c->style[id], 0, sizeof(WnNodeStyle));
     c->names[id] = NULL;
     c->alive[id] = 1;
     c->dynamic_node[id] = 1;
@@ -1344,6 +1351,243 @@ static void collect_subtree(wn_core *c, int node, int *out, int *count)
     }
 }
 
+/* ------------------------------------------------- style overrides (v7) */
+
+/* Same limits the blob loader applies to a compiled family: a real name, not a
+ * control sequence, and short enough for the text backend's fixed buffer.
+ * Unknown families are accepted and resolved by the backend's normal fallback,
+ * exactly like a compiled `font-family` stack. */
+static int style_family_valid(const char *family)
+{
+    const unsigned char *p;
+    size_t length = 0;
+    if (family == NULL || family[0] == '\0') {
+        return 0;
+    }
+    for (p = (const unsigned char *)family; *p != '\0'; ++p) {
+        if (*p < 0x20u || *p == 0x7Fu) {
+            return 0;
+        }
+        if (++length > 95u) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+const WnNodeStyle *wn_core_style_nearest(const wn_core *c, int node,
+                                         unsigned int field)
+{
+    int walk;
+    if (c == NULL || c->style == NULL || c->style_active == 0 || node < 0 ||
+        node >= c->node_count) {
+        return NULL;
+    }
+    for (walk = node; walk >= 0; walk = c->parent[walk]) {
+        if ((c->style[walk].fields & field) != 0u) {
+            return &c->style[walk];
+        }
+    }
+    return NULL;
+}
+
+const char *wn_core_node_font_family(const wn_core *core, int node)
+{
+    const WnNodeStyle *style;
+    if (core == NULL || node < 0 || node >= core->node_count) {
+        return NULL;
+    }
+    style = wn_core_style_nearest(core, node, WN_STYLE_FONT_FAMILY);
+    return style != NULL ? style->font_family : core->nodes[node].font_family;
+}
+
+float wn_core_node_font_size(const wn_core *core, int node)
+{
+    const WnNodeStyle *style;
+    if (core == NULL || node < 0 || node >= core->node_count) {
+        return 0.0f;
+    }
+    style = wn_core_style_nearest(core, node, WN_STYLE_FONT_SIZE);
+    return style != NULL ? style->font_size : core->nodes[node].font_size;
+}
+
+int wn_core_set_color(wn_core *core, int node, uint32_t argb)
+{
+    if (core == NULL || !wn_core_node_is_alive(core, node)) {
+        return -1;
+    }
+    core->style[node].text_color = argb;
+    core->style[node].fields |= WN_STYLE_TEXT_COLOR;
+    core->style_active = 1;
+    core->dirty = 1;
+    return 0;
+}
+
+int wn_core_set_background(wn_core *core, int node, uint32_t argb)
+{
+    if (core == NULL || !wn_core_node_is_alive(core, node)) {
+        return -1;
+    }
+    core->style[node].background = argb;
+    core->style[node].fields |= WN_STYLE_BACKGROUND;
+    core->style_active = 1;
+    core->dirty = 1;
+    return 0;
+}
+
+int wn_core_set_font_family(wn_core *core, int node, const char *family)
+{
+    char *copy = NULL;
+    if (core == NULL || !wn_core_node_is_alive(core, node)) {
+        return -1;
+    }
+    if (family != NULL) {
+        if (!style_family_valid(family)) {
+            return -1;
+        }
+        copy = wn_strdup_(family);
+        if (copy == NULL) {
+            return -2;
+        }
+    }
+    wn_free_(core->style[node].font_family);
+    core->style[node].font_family = copy;
+    if (copy != NULL) {
+        core->style[node].fields |= WN_STYLE_FONT_FAMILY;
+        core->style_active = 1;
+    } else {
+        core->style[node].fields &= ~(unsigned int)WN_STYLE_FONT_FAMILY;
+    }
+    mark_core_dirty(core);
+    return 0;
+}
+
+int wn_core_set_font_size(wn_core *core, int node, float size)
+{
+    if (core == NULL || !wn_core_node_is_alive(core, node)) {
+        return -1;
+    }
+    if (size == WN_AUTO) {
+        core->style[node].fields &= ~(unsigned int)WN_STYLE_FONT_SIZE;
+        core->style[node].font_size = 0.0f;
+    } else {
+        if (!isfinite(size) || size < WN_BLOB_MIN_FONT_SIZE ||
+            size > WN_BLOB_MAX_FONT_SIZE) {
+            return -1;
+        }
+        core->style[node].font_size = size;
+        core->style[node].fields |= WN_STYLE_FONT_SIZE;
+        core->style_active = 1;
+    }
+    mark_core_dirty(core);
+    return 0;
+}
+
+int wn_core_set_font_weight(wn_core *core, int node, int weight)
+{
+    if (core == NULL || !wn_core_node_is_alive(core, node)) {
+        return -1;
+    }
+    if (weight == 0) {
+        core->style[node].fields &= ~(unsigned int)WN_STYLE_FONT_WEIGHT;
+        core->style[node].font_weight = 0;
+    } else {
+        if (weight < 100 || weight > 900) {
+            return -1;
+        }
+        core->style[node].font_weight = weight;
+        core->style[node].fields |= WN_STYLE_FONT_WEIGHT;
+        core->style_active = 1;
+    }
+    mark_core_dirty(core);
+    return 0;
+}
+
+int wn_core_reset_style(wn_core *core, int node, unsigned int fields)
+{
+    if (core == NULL || !wn_core_node_is_alive(core, node) || fields == 0u ||
+        (fields & ~(unsigned int)WN_STYLE_ALL) != 0u) {
+        return -1;
+    }
+    if ((fields & WN_STYLE_FONT_FAMILY) != 0u) {
+        wn_free_(core->style[node].font_family);
+        core->style[node].font_family = NULL;
+    }
+    core->style[node].fields &= ~fields;
+    mark_core_dirty(core);
+    return 0;
+}
+
+/* App-wide typography layer. Clearing needs no allocation; setting pre-copies
+ * one family string per target so a partial OOM cannot leave half the subtree
+ * changed. */
+int wn_core_set_font_family_tree(wn_core *core, int node, const char *family,
+                                 int recursive)
+{
+    int *ids;
+    char **copies = NULL;
+    int count = 0;
+    int i;
+
+    if (core == NULL || !wn_core_node_is_alive(core, node)) {
+        return -1;
+    }
+    if (family != NULL && !style_family_valid(family)) {
+        return -1;
+    }
+    if (recursive) {
+        ids = (int *)malloc((size_t)core->node_count * sizeof(int));
+        if (ids == NULL) {
+            return -2;
+        }
+        collect_subtree(core, node, ids, &count);
+    } else {
+        ids = (int *)malloc(sizeof(int));
+        if (ids == NULL) {
+            return -2;
+        }
+        ids[0] = node;
+        count = 1;
+    }
+    if (family != NULL) {
+        copies = (char **)calloc((size_t)count, sizeof(char *));
+        if (copies == NULL) {
+            free(ids);
+            return -2;
+        }
+        for (i = 0; i < count; ++i) {
+            copies[i] = wn_strdup_(family);
+            if (copies[i] == NULL) {
+                int j;
+                for (j = 0; j < i; ++j) {
+                    wn_free_(copies[j]);
+                }
+                free(copies);
+                free(ids);
+                return -2;
+            }
+        }
+    }
+    for (i = 0; i < count; ++i) {
+        int target = ids[i];
+        wn_free_(core->style[target].font_family);
+        core->style[target].font_family =
+            copies != NULL ? copies[i] : NULL;
+        if (copies != NULL) {
+            core->style[target].fields |= WN_STYLE_FONT_FAMILY;
+        } else {
+            core->style[target].fields &= ~(unsigned int)WN_STYLE_FONT_FAMILY;
+        }
+    }
+    if (copies != NULL) {
+        core->style_active = 1;
+    }
+    free(copies);
+    free(ids);
+    mark_core_dirty(core);
+    return 0;
+}
+
 int wn_core_clone(wn_core *core, int template_node, int parent)
 {
     int *src_ids;
@@ -1408,6 +1652,18 @@ int wn_core_clone(wn_core *core, int template_node, int parent)
         core->nodes[dst] = core->nodes[src];
         core->nodes[dst].parent = -1;
         core->base[dst] = core->base[src];
+        core->style[dst] = core->style[src];
+        core->style[dst].font_family = NULL;
+        if (core->style[src].font_family != NULL) {
+            core->style[dst].font_family =
+                wn_strdup_(core->style[src].font_family);
+            if (core->style[dst].font_family == NULL) {
+                oom = 1;
+            }
+        }
+        if (core->style[dst].fields != 0u) {
+            core->style_active = 1;
+        }
         core->parent[dst] = (src_parent >= 0 && map[src_parent] >= 0)
                                 ? new_ids[map[src_parent]]
                                 : parent;
@@ -1589,6 +1845,7 @@ void wn_core_destroy(wn_core *core)
     }
     wn_free_(core->nodes);
     wn_free_(core->base);
+    wn_free_(core->style);
     wn_free_((void *)core->names);
     wn_free_(core->generation);
     wn_free_(core->alive);

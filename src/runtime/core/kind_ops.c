@@ -24,16 +24,17 @@ static const char *node_text(const wn_core *c, int node)
 
 static void measure_text_node(const wn_core *c, int node, float max_width, wn_text_metrics *out)
 {
-    const UiNode *n = &c->nodes[node];
     const char *text = node_text(c, node);
     int weight = wn_core_node_font_weight(c, node);
-    if (wn_text_measure_string(text, n->font_family, n->font_size, weight,
+    const char *family = wn_core_node_font_family(c, node);
+    float size = wn_core_node_font_size(c, node);
+    if (wn_text_measure_string(text, family, size, weight,
                                max_width > 0.0f ? max_width : 0.0f, out) == 0) {
         return;
     }
-    out->width = n->font_size * 0.6f * (float)strlen(text);
-    out->height = n->font_size * 1.25f;
-    out->ascent = n->font_size;
+    out->width = size * 0.6f * (float)strlen(text);
+    out->height = size * 1.25f;
+    out->ascent = size;
     out->descent = 0.0f;
 }
 
@@ -42,12 +43,14 @@ static float text_node_width(const wn_core *c, int node, float max_width)
     const UiNode *n = &c->nodes[node];
     const char *text = node_text(c, node);
     int weight = wn_core_node_font_weight(c, node);
+    const char *family = wn_core_node_font_family(c, node);
+    float size = wn_core_node_font_size(c, node);
     wn_text_metrics metrics;
     /* A constrained width picks the widest greedy line; unconstrained keeps
      * the backend's single-line advance width. */
     if (max_width > 0.0f) {
         wn_text_block block;
-        if (wn_text_block_get(text, n->font_family, n->font_size, weight,
+        if (wn_text_block_get(text, family, size, weight,
                               max_width, 0.0f, &block) == 0) {
             return ceilf(block.layout->width) + WN_DECL_W(n);
         }
@@ -61,10 +64,12 @@ static float text_node_height(const wn_core *c, int node, float max_width)
     const UiNode *n = &c->nodes[node];
     const char *text = node_text(c, node);
     int weight = wn_core_node_font_weight(c, node);
+    const char *family = wn_core_node_font_family(c, node);
+    float size = wn_core_node_font_size(c, node);
     wn_text_block block;
     wn_text_metrics metrics;
 
-    if (wn_text_block_get(text, n->font_family, n->font_size, weight,
+    if (wn_text_block_get(text, family, size, weight,
                           max_width > 0.0f ? max_width : 0.0f,
                           WN_LINE_HEIGHT(n), &block) != 0) {
         /* The backend measure with a max_width is a hint only: constrained
@@ -223,7 +228,8 @@ static float input_intrinsic_width(wn_core *c, int node, float available)
     float width = 200.0f;
     (void)available;
     if (rec != NULL && rec->max_length > 0) {
-        float estimated = (float)rec->max_length * n->font_size * 0.62f;
+        float estimated = (float)rec->max_length *
+                          wn_core_node_font_size(c, node) * 0.62f;
         width = fmaxf(80.0f, fminf(estimated, 480.0f));
     }
     return width + n->padding[1] + n->padding[3];

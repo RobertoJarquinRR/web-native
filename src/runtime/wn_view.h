@@ -89,6 +89,15 @@ wn_status wn_view_set_image_size(wn_view *view, wn_node_id node,
 wn_status wn_view_set_size(wn_view *view, wn_node_id node,
                            float width, float height);
 wn_status wn_view_set_position(wn_view *view, wn_node_id node, float x, float y);
+wn_status wn_view_set_color(wn_view *view, wn_node_id node, uint32_t argb);
+wn_status wn_view_set_background(wn_view *view, wn_node_id node, uint32_t argb);
+wn_status wn_view_set_font_family(wn_view *view, wn_node_id node,
+                                  const char *family);
+wn_status wn_view_set_font_size(wn_view *view, wn_node_id node, float size);
+wn_status wn_view_set_font_weight(wn_view *view, wn_node_id node, int weight);
+wn_status wn_view_reset_style(wn_view *view, wn_node_id node, uint32_t fields);
+wn_status wn_view_set_font_family_tree(wn_view *view, const char *family,
+                                       int recursive);
 
 /* Text input (ABI v4) internal surface. */
 int wn_view_input_focused(const wn_view *view);

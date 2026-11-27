@@ -176,6 +176,12 @@ unsigned int wn_core_node_background(const wn_core *c, int node)
     const UiNode *n = &c->nodes[node];
     unsigned char state = wn_core_effective_state(c, node);
     unsigned int color;
+    /* ABI v7: a host background override behaves like an inline style and wins
+     * over the compiled state styles. It never inherits. */
+    if (c->style != NULL &&
+        (c->style[node].fields & WN_STYLE_BACKGROUND) != 0u) {
+        return c->style[node].background;
+    }
     if ((state & WN_STATE_DISABLED) != 0u) {
         if (state_color(n, R2_STATE_STYLE_DISABLED, R2_STATE_FIELD_BACKGROUND,
                         &color)) {
@@ -223,7 +229,14 @@ unsigned int wn_core_node_text_color(const wn_core *c, int node)
 {
     const UiNode *n = &c->nodes[node];
     unsigned char state = wn_core_effective_state(c, node);
+    const WnNodeStyle *style;
     unsigned int color;
+    /* ABI v7: text color inherits from the nearest self-or-ancestor override
+     * and wins over the compiled state styles (inline-style priority). */
+    style = wn_core_style_nearest(c, node, WN_STYLE_TEXT_COLOR);
+    if (style != NULL) {
+        return style->text_color;
+    }
     if ((state & WN_STATE_DISABLED) != 0u) {
         if (state_color(n, R2_STATE_STYLE_DISABLED, R2_STATE_FIELD_TEXT, &color)) {
             return color;
@@ -297,7 +310,14 @@ int wn_core_node_font_weight(const wn_core *c, int node)
 {
     const UiNode *n = &c->nodes[node];
     unsigned char state = wn_core_effective_state(c, node);
+    const WnNodeStyle *style;
     int weight;
+    /* ABI v7: font weight follows the same inherited runtime layer and wins
+     * over the compiled state weight. */
+    style = wn_core_style_nearest(c, node, WN_STYLE_FONT_WEIGHT);
+    if (style != NULL) {
+        return style->font_weight;
+    }
     if ((state & WN_STATE_DISABLED) != 0u) {
         if (state_weight(n, R2_STATE_STYLE_DISABLED, &weight)) {
             return weight;
@@ -944,6 +964,8 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
             continue;
         }
         int weight = wn_core_node_font_weight(c, node);
+        const char *family = wn_core_node_font_family(c, node);
+        float size = wn_core_node_font_size(c, node);
         wn_paint_use_item(c, item);
         set_glyph_clip(c, &item->clip);
         cr = (uint8_t)((color >> 16) & 0xFFu);
@@ -958,7 +980,7 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
             float node_leading;
             float avail = 0.0f;
             int align_per_line = 0;
-            if (wn_text_block_get(text, n->font_family, n->font_size, weight,
+            if (wn_text_block_get(text, family, size, weight,
                                   wrap_width, WN_LINE_HEIGHT(n), &block) != 0) {
                 continue;
             }
@@ -978,7 +1000,7 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
             for (int line_index = 0; line_index < layout->line_count; ++line_index) {
                 const wn_text_line *line = &layout->lines[line_index];
                 const wn_atlas_run *run = wn_text_atlas_shape(
-                    c->text_atlas, line->text, n->font_family, n->font_size, weight);
+                    c->text_atlas, line->text, family, size, weight);
                 float align_dx = 0.0f;
                 float baseline;
                 int draw_count;
@@ -995,8 +1017,7 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
                 if ((n->text_flags & WN_TEXT_FLAG_ELLIPSIS) != 0u &&
                     layout->line_count == 1 && line->width > wrap_width) {
                     ellipsis_run = wn_text_atlas_shape(
-                        c->text_atlas, "\xE2\x80\xA6", n->font_family,
-                        n->font_size, weight);
+                        c->text_atlas, "\xE2\x80\xA6", family, size, weight);
                     if (ellipsis_run != NULL && ellipsis_run->count > 0) {
                         float ellipsis_width = ellipsis_run->width;
                         float limit = wrap_width - ellipsis_width;
@@ -1028,7 +1049,7 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
                 for (j = 0; j < draw_count; ++j) {
                     const wn_text_glyph *glyph = &run->glyphs[j];
                     const wn_atlas_glyph *packed = wn_text_atlas_glyph(
-                        c->text_atlas, n->font_family, n->font_size, weight,
+                        c->text_atlas, family, size, weight,
                         glyph->glyph);
                     float x;
                     float y;
@@ -1046,7 +1067,7 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
                     for (i = 0; i < ellipsis_run->count; ++i) {
                         const wn_text_glyph *glyph = &ellipsis_run->glyphs[i];
                         const wn_atlas_glyph *packed = wn_text_atlas_glyph(
-                            c->text_atlas, n->font_family, n->font_size, weight,
+                            c->text_atlas, family, size, weight,
                             glyph->glyph);
                         float x;
                         float y;

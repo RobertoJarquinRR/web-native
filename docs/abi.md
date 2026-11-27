@@ -15,8 +15,9 @@ en `include/webnative.h`; este documento explica uso y límites.
 8. **Versionado**: `WN_ABI_VERSION` + `wn_version()`; breaking bump de major.
    v2 (wheel), v3 (UI dinámica), v4 (text input), v5 (identidad de nodos),
    v6 (estado, lecturas, eventos, timer, ownership) y **v7** (bits de foco y
-   deshabilitado, eventos de composición IME, overrides de layout en runtime)
-   son aditivas. v7 no cambia el tamaño ni el layout de ningún struct público.
+   deshabilitado, eventos de composición IME, overrides de layout y de estilo
+   en runtime) son aditivas. v7 no cambia el tamaño ni el layout de ningún
+   struct público.
 
 ## Superficie v7
 
@@ -116,6 +117,52 @@ pinta. No hay `commit` separado.
 - Handle muerto, app nula, nodo `static` para posición, `NaN`, infinito o
   tamaño explícito negativo devuelven `WN_ERR_INVALID_ARGUMENT` sin cambiar
   nada. No hay parser CSS: solo se transportan estos dos campos.
+
+### Estilos en runtime (v7 aditivo)
+
+| Función | Uso |
+|---|---|
+| `wn_node_set_color(app, node, argb)` | color de texto (0xAARRGGBB); hereda al subárbol |
+| `wn_node_set_background(app, node, argb)` | fondo de la caja; no hereda |
+| `wn_node_set_font_family(app, node, family)` | familia de fuente; `NULL` restaura la compilada |
+| `wn_node_set_font_size(app, node, size)` | tamaño px (1..1024); `WN_AUTO` restaura |
+| `wn_node_set_font_weight(app, node, weight)` | peso 100..900; `0` restaura |
+| `wn_node_reset_style(app, node, fields)` | limpia los campos `WN_STYLE_*` del nodo |
+| `wn_app_set_font_family(app, family, recursive)` | capa de tipografía de toda la app; `NULL` restaura |
+
+Máscara de `wn_node_reset_style`: `WN_STYLE_TEXT_COLOR` 0x01,
+`WN_STYLE_BACKGROUND` 0x02, `WN_STYLE_FONT_FAMILY` 0x04,
+`WN_STYLE_FONT_SIZE` 0x08, `WN_STYLE_FONT_WEIGHT` 0x10; `WN_STYLE_ALL` 0x1F.
+
+- Son overrides **de runtime**: no tocan el `.wnui`, no hay parser CSS y
+  desaparecen al reemplazar el documento o eliminar el nodo. La prioridad es la
+  de un estilo inline: ganan a la base compilada y a los estilos de estado
+  (hover/press/focus/disabled) del nodo.
+- `color` y las tres propiedades de fuente **heredan** por el subárbol: un nodo
+  usa el override propio más cercano o el del ancestro más cercano; si no hay
+  ninguno, usa el valor compilado. Así, pintar un contenedor de tabs/nav colorea
+  también sus runs de texto generados. `background` es solo del nodo.
+- `wn_node_set_font_size` acepta `WN_AUTO` y `wn_node_set_font_weight` acepta
+  `0` como "restaura el compilado"; en familia, `NULL` es el equivalente. Un
+  `wn_node_reset_style` limpia solo el nodo: un campo heredado vuelve al
+  ancestro que aún lo defina, o al valor compilado si no queda ninguno.
+- La familia se copia (UTF-8, no vacía, < 96 bytes, sin caracteres de control).
+  Una familia no instalada sigue el fallback normal del backend de texto, igual
+  que una pila compilada; no se valida contra las fuentes instaladas.
+- Los cambios de fuente marcan layout y pintura sucios y re-miden/shapean en el
+  siguiente frame; los colores solo marcan pintura. Los clones copian el
+  override y su base compilada, así que `reset` en un clon restaura la
+  geometría/métricas del template clonado.
+- `wn_app_set_font_family` es la entrada del ajuste de tipografía del usuario.
+  Con `recursive != 0` escribe la familia en el root y en todos los
+  descendientes vivos (gana a overrides por nodo); con `recursive == 0` solo en
+  el root y los descendientes la heredan salvo que tengan su propio override.
+  `NULL` borra los overrides de familia (de todo el árbol si es recursivo) y
+  restaura las familias compiladas. No cambia el tamaño ni el peso global.
+- Handles muertos, app nula, familia vacía/demasiado larga/con controles, tamaño
+  no finito o fuera de 1..1024, peso fuera de 100..900 y máscara de reset cero o
+  con bits desconocidos devuelven `WN_ERR_INVALID_ARGUMENT` sin cambiar nada. Un
+  color ARGB no tiene representación inválida: el rechazo es por app/handle.
 
 ### Text input (v4)
 
@@ -391,6 +438,11 @@ private static partial nint wn_node_get_value(nint app, ulong node);
   fallback de fuentes todavía.
 - `selected` y `focused` ya son por nodo, pero las clases siguen siendo por
   nombre compilado (no hay `set_class` por handle).
+- Los overrides de estilo (`set_color/background/font_*`) son una capa plana por
+  nodo; no implementan cascada, selectores, herencia de `background` ni
+  transiciones. La familia/tamaño/peso y el color de texto sí heredan al
+  subárbol, como un inline style. No hay getters de estilo (el host conoce lo
+  que escribió; los diagnósticos internos usan los helpers del core).
 - Los estilos de estado (blob v6) cubren `background`, `color`, el color de
   borde uniforme y `font-weight` (aditivo en v6, sin cambiar el registro). No
   hay transiciones, `:checked` (no hay widget checkbox/radio), ni cambios de

@@ -127,6 +127,19 @@ typedef struct {
     unsigned int inset_mask;
 } WnNodeBase;
 
+/* ABI v7 style lane: per-slot presence bits plus the override values. The
+ * compiled UiNode is never mutated, so clearing a bit naturally restores the
+ * compiled value (and inherited fields fall back to the nearest ancestor
+ * override, then the compiled node). `font_family` is an owned copy. */
+typedef struct {
+    unsigned int fields;         /* WN_STYLE_* presence mask */
+    uint32_t text_color;         /* WN_STYLE_TEXT_COLOR */
+    uint32_t background;         /* WN_STYLE_BACKGROUND */
+    char *font_family;           /* WN_STYLE_FONT_FAMILY, owned */
+    float font_size;             /* WN_STYLE_FONT_SIZE */
+    int font_weight;             /* WN_STYLE_FONT_WEIGHT */
+} WnNodeStyle;
+
 struct wn_core {
     const wn_document *doc;
 
@@ -136,6 +149,8 @@ struct wn_core {
      * issued before the slot was reused. */
     UiNode *nodes;
     WnNodeBase *base;            /* compiled size/inset snapshot per slot */
+    WnNodeStyle *style;          /* ABI v7 runtime style overrides per slot */
+    int style_active;            /* 1 once any override was set (fast path) */
     const char **names;          /* compiled names are borrowed from wn_document */
     int node_count;              /* high-water mark */
     int live_count;
@@ -270,6 +285,11 @@ void wn_core_refresh_focus_within(wn_core *c);
 
 wn_rect rect_intersection(wn_rect a, wn_rect b);
 int rect_is_empty(wn_rect r);
+
+/* ABI v7 style overrides: nearest self-or-ancestor record carrying `field`
+ * (one WN_STYLE_* bit), or NULL when the chain has no override. */
+const WnNodeStyle *wn_core_style_nearest(const wn_core *c, int node,
+                                         unsigned int field);
 
 const WnInputRecord *input_record(const wn_core *c, int node);
 float input_line_height(const wn_core *c, int node);

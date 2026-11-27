@@ -605,6 +605,79 @@ wn_status wn_node_set_position(wn_app *app, wn_node_id node, float x, float y)
     return wn_view_set_position(app->view, node, x, y);
 }
 
+/* --------------------------------------------------- style overrides (v7) */
+
+wn_status wn_node_set_color(wn_app *app, wn_node_id node, uint32_t argb)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_set_color: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_set_color(app->view, node, argb);
+}
+
+wn_status wn_node_set_background(wn_app *app, wn_node_id node, uint32_t argb)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_set_background: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_set_background(app->view, node, argb);
+}
+
+wn_status wn_node_set_font_family(wn_app *app, wn_node_id node,
+                                  const char *family)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_set_font_family: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_set_font_family(app->view, node, family);
+}
+
+wn_status wn_node_set_font_size(wn_app *app, wn_node_id node, float size)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_set_font_size: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_set_font_size(app->view, node, size);
+}
+
+wn_status wn_node_set_font_weight(wn_app *app, wn_node_id node, int weight)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_set_font_weight: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_set_font_weight(app->view, node, weight);
+}
+
+wn_status wn_node_reset_style(wn_app *app, wn_node_id node, uint32_t fields)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_reset_style: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_reset_style(app->view, node, fields);
+}
+
+wn_status wn_app_set_font_family(wn_app *app, const char *family, int recursive)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_app_set_font_family: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_set_font_family_tree(app->view, family, recursive);
+}
+
 /* ------------------------------------------------------ text input (v4) */
 
 wn_status wn_node_set_value(wn_app *app, wn_node_id node, const char *utf8)

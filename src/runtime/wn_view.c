@@ -1785,6 +1785,164 @@ wn_status wn_view_set_position(wn_view *view, wn_node_id node, float x, float y)
     return WN_OK;
 }
 
+/* ------------------------------------------------ style overrides (ABI v7) */
+
+static wn_status view_style_status(int result, const char *call, wn_node_id node)
+{
+    if (result == -2) {
+        wn_set_error("%s: out of memory for node %llu", call,
+                     (unsigned long long)node);
+        return WN_ERR_OUT_OF_MEMORY;
+    }
+    wn_set_error("%s: invalid node or value for handle %llu", call,
+                 (unsigned long long)node);
+    return WN_ERR_INVALID_ARGUMENT;
+}
+
+wn_status wn_view_set_color(wn_view *view, wn_node_id node, uint32_t argb)
+{
+    int index;
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_node_set_color: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    index = view_node_index(view, node);
+    if (index < 0 || wn_core_set_color(view->core, index, argb) != 0) {
+        return view_style_status(-1, "wn_node_set_color", node);
+    }
+    view_mark_geometry(view);
+    return WN_OK;
+}
+
+wn_status wn_view_set_background(wn_view *view, wn_node_id node, uint32_t argb)
+{
+    int index;
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_node_set_background: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    index = view_node_index(view, node);
+    if (index < 0 || wn_core_set_background(view->core, index, argb) != 0) {
+        return view_style_status(-1, "wn_node_set_background", node);
+    }
+    view_mark_geometry(view);
+    return WN_OK;
+}
+
+wn_status wn_view_set_font_family(wn_view *view, wn_node_id node,
+                                  const char *family)
+{
+    int index;
+    int result;
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_node_set_font_family: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    index = view_node_index(view, node);
+    if (index < 0) {
+        return view_style_status(-1, "wn_node_set_font_family", node);
+    }
+    result = wn_core_set_font_family(view->core, index, family);
+    if (result != 0) {
+        return view_style_status(result, "wn_node_set_font_family", node);
+    }
+    view_mark_geometry(view);
+    return WN_OK;
+}
+
+wn_status wn_view_set_font_size(wn_view *view, wn_node_id node, float size)
+{
+    int index;
+    int result;
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_node_set_font_size: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    index = view_node_index(view, node);
+    if (index < 0) {
+        return view_style_status(-1, "wn_node_set_font_size", node);
+    }
+    result = wn_core_set_font_size(view->core, index, size);
+    if (result != 0) {
+        return view_style_status(result, "wn_node_set_font_size", node);
+    }
+    view_mark_geometry(view);
+    return WN_OK;
+}
+
+wn_status wn_view_set_font_weight(wn_view *view, wn_node_id node, int weight)
+{
+    int index;
+    int result;
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_node_set_font_weight: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    index = view_node_index(view, node);
+    if (index < 0) {
+        return view_style_status(-1, "wn_node_set_font_weight", node);
+    }
+    result = wn_core_set_font_weight(view->core, index, weight);
+    if (result != 0) {
+        return view_style_status(result, "wn_node_set_font_weight", node);
+    }
+    view_mark_geometry(view);
+    return WN_OK;
+}
+
+wn_status wn_view_reset_style(wn_view *view, wn_node_id node, uint32_t fields)
+{
+    int index;
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_node_reset_style: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    index = view_node_index(view, node);
+    if (index < 0 ||
+        wn_core_reset_style(view->core, index, (unsigned int)fields) != 0) {
+        return view_style_status(-1, "wn_node_reset_style", node);
+    }
+    view_mark_geometry(view);
+    return WN_OK;
+}
+
+wn_status wn_view_set_font_family_tree(wn_view *view, const char *family,
+                                       int recursive)
+{
+    int root = -1;
+    int i;
+    int result;
+    wn_clear_error();
+    if (view == NULL || view->core == NULL) {
+        wn_set_error("wn_app_set_font_family: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    for (i = 0; i < wn_core_node_count(view->core); ++i) {
+        if (wn_core_node_is_alive(view->core, i) &&
+            wn_core_node_parent(view->core, i) < 0) {
+            root = i;
+            break;
+        }
+    }
+    if (root < 0) {
+        wn_set_error("wn_app_set_font_family: the document has no root");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    result = wn_core_set_font_family_tree(view->core, root, family, recursive);
+    if (result != 0) {
+        return view_style_status(result, "wn_app_set_font_family",
+                                 WN_NODE_INVALID);
+    }
+    view_mark_geometry(view);
+    return WN_OK;
+}
+
 wn_status wn_view_tick(wn_view *view)
 {
     wn_clear_error();

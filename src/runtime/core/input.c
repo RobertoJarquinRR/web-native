@@ -158,11 +158,12 @@ static int input_limit(const WnInputRecord *record)
 
 static const wn_atlas_run *input_run(const wn_core *c, int node, const char *text)
 {
-    const UiNode *n = &c->nodes[node];
     if (c->text_atlas == NULL || text == NULL) {
         return NULL;
     }
-    return wn_text_atlas_shape(c->text_atlas, text, n->font_family, n->font_size,
+    return wn_text_atlas_shape(c->text_atlas, text,
+                               wn_core_node_font_family(c, node),
+                               wn_core_node_font_size(c, node),
                                wn_core_node_font_weight(c, node));
 }
 
@@ -185,14 +186,14 @@ static float input_prefix_width(const wn_core *c, int node, const char *text, in
 
 static int input_line_metrics(const wn_core *c, int node, float *ascent, float *line_height)
 {
-    const UiNode *n = &c->nodes[node];
     wn_text_block block;
     /* The editor line is the unconstrained single-line block for the same
      * ascender/descender sample layout uses ("Mg"). One line model, one cache
      * key. When the backend measure failed, the block still builds a synthetic
      * line box; the editor keeps its historical 1.35*size fallback for that
      * path (input_line_height), so report the block as unavailable. */
-    if (wn_text_block_get("Mg", n->font_family, n->font_size,
+    if (wn_text_block_get("Mg", wn_core_node_font_family(c, node),
+                           wn_core_node_font_size(c, node),
                            wn_core_node_font_weight(c, node),
                            0.0f, 0.0f, &block) != 0 ||
         !block.measured) {
@@ -213,7 +214,7 @@ float input_line_height(const wn_core *c, int node)
     if (input_line_metrics(c, node, NULL, &height) == 0 && height > 0.0f) {
         return height;
     }
-    return c->nodes[node].font_size * 1.35f;
+    return wn_core_node_font_size(c, node) * 1.35f;
 }
 
 static wn_rect input_content_rect(const wn_core *c, int node)
@@ -1446,12 +1447,16 @@ void build_input_text_geometry(wn_core *c, float viewport_w, float viewport_h)
         int use_placeholder;
         int composing;
         int weight;
+        const char *family;
+        float size;
         wn_paint_draw *draw = wn_core_draw_for_item(c, order_index);
         int glyph_first = c->glyph_vertex_count;
         if (n->kind != R2_NODE_INPUT || record == NULL) {
             continue;
         }
         weight = wn_core_node_font_weight(c, node);
+        family = wn_core_node_font_family(c, node);
+        size = wn_core_node_font_size(c, node);
         value = input_text(c, node);
         composing = c->ime_node == node;
         /* While composing, the composition replaces the placeholder and is
@@ -1493,7 +1498,7 @@ void build_input_text_geometry(wn_core *c, float viewport_w, float viewport_h)
             if (run != NULL) {
                 for (int i = 0; i < run->count; ++i) {
                     const wn_atlas_glyph *packed = wn_text_atlas_glyph(
-                        c->text_atlas, n->font_family, n->font_size, weight,
+                        c->text_atlas, family, size, weight,
                         run->glyphs[i].glyph);
                     if (packed == NULL || packed->width <= 0 || packed->height <= 0) {
                         continue;
@@ -1518,7 +1523,7 @@ void build_input_text_geometry(wn_core *c, float viewport_w, float viewport_h)
                 if (ime_run != NULL) {
                     for (int i = 0; i < ime_run->count; ++i) {
                         const wn_atlas_glyph *packed = wn_text_atlas_glyph(
-                            c->text_atlas, n->font_family, n->font_size,
+                            c->text_atlas, family, size,
                             weight, ime_run->glyphs[i].glyph);
                         if (packed == NULL || packed->width <= 0 ||
                             packed->height <= 0) {
