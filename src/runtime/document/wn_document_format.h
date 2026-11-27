@@ -59,7 +59,9 @@ typedef enum {
 typedef enum {
     R2_POSITION_STATIC = 0,
     R2_POSITION_RELATIVE = 1,
-    R2_POSITION_ABSOLUTE = 2
+    R2_POSITION_ABSOLUTE = 2,
+    R2_POSITION_FIXED = 3,
+    R2_POSITION_STICKY = 4
 } PositionMode;
 
 /* Blob v6: per-state color overrides, keyed by the node. The order matches the
@@ -140,13 +142,16 @@ typedef struct {
      * top,right,bottom,left; `inset_mask` bit 0..3 marks a declared side and
      * bit 4..7 marks a percentage value. `relative` offsets after normal flow;
      * `absolute` leaves the flow and resolves against the nearest positioned
-     * ancestor (or the root). */
+     * ancestor (or the root); `fixed` leaves the flow, always resolves against
+     * the viewport and ignores ancestor scroll; `sticky` stays in flow and
+     * shifts inside the nearest scroll container. */
     int position;
     float inset[4];
     unsigned int inset_mask;
     /* Blob v5: CSS `z-index`; R2_Z_INDEX_AUTO means `auto`. A positioned node
      * with an explicit value is a stacking context (paint order only, no
-     * offscreen texture). Ignored on a static non-flex/grid node. */
+     * offscreen texture). A static flex/grid item with an explicit value is
+     * one too; z-index on any other static node is ignored. */
     int z_index;
     /* Blob v6: optional state style table for this node (borrowed from the
      * document; `state_style_count` is 0 when the node has none). A clone

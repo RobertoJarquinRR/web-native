@@ -75,6 +75,10 @@ PINNED_BLOBS = {
     "opacity_deep": "3e472dea5654ff8824c702c099d951c0e5f608cb9ce4824538350ba8c4a99623",
     # Position fixture (relative/absolute boxes, verified on d3d11 + wgpu).
     "position": "9035f7d1c56b7a53e7a236f1247052d870b6f293bdb1151f4b1205751778be5d",
+    # Fixed / sticky / static-item z-index fixtures (v4 position + v5 z-index).
+    "fixed": "a3a783df0760f54e1db1d889ea53942fc4517eff6616086c65e1a1a3e2d3248b",
+    "sticky": "4096a5ba8599921d89443ca01a6cbdff61f30e7489c7d91759f85f7f8ceb75d8",
+    "zitem": "84f2803b92f3cbddd50a0bae44379b347153ba0ca19a13bf1568ae0d42e1babd",
     # z-index / stacking-context fixture (blob v5, d3d11 + wgpu).
     "z": "58ccea5f399d9084afddb65f88fdac1ace96faeb5a7bc6cc0566fabc5d2872e1",
     # CSS state fixture (blob v6, d3d11 + wgpu).
@@ -468,6 +472,158 @@ def run_css() -> int:
         if completed.returncode != 0:
             raise CliError("position pixel comparison failed")
 
+    log_step("fixed: viewport anchoring + scroll independence (d3d11" +
+             (" + wgpu)" if wgpu_available() else ")"))
+    fixed_blob = _emit_css_fixture("fixed", page, 400, 300,
+                                   out / "emit" / "fixed")
+    _assert_pinned_blob("fixed", fixed_blob)
+    fixed_backends = ["d3d11"] + (["wgpu"] if wgpu_available() else [])
+    for fixed_backend in fixed_backends:
+        png = out / f"render_fixed_{fixed_backend}.png"
+        scrolled = out / f"render_fixed_scrolled_{fixed_backend}.png"
+        report = out / f"layout_fixed_{fixed_backend}.json"
+        environment = {"WN_RENDERER": fixed_backend}
+        _run(card_exe, ["--document", str(fixed_blob),
+                        "--report", str(report), "--sizes", "400x300"],
+             page, environment)
+        _run(card_exe, ["--document", str(fixed_blob),
+                        "--render", "400", "300", str(png)],
+             page, environment)
+        _run(card_exe, ["--document", str(fixed_blob),
+                        "--render", "400", "300", str(scrolled),
+                        "--wheel", "100", "100", "200"],
+             page, environment)
+        # 27 checks: dump position/insets, layout rects at scroll 0, the
+        # analytic colors, and the same boxes plus the moved flow after wheel.
+        _expect_reported_checks(
+            _python(suite / "verify_fixed.py",
+                    ["--png", str(png), "--scrolled", str(scrolled),
+                     "--report", str(report), "--blob", str(fixed_blob),
+                     "--dump", str(dump_exe), "--backend", fixed_backend],
+                    cwd=suite),
+            f"fixed verify ({fixed_backend})", 27)
+    if wgpu_available():
+        log_step("fixed: compare d3d11 and wgpu")
+        compare = out / "fixed_compare.json"
+        completed = subprocess.run(
+            [
+                str(get_python_exe()),
+                str(runtime / "tests" / "d3d11" / "verify_d3d11.py"),
+                "--capture", str(out / "render_fixed_d3d11.png"),
+                "--reference", str(out / "render_fixed_wgpu.png"),
+                "--report", str(compare),
+                "--label", "fixed-d3d11-vs-wgpu",
+            ],
+            cwd=out,
+            capture_output=True,
+            text=True,
+        )
+        for line in (completed.stdout + completed.stderr).splitlines():
+            if line.strip():
+                log_info(line.rstrip())
+        if completed.returncode != 0:
+            raise CliError("fixed pixel comparison failed")
+
+    log_step("sticky: scrollport pinning (d3d11" +
+             (" + wgpu)" if wgpu_available() else ")"))
+    sticky_blob = _emit_css_fixture("sticky", page, 400, 300,
+                                    out / "emit" / "sticky")
+    _assert_pinned_blob("sticky", sticky_blob)
+    sticky_backends = ["d3d11"] + (["wgpu"] if wgpu_available() else [])
+    for sticky_backend in sticky_backends:
+        png = out / f"render_sticky_{sticky_backend}.png"
+        scrolled = out / f"render_sticky_scrolled_{sticky_backend}.png"
+        report = out / f"layout_sticky_{sticky_backend}.json"
+        environment = {"WN_RENDERER": sticky_backend}
+        _run(card_exe, ["--document", str(sticky_blob),
+                        "--report", str(report), "--sizes", "400x300"],
+             page, environment)
+        _run(card_exe, ["--document", str(sticky_blob),
+                        "--render", "400", "300", str(png)],
+             page, environment)
+        _run(card_exe, ["--document", str(sticky_blob),
+                        "--render", "400", "300", str(scrolled),
+                        "--wheel", "100", "100", "120"],
+             page, environment)
+        # 17 checks: dump position/inset, in-flow layout rects, the header and
+        # stripe colors at scroll 0, then the pinned header and the stripes that
+        # scrolled under it.
+        _expect_reported_checks(
+            _python(suite / "verify_sticky.py",
+                    ["--png", str(png), "--scrolled", str(scrolled),
+                     "--report", str(report), "--blob", str(sticky_blob),
+                     "--dump", str(dump_exe), "--backend", sticky_backend],
+                    cwd=suite),
+            f"sticky verify ({sticky_backend})", 17)
+    if wgpu_available():
+        log_step("sticky: compare d3d11 and wgpu")
+        compare = out / "sticky_compare.json"
+        completed = subprocess.run(
+            [
+                str(get_python_exe()),
+                str(runtime / "tests" / "d3d11" / "verify_d3d11.py"),
+                "--capture", str(out / "render_sticky_scrolled_d3d11.png"),
+                "--reference", str(out / "render_sticky_scrolled_wgpu.png"),
+                "--report", str(compare),
+                "--label", "sticky-d3d11-vs-wgpu",
+            ],
+            cwd=out,
+            capture_output=True,
+            text=True,
+        )
+        for line in (completed.stdout + completed.stderr).splitlines():
+            if line.strip():
+                log_info(line.rstrip())
+        if completed.returncode != 0:
+            raise CliError("sticky pixel comparison failed")
+
+    log_step("z-index: static flex/grid items (d3d11" +
+             (" + wgpu)" if wgpu_available() else ")"))
+    zitem_blob = _emit_css_fixture("zitem", page, 400, 300,
+                                   out / "emit" / "zitem")
+    _assert_pinned_blob("zitem", zitem_blob)
+    zitem_backends = ["d3d11"] + (["wgpu"] if wgpu_available() else [])
+    for zitem_backend in zitem_backends:
+        png = out / f"render_zitem_{zitem_backend}.png"
+        report = out / f"layout_zitem_{zitem_backend}.json"
+        environment = {"WN_RENDERER": zitem_backend}
+        _run(card_exe, ["--document", str(zitem_blob),
+                        "--report", str(report), "--sizes", "400x300"],
+             page, environment)
+        _run(card_exe, ["--document", str(zitem_blob),
+                        "--render", "400", "300", str(png)],
+             page, environment)
+        # 42 checks: dump z-index/static position, nine exact rects, and the
+        # analytic colors for flex 1/2 (both DOM orders), grid, and the trapped
+        # nested context.
+        _expect_reported_checks(
+            _python(suite / "verify_zitem.py",
+                    ["--png", str(png), "--report", str(report),
+                     "--blob", str(zitem_blob), "--dump", str(dump_exe),
+                     "--backend", zitem_backend], cwd=suite),
+            f"zitem verify ({zitem_backend})", 42)
+    if wgpu_available():
+        log_step("z-index static items: compare d3d11 and wgpu")
+        compare = out / "zitem_compare.json"
+        completed = subprocess.run(
+            [
+                str(get_python_exe()),
+                str(runtime / "tests" / "d3d11" / "verify_d3d11.py"),
+                "--capture", str(out / "render_zitem_d3d11.png"),
+                "--reference", str(out / "render_zitem_wgpu.png"),
+                "--report", str(compare),
+                "--label", "zitem-d3d11-vs-wgpu",
+            ],
+            cwd=out,
+            capture_output=True,
+            text=True,
+        )
+        for line in (completed.stdout + completed.stderr).splitlines():
+            if line.strip():
+                log_info(line.rstrip())
+        if completed.returncode != 0:
+            raise CliError("static-item z-index pixel comparison failed")
+
     log_step("z-index: stacking-context pixel fixture (d3d11" +
              (" + wgpu)" if wgpu_available() else ")"))
     z_blob = _emit_css_fixture("z", page, 400, 690, out / "emit" / "z")
@@ -721,10 +877,13 @@ def run_fidelity() -> int:
     position_text = _run(position_exe, [], out)
     _expect(position_text, ["position_test: PASS"], "position layout test")
     # Relative offsets plus subtree/scroll, absolute flow/containing-block/
-    # stretch/nested cases, flex/grid/intrinsic exclusion, the viewport
-    # fallback, the fully clipped ancestor escape, scroll+clip+hit-test and the
-    # v4 loader validation.
-    _expect_checks(position_text, "position_test", 64)
+    # stretch/nested cases, flex/grid/intrinsic exclusion for absolute and
+    # fixed, the viewport fallback, the fully clipped ancestor escape,
+    # scroll+clip+hit-test, the fixed viewport/scroll/clip cases, sticky
+    # top/bottom/clamp, sticky+nested-scroller nearest, top-over-bottom,
+    # content-box scrollport, hidden-not-a-scroller, sticky-with-fixed-child,
+    # and the v4 loader validation through the extended enum.
+    _expect_checks(position_text, "position_test", 140)
 
     log_step("fidelity: z-index stacking contexts (order, hit-test, layers)")
     zindex_exe = out / "zindex_test.exe"
@@ -737,16 +896,18 @@ def run_fidelity() -> int:
     )
     zindex_text = _run(zindex_exe, [], out)
     _expect(zindex_text, ["zindex_test: PASS"], "z-index stacking test")
-    # 64 checks: positioned sibling z 1/2 and swapped, positioned z auto/0 in
+    # 75 checks: positioned sibling z 1/2 and swapped, positioned z auto/0 in
     # both tree orders (step 8), negative z behind in-flow, a high-z child
     # trapped by a low-z parent, opacity+z texture-vs-ordering layers, nested
     # contexts, the equal-z tree-order tie-break (including reversed DOM), a
-    # first-in-DOM relative z over a later in-flow sibling, static z ignored,
-    # non-positioned opacity groups in the step-8 bucket against a later
-    # in-flow sibling and against positioned z auto in both tree orders, the
-    # empty-clip group with and without an unrelated group, the flat
-    # no-context path, and the v5 loader sentinel/range roundtrip.
-    _expect_checks(zindex_text, "zindex_test", 64)
+    # first-in-DOM relative z over a later in-flow sibling, static z ignored on
+    # a block, static flex/grid items with z 1/2 (including swapped DOM and a
+    # trapped nested context), non-positioned opacity groups in the step-8
+    # bucket against a later in-flow sibling and against positioned z auto in
+    # both tree orders, the empty-clip group with and without an unrelated
+    # group, the flat no-context path, and the v5 loader sentinel/range
+    # roundtrip.
+    _expect_checks(zindex_text, "zindex_test", 75)
 
     log_step("fidelity: CSS state styles + ABI v7 focus/disabled")
     states_exe = out / "states_test.exe"

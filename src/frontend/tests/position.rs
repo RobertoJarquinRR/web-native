@@ -1,5 +1,5 @@
-//! `position: relative|absolute` + `top/right/bottom/left` in the pre-layout
-//! tree and in `subset v1` diagnostics.
+//! `position: relative|absolute|fixed|sticky` + `top/right/bottom/left` in the
+//! pre-layout tree and in `subset v1` diagnostics.
 //!
 //! The layout semantics live in the C runtime suites; here the contract is the
 //! computed style that travels in the `.wnui` blob: the position keyword, the
@@ -112,25 +112,29 @@ fn supported_position_and_insets_produce_no_diagnostics() {
     assert!(report.is_empty(), "unexpected diagnostics: {report:#?}");
 }
 
-#[test]
-fn fixed_and_sticky_are_diagnosed() {
-    let html = r##"<!doctype html>
+const FIXED_STICKY_PAGE: &str = r##"<!doctype html>
 <html><head><style>
   body { display: block; }
-  .fixed { position: fixed; top: 0; left: 0; }
+  .fixed { position: fixed; top: 0; left: 0; width: 20px; height: 10px; }
   .sticky { position: sticky; top: 10px; }
 </style></head><body>
-  <div class="fixed"></div><div class="sticky"></div>
+  <div id="fixed" class="fixed"></div><div id="sticky" class="sticky"></div>
 </body></html>"##;
-    let report = diagnostics(html, "position-fixed-sticky");
-    assert!(
-        report.iter().any(|line| line.contains("position: fixed")),
-        "missing fixed diagnostic: {report:#?}"
-    );
-    assert!(
-        report.iter().any(|line| line.contains("position: sticky")),
-        "missing sticky diagnostic: {report:#?}"
-    );
+
+#[test]
+fn fixed_and_sticky_are_recorded_with_their_insets() {
+    let dir = temp_dir("position-fixed-sticky");
+    let tree = build(&dir, FIXED_STICKY_PAGE);
+    let fixed = node(&tree, "body.root/div#fixed.fixed");
+    assert_eq!(fixed.style.position, "fixed");
+    assert_eq!(fixed.style.inset, [0.0, 0.0, 0.0, 0.0]);
+    assert_eq!(fixed.style.inset_mask, 0b1001);
+    let sticky = node(&tree, "body.root/div#sticky.sticky");
+    assert_eq!(sticky.style.position, "sticky");
+    assert_eq!(sticky.style.inset_mask, 0b0001);
+
+    let report = diagnostics(FIXED_STICKY_PAGE, "position-fixed-sticky-valid");
+    assert!(report.is_empty(), "unexpected diagnostics: {report:#?}");
 }
 
 #[test]

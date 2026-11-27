@@ -43,13 +43,17 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 - `width`, `height` (px, %).
 - `padding`, `margin` (shorthand + longhands, px).
 - `box-sizing: border-box` (fijo en v1).
-- `position: static | relative | absolute` (v4; `static` es el default).
+- `position: static | relative | absolute | fixed | sticky` (v4; `static` es
+  el default). `fixed` usa siempre el viewport como containing block e ignora
+  el scroll/clip de los ancestros; `sticky` sigue en flujo y se ancla al
+  scroll container más cercano (`overflow: scroll`) con `top`/`bottom`; su
+  scrollport es el content box del scroller (ver `wnui-format.md`).
 - `top`, `right`, `bottom`, `left` en px, `%` o `auto` (los porcentajes se
   resuelven en layout contra el containing block; no se hornean).
 - `z-index: auto | <integer>` (v5; enteros de 32 bits, negativos y 0 incluidos;
-  `-2147483648` reservado para `auto`). Solo se aplica a nodos posicionados
-  (`relative`/`absolute`); en `static` se ignora, como en CSS sin ítem
-  flex/grid.
+  `-2147483648` reservado para `auto`). Se aplica a nodos posicionados
+  (`relative`/`absolute`/`fixed`/`sticky`) y a ítems flex/grid `static`; `auto`
+  no crea contexto y en cualquier otro `static` se ignora, como en CSS.
 
 > **Modelo de caja:** el motor calcula siempre *border-box*: `width`/`height`
 > incluyen padding y borde. CSS usa *content-box* por defecto, así que una
@@ -123,10 +127,10 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 
 ### Fuera de v1
 
-`position: fixed | sticky`, el shorthand `inset`, `transform`,
-`transition`, `animation`, `gradient`, `@media`, `@font-face`, pseudo-elementos
-(`::before/::after`), `calc()`, `float`, `table`, `filter`, `clip-path`,
-`columns`.
+`position: fixed | sticky` ya está implementado en el runtime actual. Siguen
+fuera de v1 el shorthand `inset`, `transform`, `transition`, `animation`,
+`gradient`, `@media`, `@font-face`, pseudo-elementos (`::before/::after`),
+`calc()`, `float`, `table`, `filter`, `clip-path`, `columns`.
 
 > `grid`, `box-shadow`, `em/rem/vh/vw`, per-side borders, per-corner radius y
 > `min/max` ya no están “fuera de v1” sin más: son **pilot v2/v3** y están en la
@@ -144,9 +148,12 @@ v4 (`position`) se acepta directamente en esta lane:
 - **v3:** `input type="text"` de una línea (valor inicial ASCII, edición UTF-8
   en runtime); bordes por lado, `border-radius` por esquina, `box-shadow`,
   `min/max-*` y unidades `em/rem/vh/vw`.
-- **v4:** `position: relative | absolute` con `top/right/bottom/left` en
-  px/%/auto (blob v5). `fixed`, `sticky` y el shorthand `inset` siguen fuera
-  de esta lane.
+- **v4:** `position: relative | absolute | fixed | sticky` con
+  `top/right/bottom/left` en px/%/auto (el enum de `position` se extiende sin
+  bump de blob). `fixed` se ancla al viewport e ignora el scroll de los
+  ancestros; `sticky` sigue en flujo y se ancla al scroll container más cercano
+  (`top`/`bottom`, con clamp al containing block). El shorthand `inset` sigue
+  fuera de esta lane.
 - **v5:** `z-index: auto | <integer>` y el orden de pintado por stacking
   contexts (negativos, 0/auto y positivos, anidados). Se acepta sin `--pilot`.
 
@@ -156,10 +163,10 @@ El detalle del contrato y de lo que el runtime ya implementa está en
 ## Diagnósticos
 
 - El frontend Rust emite `warning`/`error` con archivo, línea y propiedad.
-  `position: fixed/sticky`, valores de `position` desconocidos, unidades no
-  soportadas en insets, el shorthand `inset`, valores de `z-index` no
-  enteros/fuera de rango, pseudo-clases no soportadas y combinaciones de estado
-  distintas de `:hover:active` se diagnostican.
+  Valores de `position` desconocidos, unidades no soportadas en insets, el
+  shorthand `inset`, valores de `z-index` no enteros/fuera de rango,
+  pseudo-clases no soportadas y combinaciones de estado distintas de
+  `:hover:active` se diagnostican.
 - `--strict-subset`: error y exit ≠ 0 ante cualquier feature fuera del subset.
 - Sin `--strict-subset`: warning y fallback (ignorar la propiedad).
 - Objetivo: que el diseñador sepa exactamente qué puede usar.

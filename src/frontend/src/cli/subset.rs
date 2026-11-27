@@ -1246,19 +1246,13 @@ fn check_property(
             }
         }
         "position" => {
-            if matches!(lowered.as_str(), "fixed" | "sticky") {
-                report(format!(
-                    "position: {lowered} no soportado en esta lane (subset: static | relative | absolute; fixed/sticky diferidos)"
-                ));
-            } else {
-                check_keyword(
-                    name,
-                    &lowered,
-                    &["static", "relative", "absolute"],
-                    "static | relative | absolute",
-                    &mut report,
-                );
-            }
+            check_keyword(
+                name,
+                &lowered,
+                &["static", "relative", "absolute", "fixed", "sticky"],
+                "static | relative | absolute | fixed | sticky",
+                &mut report,
+            );
         }
         "top" | "right" | "bottom" | "left" => {
             check_lengths(
@@ -1281,9 +1275,9 @@ fn check_property(
             );
         }
         "z-index" => {
-            // Blob v5: `auto | <integer>`. The runtime only applies it to
-            // positioned nodes (relative/absolute), which is CSS-correct for
-            // the subset (no flex/grid item stacking contexts yet).
+            // Blob v5: `auto | <integer>`. The runtime applies it to
+            // positioned nodes (relative/absolute/fixed/sticky) and to static
+            // flex/grid items; on any other static node it is ignored, as CSS.
             if !z_index_value_is_valid(trimmed) {
                 report(format!(
                     "valor '{trimmed}' no soportado en 'z-index' (v5: auto | entero de 32 bits; -2147483648 reservado para auto)"

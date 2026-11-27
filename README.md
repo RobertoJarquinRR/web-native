@@ -108,14 +108,14 @@ sin flag:
 | --------- | ------------------------------------------------------ | ------------ |
 | **v2**    | grid, scroll vertical, imágenes, `object-fit`          | campos v2    |
 | **v3**    | input UTF-8, bordes/radius/sombras, unidades relativas | `inputs` + CSS |
-| **v4**    | `position: relative\|absolute` + `top/right/bottom/left` | `position` + `inset`/`inset_mask` |
-| **v5**    | `z-index` y stacking contexts (orden CSS simplificado) | `z_index` (INT32_MIN = auto) |
+| **v4**    | `position: relative\|absolute\|fixed\|sticky` + `top/right/bottom/left` | `position` + `inset`/`inset_mask` |
+| **v5**    | `z-index` y stacking contexts (orden CSS simplificado; también ítems flex/grid static) | `z_index` (INT32_MIN = auto) |
 
 Resumen de lo que hay hoy:
 
 | Área        | Estado                                                                  |
 | ----------- | ----------------------------------------------------------------------- |
-| Layout      | block, flex, grid, scroll vertical, resize, relative/absolute v4        |
+| Layout      | block, flex, grid, scroll vertical, resize, relative/absolute/fixed/sticky v4 |
 | Renderer    | D3D11 hardware (Windows, por defecto); wgpu-native (D3D12/Vulkan/Metal) |
 | Contenido   | texto shapeado en runtime, imágenes locales (WIC, caché LRU)            |
 | Interacción | hover/press/selected por nodo, botones/doble clic, wheel, input de una línea + IME IMM32 |

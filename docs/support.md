@@ -66,9 +66,9 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | `box-sizing: content-box`                            | Sí       | Sí      | Sí      | default de CSS; el motor suma padding/borde             |
 | `overflow: hidden`                                   | Sí       | Sí      | Sí      | clip rectangular                                           |
 | `overflow: auto/scroll`                              | Pilot v2 | warning | Sí      | scroll vertical                                            |
-| `position: static/relative/absolute` + `top/right/bottom/left` | Sí (v4)  | No | Sí | nodos relativos/absolutos, containing block, px/%/auto; ver `wnui-format.md` |
-| `z-index: auto | <integer>` (v5)                     | Sí       | No      | Sí      | contextos de apilado; solo posicionados (static se ignora); ver `wnui-format.md` |
-| `position: fixed/sticky`, `inset`                    | No       | No      | No      | fuera de esta lane; se diagnostican                          |
+| `position: static/relative/absolute/fixed/sticky` + `top/right/bottom/left` | Sí (v4)  | No | Sí | relative/absolute/fixed/sticky; containing block, px/%/auto; fixed=viewport sin scroll; sticky=scroll container más cercano (solo `overflow: scroll`; scrollport=content box); ver `wnui-format.md` |
+| `z-index: auto | <integer>` (v5)                     | Sí       | No      | Sí      | contextos de apilado; posicionados y ítems flex/grid `static`; `auto` no crea contexto; en otro static se ignora; ver `wnui-format.md` |
+| shorthand `inset`                                    | No       | No      | No      | fuera de esta lane; se diagnostica                          |
 | `float`                                              | No       | No      | No      | fuera del subset                                             |
 | `transform`, `transition`, `animation`               | No       | No      | No      | fuera del subset                                           |
 
@@ -102,7 +102,8 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | -------------------------------------------- | --- | -------------------------------------------------------- |
 | Layout block/flex/grid                       | ✅  | layout en C; `margin: auto` en block y flex; relative/absolute v4 |
 | Position relative/absolute                   | ✅  | fuera de flujo, containing block, stretch, scroll/clip, hit-test |
-| Z-index / stacking contexts (v5)             | ✅  | orden CSS simplificado (negativos, 0/auto, positivos), anidado y hit-test |
+| Position fixed/sticky                        | ✅  | fixed=viewport sin scroll/clip de ancestros; sticky=en flujo, scroll container más cercano (`overflow: scroll`; scrollport=content box), top/bottom con clamp y top gana |
+| Z-index / stacking contexts (v5)             | ✅  | orden CSS simplificado (negativos, 0/auto, positivos), anidado y hit-test; también ítems flex/grid static |
 | Scroll vertical + clip                       | ✅  | scrollbar track+thumb (sin drag); thumb sigue el wheel   |
 | Imágenes WIC + cache                         | ✅  | LRU con presupuesto (`WN_IMAGE_CACHE_MB`, 256 MB)        |
 | Tamaño intrínseco tras `set_image`            | ✅  | `wn_node_set_image_size` re-layout y `object-fit` (A9)   |

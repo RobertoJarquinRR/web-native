@@ -67,8 +67,9 @@ pub(crate) struct ComputedStyle {
     /// `opacity` (0..1, clamped). Not inherited: a node with `opacity < 1`
     /// becomes a group that fades its own box and its whole subtree.
     pub(crate) opacity: f64,
-    /// `position`: `static | relative | absolute`. `fixed`/`sticky` are
-    /// diagnosed by the subset and fall back to `static`.
+    /// `position`: `static | relative | absolute | fixed | sticky`. The
+    /// keyword travels verbatim; the runtime owns the layout semantics per
+    /// value.
     pub(crate) position: String,
     /// top, right, bottom, left. Percentages are kept as percentage numbers
     /// (not baked) so the runtime resolves them against the right box.
@@ -76,8 +77,9 @@ pub(crate) struct ComputedStyle {
     /// bit 0..3 = side is declared (not `auto`); bit 4..7 = that side is a
     /// percentage. 0 means all four insets are `auto`.
     pub(crate) inset_mask: u32,
-    /// Blob v5: CSS `z-index`; `None` is `auto`. Only applied by the runtime
-    /// to positioned nodes (relative/absolute). Negative values are valid.
+    /// Blob v5: CSS `z-index`; `None` is `auto`. The runtime applies it to
+    /// positioned nodes (relative/absolute/fixed/sticky) and to static
+    /// flex/grid items. Negative values are valid.
     pub(crate) z_index: Option<i32>,
     pub(crate) flex_direction: String,
     pub(crate) justify_content: String,
@@ -483,11 +485,13 @@ fn resolve(
         .and_then(|value| parse_number(value))
         .map(|value| value.clamp(0.0, 1.0))
         .unwrap_or(1.0);
-    // Only relative/absolute are part of the contract; fixed/sticky are
-    // diagnosed by `subset` and behave as static here so a page still lays out.
+    // The five keywords are part of the v4 contract and travel verbatim; an
+    // unknown value is dropped to static like an unsupported CSS declaration.
     let position = match raw.get("position") {
         Some(value) if value.trim().eq_ignore_ascii_case("relative") => "relative".to_string(),
         Some(value) if value.trim().eq_ignore_ascii_case("absolute") => "absolute".to_string(),
+        Some(value) if value.trim().eq_ignore_ascii_case("fixed") => "fixed".to_string(),
+        Some(value) if value.trim().eq_ignore_ascii_case("sticky") => "sticky".to_string(),
         _ => "static".to_string(),
     };
     let (inset, inset_mask) = resolve_insets(&raw);

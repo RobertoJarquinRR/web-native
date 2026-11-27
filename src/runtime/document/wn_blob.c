@@ -559,10 +559,10 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
             goto fail;
         }
         if (src->position < R2_POSITION_STATIC ||
-            src->position > R2_POSITION_ABSOLUTE) {
+            src->position > R2_POSITION_STICKY) {
             wn_set_error("wn_document_load_blob: %s: node %u has position %d "
-                         "(expected 0 static, 1 relative, 2 absolute)",
-                         origin, i, (int)src->position);
+                         "(expected 0 static, 1 relative, 2 absolute, 3 fixed, "
+                         "4 sticky)", origin, i, (int)src->position);
             goto fail;
         }
         if ((src->inset_mask & ~0xFFu) != 0u ||

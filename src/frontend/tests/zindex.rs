@@ -96,6 +96,57 @@ fn supported_z_index_produces_no_diagnostics() {
 }
 
 #[test]
+fn z_index_on_static_flex_and_grid_items_is_recorded() {
+    let html = r##"<!doctype html>
+<html><head><style>
+  body { display: block; background: #ffffff; }
+  .flex { display: flex; width: 200px; height: 40px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, 50px); width: 200px; }
+  .item { width: 50px; height: 20px; }
+  .z1 { z-index: 1; }
+  .z2 { z-index: 2; }
+</style></head><body>
+  <div id="flex" class="flex">
+    <div id="f1" class="item z1"></div>
+    <div id="f2" class="item z2"></div>
+  </div>
+  <div id="grid" class="grid">
+    <div id="g1" class="item z1"></div>
+    <div id="g2" class="item z2"></div>
+  </div>
+</body></html>"##;
+    let dir = temp_dir("zindex-static-items");
+    let tree = build(&dir, html);
+    for name in [
+        "body.root/div#flex.flex/div#f1.item",
+        "body.root/div#flex.flex/div#f2.item",
+        "body.root/div#grid.grid/div#g1.item",
+        "body.root/div#grid.grid/div#g2.item",
+    ] {
+        let item = node(&tree, name);
+        assert_eq!(item.style.position, "static", "{name}");
+    }
+    assert_eq!(
+        node(&tree, "body.root/div#flex.flex/div#f1.item")
+            .style
+            .z_index,
+        Some(1)
+    );
+    assert_eq!(
+        node(&tree, "body.root/div#flex.flex/div#f2.item")
+            .style
+            .z_index,
+        Some(2)
+    );
+    assert_eq!(
+        node(&tree, "body.root/div#grid.grid/div#g2.item")
+            .style
+            .z_index,
+        Some(2)
+    );
+}
+
+#[test]
 fn malformed_and_out_of_range_z_index_are_diagnosed() {
     let html = r##"<!doctype html>
 <html><head><style>

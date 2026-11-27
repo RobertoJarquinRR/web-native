@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>webnative fixed fixture</title>
+  <link rel="stylesheet" href="fixed.css">
+</head>
+<body>
+  <!-- The badge and nested badge live inside the scroller but are fixed to the
+       viewport: no scroll translation and no ancestor clip. -->
+  <div id="scroller" class="scroller">
+    <div id="content" class="content">
+      <div id="s1" class="stripe s1"></div>
+      <div id="s2" class="stripe s2"></div>
+      <div id="s3" class="stripe s3"></div>
+      <div id="s4" class="stripe s4"></div>
+      <div id="s5" class="stripe s5"></div>
+      <div id="s6" class="stripe s6"></div>
+      <div id="s7" class="stripe s7"></div>
+      <div id="s8" class="stripe s8"></div>
+      <div id="badge" class="badge">
+        <div id="nested" class="nested"></div>
+      </div>
+    </div>
+  </div>
+  <div id="topbadge" class="topbadge"></div>
+  <div id="bar" class="bar"></div>
+</body>
+</html>

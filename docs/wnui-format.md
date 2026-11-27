@@ -43,8 +43,8 @@ borde/radius/sombra, alineación de texto, `line-height`, `margin-auto`,
 `box-sizing`, flex, peso de fuente (`font_weight`, int32 100..900; `normal`=400,
 `bold`=700) y `opacity` (v3, `float`, 0..1; el loader rechaza valores fuera de
 rango). v4 añade al final `position` (entero: 0
-`static`, 1 `relative`, 2 `absolute`), `inset[4]` (`float`, orden
-top/right/bottom/left) e `inset_mask`. v5 añade `int32 z_index` con el sentinel
+`static`, 1 `relative`, 2 `absolute`, 3 `fixed`, 4 `sticky`), `inset[4]`
+(`float`, orden top/right/bottom/left) e `inset_mask`. v5 añade `int32 z_index` con el sentinel
 documentado `INT32_MIN` (=-2147483648) para `auto`; cualquier otro int32 es un
 nivel de apilado explícito (negativo, 0 o positivo). No guarda los atributos
 `data-*` crudos:
@@ -145,20 +145,44 @@ su lado declarado y que todo inset declarado sea finito.
   block (regla simplificada de esta lane, no la static position completa de
   CSS). Los hijos absolutos anidados usan el ancestro posicionado más cercano,
   que puede ser el propio nodo absoluto.
+- `fixed`: sale del flujo (block/flex/grid no lo cuentan ni avanzan el
+  cursor). El containing block es **siempre el viewport**, aunque la raíz sea
+  más pequeña; los insets/estretch/auto funcionan como en `absolute`. Ignora los
+  offsets de scroll de todos los ancestros y usa el clip del viewport (un
+  `overflow` ancestro no lo recorta). Un descendiente `absolute` dentro de un
+  `fixed` usa la caja del fijo como containing block.
+- `sticky`: **sigue en flujo** (ocupa su slot; los hermanos no se mueven). El
+  scroll container es el ancestro `overflow: scroll` más cercano. Con `top`
+  declarado, cuando el borde superior queda por encima del scrollport + `top`,
+  el nodo y su subárbol bajan hasta ese umbral; con `bottom`, se suben hasta el
+  scrollport − `bottom` cuando quedarían por debajo. Si ambos están declarados
+  gana `top`. El desplazamiento se recorta al **content box del padre**
+  (containing block): al llegar al final del bloque, el sticky se va con él.
+  `left`/`right` siguen la misma regla; el scroll horizontal está reservado en
+  esta lane (`scroll_max_x == 0`), así que esa mitad es inerte. Sin scroll
+  container ancestro no hay desplazamiento (la raíz no scrollea). Los
+  porcentajes de `top`/`bottom` de un sticky se resuelven contra el alto del
+  scrollport (y `left`/`right` contra su ancho).
+  **Convención de scrollport de esta lane:** el scrollport es el **content box**
+  del scroller (`rect + padding`), no el padding box de CSS; un scroller con
+  padding fija en el borde del contenido (`padding-top: 8px` + `top: 10px`
+  fija en `rect.y + 18`). Solo `overflow: scroll` cuenta como scroll container
+  para sticky: `overflow: hidden` recorta pero no fija.
 - Porcentajes de `relative` se resuelven contra el containing block del flujo
   (ancho/alto del padre); si el alto es indefinido, un `top/bottom` porcentual
   resuelve a 0.
 - **Clip:** un nodo absoluto usa el clip de los hijos de su containing block;
   así un `overflow` de un ancestro estático que no es el containing block no lo
   recorta (comportamiento CSS), mientras que el propio containing block con
-  `overflow` sí lo recorta. Scroll, clip y hit-test consumen el mismo rect.
-  El walk de pintado ya no poda un subárbol porque un ancestro tenga el clip
-  vacío: sigue bajando y omite solo los nodos cuyo propio clip está vacío. Así
-  un absoluto que escape de un ancestro **totalmente** recortado (p. ej.
+  `overflow` sí lo recorta. Un `fixed` usa el clip del viewport y ningún
+  `overflow` ancestro lo recorta. Scroll, clip y hit-test consumen el mismo
+  rect. El walk de pintado ya no poda un subárbol porque un ancestro tenga el
+  clip vacío: sigue bajando y omite solo los nodos cuyo propio clip está vacío.
+  Así un absoluto que escape de un ancestro **totalmente** recortado (p. ej.
   `relative > overflow:hidden(height:0) > static > absolute`) sí se pinta y
   responde al hit-test en su rect colocado.
-- **Diferido:** `position: fixed`, `position: sticky` y el shorthand `inset`.
-  `z-index` sí forma parte de v5 (ver abajo).
+- **Diferido:** el shorthand `inset`. `z-index` sí forma parte de v5 (ver
+  abajo).
 - **Límites conocidos de esta lane:** un porcentaje de `relative` dentro de un
   grid se resuelve contra el content box del contenedor, no contra el área del
   track (F4b); una imagen `absolute` con ancho `auto` y sin tamaño intrínseco
@@ -174,10 +198,12 @@ frontend acepta enteros de 32 bits, incluidos 0 y negativos, y **diagnostica**
 fracciones, unidades, valores fuera de rango y `-2147483648` (reservado para
 `auto`). El loader trata `INT32_MIN` como `auto`; cualquier otro int32 vale.
 
-Un **stacking context** lo crea: la raíz; un nodo con `opacity < 1` (v3); y un
-nodo **posicionado** (`relative`/`absolute`) con `z-index != auto`. El motor
-implementa el orden de pintado simplificado de CSS 2.1 Apéndice E (sin floats
-ni cajas inline, que no existen en el subset):
+Un **stacking context** lo crea: la raíz; un nodo con `opacity < 1` (v3); un
+nodo **posicionado** (`relative`/`absolute`/`fixed`/`sticky`) con
+`z-index != auto`; y un **ítem flex/grid `static`** con `z-index != auto`
+(CSS Flexbox §5.4 / Grid §5.4, se pinta como si estuviera posicionado). El
+motor implementa el orden de pintado simplificado de CSS 2.1 Apéndice E (sin
+floats ni cajas inline, que no existen en el subset):
 
 1. el ítem propio del nodo raíz del contexto (fondo/borde/contenido y, si es un
    grupo de opacidad, su capa offscreen);
@@ -186,10 +212,10 @@ ni cajas inline, que no existen en el subset):
    posicionados** que **no** son contexto, cada uno en su posición del árbol;
 4. bloques con `z == 0`/`auto` en orden de árbol: **todos** los grupos de
    `opacity < 1` (posicionados o no; CSS Color 3 §3.2 los pinta en la misma capa
-   que un posicionado con `z: 0`), los contextos posicionados con `z: 0` y los
-   ítems posicionados con `z-index: auto`, que aquí se emiten como bloques
-   atómicos. Es el paso 8 de CSS 2.1, que pinta todos ellos juntos **por encima**
-   del contenido en flujo del paso 3;
+   que un posicionado con `z: 0`), los contextos con `z: 0` (posicionados o
+   ítems flex/grid `static`) y los ítems posicionados con `z-index: auto`, que
+   aquí se emiten como bloques atómicos. Es el paso 8 de CSS 2.1, que pinta
+   todos ellos juntos **por encima** del contenido en flujo del paso 3;
 5. contextos hijos con `z > 0`, de menor a mayor `z` (empate: orden de árbol).
 
 El bloque completo de un bloque de los pasos 2/4/5 se emite como una unidad: sus
@@ -198,16 +224,19 @@ dentro de un padre `z: 1` sigue debajo de un hermano del padre con `z: 2`). Los
 contextos anidados componen recursivamente y el `z` se compara solo entre
 hermanos de contexto.
 
-**Simplificaciones documentadas:** `z-index` sobre un nodo `static` se
-**ignora** (CSS solo lo aplica a posicionados y a ítems flex/grid; este lane no
-crea contextos de ítem flex/grid). No hay floats, cajas inline ni
-`position: fixed/sticky`. Un posicionado con `z-index: auto` no es un stacking
-context en CSS, pero aquí se emite como un bloque atómico en el paso 4: sus
-descendientes posicionados no se unen al contexto abuelo como haría CSS. El
-caso normal (la caja y su subárbol sobre el contenido en flujo) coincide con el
-paso 8 de CSS. Por la misma regla, un grupo de `opacity < 1` **no posicionado**
-tampoco se pinta en el flujo: vive en el bucket del paso 8, en la misma capa que
-un posicionado con `z: 0`.
+**Simplificaciones documentadas:** `z-index` sobre un `static` que **no** es
+ítem flex/grid se **ignora**. Un ítem flex/grid `static` con `z-index` explícito
+sí crea contexto y ordena entre sus hermanos aunque no esté posicionado; sus
+descendientes quedan contenidos por ese contexto. No hay floats ni cajas
+inline. `z-index: auto` es **estructural y no crea stacking context**: no
+reserva textura ni agrupa opacidad. Un posicionado con `z-index: auto` se emite
+como un bloque atómico en el paso 4, pero eso es solo una simplificación de
+orden de pintado, no un contexto: sus descendientes posicionados no se unen al
+contexto abuelo como haría CSS. El caso normal (la caja y su subárbol sobre el
+contenido en flujo) coincide con el paso 8 de CSS.
+Por la misma regla, un grupo de `opacity < 1` **no posicionado** tampoco se pinta
+en el flujo: vive en el bucket del paso 8, en la misma capa que un posicionado
+con `z: 0`.
 
 **Capas:** un contexto de `z-index` **solo ordena**, no necesita textura. El
 modelo de comandos distingue `needs_texture` (grupo de opacidad → target
@@ -292,7 +321,8 @@ node 0 parent=-1 kind=flex name="body.root" direction=row justify=start align=st
 node 4 parent=1 kind=block name="body.root/div.sidebar/div.nav" ... action=select ... hover=#ff2a3140 press=#ff3a4a5c selected=#ff3498db ... text=""
 ```
 
-`position` se imprime como nombre (`static`, `relative`, `absolute`); `inset`
+`position` se imprime como nombre (`static`, `relative`, `absolute`, `fixed`,
+`sticky`); `inset`
 conserva el orden top/right/bottom/left y el valor crudo (un porcentaje se ve
 como su número, con el bit de porcentaje en `inset-mask`). `z-index` se imprime
 como `auto` o como el entero explícito. `states` lista los estilos v6 como
@@ -343,7 +373,7 @@ para detectar regresiones silenciosas del dump; si el formato cambia a
 propósito, se actualiza con el blob correspondiente. El gate primario es el hash
 SHA-256 fijado en `PINNED_BLOBS` (`canonical`, `input`, `fidelity`, `pilot`, más
 `dynamic`, `cache`, `css_card`/`css_control`/`css_none`,
-`opacity`/`opacity_deep`, `position`, `z` y `state` en sus suites): una
-emisión nueva que difiera falla con el hash esperado, el real y la ruta del
-archivo. El suite `blob` sigue comparando
+`opacity`/`opacity_deep`, `position`, `fixed`/`sticky`, `z`/`zitem` y `state`
+en sus suites): una emisión nueva que difiera falla con el hash esperado, el
+real y la ruta del archivo. El suite `blob` sigue comparando
 además píxel a píxel (`blob-vs-builtin max=0`).

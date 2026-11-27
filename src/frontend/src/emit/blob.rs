@@ -108,6 +108,8 @@ pub(crate) fn position_code(value: &str) -> i32 {
     match value.trim().to_ascii_lowercase().as_str() {
         "relative" => 1,
         "absolute" => 2,
+        "fixed" => 3,
+        "sticky" => 4,
         _ => 0,
     }
 }

@@ -1,0 +1,81 @@
+/* Fixed fixture: 400x300. A short root with a 240x160 scroller, plus fixed
+   boxes anchored to the viewport, including one inside the scroller. */
+html { height: 100%; }
+
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: #f0f0f0;
+}
+
+.scroller {
+  margin-left: 20px;
+  margin-top: 20px;
+  width: 240px;
+  height: 160px;
+  overflow: scroll;
+  display: block;
+  background: #dddddd;
+}
+
+.content {
+  width: 240px;
+  display: block;
+}
+
+.stripe {
+  width: 240px;
+  height: 60px;
+  display: block;
+}
+
+.s1 { background: #3366cc; }
+.s2 { background: #22aa66; }
+.s3 { background: #ccaa22; }
+.s4 { background: #aa6622; }
+.s5 { background: #0077aa; }
+.s6 { background: #9933cc; }
+.s7 { background: #444444; }
+.s8 { background: #cc9900; }
+
+/* Inside .content, fixed to the viewport bottom-right. */
+.badge {
+  position: fixed;
+  right: 10px;
+  bottom: 10px;
+  width: 60px;
+  height: 40px;
+  background: #cc3333;
+}
+
+/* Nested fixed: still viewport-anchored. */
+.nested {
+  position: fixed;
+  right: 20px;
+  bottom: 60px;
+  width: 16px;
+  height: 16px;
+  background: #9933cc;
+}
+
+.topbadge {
+  position: fixed;
+  left: 10px;
+  top: 10px;
+  width: 50px;
+  height: 20px;
+  background: #0077aa;
+}
+
+/* left+right stretch against the viewport. */
+.bar {
+  position: fixed;
+  left: 10px;
+  right: 10px;
+  top: 60px;
+  height: 12px;
+  background: #22aa66;
+}

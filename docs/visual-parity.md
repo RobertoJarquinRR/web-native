@@ -198,8 +198,9 @@ diferencia. Sin ese paquete no se abre un bug.
 7. **Coordenadas fraccionarias.** El layout admite 0,01 px; el rasterizador
    redondea. Los fixtures del gate usan enteros o medios píxeles estables.
 8. **Scroll y overlays.** Sin scroll visible; scrollbars ocultas en Chromium y
-   inexistentes en nativo. `position: fixed/sticky` (cuando existan) requieren
-   fixtures propios.
+   inexistentes en nativo. `position: fixed/sticky` ya están implementados
+   (blob v4) y tienen fixtures propios en la suite CSS (`fixed`/`sticky`, a
+   scroll 0 y tras `--wheel`); no se comparan contra una captura genérica.
 9. **Composición del OS.** Nada de capturas de ventana, DWM, sombras de
    ventana, transparencias ni temas del sistema.
 10. **Backend.** WARP y hardware no son comparables entre sí; cada reporte

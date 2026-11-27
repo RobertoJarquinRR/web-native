@@ -118,7 +118,16 @@ finales; `left+right`/`top+bottom` con tamaño `auto` estiran y los porcentajes
 se resuelven ahí, no en el frontend. Scroll, clip y hit-test usan los rects
 resultantes; el clip del absoluto es el de los hijos de su containing block
 (un `overflow` estático intermedio que no es containing block no lo recorta).
-`fixed` y `sticky` quedan fuera de esta lane.
+`fixed` también sale del flujo, pero resuelve siempre contra el viewport
+(aunque la raíz sea menor), ignora el scroll y el clip de los ancestros y se
+coloca en una pasada posterior a la de los absolutos. `sticky` sigue en flujo:
+la última pasada lo desplaza dentro del scroll container más cercano por
+`top`/`bottom` (gana `top`), recortado al content box del padre. El scrollport
+es el **content box** del scroller (`rect + padding`), no el padding box de
+CSS: un scroller con padding fija en el borde del contenido. Solo
+`overflow: scroll` cuenta como scroll container (`overflow: hidden` recorta
+pero no fija), y un hijo `fixed` del sticky no se traslada. Los hijos
+`absolute` de un `fixed` usan su caja como containing block.
 
 ### Estados CSS (blob v6, ABI v7)
 
@@ -137,18 +146,23 @@ de todo el subárbol y se hace blur del input enfocado dentro.
 
 ### Z-index y stacking contexts (blob v5)
 
-Un contexto lo crea la raíz, un nodo con `opacity < 1` o un nodo posicionado
-con `z-index != auto`. Dentro de cada contexto se pinta: su propio ítem,
+Un contexto lo crea la raíz, un nodo con `opacity < 1`, un nodo posicionado
+(`relative`/`absolute`/`fixed`/`sticky`) con `z-index != auto`, o un ítem
+flex/grid `static` con `z-index != auto` (se pinta como posicionado). Dentro de
+cada contexto se pinta: su propio ítem,
 contextos hijos con `z < 0` (ascendente), contenido en flujo en orden de árbol
 (solo ítems **no** posicionados que no son contexto), bloques con `z == 0`/`auto`
 en orden de árbol (paso 8 de CSS, por encima del flujo: **todos** los grupos de
 `opacity < 1` —posicionados o no, CSS Color 3 §3.2 los pone en la capa de un
-posicionado con `z: 0`—, contextos posicionados `z: 0` e ítems `z: auto`) y
+posicionado con `z: 0`—, contextos `z: 0` (posicionados o ítems flex/grid
+static) e ítems `z: auto`) y
 contextos con `z > 0` (ascendente). El
 bloque de un contexto es contiguo: sus descendientes no escapan del padre.
-`z-index` en un nodo `static` se ignora (sin ítems flex/grid); un posicionado
-con `z: auto` se emite como bloque atómico del paso 8 (sus posicionados no se
-unen al contexto abuelo, simplificación documentada). Un contexto z-only no
+`z-index` en un nodo `static` que no es ítem flex/grid se ignora; en un ítem
+flex/grid `static` crea contexto. `z-index: auto` es estructural y no crea
+contexto ni reserva textura: un posicionado con `z: auto` se emite como bloque
+atómico del paso 8 (sus posicionados no se unen al contexto abuelo,
+simplificación documentada). Un contexto z-only no
 reserva textura: la capa solo existe para ordenar y el renderer la reproduce
 inline (`needs_texture=0`); un grupo de opacidad sí reserva target y compone.
 Un grupo recortado a nada no reserva textura, y un absoluto que escapa conserva
