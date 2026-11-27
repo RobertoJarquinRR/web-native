@@ -60,19 +60,20 @@ def cmd_root_build(args: argparse.Namespace) -> int:
     log_step(f"master 1/3: building frontend-rust ({args.config.lower()})")
     frontend.cmd_build(argparse.Namespace(debug=is_debug))
 
-    if args.emit or not (paths.generated / "builtin_blob.h").is_file():
-        log_step("master 2/3: emitting the canonical blob")
-        runtime.cmd_emit(
-            argparse.Namespace(
-                pilot=args.pilot,
-                html=None,
-                css=None,
-                width=0,
-                height=0,
-                out_dir=None,
-                skip_rust=True,
-            )
+    # Always re-emit: a stale builtin header makes wn_view_create fail with
+    # "bad magic or version" even when every test and the app blob are fine.
+    log_step("master 2/3: emitting the canonical blob")
+    runtime.cmd_emit(
+        argparse.Namespace(
+            pilot=args.pilot,
+            html=None,
+            css=None,
+            width=0,
+            height=0,
+            out_dir=None,
+            skip_rust=True,
         )
+    )
 
     log_step(f"master 3/3: building runtime ({args.config})")
     runtime.cmd_build(
