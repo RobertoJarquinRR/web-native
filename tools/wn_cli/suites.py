@@ -1023,7 +1023,7 @@ def run_fidelity() -> int:
     # both tree orders, the empty-clip group with and without an unrelated
     # group, the flat no-context path, and the v5 loader sentinel/range
     # roundtrip.
-    _expect_checks(zindex_text, "zindex_test", 75)
+    _expect_checks(zindex_text, "zindex_test", 81)
 
     log_step("fidelity: CSS state styles + ABI v7 focus/disabled")
     states_exe = out / "states_test.exe"
