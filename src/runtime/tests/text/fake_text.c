@@ -445,6 +445,128 @@ const wn_text_ops *wn_text_fake_weight(void)
     return &g_fake_weight_ops;
 }
 
+/* Family+size+weight-sensitive variant for the runtime style-override tests:
+ * family names starting with "wide"/"narrow" scale the advance, so a family
+ * change is observable without DirectWrite. */
+static float fake_style_advance(const char *family, float size, int weight)
+{
+    float scale = 1.0f + (float)(weight - 400) / 1000.0f;
+    if (scale < 0.1f) {
+        scale = 0.1f;
+    }
+    if (family != NULL && strncmp(family, "wide", 4) == 0) {
+        scale *= 2.0f;
+    } else if (family != NULL && strncmp(family, "narrow", 6) == 0) {
+        scale *= 0.5f;
+    }
+    return size * 0.5f * scale;
+}
+
+static int fake_style_measure(void *context, const char *utf8,
+                              const wn_text_style *style, float max_width,
+                              wn_text_metrics *out)
+{
+    WnFakeState *state = (WnFakeState *)context;
+    float size = style != NULL && style->size > 0.0f ? style->size : 16.0f;
+    int weight = style != NULL ? style->weight : 400;
+    const char *family = style != NULL ? style->family : NULL;
+    int codepoints = fake_codepoints(utf8);
+    (void)max_width;
+    if (out == NULL) {
+        return 1;
+    }
+    if (state != NULL) {
+        state->measure_calls += 1;
+    }
+    memset(out, 0, sizeof(*out));
+    out->ascent = size;
+    out->descent = size * 0.25f;
+    out->width = fake_style_advance(family, size, weight) * (float)codepoints;
+    out->height = fake_line_height(size);
+    return 0;
+}
+
+static int fake_style_shape(void *context, const char *utf8,
+                            const wn_text_style *style, wn_text_glyph *glyphs,
+                            int capacity, wn_text_shaped *out)
+{
+    WnFakeState *state = (WnFakeState *)context;
+    const unsigned char *p = (const unsigned char *)(utf8 != NULL ? utf8 : "");
+    float size = style != NULL && style->size > 0.0f ? style->size : 16.0f;
+    int weight = style != NULL ? style->weight : 400;
+    const char *family = style != NULL ? style->family : NULL;
+    float advance = fake_style_advance(family, size, weight);
+    float pen = 0.0f;
+    int written = 0;
+    int total = 0;
+    if (out == NULL) {
+        return 1;
+    }
+    if (state != NULL) {
+        state->shape_calls += 1;
+    }
+    while (*p != '\0') {
+        unsigned int codepoint = 0;
+        p += decode_codepoint(p, &codepoint);
+        if (glyphs != NULL && written < capacity) {
+            glyphs[written].glyph = (int)(codepoint & 0xFFFFu);
+            glyphs[written].advance = advance;
+            glyphs[written].x = pen;
+            ++written;
+        }
+        pen += advance;
+        ++total;
+    }
+    memset(out, 0, sizeof(*out));
+    out->glyphs = glyphs;
+    out->glyph_count = written;
+    out->truncated = written < total ? 1 : 0;
+    out->width = pen;
+    out->height = fake_line_height(size);
+    out->ascent = size;
+    out->descent = size * 0.25f;
+    return 0;
+}
+
+/* Accept the synthetic family names so resolve_family() keeps them instead of
+ * substituting the fallback (which would hide a family-specific measurement). */
+static int fake_style_has_family(void *context, const char *family)
+{
+    (void)context;
+    return family != NULL &&
+           (strcmp(family, "fake") == 0 || strcmp(family, "wide") == 0 ||
+            strcmp(family, "narrow") == 0);
+}
+
+static WnFakeState g_fake_style;
+
+static int fake_style_init(void **context)
+{
+    if (context == NULL) {
+        return 1;
+    }
+    memset(&g_fake_style, 0, sizeof(g_fake_style));
+    *context = &g_fake_style;
+    return 0;
+}
+
+static const wn_text_ops g_fake_style_ops = {
+    "fake-style",
+    fake_style_init,
+    fake_destroy,
+    fake_style_measure,
+    fake_style_shape,
+    fake_rasterize,
+    fake_cache_misses,
+    fake_style_has_family,
+    fake_cache_stats,
+};
+
+const wn_text_ops *wn_text_fake_style(void)
+{
+    return &g_fake_style_ops;
+}
+
 const wn_text_ops *wn_text_fake_failing_init(void)
 {
     return &g_fake_failing_ops;

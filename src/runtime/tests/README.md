@@ -11,7 +11,7 @@ python tools\cli.py test suite <nombre>
 | Suite | Directorio | Cubre |
 |---|---|---|
 | `css` | `css/` | radios, borde uniforme, sombra, imagen; píxeles + campos vía `wnui-dump --json` |
-| `fidelity` | `fidelity/` | E1: font-weight, `text-align`, `line-height`, `margin:auto`, flex |
+| `fidelity` | `fidelity/` | E1: font-weight, `text-align`, `line-height`, `margin:auto`, flex; overrides de layout/estilo v7 |
 | `dynamic` | `dynamic/` | `set_visible`, clone/append/remove, demo ABI |
 | `input` | `input/` | caret, selección, clipboard, demo ABI |
 | `offscreen` | `offscreen/` | readback, caché de imágenes, D3D11 vs wgpu |
@@ -70,6 +70,18 @@ el rect resultante y la reconstrucción de la display list, restaura con
 `WN_AUTO` (incluido un ancho porcentual y un par `right`/`bottom`), valida la
 base de un clon y confirma que handles/valores inválidos y un nodo `static`
 para `set_position` no cambian nada.
+
+## Style overrides (ABI v7)
+
+`core/style_override_test.c` corre con el backend de texto falso sensible a
+familia/tamaño/peso (sin DirectWrite) y un documento construido en memoria:
+fija que el color de texto llega a los vértices de glifo y hereda desde un
+contenedor (con prioridad del override propio y reset por nodo/ancestro), que
+el fondo cambia la pasada sólida de un nodo `static` y se restaura, que
+familia/tamaño/peso cambian la medida y el layout y vuelven a la métrica
+compilada, que la capa de familia recursiva llega a los descendientes sin tocar
+la caja de una imagen, que un clon copia el override y su reset cae en su base
+compilada, y que handles/valores/máscaras inválidos no cambian nada.
 
 ## Histórico
 

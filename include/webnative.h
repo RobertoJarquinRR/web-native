@@ -48,7 +48,12 @@
  *        Same-version follow-ups: WN_STATE_FOCUS_VISIBLE (keyboard/programmatic
  *        focus), WN_STATE_FOCUS_WITHIN (engine-derived ancestor focus) and
  *        runtime layout overrides (wn_node_set_size/wn_node_set_position plus
- *        the WN_AUTO sentinel). No struct or event layout changed. */
+ *        the WN_AUTO sentinel). No struct or event layout changed.
+ *  - v7 additive (style lane): runtime text/background/font overrides
+ *        (wn_node_set_color/background/font_family/font_size/font_weight,
+ *        wn_node_reset_style, wn_app_set_font_family). They are a per-node
+ *        override layer over the compiled document, with no runtime CSS and no
+ *        blob change. Still v7: no struct or event layout changed. */
 #ifndef WEBNATIVE_H
 #define WEBNATIVE_H
 
@@ -121,6 +126,19 @@ extern "C" {
  * representable. Any negative width/height also restores the compiled size;
  * positions only reserve this exact sentinel. */
 #define WN_AUTO (-1.0e6f)
+
+/* ABI v7: runtime style override fields for wn_node_reset_style().
+ *
+ * Each setter records one field on one node; reset_style clears the selected
+ * fields and the node falls back to its compiled value (and, for inherited
+ * fields, to the nearest ancestor override). The mask is additive to v7: no
+ * blob, struct or event changes. */
+#define WN_STYLE_TEXT_COLOR  0x01u
+#define WN_STYLE_BACKGROUND  0x02u
+#define WN_STYLE_FONT_FAMILY 0x04u
+#define WN_STYLE_FONT_SIZE   0x08u
+#define WN_STYLE_FONT_WEIGHT 0x10u
+#define WN_STYLE_ALL         0x1Fu
 
 /* Axis-aligned rectangle in view pixels. ABI v6: public so hosts can read
  * laid-out geometry through wn_node_get_rect(). */
@@ -491,6 +509,60 @@ WN_API wn_status wn_node_set_size(wn_app *app, wn_node_id node,
                                   float width, float height);
 WN_API wn_status wn_node_set_position(wn_app *app, wn_node_id node,
                                       float x, float y);
+
+/* ---------------------------------------------- style overrides (ABI v7) */
+/*
+ * Runtime-only visual styling for a live node. Like the layout overrides, the
+ * compiled .wnui file is never modified: the values live in the core until the
+ * document is replaced or the node is removed. There is no CSS cascade; this
+ * is the host's programmatic equivalent of an inline style.
+ *
+ * Colors are 0xAARRGGBB. wn_node_set_color() sets the text color and
+ * wn_node_set_background() the box background. A text color override inherits
+ * down the subtree (a text run uses the nearest self-or-ancestor override), so
+ * styling a nav/tab container also colors its generated text runs. Background
+ * is per-node and never inherits.
+ *
+ * Font overrides use the same inheritance: wn_node_set_font_family(),
+ * wn_node_set_font_size() and wn_node_set_font_weight() affect the node and its
+ * descendants until a nearer override (or a compiled value, after a reset)
+ * takes over. A change re-shapes/measures text and marks layout and paint
+ * dirty; the next frame/render applies it. Family strings are copied by the
+ * engine and must be non-empty, shorter than 96 bytes and free of control
+ * characters; an uninstalled family resolves through the text backend's normal
+ * fallback, exactly like a compiled font stack. Sizes are 1..1024 px; weights
+ * are 100..900.
+ *
+ * wn_node_reset_style() clears the selected WN_STYLE_* fields on that node.
+ * The node then uses its compiled value again (or an ancestor override for an
+ * inherited field). Descendants are not reset; call it per node or use
+ * wn_app_set_font_family(NULL, 1) to clear the app-wide family layer.
+ *
+ * wn_app_set_font_family() is the typography-setting entry point. `family` is
+ * copied; NULL restores every compiled family (with recursive != 0 it clears
+ * every per-node family override in the tree, otherwise only the root's). With
+ * recursive != 0 a non-NULL family is written to the root and every live
+ * descendant, overriding per-node families; with recursive == 0 only the root
+ * is set and descendants inherit it unless they carry their own override.
+ *
+ * The override layer has higher priority than the compiled base and the
+ * compiled state styles (hover/press/focus/disabled): it behaves like an
+ * inline style. Colors cannot be malformed; the invalid-argument path is the
+ * app/node handle. A dead handle, a NULL app, an empty/oversized family, a
+ * non-finite or out-of-range size, a weight outside 100..900, or a zero/unknown
+ * reset mask returns WN_ERR_INVALID_ARGUMENT and changes nothing.
+ */
+WN_API wn_status wn_node_set_color(wn_app *app, wn_node_id node, uint32_t argb);
+WN_API wn_status wn_node_set_background(wn_app *app, wn_node_id node,
+                                        uint32_t argb);
+WN_API wn_status wn_node_set_font_family(wn_app *app, wn_node_id node,
+                                         const char *family);
+WN_API wn_status wn_node_set_font_size(wn_app *app, wn_node_id node, float size);
+WN_API wn_status wn_node_set_font_weight(wn_app *app, wn_node_id node, int weight);
+WN_API wn_status wn_node_reset_style(wn_app *app, wn_node_id node,
+                                     uint32_t fields);
+WN_API wn_status wn_app_set_font_family(wn_app *app, const char *family,
+                                        int recursive);
 
 /* -------------------------------------------------- text input (ABI v5) */
 /*

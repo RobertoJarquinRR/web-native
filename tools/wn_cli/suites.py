@@ -903,6 +903,25 @@ def run_fidelity() -> int:
     # rejected handle/value/static cases.
     _expect_checks(override_text, "layout_override_test", 43)
 
+    log_step("fidelity: ABI v7 runtime style overrides (color/background/font)")
+    style_exe = out / "style_override_test.exe"
+    _compile(
+        style_exe,
+        [_suite_dir("core") / "style_override_test.c",
+         _suite_dir("text") / "fake_text.c",
+         *[runtime / source for source in CORE_SOURCES]],
+        [get_paths().root / "include", runtime, out / "emit"],
+        CORE_LIBS,
+    )
+    style_text = _run(style_exe, [], out)
+    _expect(style_text, ["style_override_test: PASS"], "style override test")
+    # 49 checks: text-color paint + inheritance/priority/reset, background paint
+    # and per-node reset, family/size/weight measurement + relayout + restore,
+    # the app-wide recursive family layer (image box untouched), clone copy and
+    # reset, and every rejected handle/value/mask leaving the last valid style
+    # intact.
+    _expect_checks(style_text, "style override test", 49)
+
     log_step("fidelity: ABI v7 header (focus/disabled bits)")
     header_exe = out / "abi_v7_header_check.exe"
     _compile(
@@ -1227,6 +1246,15 @@ def run_dynamic() -> int:
         "set_size(card,auto) -> WN_OK",
         "layout size 120x120 -> 160x140 -> auto 120x120 -> restored",
         "set_position(static) -> WN_ERR_INVALID_ARGUMENT",
+        "set_color(card) -> WN_OK",
+        "set_background(card) -> WN_OK",
+        "set_font_family(card) -> WN_OK",
+        "set_font_size(card) -> WN_OK",
+        "set_font_weight(card) -> WN_OK",
+        "set_font_size(card,0) -> WN_ERR_INVALID_ARGUMENT",
+        "reset_style(card) -> WN_OK",
+        "app_set_font_family -> WN_OK",
+        "app_set_font_family(auto) -> WN_OK",
         "set_state(disabled) -> WN_OK",
         "set_state(disabled off) -> WN_OK",
         "remove(root) -> WN_ERR_INVALID_ARGUMENT",

@@ -273,6 +273,12 @@ unsigned int wn_core_node_border_color(const wn_core *core, int node);
 /* Effective font weight after the state styles (same priority as the colors).
  * Layout, shaping, atlas and paint all use it; diagnostic/test hook too. */
 int wn_core_node_font_weight(const wn_core *core, int node);
+/* ABI v7: effective family/size after the runtime override layer. The override
+ * inherits from the nearest self-or-ancestor node that carries the field; the
+ * compiled UiNode value is the fallback. Layout, shaping and paint use these
+ * helpers instead of reading the node fields directly. */
+const char *wn_core_node_font_family(const wn_core *core, int node);
+float wn_core_node_font_size(const wn_core *core, int node);
 /* Effective state mask a node paints with (a generated text run follows its
  * owning element). Diagnostic/test hook. */
 unsigned char wn_core_effective_state(const wn_core *core, int node);
@@ -328,6 +334,24 @@ int wn_core_set_image_size(wn_core *core, int node, float width, float height);
  * Both mark layout dirty. */
 int wn_core_set_size(wn_core *core, int node, float width, float height);
 int wn_core_set_position(wn_core *core, int node, float x, float y);
+
+/* ABI v7: runtime style overrides. 0 ok, -1 invalid argument, -2 out of memory.
+ * Colors are 0xAARRGGBB; text color and font fields inherit down the subtree,
+ * background does not. wn_core_set_font_size() accepts WN_AUTO to clear the
+ * field; wn_core_set_font_weight() uses 0. wn_core_set_font_family(NULL)
+ * clears it. Font changes mark layout and paint dirty; colors mark paint only.
+ * Reset_style clears the selected WN_STYLE_* fields on one node.
+ * wn_core_set_font_family_tree() is the app-wide typography layer: a non-NULL
+ * family is copied to the node and, when recursive, every live descendant;
+ * NULL clears those per-node family overrides. */
+int wn_core_set_color(wn_core *core, int node, uint32_t argb);
+int wn_core_set_background(wn_core *core, int node, uint32_t argb);
+int wn_core_set_font_family(wn_core *core, int node, const char *family);
+int wn_core_set_font_size(wn_core *core, int node, float size);
+int wn_core_set_font_weight(wn_core *core, int node, int weight);
+int wn_core_reset_style(wn_core *core, int node, unsigned int fields);
+int wn_core_set_font_family_tree(wn_core *core, int node, const char *family,
+                                 int recursive);
 
 /* Deep clone. Returns the new node index or -1 (invalid) / -2 (out of memory or
  * beyond WN_NODE_MAX_CAPACITY). */

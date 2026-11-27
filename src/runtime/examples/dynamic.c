@@ -197,6 +197,29 @@ int main(int argc, char **argv)
                   wn_node_set_position(app, card0, 5.0f, 5.0f),
                   WN_ERR_INVALID_ARGUMENT);
 
+    /* ABI v7 style overrides: inline-style colors/fonts on a live node and the
+     * app-wide typography layer. Everything is reset before the rest of the
+     * demo so later geometry asserts keep the compiled metrics. */
+    expect_status("set_color(card)",
+                  wn_node_set_color(app, card0, 0xFF00FF00u), WN_OK);
+    expect_status("set_background(card)",
+                  wn_node_set_background(app, card0, 0xFF203040u), WN_OK);
+    expect_status("set_font_family(card)",
+                  wn_node_set_font_family(app, card0, "Segoe UI"), WN_OK);
+    expect_status("set_font_size(card)",
+                  wn_node_set_font_size(app, card0, 18.0f), WN_OK);
+    expect_status("set_font_weight(card)",
+                  wn_node_set_font_weight(app, card0, 700), WN_OK);
+    expect_status("set_font_size(card,0)",
+                  wn_node_set_font_size(app, card0, 0.0f),
+                  WN_ERR_INVALID_ARGUMENT);
+    expect_status("reset_style(card)",
+                  wn_node_reset_style(app, card0, WN_STYLE_ALL), WN_OK);
+    expect_status("app_set_font_family",
+                  wn_app_set_font_family(app, "Segoe UI", 1), WN_OK);
+    expect_status("app_set_font_family(auto)",
+                  wn_app_set_font_family(app, NULL, 1), WN_OK);
+
     expect_status("set_visible(card,0)", wn_node_set_visible(app, card0, 0), WN_OK);
     expect_status("set_visible(card,1)", wn_node_set_visible(app, card0, 1), WN_OK);
     /* ABI v7: the state mask is validated before touching the view. Unknown

@@ -34,17 +34,40 @@ int main(void)
     wn_status (*set_size)(wn_app *, wn_node_id, float, float) = wn_node_set_size;
     wn_status (*set_position)(wn_app *, wn_node_id, float, float) =
         wn_node_set_position;
+    wn_status (*set_color)(wn_app *, wn_node_id, uint32_t) = wn_node_set_color;
+    wn_status (*set_background)(wn_app *, wn_node_id, uint32_t) =
+        wn_node_set_background;
+    wn_status (*set_family)(wn_app *, wn_node_id, const char *) =
+        wn_node_set_font_family;
+    wn_status (*set_font_size)(wn_app *, wn_node_id, float) =
+        wn_node_set_font_size;
+    wn_status (*set_weight)(wn_app *, wn_node_id, int) =
+        wn_node_set_font_weight;
+    wn_status (*reset_style)(wn_app *, wn_node_id, uint32_t) =
+        wn_node_reset_style;
+    wn_status (*app_family)(wn_app *, const char *, int) =
+        wn_app_set_font_family;
     float auto_value = WN_AUTO;
     uint32_t states = WN_STATE_HOVER | WN_STATE_PRESS | WN_STATE_SELECTED |
                       WN_STATE_FOCUSED | WN_STATE_DISABLED |
                       WN_STATE_FOCUS_VISIBLE | WN_STATE_FOCUS_WITHIN;
+    uint32_t style_fields = WN_STYLE_TEXT_COLOR | WN_STYLE_BACKGROUND |
+                            WN_STYLE_FONT_FAMILY | WN_STYLE_FONT_SIZE |
+                            WN_STYLE_FONT_WEIGHT;
     (void)callback;
     (void)config;
     (void)status;
     (void)set_size;
     (void)set_position;
+    (void)set_color;
+    (void)set_background;
+    (void)set_family;
+    (void)set_font_size;
+    (void)set_weight;
+    (void)reset_style;
+    (void)app_family;
     event.node = node;
     return event_size > 0 && node_size == sizeof(uint64_t) &&
            event.node == WN_NODE_INVALID && states == 0x7Fu &&
-           auto_value < 0.0f ? 0 : 1;
+           style_fields == WN_STYLE_ALL && auto_value < 0.0f ? 0 : 1;
 }

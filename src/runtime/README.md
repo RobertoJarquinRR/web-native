@@ -141,6 +141,22 @@ marcan `dirty`/`needs_layout` y la siguiente pasada re-layouta y repinta; el
 archivo compilado permanece inmutable y los overrides desaparecen al reemplazar
 el documento o eliminar el nodo.
 
+### Overrides de estilo (ABI v7)
+
+`wn_node_set_color` y `wn_node_set_background` fijan color de texto y fondo sin
+tocar el `.wnui`; `wn_node_set_font_family`/`font_size`/`font_weight` cambian la
+tipografía y re-miden/relayoutan. La familia y el tamaño/peso usan los helpers
+efectivos (`wn_core_node_font_family`/`font_size`) en layout, shaping, atlas,
+input y pintura, así que el override no se queda en un campo decorativo. El
+color de texto y las propiedades de fuente heredan al subárbol (override propio
+o del ancestro más cercano, luego el valor compilado); el fondo es por nodo.
+`wn_node_reset_style` limpia campos `WN_STYLE_*` y `wn_app_set_font_family` es la
+capa de tipografía global (recursiva o solo root) para el ajuste del usuario.
+Los overrides viajan en una arena paralela (`WnNodeStyle`), no mutan `UiNode`;
+un clon copia el override y conserva su base compilada para restaurar. Prioridad:
+override de host > estados compilados > base. Solo marcan dirty/needs_layout; el
+siguiente frame aplica. No hay parser CSS ni cambios de blob.
+
 ### Estados CSS (blob v6, ABI v7)
 
 El frontend compila `:hover`, `:active` (press incluye hover), `:focus`,
@@ -279,7 +295,7 @@ Suites de `tools/wn_cli/suites.py`:
 | Suite | Cubre |
 |---|---|
 | `css` | radios/borde/sombra e imagen; HTML/CSS → blob, campos leídos con `wnui-dump --json` |
-| `fidelity` | E1: font-weight, text-align, line-height, margin auto, flex |
+| `fidelity` | E1: font-weight, text-align, line-height, margin auto, flex; overrides de layout y estilo v7 |
 | `dynamic` | visibilidad, clone/append/remove, demo ABI |
 | `input` | caret, selección, clipboard, IME core y view-level (backend falso), demo ABI |
 | `offscreen` | readback y caché de imágenes, D3D11 vs wgpu |

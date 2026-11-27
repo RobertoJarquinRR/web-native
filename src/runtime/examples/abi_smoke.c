@@ -60,6 +60,13 @@ int main(void)
         wn_node_set_text(NULL, 1, "x") != WN_ERR_INVALID_ARGUMENT ||
         wn_node_set_size(NULL, 1, 10.0f, 10.0f) != WN_ERR_INVALID_ARGUMENT ||
         wn_node_set_position(NULL, 1, 10.0f, 10.0f) != WN_ERR_INVALID_ARGUMENT ||
+        wn_node_set_color(NULL, 1, 0xFFFFFFFFu) != WN_ERR_INVALID_ARGUMENT ||
+        wn_node_set_background(NULL, 1, 0xFFFFFFFFu) != WN_ERR_INVALID_ARGUMENT ||
+        wn_node_set_font_family(NULL, 1, "Segoe UI") != WN_ERR_INVALID_ARGUMENT ||
+        wn_node_set_font_size(NULL, 1, 16.0f) != WN_ERR_INVALID_ARGUMENT ||
+        wn_node_set_font_weight(NULL, 1, 400) != WN_ERR_INVALID_ARGUMENT ||
+        wn_node_reset_style(NULL, 1, WN_STYLE_ALL) != WN_ERR_INVALID_ARGUMENT ||
+        wn_app_set_font_family(NULL, "Segoe UI", 1) != WN_ERR_INVALID_ARGUMENT ||
         wn_node_clone(NULL, 1, 1) != WN_NODE_INVALID ||
         wn_node_remove(NULL, 1) != WN_ERR_INVALID_ARGUMENT ||
         wn_node_clear_children(NULL, 1) != WN_ERR_INVALID_ARGUMENT ||
