@@ -140,6 +140,36 @@ typedef struct {
     int font_weight;             /* WN_STYLE_FONT_WEIGHT */
 } WnNodeStyle;
 
+/* ABI v8: live media state per node. The blob only carries intent; position,
+ * volume, mute and loop belong to the running core. Phase A never opens a real
+ * session, so state starts IDLE and an open request ends in ERROR through
+ * media_null. Keeping the record here (not in UiNode) means a clone copies the
+ * intent and starts fresh state, as the contract requires. */
+typedef struct {
+    int state;                   /* WN_MEDIA_STATE_* */
+    int error;                   /* wn_media_status */
+    int64_t position_us;
+    int64_t duration_us;
+    uint32_t stream_flags;       /* WN_MEDIA_INFO_* */
+    float volume;                /* 0..1 */
+    unsigned char muted;
+    unsigned char loop;
+    char *source_override;       /* owned; replaces the blob src */
+} WnMediaNode;
+
+#define WN_MEDIA_EVENT_QUEUE 16
+#define WN_MEDIA_EVENT_DETAIL 256
+
+typedef struct {
+    int node;
+    int type;                    /* wn_media_event_type */
+    int state;                   /* WN_MEDIA_STATE_* */
+    int error;                   /* wn_media_status */
+    int64_t position_us;
+    int64_t duration_us;
+    char detail[WN_MEDIA_EVENT_DETAIL];
+} WnMediaPendingEvent;
+
 struct wn_core {
     const wn_document *doc;
 
@@ -150,6 +180,7 @@ struct wn_core {
     UiNode *nodes;
     WnNodeBase *base;            /* compiled size/inset snapshot per slot */
     WnNodeStyle *style;          /* ABI v7 runtime style overrides per slot */
+    WnMediaNode *media;          /* ABI v8 media state per slot */
     int style_active;            /* 1 once any override was set (fast path) */
     const char **names;          /* compiled names are borrowed from wn_document */
     int node_count;              /* high-water mark */
@@ -273,6 +304,15 @@ struct wn_core {
 
     int dirty;
     int needs_layout;
+
+    /* ABI v8: provider registry (always contains media_null as the last,
+     * non-removable entry) and the ordered media-event ring drained by the
+     * view on render/tick. */
+    struct wn_media_registry *media_registry;
+    WnMediaPendingEvent media_events[WN_MEDIA_EVENT_QUEUE];
+    int media_event_head;
+    int media_event_tail;
+    int media_event_count;
 };
 
 /* Cross-module helpers. Mutations link/unlink the child lists incrementally;

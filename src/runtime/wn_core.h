@@ -328,6 +328,57 @@ int wn_core_set_image(wn_core *core, int node, const char *path);
  * 1 unsupported (not an image), -1 invalid argument. Marks layout dirty. */
 int wn_core_set_image_size(wn_core *core, int node, float width, float height);
 
+/* ------------------------------------------------------- media (ABI v8) */
+/*
+ * The compiled document carries media intent only (kind 6 + section 7).
+ * The live core owns state, volume, mute and loop. A video is a replaced leaf:
+ * no decoder, no audio sink and no player UI exist here yet, so `open` records
+ * the typed media_null error and queues WN_MEDIA_EVENT_ERROR. Calls return 0 on
+ * success, 1/2 for the documented unsupported/state cases and -1/-2 for
+ * invalid arguments/out of memory.
+ */
+int wn_core_node_is_video(const wn_core *core, int node);
+const char *wn_core_node_media_src(const wn_core *core, int node);
+const char *wn_core_node_media_poster(const wn_core *core, int node);
+
+int wn_core_media_open(wn_core *core, int node);
+int wn_core_media_play(wn_core *core, int node);
+int wn_core_media_pause(wn_core *core, int node);
+int wn_core_media_seek(wn_core *core, int node, int64_t position_us);
+int wn_core_media_set_volume(wn_core *core, int node, float gain);
+int wn_core_media_set_muted(wn_core *core, int node, int muted);
+int wn_core_media_set_loop(wn_core *core, int node, int loop);
+int wn_core_media_set_source(wn_core *core, int node, const char *path);
+int wn_core_media_get_state(const wn_core *core, int node,
+                            wn_media_state_info *out);
+
+/* Provider seam. A registry belongs to one core (one view/app). */
+int wn_core_register_media_provider(wn_core *core,
+                                    const wn_media_provider_ops *ops,
+                                    void *context, int32_t priority);
+int wn_core_unregister_media_provider(wn_core *core,
+                                      const wn_media_provider_ops *ops,
+                                      void *context);
+int wn_core_load_media_provider(wn_core *core, const char *dll_path);
+int wn_core_media_provider_count(const wn_core *core);
+const wn_media_provider_ops *wn_core_media_provider_at(
+    const wn_core *core, int index, void **context, int32_t *priority);
+int wn_core_media_provider_is_null(const wn_core *core, int index);
+
+/* Moves the provider registry across a document replacement without destroying
+ * the provider contexts. The detached pointer is owned by the caller until it
+ * is attached to the replacement core (or explicitly destroyed). */
+struct wn_media_registry *wn_core_detach_media_registry(wn_core *core);
+void wn_core_attach_media_registry(wn_core *core,
+                                   struct wn_media_registry *registry);
+
+/* Pops one queued media event for the view's UI-thread callback. The `detail`
+ * pointer is owned by the core and stays valid until that ring slot is reused.
+ * Returns 1 when an event was returned, 0 when the queue is empty. */
+int wn_core_media_take_event(wn_core *core, int *node_index, int *type,
+                             int *state, int *error, int64_t *position_us,
+                             int64_t *duration_us, const char **detail);
+
 /* ABI v7: runtime geometry overrides. 0 ok, -1 invalid argument. A negative
  * size (including WN_AUTO) restores the compiled axis; a position requires a
  * non-static node and WN_AUTO restores the compiled inset pair of that axis.

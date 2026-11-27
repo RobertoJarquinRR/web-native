@@ -34,6 +34,8 @@ struct wn_app {
     double created_ms;
     wn_event_cb callback;
     void *userdata;
+    wn_media_event_cb media_callback;
+    void *media_userdata;
     wn_app_stats stats;
 };
 
@@ -86,6 +88,17 @@ static void app_view_event(void *userdata, const wn_event *event)
     }
     if (app->callback != NULL) {
         app->callback(app->userdata, event);
+    }
+}
+
+static void app_media_event(void *userdata, const wn_media_event *event)
+{
+    wn_app *app = (wn_app *)userdata;
+    if (app == NULL || event == NULL) {
+        return;
+    }
+    if (app->media_callback != NULL) {
+        app->media_callback(app->media_userdata, event);
     }
 }
 
@@ -698,6 +711,180 @@ const char *wn_node_get_value(wn_app *app, wn_node_id node)
         return NULL;
     }
     return wn_view_get_value(app->view, node);
+}
+
+/* ----------------------------------------------------------- media (v8) */
+
+wn_status wn_app_register_media_provider(wn_app *app,
+        const wn_media_provider_ops *ops, void *context, int32_t priority)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_app_register_media_provider: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_register_media_provider(app->view, ops, context, priority);
+}
+
+wn_status wn_app_unregister_media_provider(wn_app *app,
+        const wn_media_provider_ops *ops, void *context)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_app_unregister_media_provider: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_unregister_media_provider(app->view, ops, context);
+}
+
+wn_status wn_app_load_media_provider(wn_app *app, const char *dll_path)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_app_load_media_provider: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_load_media_provider(app->view, dll_path);
+}
+
+wn_status wn_app_on_media_event(wn_app *app, wn_media_event_cb cb,
+                                void *userdata)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_app_on_media_event: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    app->media_callback = cb;
+    app->media_userdata = userdata;
+    return wn_view_on_media_event(app->view, app_media_event, app);
+}
+
+#define APP_MEDIA_FORWARD(name, view_name)                                  \
+    wn_status name(wn_app *app, wn_node_id node)                            \
+    {                                                                       \
+        wn_clear_error();                                                   \
+        if (app == NULL || app->view == NULL) {                             \
+            wn_set_error(#name ": app is NULL");                            \
+            return WN_ERR_INVALID_ARGUMENT;                                 \
+        }                                                                   \
+        return view_name(app->view, node);                                  \
+    }
+
+APP_MEDIA_FORWARD(wn_node_media_open, wn_view_media_open)
+APP_MEDIA_FORWARD(wn_node_media_play, wn_view_media_play)
+APP_MEDIA_FORWARD(wn_node_media_pause, wn_view_media_pause)
+
+#undef APP_MEDIA_FORWARD
+
+wn_status wn_node_media_seek(wn_app *app, wn_node_id node,
+                             int64_t position_us)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_media_seek: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_media_seek(app->view, node, position_us);
+}
+
+wn_status wn_node_media_set_volume(wn_app *app, wn_node_id node, float gain)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_media_set_volume: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_media_set_volume(app->view, node, gain);
+}
+
+wn_status wn_node_media_set_muted(wn_app *app, wn_node_id node, int muted)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_media_set_muted: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_media_set_muted(app->view, node, muted);
+}
+
+wn_status wn_node_media_set_loop(wn_app *app, wn_node_id node, int loop)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_media_set_loop: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_media_set_loop(app->view, node, loop);
+}
+
+wn_status wn_node_media_set_source(wn_app *app, wn_node_id node,
+                                   const char *path_utf8)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_media_set_source: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_media_set_source(app->view, node, path_utf8);
+}
+
+wn_status wn_node_media_select_subtitle(wn_app *app, wn_node_id node,
+                                        int32_t stream_index)
+{
+    int index;
+    (void)stream_index;
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_media_select_subtitle: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    index = app_node_index(app, node);
+    if (index < 0) {
+        wn_set_error("wn_node_media_select_subtitle: node handle is not alive");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    if (!wn_core_node_is_video(wn_view_core(app->view), index)) {
+        return WN_ERR_UNSUPPORTED;
+    }
+    wn_set_error("wn_node_media_select_subtitle: subtitle tracks are not "
+                 "implemented in this phase");
+    return WN_ERR_UNSUPPORTED;
+}
+
+wn_status wn_node_media_set_subtitle_delay(wn_app *app, wn_node_id node,
+                                           int32_t delay_ms)
+{
+    int index;
+    (void)delay_ms;
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_media_set_subtitle_delay: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    index = app_node_index(app, node);
+    if (index < 0) {
+        wn_set_error("wn_node_media_set_subtitle_delay: node handle is not "
+                     "alive");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    if (!wn_core_node_is_video(wn_view_core(app->view), index)) {
+        return WN_ERR_UNSUPPORTED;
+    }
+    wn_set_error("wn_node_media_set_subtitle_delay: subtitle tracks are not "
+                 "implemented in this phase");
+    return WN_ERR_UNSUPPORTED;
+}
+
+wn_status wn_node_media_get_state(wn_app *app, wn_node_id node,
+                                  wn_media_state_info *out)
+{
+    wn_clear_error();
+    if (app == NULL || app->view == NULL) {
+        wn_set_error("wn_node_media_get_state: app is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_view_media_get_state(app->view, node, out);
 }
 
 /* Internal (wn_app.h): lets demos/tests inject wn_view_event() without a real

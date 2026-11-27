@@ -8,7 +8,7 @@
 │    Rust (canónico) · Python (oráculo) · C++/C# (frozen)      │
 ├──────────────────────────────────────────────────────────────┤
 │ 2. Documento (contrato runtime)                              │
-│    app.wnui (blob v6) · builtin embebido                     │
+│    app.wnui (blob v7) · builtin embebido                     │
 │    wnui-dump: proyección de debug, no contrato                │
 ├──────────────────────────────────────────────────────────────┤
 │ 3. Serializador (build time)                                 │
@@ -58,7 +58,7 @@ HTML/CSS → frontend Rust ──> --emit-blob ──> app.wnui ──┬─> SD
                                                        └─> embed ──> builtin_blob.h (kBuiltinBlob)
 runtime: eventos → estado → layout C (mide el texto) → display list
          → renderer → ventana
-host: ABI v7 → set_visible/set_image/set_text/clone (v3) + input (v4)
+host: ABI v8 → set_visible/set_image/set_text/clone (v3) + input (v4)
       + handle estable y navegación (v5)
       + estado por nodo, getters, botón/doble clic, tick, refcount (v6)
 ```
@@ -87,8 +87,8 @@ el mismo loader (`wn_document_load_blob_memory`).
 
 ### Documento compilado (`.wnui`)
 
-El árbol se serializa a un blob v6: cabecera de 32 bytes (`WNUI`, versión 6) y
-secciones de nodos, nombres, strings e inputs. Cada nodo mide 252 bytes e
+El árbol se serializa a un blob v7: cabecera de 32 bytes (`WNUI`, versión 7) y
+secciones de nodos, nombres, strings, inputs, states, text_extras y media. Cada nodo mide 252 bytes e
 incluye `position` + `inset[4]`/`inset_mask` (relative/absolute) y `z_index`
 (sentinel INT32_MIN = auto). No hay glifos,
 runs, atlas ni piscina ASCII: el texto de los inputs también lo shapea el
@@ -125,7 +125,7 @@ src/
   ir/                  histórico del IR retirado (no producción)
 tools/
   cli.py + wn_cli/     wn-cli (build/run/test/bench/setup)
-include/webnative.h    ABI C v6 (v3 dinámica + v4 input + v5 nodos + v6 estado)
+include/webnative.h    ABI C v8 (v3 dinámica + v4 input + v5 nodos + v6 estado + v7 foco/overrides + v8 media)
 benchmarks/            paridad de frontends, paridad visual, engine-metrics
 archive/experiments/   histórico inmutable
 archive/frontends-legacy/  frontends C++/C#/Python congelados (test-only)

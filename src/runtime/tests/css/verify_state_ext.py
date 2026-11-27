@@ -81,7 +81,7 @@ def main() -> int:
 
     dump = subprocess.run([args.dump, args.blob], capture_output=True, text=True)
     text = dump.stdout + dump.stderr
-    check("dump", "format wnui/6", "format=wnui/6" in text, text.splitlines()[0]
+    check("dump", "format wnui/7", "format=wnui/7" in text, text.splitlines()[0]
           if text else "no output")
     check("dump", "focus-visible style",
           "focus-visible(bg=#ff00aa55)" in text,

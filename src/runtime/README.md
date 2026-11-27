@@ -6,7 +6,7 @@ parser HTML/CSS: el documento compilado es la única entrada.
 
 ## Documento
 
-El contrato es el blob `.wnui` v4. El frontend Rust lo produce con
+El contrato es el blob `.wnui` v7. El frontend Rust lo produce con
 `frontend-rust --emit-blob`; el formato y la vista de debug están en
 [`docs/wnui-format.md`](../../docs/wnui-format.md) y
 [`src/frontend/README.md`](../frontend/README.md).
@@ -46,6 +46,7 @@ src/runtime/
   renderer_wgpu_stub.c stub cuando se compila con WN_WGPU=OFF
   wn_renderer.h       vtable de renderer
   wn_ime.h            vtable de IME (focus/blur/cancel, caret y ventana de candidatos)
+  wn_media.h          registro de proveedores, prioridades y media_null (interno)
   wn_core.h           tipos del core (UiNode, handles, eventos)
   wn_common.c         errores thread-local, utilidades
   core/
@@ -58,9 +59,13 @@ src/runtime/
     hit_test.c        hover/press/selected, click/doble click, wheel
   document/
     wn_blob.c         loader del .wnui (archivo y memoria)
-    wn_blob.h         estructuras on-disk
+    wn_blob.h         estructuras on-disk (incluye WnBlobMediaRecord v7)
     wn_document_format.h   UiNode/UiInput internos
     wn_document_internal.h refcount y storage del documento
+  media/
+    media_registry.c  cadena de proveedores, orden, handshake de plugins
+    media_null.c      proveedor nulo siempre presente, nunca acierta
+    media_core.c      estado por nodo <video>, win_node_media_* y eventos
   text/
     wn_text.h         vtable: measure, shape, rasterize
     text_directwrite.cpp backend Windows
@@ -104,6 +109,24 @@ selección/caret de un input, texto o imagen sobre fondo).
 - **Límites:** `WN_MAX_PAINT_LAYER_DEPTH` (512, igual que la profundidad del
   documento) y `WN_MAX_PAINT_LAYERS` (65536). El pool wgpu/D3D11 se indexa por
   profundidad, no por cantidad de grupos hermanos.
+
+### Video (blob v7, ABI v8)
+
+`<video>` es `kind == 6`, una hoja reemplazada con caja propia. La intención
+(`src`, `poster`, `controls`, `autoplay`, `loop`, `muted`, `preload`) viaja en la
+sección opcional 7 del blob; el estado vivo (posición, volumen, mute, loop) vive
+en el core y nunca se escribe al documento. El layout usa el tamaño declarado o
+el default HTML 300×150; `object-fit` se resuelve en el core y el póster se pinta
+por la misma ruta de imagen (cache WIC por ruta). Sin póster se pinta un
+placeholder neutro `#232A36`, no un frame falso ni controles.
+
+`media_null` está siempre al final de la cadena y nunca acierta. `open` sin un
+proveedor real termina en `WN_MEDIA_EVENT_ERROR` con
+`WN_MEDIA_UNSUPPORTED_CONTAINER`; con un proveedor registrado termina en
+`WN_MEDIA_INTERNAL` porque esta fase **no** tiene driver de sesión ni
+decodificador. `wn_node_media_get_state` es una lectura copiada y
+`set_source` vuelve a `IDLE`. Los subtítulos devuelven `WN_ERR_UNSUPPORTED`.
+El contrato completo y lo diferido a E3b están en `docs/media-v1.md`.
 
 ### Position (blob v4)
 

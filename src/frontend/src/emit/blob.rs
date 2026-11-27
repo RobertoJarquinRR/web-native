@@ -12,12 +12,12 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use crate::emit::ui_tree::{NodeOut, KIND_TEXT};
+use crate::emit::ui_tree::{NodeOut, KIND_TEXT, KIND_VIDEO};
 use crate::style::color::argb;
 use crate::style::grid::{GridAutoRows, GridTemplateColumns};
 
 const BLOB_MAGIC: u32 = 0x4955_4E57; // "WNUI"
-const BLOB_VERSION: u32 = 6;
+const BLOB_VERSION: u32 = 7;
 
 /// Blob v5: `z-index: auto` sentinel (INT32_MIN). Every other int32 is an
 /// explicit stacking level.
@@ -33,6 +33,12 @@ const SECTION_STATES: u32 = 5;
 /// Blob v6 optional text extras (`text-overflow: ellipsis`). Additive section;
 /// the header version stays 6.
 const SECTION_TEXT_EXTRAS: u32 = 6;
+/// Blob v7 optional per-video media intent (`WnBlobMediaRecord`, 16 bytes).
+const SECTION_MEDIA: u32 = 7;
+
+/// Blob v7 media flags (WnBlobMediaRecord.flags). The individual bits are
+/// produced by `ui_tree`; the writer only masks them to the defined range.
+const MEDIA_FLAG_ALL: u8 = 0x0F;
 
 /// Blob v6 state style presence bits.
 const STATE_FIELD_BACKGROUND: u8 = 1 << 0;
@@ -295,6 +301,7 @@ fn push_node_record(
 ) {
     let style = &node.style;
     let is_text = node.kind == KIND_TEXT;
+    let is_video = node.kind == KIND_VIDEO;
     let (width, height) = if is_text {
         (-1.0, -1.0)
     } else {
@@ -318,14 +325,31 @@ fn push_node_record(
     /* `overflow` is a v1 field: `hidden` does not add scroll, so it must reach
      * the runtime even when the rest of the historical schema is untouched. */
     let overflow = overflow_code(style.overflow.as_deref());
-    let image_src = node.image.as_ref().and_then(|image| image.src.as_deref());
-    let image_alt = node.image.as_ref().and_then(|image| image.alt.as_deref());
-    let (image_width, image_height) = image_size(image_src, asset_dir);
-    let object_fit = node
-        .image
-        .as_ref()
-        .map(|image| object_fit_code(Some(image.object_fit.as_str())))
-        .unwrap_or(0);
+    // Blob v7: a video node must keep all image fields at zero. Its source and
+    // poster travel in the optional media section, never in image_src.
+    let image_src = if is_video {
+        None
+    } else {
+        node.image.as_ref().and_then(|image| image.src.as_deref())
+    };
+    let image_alt = if is_video {
+        None
+    } else {
+        node.image.as_ref().and_then(|image| image.alt.as_deref())
+    };
+    let (image_width, image_height) = if is_video {
+        (0.0, 0.0)
+    } else {
+        image_size(image_src, asset_dir)
+    };
+    let object_fit = if is_video {
+        object_fit_code(style.object_fit.as_deref())
+    } else {
+        node.image
+            .as_ref()
+            .map(|image| object_fit_code(Some(image.object_fit.as_str())))
+            .unwrap_or(0)
+    };
     let shadow = first_shadow(&style.css3);
 
     push_i32(out, node.parent as i32);
@@ -506,6 +530,26 @@ pub(crate) fn write_blob(
         text_extras.extend_from_slice(&[0, 0, 0]);
     }
 
+    // Blob v7: optional `media` section, one 16-byte record per video node in
+    // strictly increasing node order. The section is absent when no node is a
+    // video. `src` must be non-empty (the emitter only creates kind 6 with a
+    // source); `poster` is 0 when the attribute is absent.
+    let mut media_records = Vec::new();
+    for (index, node) in nodes.iter().enumerate() {
+        let Some(media) = &node.media else {
+            continue;
+        };
+        debug_assert_eq!(node.kind, KIND_VIDEO);
+        push_i32(&mut media_records, index as i32);
+        let src = pool.offset(Some(media.src.as_str()));
+        let poster = pool.offset(media.poster.as_deref());
+        push_u32(&mut media_records, src);
+        push_u32(&mut media_records, poster);
+        media_records.push(media.flags & MEDIA_FLAG_ALL);
+        media_records.push(media.preload.min(2));
+        media_records.extend_from_slice(&[0, 0]);
+    }
+
     let mut sections: Vec<(u32, Vec<u8>)> = vec![
         (SECTION_NODES, node_records),
         (SECTION_NAMES, name_records),
@@ -519,6 +563,9 @@ pub(crate) fn write_blob(
     }
     if !text_extras.is_empty() {
         sections.push((SECTION_TEXT_EXTRAS, text_extras));
+    }
+    if !media_records.is_empty() {
+        sections.push((SECTION_MEDIA, media_records));
     }
 
     let table_size = BLOB_HEADER_SIZE + sections.len() * BLOB_SECTION_SIZE;

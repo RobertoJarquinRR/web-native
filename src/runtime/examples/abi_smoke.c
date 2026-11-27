@@ -67,6 +67,25 @@ int main(void)
         wn_node_set_font_weight(NULL, 1, 400) != WN_ERR_INVALID_ARGUMENT ||
         wn_node_reset_style(NULL, 1, WN_STYLE_ALL) != WN_ERR_INVALID_ARGUMENT ||
         wn_app_set_font_family(NULL, "Segoe UI", 1) != WN_ERR_INVALID_ARGUMENT ||
+        wn_app_register_media_provider(NULL, NULL, NULL, 0) !=
+            WN_ERR_INVALID_ARGUMENT ||
+        wn_app_unregister_media_provider(NULL, NULL, NULL) !=
+            WN_ERR_INVALID_ARGUMENT ||
+        wn_app_load_media_provider(NULL, "x.dll") != WN_ERR_INVALID_ARGUMENT ||
+        wn_app_on_media_event(NULL, NULL, NULL) != WN_ERR_INVALID_ARGUMENT ||
+        wn_node_media_open(NULL, 1) != WN_ERR_INVALID_ARGUMENT ||
+        wn_node_media_play(NULL, 1) != WN_ERR_INVALID_ARGUMENT ||
+        wn_node_media_pause(NULL, 1) != WN_ERR_INVALID_ARGUMENT ||
+        wn_node_media_seek(NULL, 1, 0) != WN_ERR_INVALID_ARGUMENT ||
+        wn_node_media_set_volume(NULL, 1, 1.0f) != WN_ERR_INVALID_ARGUMENT ||
+        wn_node_media_set_muted(NULL, 1, 0) != WN_ERR_INVALID_ARGUMENT ||
+        wn_node_media_set_loop(NULL, 1, 0) != WN_ERR_INVALID_ARGUMENT ||
+        wn_node_media_set_source(NULL, 1, "x.mp4") != WN_ERR_INVALID_ARGUMENT ||
+        wn_node_media_select_subtitle(NULL, 1, -1) !=
+            WN_ERR_INVALID_ARGUMENT ||
+        wn_node_media_set_subtitle_delay(NULL, 1, 0) !=
+            WN_ERR_INVALID_ARGUMENT ||
+        wn_node_media_get_state(NULL, 1, NULL) != WN_ERR_INVALID_ARGUMENT ||
         wn_node_clone(NULL, 1, 1) != WN_NODE_INVALID ||
         wn_node_remove(NULL, 1) != WN_ERR_INVALID_ARGUMENT ||
         wn_node_clear_children(NULL, 1) != WN_ERR_INVALID_ARGUMENT ||

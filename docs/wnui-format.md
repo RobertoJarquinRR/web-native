@@ -1,6 +1,6 @@
 # Formato `.wnui` y `wnui-dump`
 
-> **No es un contrato.** El documento `.wnui` v6 es el contrato *runtime* entre
+> **No es un contrato.** El documento `.wnui` v7 es el contrato *runtime* entre
 > el frontend y el loader. `wnui-dump` es una **proyección de debug** de ese
 > blob: su texto y su JSON pueden cambiar cuando cambia la versión del blob.
 > La invariante estable es el hash SHA-256 del blob canónico y la comparación
@@ -17,7 +17,7 @@ Cabecera de 32 bytes, little-endian:
 | Campo | Tipo | Notas |
 |---|---|---|
 | `magic` | `u32` | `0x49554E57` (`WNUI`) |
-| `version` | `u32` | `6` |
+| `version` | `u32` | `7` |
 | `section_count` | `u32` | secciones en la tabla |
 | `file_size` | `u32` | tamaño total; el loader lo exige exacto |
 | `node_count` | `u32` | nodos del árbol (máx. 65536) |
@@ -36,6 +36,7 @@ Las secciones empiezan alineadas a 8 bytes:
 | 4 | inputs | registros `WnBlobInput` (20 bytes); ausente si no hay inputs |
 | 5 | states | estilos de estado CSS (v6); **ausente** si ningún nodo tiene estados |
 | 6 | text_extras | flags de texto (v6, aditivo; p. ej. ellipsis); **ausente** si no hay flags |
+| 7 | media | intención de `<video>` (v7): `WnBlobMediaRecord` de 16 bytes; **ausente** si no hay nodos `video` |
 
 El registro de nodo guarda `parent`, `kind`, dirección/justify/align/wrap,
 geometría declarada, márgenes/padding, colores ARGB resueltos, offsets de
@@ -52,7 +53,32 @@ nivel de apilado explícito (negativo, 0 o positivo). No guarda los atributos
 la cascada ya los convirtió en ARGB y código de acción. El orden y ancho de los
 campos están en `src/runtime/document/wn_blob.h`. **v6 no cambia el registro de
 nodo** (sigue en 252 bytes): los estilos de estado viajan en la sección opcional
-5, sólo para los nodos que los necesitan.
+5, sólo para los nodos que los necesitan. **v7 tampoco cambia el registro**:
+añade `kind = 6` (`video`) y la sección opcional 7 con 16 bytes por nodo vídeo.
+Un nodo vídeo debe dejar `image_src`, `image_alt`, `image_width` e
+`image_height` a 0; el loader lo valida.
+
+### Sección `media` (v7)
+
+La sección 7 es una secuencia de registros de 16 bytes en orden estricto de
+índice de nodo (creciente, sin duplicados), exactamente uno por cada nodo
+`kind == 6`:
+
+```
+WnBlobMediaRecord (16 bytes)
+  int32  node;      // índice del nodo; kind debe ser 6
+  uint32 src;       // offset al pool; obligatorio, != 0, no vacío, sin "://"
+  uint32 poster;    // offset al pool; 0 = sin póster
+  uint8  flags;     // WN_MEDIA_FLAG_* (bits 4..7 reservados, el loader los rechaza)
+  uint8  preload;   // 0 none, 1 metadata (default), 2 auto
+  uint8  reserved[2]; // 0
+```
+
+`flags`: `0x01 controls`, `0x02 autoplay`, `0x04 loop`, `0x08 muted`. La sección
+está ausente si el documento no tiene vídeos; un vídeo sin registro, un registro
+sobre otro `kind`, un `src` vacío/con esquema, `preload > 2`, bits reservados o
+`reserved != 0` son un blob corrupto. El loader no tiene lector dual v6/v7: la
+cabecera debe ser exactamente 7.
 
 ### Sección `states` (v6)
 
@@ -351,11 +377,11 @@ stderr y sale con código distinto de cero.
 Primera línea:
 
 ```
-format=wnui/6 viewport=960x640 nodes=28 inputs=0
+format=wnui/7 viewport=960x640 nodes=28 inputs=0
 ```
 
 Una línea por nodo, con nombres simbólicos estables para `kind` (`block`,
-`flex`, `text`, `grid`, `image`, `input`), `direction`, `justify`, `align`,
+`flex`, `text`, `grid`, `image`, `input`, `video`), `direction`, `justify`, `align`,
 `wrap`, `overflow`, `object_fit`, `text_align`, `action`, `grid`, `opacity`,
 `position`, `inset`, `inset-mask` y `z-index` (`auto` o el número). Los colores salen como `#AARRGGBB`
 (`#ff0b0e14`) y los floats con cuatro decimales (`%.4f`, sin `-0.0000`), con el
@@ -381,13 +407,19 @@ Si hay inputs se añade una línea por input:
 input node=2 value="" placeholder="Buscar..." max-length=12 password=0
 ```
 
+Si hay vídeos se añade una línea por nodo:
+
+```
+media node=1 src="clips/poster.mp4" poster="posters/poster.png" flags=controls,autoplay,loop,muted preload=metadata
+```
+
 ### Salida JSON
 
 Mismas claves y valores, orden fijo:
 
 ```json
 {
-  "format": "wnui/6",
+  "format": "wnui/7",
   "viewport": { "width": 960, "height": 640 },
   "node_count": 28,
   "input_count": 0,
@@ -408,7 +440,9 @@ Mismas claves y valores, orden fijo:
 `inputs[]` lleva `node`, `value`, `placeholder`, `max_length` y `password`.
 `state_styles[]` lleva `state` (`hover`/`press`/`focus`/`disabled`) y los campos
 presentes (`background`, `text`, `border`) como `#AARRGGBB`. `initial_state`
-lleva la misma lista que el texto (`"disabled"` o `"none"`).
+lleva la misma lista que el texto (`"disabled"` o `"none"`). Los nodos vídeo
+añaden `media_src`, `media_poster`, `media_flags` (array de nombres) y
+`media_preload`.
 
 ### Invariante del test
 
@@ -418,7 +452,7 @@ para detectar regresiones silenciosas del dump; si el formato cambia a
 propósito, se actualiza con el blob correspondiente. El gate primario es el hash
 SHA-256 fijado en `PINNED_BLOBS` (`canonical`, `input`, `fidelity`, `pilot`, más
 `dynamic`, `cache`, `css_card`/`css_control`/`css_none`,
-`opacity`/`opacity_deep`, `position`, `fixed`/`sticky`, `z`/`zitem` y `state`
-en sus suites): una emisión nueva que difiera falla con el hash esperado, el
-real y la ruta del archivo. El suite `blob` sigue comparando
-además píxel a píxel (`blob-vs-builtin max=0`).
+`opacity`/`opacity_deep`, `position`, `fixed`/`sticky`, `z`/`zitem`, `state` y
+`media` en sus suites): una emisión nueva que difiera falla con el hash esperado,
+el real y la ruta del archivo. El suite `blob` sigue comparando además píxel a
+píxel (`blob-vs-builtin max=0`).

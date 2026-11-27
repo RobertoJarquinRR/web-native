@@ -21,7 +21,7 @@
 #include "document/wn_document_internal.h"
 #include "wn_internal.h"
 
-#define FORMAT_NAME "wnui/6"
+#define FORMAT_NAME "wnui/7"
 
 static const char *kind_name(int kind)
 {
@@ -32,6 +32,7 @@ static const char *kind_name(int kind)
     case R2_NODE_GRID: return "grid";
     case R2_NODE_IMAGE: return "image";
     case R2_NODE_INPUT: return "input";
+    case R2_NODE_VIDEO: return "video";
     default: return "unknown";
     }
 }
@@ -294,6 +295,53 @@ static void text_initial_state(FILE *out, const UiNode *node)
     fprintf(out, " initial-state=%s", initial_state_name(node, buffer, sizeof(buffer)));
 }
 
+static const char *preload_name(unsigned int value)
+{
+    switch (value) {
+    case WN_MEDIA_PRELOAD_NONE: return "none";
+    case WN_MEDIA_PRELOAD_AUTO: return "auto";
+    default: return "metadata";
+    }
+}
+
+static void text_media_flags(FILE *out, unsigned int flags)
+{
+    static const struct {
+        unsigned int bit;
+        const char *name;
+    } names[] = {
+        { WN_MEDIA_FLAG_CONTROLS, "controls" },
+        { WN_MEDIA_FLAG_AUTOPLAY, "autoplay" },
+        { WN_MEDIA_FLAG_LOOP, "loop" },
+        { WN_MEDIA_FLAG_MUTED, "muted" },
+    };
+    size_t i;
+    int first = 1;
+    for (i = 0; i < sizeof(names) / sizeof(names[0]); ++i) {
+        if ((flags & names[i].bit) == 0u) {
+            continue;
+        }
+        fprintf(out, "%s%s", first ? "" : ",", names[i].name);
+        first = 0;
+    }
+    if (first) {
+        fputs("none", out);
+    }
+}
+
+static void text_media(FILE *out, int index, const UiNode *node)
+{
+    if (node->kind != R2_NODE_VIDEO) {
+        return;
+    }
+    fprintf(out, "media node=%d", index);
+    text_string(out, "src", node->media_src);
+    text_string(out, "poster", node->media_poster);
+    fputs(" flags=", out);
+    text_media_flags(out, node->media_flags);
+    fprintf(out, " preload=%s\n", preload_name(node->media_preload));
+}
+
 static void text_node(FILE *out, int index, const UiNode *node, const char *name)
 {
     fprintf(out, "node %d", index);
@@ -363,6 +411,7 @@ static void text_node(FILE *out, int index, const UiNode *node, const char *name
     text_initial_state(out, node);
     text_string(out, "text", node->text);
     fputc('\n', out);
+    text_media(out, index, node);
 }
 
 /* ---- JSON projection (stable key order) ------------------------------- */
@@ -423,6 +472,38 @@ static void json_state_styles(FILE *out, const UiNode *node)
     fprintf(out, "%s],\n", node->state_style_count > 0 ? "\n      " : "");
 }
 
+static void json_media(FILE *out, const UiNode *node)
+{
+    static const struct {
+        unsigned int bit;
+        const char *name;
+    } names[] = {
+        { WN_MEDIA_FLAG_CONTROLS, "controls" },
+        { WN_MEDIA_FLAG_AUTOPLAY, "autoplay" },
+        { WN_MEDIA_FLAG_LOOP, "loop" },
+        { WN_MEDIA_FLAG_MUTED, "muted" },
+    };
+    size_t i;
+    int first = 1;
+    if (node->kind != R2_NODE_VIDEO) {
+        return;
+    }
+    fprintf(out, "      \"media_src\": ");
+    json_string(out, node->media_src);
+    fprintf(out, ",\n      \"media_poster\": ");
+    json_string(out, node->media_poster);
+    fprintf(out, ",\n      \"media_flags\": [");
+    for (i = 0; i < sizeof(names) / sizeof(names[0]); ++i) {
+        if ((node->media_flags & names[i].bit) == 0u) {
+            continue;
+        }
+        fprintf(out, "%s\"%s\"", first ? "" : ", ", names[i].name);
+        first = 0;
+    }
+    fprintf(out, "],\n      \"media_preload\": \"%s\",\n",
+            preload_name(node->media_preload));
+}
+
 static void json_node(FILE *out, int index, const UiNode *node, const char *name)
 {
     fprintf(out, "    {\n");
@@ -464,6 +545,7 @@ static void json_node(FILE *out, int index, const UiNode *node, const char *name
     json_string(out, node->image_alt);
     fprintf(out, ",\n");
     fprintf(out, "      \"object_fit\": \"%s\",\n", object_fit_name(node->object_fit));
+    json_media(out, node);
     json_float(out, "border_width", node->border_width);
     json_color(out, "border_color", node->border_color);
     json_float(out, "border_radius", node->border_radius);

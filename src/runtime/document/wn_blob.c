@@ -22,6 +22,7 @@ typedef struct {
 _Static_assert(sizeof(WnBlobStateRecord) == 8, "WnBlobStateRecord must stay 8 bytes");
 _Static_assert(sizeof(WnBlobStateStyle) == 16, "WnBlobStateStyle must stay 16 bytes");
 _Static_assert(sizeof(WnBlobTextExtras) == 8, "WnBlobTextExtras must stay 8 bytes");
+_Static_assert(sizeof(WnBlobMediaRecord) == 16, "WnBlobMediaRecord must stay 16 bytes");
 
 static int blob_map_open(WnBlobMap *map, const char *path)
 {
@@ -262,12 +263,18 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
     const WnBlobSection *inputs_section = NULL;
     const WnBlobSection *states_section = NULL;
     const WnBlobSection *text_extras_section = NULL;
+    const WnBlobSection *media_section = NULL;
     uint32_t nodes_size = 0;
     uint32_t names_size = 0;
     uint32_t strings_size = 0;
     uint32_t inputs_size = 0;
     uint32_t states_size = 0;
     uint32_t text_extras_size = 0;
+    uint32_t media_size = 0;
+    uint32_t media_count = 0;
+    uint32_t media_cursor = 0;
+    uint32_t video_count = 0;
+    const WnBlobMediaRecord *media_records = NULL;
     uint32_t state_total = 0;
     UiStateStyle *states = NULL;
     const char *strings;
@@ -335,6 +342,12 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
     if (text_extras_section == NULL) {
         text_extras_size = 0;
     }
+    media_section = find_section(sections, header->section_count,
+                                 WN_BLOB_SECTION_MEDIA, header->file_size,
+                                 &media_size);
+    if (media_section == NULL) {
+        media_size = 0;
+    }
     if ((uint64_t)header->node_count * sizeof(WnBlobNode) != nodes_size ||
         (uint64_t)header->node_count * sizeof(uint32_t) != names_size ||
         strings_size == 0) {
@@ -386,6 +399,95 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
                     !blob_check_string(strings, strings_size,
                                        blob_inputs[i].placeholder,
                                        "input placeholder", i, origin)) {
+                    return NULL;
+                }
+            }
+        }
+        if (media_section != NULL) {
+            int32_t previous_node = -1;
+            if (media_size == 0 ||
+                media_size % (uint32_t)sizeof(WnBlobMediaRecord) != 0) {
+                wn_set_error("wn_document_load_blob: %s: bad media section "
+                             "(size %u)", origin, media_size);
+                return NULL;
+            }
+            media_count = media_size / (uint32_t)sizeof(WnBlobMediaRecord);
+            media_records = (const WnBlobMediaRecord *)(data + media_section->offset);
+            for (i = 0; i < media_count; ++i) {
+                const WnBlobMediaRecord *record = &media_records[i];
+                const char *src;
+                const char *poster;
+                if (record->node < 0 ||
+                    (uint32_t)record->node >= header->node_count) {
+                    wn_set_error("wn_document_load_blob: %s: media record %u "
+                                 "references node %d", origin, i,
+                                 (int)record->node);
+                    return NULL;
+                }
+                if (record->node <= previous_node) {
+                    wn_set_error("wn_document_load_blob: %s: media records are "
+                                 "not in strictly increasing node order (%d "
+                                 "after %d)", origin, (int)record->node,
+                                 (int)previous_node);
+                    return NULL;
+                }
+                previous_node = record->node;
+                if (blob_nodes[record->node].kind != WN_BLOB_NODE_VIDEO) {
+                    wn_set_error("wn_document_load_blob: %s: media record %u "
+                                 "targets node %d of kind %d (expected video)",
+                                 origin, i, (int)record->node,
+                                 (int)blob_nodes[record->node].kind);
+                    return NULL;
+                }
+                if ((record->flags & 0xF0u) != 0u) {
+                    wn_set_error("wn_document_load_blob: %s: node %d has media "
+                                 "flags 0x%x (bits 4..7 are reserved)",
+                                 origin, (int)record->node,
+                                 (unsigned)record->flags);
+                    return NULL;
+                }
+                if (record->preload > WN_MEDIA_PRELOAD_AUTO) {
+                    wn_set_error("wn_document_load_blob: %s: node %d has "
+                                 "preload %u (expected 0..2)", origin,
+                                 (int)record->node, (unsigned)record->preload);
+                    return NULL;
+                }
+                if (record->reserved[0] != 0u || record->reserved[1] != 0u) {
+                    wn_set_error("wn_document_load_blob: %s: node %d has "
+                                 "non-zero media reserved bytes", origin,
+                                 (int)record->node);
+                    return NULL;
+                }
+                if (!blob_check_string(strings, strings_size, record->src,
+                                       "media src", i, origin) ||
+                    !blob_check_string(strings, strings_size, record->poster,
+                                       "media poster", i, origin)) {
+                    return NULL;
+                }
+                src = blob_string(strings, strings_size, record->src);
+                if (src == NULL || src[0] == '\0') {
+                    wn_set_error("wn_document_load_blob: %s: node %d has an "
+                                 "empty media src", origin, (int)record->node);
+                    return NULL;
+                }
+                if (strstr(src, "://") != NULL) {
+                    wn_set_error("wn_document_load_blob: %s: node %d media src "
+                                 "'%s' is not a local path", origin,
+                                 (int)record->node, src);
+                    return NULL;
+                }
+                poster = blob_string(strings, strings_size, record->poster);
+                if (record->poster != 0u &&
+                    (poster == NULL || poster[0] == '\0')) {
+                    wn_set_error("wn_document_load_blob: %s: node %d has an "
+                                 "empty media poster", origin,
+                                 (int)record->node);
+                    return NULL;
+                }
+                if (poster != NULL && strstr(poster, "://") != NULL) {
+                    wn_set_error("wn_document_load_blob: %s: node %d media "
+                                 "poster '%s' is not a local path", origin,
+                                 (int)record->node, poster);
                     return NULL;
                 }
             }
@@ -645,6 +747,37 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
                 }
             }
         }
+        if (src->kind == WN_BLOB_NODE_VIDEO) {
+            ++video_count;
+            if (media_records == NULL ||
+                media_cursor >= media_count ||
+                media_records[media_cursor].node != (int32_t)i) {
+                wn_set_error("wn_document_load_blob: %s: video node %u has no "
+                             "media record", origin, i);
+                goto fail;
+            }
+            if (src->image_src != 0u || src->image_alt != 0u ||
+                src->image_width != 0.0f || src->image_height != 0.0f) {
+                wn_set_error("wn_document_load_blob: %s: video node %u carries "
+                             "image fields (src/alt/width/height must be 0)",
+                             origin, i);
+                goto fail;
+            }
+            dst->media_src = blob_string(strings, strings_size,
+                                         media_records[media_cursor].src);
+            dst->media_poster = blob_string(strings, strings_size,
+                                            media_records[media_cursor].poster);
+            dst->media_flags = media_records[media_cursor].flags;
+            dst->media_preload = media_records[media_cursor].preload;
+            ++media_cursor;
+        } else if (media_records != NULL && media_cursor < media_count &&
+                   media_records[media_cursor].node == (int32_t)i) {
+            /* The first pass already rejected a record on a non-video kind;
+             * keep the invariant explicit at the association point too. */
+            wn_set_error("wn_document_load_blob: %s: media record targets "
+                         "non-video node %u", origin, i);
+            goto fail;
+        }
         dst->parent = src->parent;
         dst->kind = src->kind;
         dst->direction = src->direction;
@@ -704,6 +837,21 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
          * int32 and the reserved sentinel before writing. */
         dst->z_index = src->z_index;
         dst->text_flags = 0u;
+    }
+    if (media_cursor != media_count) {
+        wn_set_error("wn_document_load_blob: %s: media section has %u records "
+                     "for %u video nodes", origin, media_count, video_count);
+        goto fail;
+    }
+    if (video_count > 0u && media_records == NULL) {
+        wn_set_error("wn_document_load_blob: %s: document has %u video nodes "
+                     "but no media section", origin, video_count);
+        goto fail;
+    }
+    if (video_count == 0u && media_records != NULL) {
+        wn_set_error("wn_document_load_blob: %s: media section present without "
+                     "video nodes", origin);
+        goto fail;
     }
     {
         const uint32_t *name_offsets =

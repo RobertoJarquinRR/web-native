@@ -31,6 +31,9 @@ pub const KIND_TEXT: u32 = 2;
 pub const KIND_GRID: u32 = 3;
 pub const KIND_IMAGE: u32 = 4;
 pub const KIND_INPUT: u32 = 5;
+/// Blob v7: first-class `<video>` replaced element (kind 6, optional media
+/// section 7). See docs/media-v1.md.
+pub const KIND_VIDEO: u32 = 6;
 
 /// Hard cap of the edit buffer; the HTML `maxlength` may be lower.
 pub const INPUT_MAX_BYTES: usize = 255;
@@ -108,6 +111,47 @@ fn sanitize_input_text(text: &str, limit: u32) -> String {
         .collect()
 }
 
+/// Blob v7 media flags from the boolean HTML attributes. Presence (even an
+/// empty value) is what matters, like a browser boolean attribute.
+fn video_flags(node: &Node) -> u8 {
+    let mut flags = 0u8;
+    if node.attr("controls").is_some() {
+        flags |= 0x01;
+    }
+    if node.attr("autoplay").is_some() {
+        flags |= 0x02;
+    }
+    if node.attr("loop").is_some() {
+        flags |= 0x04;
+    }
+    if node.attr("muted").is_some() {
+        flags |= 0x08;
+    }
+    flags
+}
+
+/// `preload`: none=0, metadata=1 (default), auto=2. Unknown values fall back to
+/// metadata; the subset diagnostic reports them.
+fn video_preload(node: &Node) -> u8 {
+    match node.attr("preload") {
+        Some(value) if value.trim().eq_ignore_ascii_case("none") => 0,
+        Some(value) if value.trim().eq_ignore_ascii_case("auto") => 2,
+        _ => 1,
+    }
+}
+
+/// A `<video>` is a replaced element only when it has a non-empty local src.
+/// The blob requires a non-empty source; a video without one is diagnosed by
+/// the subset and emitted as its normal block box so the document stays valid.
+fn video_source(node: &Node) -> Option<&str> {
+    if node.tag != "video" {
+        return None;
+    }
+    node.attr("src")
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
 #[derive(Debug, Clone)]
 pub struct StyleOut {
     pub display: Option<String>,
@@ -163,6 +207,10 @@ pub struct StyleOut {
     pub z_index: Option<i32>,
     /// v3: borders, radius, shadows and relative units (only schema `/2`).
     pub css3: StyleV3,
+    /// CSS `object-fit` (`fill | cover | contain`) for replaced elements.
+    /// Image nodes also carry it in `ImageOut`; video uses this field because
+    /// it has no image record.
+    pub object_fit: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -204,6 +252,17 @@ pub struct InputOut {
     pub password: bool,
 }
 
+/// Blob v7 media intent of a `kind:"video"` node. The strings are stored as
+/// written (the runtime resolves them like an image src); flags mirror the
+/// boolean HTML attributes and `preload` uses the documented 0/1/2 codes.
+#[derive(Debug, Clone)]
+pub struct MediaOut {
+    pub src: String,
+    pub poster: Option<String>,
+    pub flags: u8,
+    pub preload: u8,
+}
+
 #[derive(Debug, Clone)]
 pub struct NodeOut {
     pub parent: i64,
@@ -226,6 +285,8 @@ pub struct NodeOut {
     pub text: Option<TextOut>,
     pub image: Option<ImageOut>,
     pub input: Option<InputOut>,
+    /// Blob v7 media intent; only present on `kind:"video"` nodes.
+    pub media: Option<MediaOut>,
 }
 
 struct Builder<'a> {
@@ -289,15 +350,22 @@ impl<'a> Builder<'a> {
         // `password`, `checkbox`, etc. are not part of this contract and are
         // emitted as a normal block (the subset validator warns).
         let is_input = self.dom.nodes[id].tag == "input" && input_type_is_text(&self.dom.nodes[id]);
+        // Blob v7: `<video>` is a replaced element with kind 6. A missing src is
+        // diagnosed by the subset; without one it stays a block box so the
+        // blob never carries an empty media source.
+        let video_src = video_source(&self.dom.nodes[id]);
+        let is_video = video_src.is_some();
+        let is_replaced = is_image || is_input || is_video;
         let mut width_px = style.width.unwrap_or(-1.0);
         let mut width_pct = style.width_pct;
         let mut height_px = style.height.unwrap_or(-1.0);
         let mut height_pct = style.height_pct;
-        // Image: the HTML `width`/`height` are presentational hints. They are
-        // only used if CSS did not fix the dimension (CSS always wins; an
+        // Image/video: the HTML `width`/`height` are presentational hints. They
+        // are only used if CSS did not fix the dimension (CSS always wins; an
         // explicit `auto` also wins and lets the runtime measure the intrinsic
-        // size).
-        if is_image {
+        // size). Video's intrinsic size is never baked: only the declared box
+        // hint is copied.
+        if is_image || is_video {
             if width_px < 0.0 && width_pct == 0.0 && !css_auto(style, "width") {
                 if let Some(value) = attribute_length(self.dom.nodes[id].attr("width")) {
                     width_px = value;
@@ -320,8 +388,9 @@ impl<'a> Builder<'a> {
                 height_pct = 100.0;
             }
         }
-        // An inline `<img>`/`<input>` is emitted; other `inline` nodes are not.
-        if style.display == "none" || (style.display == "inline" && !is_image && !is_input) {
+        // An inline `<img>`/`<input>`/`<video>` is emitted; other `inline`
+        // nodes are not.
+        if style.display == "none" || (style.display == "inline" && !is_replaced) {
             // The oracle filters by block/flex before calling; a non-renderable
             // root node is a fixture error.
             if is_root {
@@ -331,6 +400,8 @@ impl<'a> Builder<'a> {
         }
         let kind = if is_image {
             KIND_IMAGE
+        } else if is_video {
+            KIND_VIDEO
         } else if is_input {
             KIND_INPUT
         } else if style.display == "grid" {
@@ -375,6 +446,16 @@ impl<'a> Builder<'a> {
         } else {
             None
         };
+        let media = video_src.map(|src| MediaOut {
+            src: src.to_string(),
+            poster: self.dom.nodes[id]
+                .attr("poster")
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            flags: video_flags(&self.dom.nodes[id]),
+            preload: video_preload(&self.dom.nodes[id]),
+        });
         let index = self.nodes.len();
         self.nodes.push(NodeOut {
             parent,
@@ -428,6 +509,7 @@ impl<'a> Builder<'a> {
                 inset_mask: style.inset_mask,
                 z_index: style.z_index,
                 css3: style.css3.clone(),
+                object_fit: style.object_fit.clone(),
             },
             data: DataOut {
                 hover: style.data_hover.clone(),
@@ -454,10 +536,12 @@ impl<'a> Builder<'a> {
             text: None,
             image,
             input,
+            media,
         });
 
-        // `<img>` and `<input>` are void: they have no own text and no children.
-        if is_image || is_input {
+        // `<img>`, `<input>` and `<video>` are replaced/void: they have no own
+        // text and no children in the emitted tree.
+        if is_replaced {
             return Ok(index);
         }
 
@@ -497,6 +581,9 @@ impl<'a> Builder<'a> {
             return true;
         }
         if self.dom.nodes[child].tag == "input" && input_type_is_text(&self.dom.nodes[child]) {
+            return true;
+        }
+        if self.dom.nodes[child].tag == "video" && video_source(&self.dom.nodes[child]).is_some() {
             return true;
         }
         matches!(style.display.as_str(), "block" | "flex" | "grid")
@@ -579,6 +666,7 @@ impl<'a> Builder<'a> {
                 inset_mask: 0,
                 z_index: None,
                 css3: StyleV3::default(),
+                object_fit: None,
             },
             data: DataOut {
                 hover: None,
@@ -603,6 +691,7 @@ impl<'a> Builder<'a> {
             }),
             image: None,
             input: None,
+            media: None,
         });
         self.run_count += 1;
         Ok(index)
@@ -657,6 +746,7 @@ fn nodes_use_v2(nodes: &[NodeOut]) -> bool {
     nodes.iter().any(|node| {
         node.kind == KIND_GRID
             || node.kind == KIND_IMAGE
+            || node.kind == KIND_VIDEO
             || matches!(
                 node.style.overflow.as_deref(),
                 Some("auto") | Some("scroll")

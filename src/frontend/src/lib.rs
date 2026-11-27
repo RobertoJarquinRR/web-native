@@ -19,8 +19,8 @@ use parse::dom::Dom;
 
 pub use cli::subset::{check_document_pilot, print_diagnostics, Diagnostic};
 pub use emit::ui_tree::{
-    ArgbOut, DataOut, ImageOut, InputOut, NodeOut, StyleOut, TextOut, Tree, KIND_BLOCK, KIND_FLEX,
-    KIND_GRID, KIND_IMAGE, KIND_INPUT, KIND_TEXT,
+    ArgbOut, DataOut, ImageOut, InputOut, MediaOut, NodeOut, StyleOut, TextOut, Tree, KIND_BLOCK,
+    KIND_FLEX, KIND_GRID, KIND_IMAGE, KIND_INPUT, KIND_TEXT, KIND_VIDEO,
 };
 pub use style::grid::{GridAutoRows, GridTemplateColumns};
 pub use style::state::{StateStyle, StateStyles};

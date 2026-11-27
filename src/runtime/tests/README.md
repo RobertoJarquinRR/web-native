@@ -17,6 +17,7 @@ python tools\cli.py test suite <nombre>
 | `offscreen` | `offscreen/` | readback, caché de imágenes, D3D11 vs wgpu |
 | `text` | `text/` | contrato de texto (backend falso), medición DirectWrite, atlas, wrapping, documento |
 | `blob` | `blob/` | loader `.wnui`, builtin vs archivo, píxeles (`max=0`) |
+| `media` | `media/` | blob v7 `<video>`, layout/paint póster+placeholder, `media_null`, ABI v8 |
 | `dump` | `dump/` | `wnui-dump` texto/JSON, golden y errores de archivo |
 
 Todos los fixtures emiten el documento con `frontend-rust --emit-blob` desde
@@ -44,6 +45,19 @@ layout/paint y el input vuelve a su fallback histórico `1.35 * font_size`.
 `measure_test.c` es el
 smoke del backend real: en Windows debe pasar; fuera de Windows, donde no hay
 backend, reporta `SKIP`.
+
+## `media`
+
+`media/page/index.html` es una página real con cinco `<video>`: póster, sin
+póster, `object-fit: contain`, `object-fit: cover` y sin tamaño CSS (default
+300×150). `make_poster.py` genera un póster determinista 300×150. La suite fija
+el hash del blob v7, verifica la sección `media` y sus rechazos de loader
+(`media_blob_test.c`), el HTML→blob→load→layout/paint (`media_layout_test.c`),
+`media_null` y el orden/handshake de proveedores (`media_abi_test.c`), y pinta
+ambos backends disponibles en `out/media_<backend>.png`; `verify_media.py`
+comprueba geometría exacta, el placeholder neutro y el letterbox de `contain`.
+No hay decodificador: el evento esperado de `open` es
+`WN_MEDIA_UNSUPPORTED_CONTAINER`.
 
 ## `dump`
 

@@ -1,8 +1,10 @@
 # Media v1 — `<video>` de primera clase y códecs como proveedores
 
-> **Estado:** diseño. Este documento es el contrato de la ola de media; no hay
-> código todavía. Cualquier implementación que lo contradiga es un bug, no una
-> variante.
+> **Estado:** **Fase A implementada (E3a).** El elemento `<video>`, el blob v7,
+> la sección `media`, el registro de proveedores, `media_null` y la superficie
+> `wn_node_media_*` están en el árbol. **No** hay decodificador, demuxer, sink de
+> audio, subtítulos ni UI de reproducción: eso es E3b y siguientes. Cualquier
+> implementación que contradiga este documento es un bug, no una variante.
 >
 > **Regla de oro:** `<video>` es un **elemento del runtime** (nodo, layout,
 > pintado, eventos, estado). El **códec, el demuxer y el sink de audio son
@@ -1474,6 +1476,44 @@ Regla operativa: mientras esa lane esté abierta, **nadie más** cambia
 resuelve regenerando, nunca a mano.
 
 ---
+
+### 9.7 Estado de implementación (E3a)
+
+**Implementado**
+
+- `WN_BLOB_VERSION 7`, `kind = 6` (`video`) y la sección opcional 7
+  (`WnBlobMediaRecord`, 16 bytes) con validación completa del loader. Un solo
+  lector; v6 se rechaza con "bad magic or version".
+- Frontend: `<video>` con `src`, `poster`, `width`, `height`, `controls`,
+  `autoplay`, `muted`, `loop` y `preload`; `src`/`poster` se resuelven como los
+  de `img`; el nodo nunca hornea `image_src`/`image_width`/`image_height`.
+- Layout/paint: caja reemplazada, `object-fit`, tamaño por defecto **300 × 150**,
+  póster por la ruta de imagen existente y placeholder neutro
+  (`#232A36`) cuando no hay póster. Hit-test y accesibilidad se comportan como
+  cualquier hoja reemplazada.
+- ABI v8: `include/webnative_media.h` (`WN_MEDIA_ABI_VERSION 1`), registro de
+  proveedores por app/vista con orden determinista, `media_null` siempre
+  presente y nunca acierta, `wn_app/wn_view_register_media_provider`,
+  unregister/load, la familia `wn_media_event` y las funciones
+  `wn_node_media_*` con sus lecturas y errores tipados.
+- Tests: `src/runtime/tests/media/` (blob, layout/paint, media_null/ABI y
+  píxeles) y el suite `media` de `wn-cli`.
+
+**Diferido a E3b+ (stubs honestos, no simulaciones)**
+
+- `open` no crea sesión ni llama `probe`/`open` reales: con solo `media_null`
+  termina en `WN_MEDIA_EVENT_ERROR`/`WN_MEDIA_UNSUPPORTED_CONTAINER`; con un
+  proveedor registrado termina en `WN_MEDIA_INTERNAL` porque el driver de
+  sesión aún no existe.
+- Sin decodificador, sin `wn_video_frame`, sin textura de vídeo, sin sink de
+  audio, sin reloj A/V, sin buffering, sin seek real, sin `loop`/`autoplay` en
+  reproducción, sin `get_state` distinto de IDLE/ERROR.
+- Subtítulos (`select_subtitle`/`set_subtitle_delay`) devuelven
+  `WN_ERR_UNSUPPORTED`; no hay `media_test`, `media_ffmpeg`, `media_mf`,
+  `demux_mkv`, sinks ni plugins reales.
+- El tamaño intrínseco del póster no se sondea todavía: `object-fit` usa el
+  aspecto por defecto 300 × 150. `preload` se acepta y se guarda, pero no abre
+  sesión al cargar.
 
 ## 10. Preguntas abiertas (decisión del owner)
 

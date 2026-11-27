@@ -47,6 +47,20 @@ struct wn_view {
     void *ime_context;
     wn_event_cb callback;
     void *userdata;
+    /* ABI v8: media events have their own callback family and are drained on
+     * the UI thread from render/tick. */
+    wn_media_event_cb media_callback;
+    void *media_userdata;
+    /* Explicit provider registrations mirrored here so a document replacement
+     * (which builds a fresh core) keeps the view's media seam. media_null is
+     * never stored: every core registry creates its own. */
+    struct {
+        const wn_media_provider_ops *ops;
+        void *context;
+        int32_t priority;
+    } *media_providers;
+    int media_provider_count;
+    int media_provider_capacity;
     /* Re-entrancy guard: a callback may destroy this view while it is still
      * dispatching (own event or a nested wn_view_event on another view). The
      * free is deferred until the outermost dispatch returns so the flags below
@@ -79,7 +93,76 @@ static void view_free(wn_view *view)
     wn_free_(view->css);
     wn_free_(view->value_scratch);
     wn_free_(view->text_scratch);
+    free(view->media_providers);
     free(view);
+}
+
+static int view_media_provider_find(const wn_view *view,
+                                    const wn_media_provider_ops *ops,
+                                    void *context)
+{
+    int i;
+    for (i = 0; i < view->media_provider_count; ++i) {
+        if (view->media_providers[i].ops == ops &&
+            view->media_providers[i].context == context) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static int view_media_provider_remember(wn_view *view,
+                                        const wn_media_provider_ops *ops,
+                                        void *context, int32_t priority)
+{
+    int capacity;
+    if (view_media_provider_find(view, ops, context) >= 0) {
+        return 0;
+    }
+    if (view->media_provider_count == view->media_provider_capacity) {
+        void *grown;
+        capacity = view->media_provider_capacity > 0
+                       ? view->media_provider_capacity * 2
+                       : 4;
+        grown = realloc(view->media_providers,
+                        (size_t)capacity * sizeof(*view->media_providers));
+        if (grown == NULL) {
+            return -1;
+        }
+        view->media_providers = grown;
+        view->media_provider_capacity = capacity;
+    }
+    view->media_providers[view->media_provider_count].ops = ops;
+    view->media_providers[view->media_provider_count].context = context;
+    view->media_providers[view->media_provider_count].priority = priority;
+    view->media_provider_count += 1;
+    return 0;
+}
+
+static void view_media_provider_forget(wn_view *view,
+                                       const wn_media_provider_ops *ops,
+                                       void *context)
+{
+    int index = view_media_provider_find(view, ops, context);
+    if (index >= 0) {
+        view->media_providers[index] =
+            view->media_providers[view->media_provider_count - 1];
+        view->media_provider_count -= 1;
+    }
+}
+
+static void view_media_provider_restore(wn_view *view)
+{
+    int i;
+    if (view == NULL || view->core == NULL) {
+        return;
+    }
+    for (i = 0; i < view->media_provider_count; ++i) {
+        (void)wn_core_register_media_provider(
+            view->core, view->media_providers[i].ops,
+            view->media_providers[i].context,
+            view->media_providers[i].priority);
+    }
 }
 
 static void view_resize_internal(wn_view *view, int width, int height, float dpi)
@@ -485,6 +568,7 @@ int wn_view_replace_document(wn_view *view, wn_document *document)
     wn_core *core;
     char *focus_name = NULL;
     int restore_focus = 0;
+    struct wn_media_registry *moved_registry = NULL;
 
     if (view == NULL || document == NULL) {
         wn_set_error("wn_view_replace_document: view and document are required");
@@ -512,6 +596,10 @@ int wn_view_replace_document(wn_view *view, wn_document *document)
         return 1;
     }
     if (view->owns_core && view->core != NULL) {
+        /* The registry belongs to the view, not to one core: move it before
+         * destroying the old core so provider contexts are not destroyed and
+         * later reused. */
+        moved_registry = wn_core_detach_media_registry(view->core);
         /* The old core blurs its platform IME in wn_core_destroy(). */
         wn_core_destroy(view->core);
     } else if (view->core != NULL) {
@@ -533,6 +621,13 @@ int wn_view_replace_document(wn_view *view, wn_document *document)
     /* ABI v7 regression: the backend belongs to the view, so the new core must
      * receive it before any focus is restored or reported to the platform. */
     wn_core_set_ime(core, view->ime_ops, view->ime_context);
+    /* ABI v8: the registry belongs to the view, so a fresh core gets every
+     * explicit provider back (media_null is created by the core itself). */
+    if (moved_registry != NULL) {
+        wn_core_attach_media_registry(core, moved_registry);
+    } else {
+        view_media_provider_restore(view);
+    }
     if (restore_focus) {
         int node = wn_core_find_node(core, focus_name);
         if (node >= 0 && wn_core_focus_input_at_end(core, node) >= 0) {
@@ -926,6 +1021,48 @@ wn_status wn_view_event(wn_view *view, const wn_event *event)
     return WN_OK;
 }
 
+/* ABI v8: drain queued media events on the UI thread. The callback may destroy
+ * the view, so it runs inside the same dispatch guard as wn_view_event(). */
+static void view_flush_media_events(wn_view *view)
+{
+    int node;
+    int type;
+    int state;
+    int error;
+    int64_t position_us;
+    int64_t duration_us;
+    const char *detail;
+    while (view != NULL && view->core != NULL &&
+           wn_core_media_take_event(view->core, &node, &type, &state, &error,
+                                    &position_us, &duration_us, &detail)) {
+        wn_media_event event;
+        wn_media_event_cb callback = view->media_callback;
+        void *userdata = view->media_userdata;
+        if (callback == NULL) {
+            continue; /* no consumer: discard instead of growing the ring */
+        }
+        memset(&event, 0, sizeof(event));
+        event.struct_size = (uint32_t)sizeof(event);
+        event.type = (uint32_t)type;
+        event.node = wn_view_handle(view, node);
+        event.state = state;
+        event.error = error;
+        event.position_us = position_us;
+        event.duration_us = duration_us;
+        event.detail = detail;
+        view->dispatch_depth += 1;
+        callback(userdata, &event);
+        view->dispatch_depth -= 1;
+        if (view->dispatch_depth == 0 && view->destroy_pending) {
+            view_free(view);
+            return;
+        }
+        if (view->dispatch_destroyed) {
+            return;
+        }
+    }
+}
+
 wn_status wn_view_render(wn_view *view)
 {
     const wn_display_list *list;
@@ -1003,6 +1140,7 @@ wn_status wn_view_render(wn_view *view)
     view->stats.cpu_frame_total_ms += cpu_ms;
     view->stats.last_render_ms = t1 - t0;
     view->stats.last_layout_ms = wn_core_last_layout_ms(view->core);
+    view_flush_media_events(view);
     return WN_OK;
 }
 
@@ -1943,6 +2081,255 @@ wn_status wn_view_set_font_family_tree(wn_view *view, const char *family,
     return WN_OK;
 }
 
+/* ---------------------------------------------------------- media (v8) */
+
+static int view_media_index(wn_view *view, wn_node_id node, const char *label)
+{
+    int index;
+    if (view == NULL || view->core == NULL) {
+        wn_set_error("%s: view is NULL", label);
+        return -1;
+    }
+    index = view_node_index(view, node);
+    if (index < 0) {
+        wn_set_error("%s: node handle is not alive", label);
+        return -1;
+    }
+    if (!wn_core_node_is_video(view->core, index)) {
+        wn_set_error("%s: node is not a video node", label);
+        return -2;
+    }
+    return index;
+}
+
+static wn_status view_media_status(int result, const char *label)
+{
+    if (result == 0) {
+        return WN_OK;
+    }
+    if (result == -2) {
+        return WN_ERR_STATE;
+    }
+    if (result == -1) {
+        wn_set_error("%s: invalid node or value", label);
+    }
+    return WN_ERR_INVALID_ARGUMENT;
+}
+
+wn_status wn_view_register_media_provider(wn_view *view,
+        const wn_media_provider_ops *ops, void *context, int32_t priority)
+{
+    int result;
+    wn_clear_error();
+    if (view == NULL || view->core == NULL) {
+        wn_set_error("wn_view_register_media_provider: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    result = wn_core_register_media_provider(view->core, ops, context, priority);
+    if (result == -2) {
+        return WN_ERR_OUT_OF_MEMORY;
+    }
+    if (result != 0) {
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    if (view_media_provider_remember(view, ops, context, priority) != 0) {
+        (void)wn_core_unregister_media_provider(view->core, ops, context);
+        return WN_ERR_OUT_OF_MEMORY;
+    }
+    return WN_OK;
+}
+
+wn_status wn_view_unregister_media_provider(wn_view *view,
+        const wn_media_provider_ops *ops, void *context)
+{
+    int result;
+    wn_clear_error();
+    if (view == NULL || view->core == NULL) {
+        wn_set_error("wn_view_unregister_media_provider: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    result = wn_core_unregister_media_provider(view->core, ops, context);
+    if (result == 1) {
+        wn_set_error("wn_view_unregister_media_provider: provider is not "
+                     "registered");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    if (result != 0) {
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    view_media_provider_forget(view, ops, context);
+    return WN_OK;
+}
+
+wn_status wn_view_load_media_provider(wn_view *view, const char *dll_path)
+{
+    int result;
+    wn_clear_error();
+    if (view == NULL || view->core == NULL) {
+        wn_set_error("wn_view_load_media_provider: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    result = wn_core_load_media_provider(view->core, dll_path);
+    if (result != 0) {
+        return WN_ERR_IO;
+    }
+    /* Mirror the plugin so a document replacement keeps it. */
+    {
+        int count = wn_core_media_provider_count(view->core);
+        int i;
+        for (i = 0; i < count; ++i) {
+            const wn_media_provider_ops *ops;
+            void *context = NULL;
+            int32_t priority = 0;
+            if (wn_core_media_provider_is_null(view->core, i)) {
+                break;
+            }
+            ops = wn_core_media_provider_at(view->core, i, &context, &priority);
+            if (ops != NULL &&
+                view_media_provider_find(view, ops, context) < 0) {
+                if (view_media_provider_remember(view, ops, context, priority) !=
+                    0) {
+                    return WN_ERR_OUT_OF_MEMORY;
+                }
+            }
+        }
+    }
+    return WN_OK;
+}
+
+wn_status wn_view_on_media_event(wn_view *view, wn_media_event_cb cb,
+                                 void *userdata)
+{
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_view_on_media_event: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    view->media_callback = cb;
+    view->media_userdata = userdata;
+    return WN_OK;
+}
+
+wn_status wn_view_media_open(wn_view *view, wn_node_id node)
+{
+    int index;
+    wn_clear_error();
+    index = view_media_index(view, node, "wn_node_media_open");
+    if (index < 0) {
+        return index == -2 ? WN_ERR_UNSUPPORTED : WN_ERR_INVALID_ARGUMENT;
+    }
+    return view_media_status(wn_core_media_open(view->core, index),
+                             "wn_node_media_open");
+}
+
+wn_status wn_view_media_play(wn_view *view, wn_node_id node)
+{
+    int index;
+    wn_clear_error();
+    index = view_media_index(view, node, "wn_node_media_play");
+    if (index < 0) {
+        return index == -2 ? WN_ERR_UNSUPPORTED : WN_ERR_INVALID_ARGUMENT;
+    }
+    return view_media_status(wn_core_media_play(view->core, index),
+                             "wn_node_media_play");
+}
+
+wn_status wn_view_media_pause(wn_view *view, wn_node_id node)
+{
+    int index;
+    wn_clear_error();
+    index = view_media_index(view, node, "wn_node_media_pause");
+    if (index < 0) {
+        return index == -2 ? WN_ERR_UNSUPPORTED : WN_ERR_INVALID_ARGUMENT;
+    }
+    return view_media_status(wn_core_media_pause(view->core, index),
+                             "wn_node_media_pause");
+}
+
+wn_status wn_view_media_seek(wn_view *view, wn_node_id node,
+                             int64_t position_us)
+{
+    int index;
+    wn_clear_error();
+    index = view_media_index(view, node, "wn_node_media_seek");
+    if (index < 0) {
+        return index == -2 ? WN_ERR_UNSUPPORTED : WN_ERR_INVALID_ARGUMENT;
+    }
+    return view_media_status(wn_core_media_seek(view->core, index, position_us),
+                             "wn_node_media_seek");
+}
+
+wn_status wn_view_media_set_volume(wn_view *view, wn_node_id node, float gain)
+{
+    int index;
+    wn_clear_error();
+    index = view_media_index(view, node, "wn_node_media_set_volume");
+    if (index < 0) {
+        return index == -2 ? WN_ERR_UNSUPPORTED : WN_ERR_INVALID_ARGUMENT;
+    }
+    return view_media_status(wn_core_media_set_volume(view->core, index, gain),
+                             "wn_node_media_set_volume");
+}
+
+wn_status wn_view_media_set_muted(wn_view *view, wn_node_id node, int muted)
+{
+    int index;
+    wn_clear_error();
+    index = view_media_index(view, node, "wn_node_media_set_muted");
+    if (index < 0) {
+        return index == -2 ? WN_ERR_UNSUPPORTED : WN_ERR_INVALID_ARGUMENT;
+    }
+    return view_media_status(wn_core_media_set_muted(view->core, index, muted),
+                             "wn_node_media_set_muted");
+}
+
+wn_status wn_view_media_set_loop(wn_view *view, wn_node_id node, int loop)
+{
+    int index;
+    wn_clear_error();
+    index = view_media_index(view, node, "wn_node_media_set_loop");
+    if (index < 0) {
+        return index == -2 ? WN_ERR_UNSUPPORTED : WN_ERR_INVALID_ARGUMENT;
+    }
+    return view_media_status(wn_core_media_set_loop(view->core, index, loop),
+                             "wn_node_media_set_loop");
+}
+
+wn_status wn_view_media_set_source(wn_view *view, wn_node_id node,
+                                   const char *path_utf8)
+{
+    int index;
+    int result;
+    wn_clear_error();
+    index = view_media_index(view, node, "wn_node_media_set_source");
+    if (index < 0) {
+        return index == -2 ? WN_ERR_UNSUPPORTED : WN_ERR_INVALID_ARGUMENT;
+    }
+    result = wn_core_media_set_source(view->core, index, path_utf8);
+    if (result == -2) {
+        return WN_ERR_OUT_OF_MEMORY;
+    }
+    return view_media_status(result, "wn_node_media_set_source");
+}
+
+wn_status wn_view_media_get_state(wn_view *view, wn_node_id node,
+                                  wn_media_state_info *out)
+{
+    int index;
+    wn_clear_error();
+    if (out == NULL) {
+        wn_set_error("wn_node_media_get_state: out is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    index = view_media_index(view, node, "wn_node_media_get_state");
+    if (index < 0) {
+        return index == -2 ? WN_ERR_UNSUPPORTED : WN_ERR_INVALID_ARGUMENT;
+    }
+    return wn_core_media_get_state(view->core, index, out) == 0
+               ? WN_OK
+               : WN_ERR_INVALID_ARGUMENT;
+}
+
 wn_status wn_view_tick(wn_view *view)
 {
     wn_clear_error();
@@ -1952,6 +2339,7 @@ wn_status wn_view_tick(wn_view *view)
     }
     wn_core_mark_dirty(view->core);
     view->geometry_dirty = 1;
+    view_flush_media_events(view);
     return WN_OK;
 }
 

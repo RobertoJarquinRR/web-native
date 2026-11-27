@@ -328,6 +328,8 @@ static const char *kind_name(int kind)
     case R2_NODE_TEXT: return "text";
     case R2_NODE_GRID: return "grid";
     case R2_NODE_IMAGE: return "image";
+    case R2_NODE_INPUT: return "input";
+    case R2_NODE_VIDEO: return "video";
     default: return "block";
     }
 }

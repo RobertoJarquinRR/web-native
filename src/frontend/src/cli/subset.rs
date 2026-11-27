@@ -30,15 +30,16 @@ use crate::style::vars::{
 };
 
 /// Tags of the v1 subset. `input` is the v2 pilot extension (text input
-/// widget, `ui-tree/3`) and is diagnosed without `--pilot`.
-const SUPPORTED_TAGS: [&str; 20] = [
+/// widget, `ui-tree/3`) and is diagnosed without `--pilot`. `video` is the
+/// blob v7 replaced element (docs/media-v1.md); it has no decoder dependency.
+const SUPPORTED_TAGS: [&str; 21] = [
     "html", "head", "body", "div", "span", "p", "h1", "h2", "h3", "h4", "h5", "h6", "button",
-    "img", "input", "ul", "ol", "li", "link", "style",
+    "img", "input", "video", "ul", "ol", "li", "link", "style",
 ];
 
 /// Tags the contract explicitly names as outside v1.
-const OUT_OF_V1_TAGS: [&str; 13] = [
-    "script", "iframe", "form", "select", "table", "canvas", "video", "audio", "svg",
+const OUT_OF_V1_TAGS: [&str; 12] = [
+    "script", "iframe", "form", "select", "table", "canvas", "audio", "svg",
     "template", "slot", "object", "embed",
 ];
 
@@ -421,6 +422,19 @@ impl<'a> HtmlScanner<'a> {
                     .to_string(),
             );
         }
+        if tag == "video" {
+            let has_src = attrs.iter().any(|(name, value, _)| {
+                name == "src" && !value.trim().is_empty()
+            });
+            if !has_src {
+                self.push(
+                    line,
+                    Some("<video>".to_string()),
+                    "<video> sin src no forma un nodo de media; el blob v7 exige una fuente local no vacia"
+                        .to_string(),
+                );
+            }
+        }
 
         for (name, value, attr_line) in attrs {
             if !attribute_supported(tag, name) {
@@ -433,6 +447,37 @@ impl<'a> HtmlScanner<'a> {
             }
             match (tag, name.as_str()) {
                 ("img", "src") => self.check_local_asset("src de <img>", value, *attr_line),
+                ("video", "src") | ("video", "poster") => {
+                    let label = if name == "src" {
+                        "src de <video>"
+                    } else {
+                        "poster de <video>"
+                    };
+                    self.check_local_asset(label, value, *attr_line);
+                    // docs/media-v1.md §1.1: any scheme is rejected, not only
+                    // the remote/embedded forms the old subset knew about.
+                    if value.contains("://") {
+                        self.push(
+                            *attr_line,
+                            Some(format!("<video {name}>")),
+                            format!(
+                                "solo se aceptan rutas locales en <video> (sin esquema): '{value}'"
+                            ),
+                        );
+                    }
+                }
+                ("video", "preload") => {
+                    let lowered = value.trim().to_ascii_lowercase();
+                    if !matches!(lowered.as_str(), "none" | "metadata" | "auto") {
+                        self.push(
+                            *attr_line,
+                            Some("<video preload>".to_string()),
+                            format!(
+                                "preload '{value}' no soportado: usa none, metadata o auto"
+                            ),
+                        );
+                    }
+                }
                 ("input", "type") => {
                     if !value.trim().eq_ignore_ascii_case("text") {
                         self.push(
@@ -527,6 +572,15 @@ fn attribute_supported(tag: &str, name: &str) -> bool {
         // runtime needs the alternative text and the intrinsic size. They are
         // additive to subset v1 (which only names `src`).
         || (tag == "img" && matches!(name, "src" | "alt" | "width" | "height"))
+        // Blob v7 media intent: source, poster, presentational size hints and
+        // the document flags. Codec/provider selection is not a document
+        // concern, so no codec/type/crossorigin attribute exists.
+        || (tag == "video"
+            && matches!(
+                name,
+                "src" | "poster" | "width" | "height" | "controls" | "autoplay" | "muted"
+                    | "loop" | "preload"
+            ))
         || (tag == "input"
             && matches!(
                 name,

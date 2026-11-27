@@ -28,6 +28,9 @@ set(WN_RUNTIME_SOURCES
     core/hit_test.c
     core/scroll.c
     document/wn_blob.c
+    media/media_registry.c
+    media/media_null.c
+    media/media_core.c
     text/text_runtime.c
     text/text_atlas.c
     text/text_directwrite.cpp

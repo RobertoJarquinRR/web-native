@@ -860,24 +860,25 @@ static void push_image_textured(wn_core *c, float x, float y, float w, float h,
     }
 }
 
-/* object-fit fill/cover/contain -> destination quad + source UVs. */
-static void push_image_quad(wn_core *c, int node, const wn_rect *clip)
+/* object-fit fill/cover/contain -> destination quad + source UVs. The same
+ * math serves `<img>` and the `<video>` poster: the caller supplies the
+ * resource path and its intrinsic size. `intrinsic_w/h <= 0` means unknown and
+ * fill is used without cropping. */
+static void push_replaced_quad(wn_core *c, int node, const wn_rect *clip,
+                               const char *src, float iw, float ih)
 {
     const UiNode *n = &c->nodes[node];
     const wn_rect *r = &c->rects[node];
-    const char *src = wn_core_node_image_src(c, node);
     wn_image_batch *batch;
     float x = r->x + n->padding[3];
     float y = r->y + n->padding[0];
     float w = fmaxf(r->w - n->padding[1] - n->padding[3], 0.0f);
     float h = fmaxf(r->h - n->padding[0] - n->padding[2], 0.0f);
     float u0 = 0.0f, v0 = 0.0f, u1 = 1.0f, v1 = 1.0f;
-    float iw = n->image_width;
-    float ih = n->image_height;
     float radius;
     int vertices;
 
-    if (src == NULL || w <= 0.0f || h <= 0.0f) {
+    if (src == NULL || src[0] == '\0' || w <= 0.0f || h <= 0.0f) {
         return;
     }
     if (paint_opacity(c) <= 0.0f) {
@@ -935,6 +936,48 @@ static void push_image_quad(wn_core *c, int node, const wn_rect *clip)
 push_vertices:
     (void)batch;
     push_image_textured(c, x, y, w, h, u0, v0, u1, v1, radius);
+}
+
+static void push_image_quad(wn_core *c, int node, const wn_rect *clip)
+{
+    const UiNode *n = &c->nodes[node];
+    push_replaced_quad(c, node, clip, wn_core_node_image_src(c, node),
+                       n->image_width, n->image_height);
+}
+
+/* A video poster is painted through the same image path; the poster file is
+ * part of the document's media intent and the renderer's path-keyed cache. The
+ * intrinsic aspect is the documented 300x150 default until a later phase probes
+ * the poster or a provider reports its display size. */
+#define WN_VIDEO_INTRINSIC_W 300.0f
+#define WN_VIDEO_INTRINSIC_H 150.0f
+
+static void push_video_poster(wn_core *c, int node, const wn_rect *clip)
+{
+    push_replaced_quad(c, node, clip, wn_core_node_media_poster(c, node),
+                       WN_VIDEO_INTRINSIC_W, WN_VIDEO_INTRINSIC_H);
+}
+
+/* Neutral fill used while a video has no poster. It is not a frame and not a
+ * player: it exists so the replaced box is visible and testable. The color is
+ * deliberately neutral (no engine copy/i18n). */
+#define WN_VIDEO_PLACEHOLDER_COLOR 0xFF232A36u
+
+static void push_video_placeholder(wn_core *c, int node, const wn_rect *clip)
+{
+    const UiNode *n = &c->nodes[node];
+    const wn_rect *r = &c->rects[node];
+    float x = r->x + n->padding[3];
+    float y = r->y + n->padding[0];
+    float w = fmaxf(r->w - n->padding[1] - n->padding[3], 0.0f);
+    float h = fmaxf(r->h - n->padding[0] - n->padding[2], 0.0f);
+    float radius;
+    if (w <= 0.0f || h <= 0.0f || paint_opacity(c) <= 0.0f) {
+        return;
+    }
+    radius = image_corner_radius(c, node, w, h);
+    set_solid_clip(c, clip);
+    push_box_shape(c, x, y, w, h, radius, WN_VIDEO_PLACEHOLDER_COLOR);
 }
 
 static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
@@ -1278,30 +1321,34 @@ void wn_core_build_display_list(wn_core *core)
         }
         color = wn_core_node_background(core, node);
         border_color = wn_core_node_border_color(core, node);
-        if (color == 0) {
-            if (draw != NULL) {
-                paint_range_set(&draw->solid, solid_first, core->vertex_count,
-                                item->clip);
+        if (color != 0) {
+            set_solid_clip(core, &item->clip);
+            if (n->border_width > 0.0f && ((border_color >> 24) & 0xFFu) != 0u &&
+                ((color >> 24) & 0xFFu) == 0xFFu) {
+                /* Opaque fill: border ring first, then the background inset by
+                 * the uniform border width. Children still paint over the
+                 * border box (v1 has no layout change). */
+                float bw = n->border_width;
+                float inner_w = r->w - bw * 2.0f;
+                float inner_h = r->h - bw * 2.0f;
+                float inner_r = n->border_radius - bw;
+                push_box_shape(core, r->x, r->y, r->w, r->h,
+                               n->border_radius, border_color);
+                push_box_shape(core, r->x + bw, r->y + bw, inner_w, inner_h,
+                               inner_r > 0.0f ? inner_r : 0.0f, color);
+            } else {
+                push_box_shape(core, r->x, r->y, r->w, r->h,
+                               n->border_radius, color);
             }
-            continue;
         }
-        set_solid_clip(core, &item->clip);
-        if (n->border_width > 0.0f && ((border_color >> 24) & 0xFFu) != 0u &&
-            ((color >> 24) & 0xFFu) == 0xFFu) {
-            /* Opaque fill: border ring first, then the background inset by the
-             * uniform border width. Children still paint over the border box
-             * (v1 has no layout change). */
-            float bw = n->border_width;
-            float inner_w = r->w - bw * 2.0f;
-            float inner_h = r->h - bw * 2.0f;
-            float inner_r = n->border_radius - bw;
-            push_box_shape(core, r->x, r->y, r->w, r->h,
-                           n->border_radius, border_color);
-            push_box_shape(core, r->x + bw, r->y + bw, inner_w, inner_h,
-                           inner_r > 0.0f ? inner_r : 0.0f, color);
-        } else {
-            push_box_shape(core, r->x, r->y, r->w, r->h,
-                           n->border_radius, color);
+        /* A video with no poster paints a neutral placeholder in its content
+         * box. It belongs to the solid pass so layered replay (opacity/z-index)
+         * carries it with the rest of the node. */
+        if (n->kind == R2_NODE_VIDEO) {
+            const char *poster = wn_core_node_media_poster(core, node);
+            if (poster == NULL || poster[0] == '\0') {
+                push_video_placeholder(core, node, &item->clip);
+            }
         }
         if (draw != NULL) {
             paint_range_set(&draw->solid, solid_first, core->vertex_count,
@@ -1317,12 +1364,22 @@ void wn_core_build_display_list(wn_core *core)
         if (core->nodes[item->node].kind == R2_NODE_IMAGE) {
             wn_paint_use_item(core, item);
             push_image_quad(core, item->node, &item->clip);
+        } else if (core->nodes[item->node].kind == R2_NODE_VIDEO) {
+            const char *poster = wn_core_node_media_poster(core, item->node);
+            if (poster != NULL && poster[0] != '\0') {
+                wn_paint_use_item(core, item);
+                push_video_poster(core, item->node, &item->clip);
+            }
         }
         draw = wn_core_draw_for_item(core, i);
         if (draw != NULL) {
             paint_range_set(&draw->image, image_first, core->image_vertex_count,
                             item->clip);
-            draw->image_src = wn_core_node_image_src(core, item->node);
+            if (core->nodes[item->node].kind == R2_NODE_VIDEO) {
+                draw->image_src = wn_core_node_media_poster(core, item->node);
+            } else {
+                draw->image_src = wn_core_node_image_src(core, item->node);
+            }
         }
     }
     build_text_geometry(core, (float)core->width, (float)core->height);
