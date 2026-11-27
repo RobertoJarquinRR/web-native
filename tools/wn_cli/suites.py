@@ -877,11 +877,13 @@ def run_fidelity() -> int:
     position_text = _run(position_exe, [], out)
     _expect(position_text, ["position_test: PASS"], "position layout test")
     # Relative offsets plus subtree/scroll, absolute flow/containing-block/
-    # stretch/nested cases, flex/grid/intrinsic exclusion, the viewport
-    # fallback, the fully clipped ancestor escape, scroll+clip+hit-test, the
-    # fixed viewport/scroll/clip cases, sticky top/bottom/clamp, and the v4
-    # loader validation through the extended enum.
-    _expect_checks(position_text, "position_test", 111)
+    # stretch/nested cases, flex/grid/intrinsic exclusion for absolute and
+    # fixed, the viewport fallback, the fully clipped ancestor escape,
+    # scroll+clip+hit-test, the fixed viewport/scroll/clip cases, sticky
+    # top/bottom/clamp, sticky+nested-scroller nearest, top-over-bottom,
+    # content-box scrollport, hidden-not-a-scroller, sticky-with-fixed-child,
+    # and the v4 loader validation through the extended enum.
+    _expect_checks(position_text, "position_test", 140)
 
     log_step("fidelity: z-index stacking contexts (order, hit-test, layers)")
     zindex_exe = out / "zindex_test.exe"

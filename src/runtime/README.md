@@ -122,7 +122,11 @@ resultantes; el clip del absoluto es el de los hijos de su containing block
 (aunque la raíz sea menor), ignora el scroll y el clip de los ancestros y se
 coloca en una pasada posterior a la de los absolutos. `sticky` sigue en flujo:
 la última pasada lo desplaza dentro del scroll container más cercano por
-`top`/`bottom` (gana `top`), recortado al content box del padre. Los hijos
+`top`/`bottom` (gana `top`), recortado al content box del padre. El scrollport
+es el **content box** del scroller (`rect + padding`), no el padding box de
+CSS: un scroller con padding fija en el borde del contenido. Solo
+`overflow: scroll` cuenta como scroll container (`overflow: hidden` recorta
+pero no fija), y un hijo `fixed` del sticky no se traslada. Los hijos
 `absolute` de un `fixed` usan su caja como containing block.
 
 ### Estados CSS (blob v6, ABI v7)
@@ -155,9 +159,10 @@ static) e ítems `z: auto`) y
 contextos con `z > 0` (ascendente). El
 bloque de un contexto es contiguo: sus descendientes no escapan del padre.
 `z-index` en un nodo `static` que no es ítem flex/grid se ignora; en un ítem
-flex/grid `static` crea contexto. Un posicionado
-con `z: auto` se emite como bloque atómico del paso 8 (sus posicionados no se
-unen al contexto abuelo, simplificación documentada). Un contexto z-only no
+flex/grid `static` crea contexto. `z-index: auto` es estructural y no crea
+contexto ni reserva textura: un posicionado con `z: auto` se emite como bloque
+atómico del paso 8 (sus posicionados no se unen al contexto abuelo,
+simplificación documentada). Un contexto z-only no
 reserva textura: la capa solo existe para ordenar y el renderer la reproduce
 inline (`needs_texture=0`); un grupo de opacidad sí reserva target y compone.
 Un grupo recortado a nada no reserva textura, y un absoluto que escapa conserva

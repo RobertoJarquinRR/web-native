@@ -163,6 +163,11 @@ su lado declarado y que todo inset declarado sea finito.
   container ancestro no hay desplazamiento (la raíz no scrollea). Los
   porcentajes de `top`/`bottom` de un sticky se resuelven contra el alto del
   scrollport (y `left`/`right` contra su ancho).
+  **Convención de scrollport de esta lane:** el scrollport es el **content box**
+  del scroller (`rect + padding`), no el padding box de CSS; un scroller con
+  padding fija en el borde del contenido (`padding-top: 8px` + `top: 10px`
+  fija en `rect.y + 18`). Solo `overflow: scroll` cuenta como scroll container
+  para sticky: `overflow: hidden` recorta pero no fija.
 - Porcentajes de `relative` se resuelven contra el containing block del flujo
   (ancho/alto del padre); si el alto es indefinido, un `top/bottom` porcentual
   resuelve a 0.
@@ -223,10 +228,12 @@ hermanos de contexto.
 ítem flex/grid se **ignora**. Un ítem flex/grid `static` con `z-index` explícito
 sí crea contexto y ordena entre sus hermanos aunque no esté posicionado; sus
 descendientes quedan contenidos por ese contexto. No hay floats ni cajas
-inline. Un posicionado con `z-index: auto` no es un stacking context en CSS,
-pero aquí se emite como un bloque atómico en el paso 4: sus descendientes
-posicionados no se unen al contexto abuelo como haría CSS. El caso normal (la
-caja y su subárbol sobre el contenido en flujo) coincide con el paso 8 de CSS.
+inline. `z-index: auto` es **estructural y no crea stacking context**: no
+reserva textura ni agrupa opacidad. Un posicionado con `z-index: auto` se emite
+como un bloque atómico en el paso 4, pero eso es solo una simplificación de
+orden de pintado, no un contexto: sus descendientes posicionados no se unen al
+contexto abuelo como haría CSS. El caso normal (la caja y su subárbol sobre el
+contenido en flujo) coincide con el paso 8 de CSS.
 Por la misma regla, un grupo de `opacity < 1` **no posicionado** tampoco se pinta
 en el flujo: vive en el bucket del paso 8, en la misma capa que un posicionado
 con `z: 0`.

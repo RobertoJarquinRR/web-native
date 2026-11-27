@@ -46,13 +46,14 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 - `position: static | relative | absolute | fixed | sticky` (v4; `static` es
   el default). `fixed` usa siempre el viewport como containing block e ignora
   el scroll/clip de los ancestros; `sticky` sigue en flujo y se ancla al
-  scroll container más cercano con `top`/`bottom` (ver `wnui-format.md`).
+  scroll container más cercano (`overflow: scroll`) con `top`/`bottom`; su
+  scrollport es el content box del scroller (ver `wnui-format.md`).
 - `top`, `right`, `bottom`, `left` en px, `%` o `auto` (los porcentajes se
   resuelven en layout contra el containing block; no se hornean).
 - `z-index: auto | <integer>` (v5; enteros de 32 bits, negativos y 0 incluidos;
   `-2147483648` reservado para `auto`). Se aplica a nodos posicionados
-  (`relative`/`absolute`/`fixed`/`sticky`) y a ítems flex/grid `static`; en
-  cualquier otro `static` se ignora, como en CSS.
+  (`relative`/`absolute`/`fixed`/`sticky`) y a ítems flex/grid `static`; `auto`
+  no crea contexto y en cualquier otro `static` se ignora, como en CSS.
 
 > **Modelo de caja:** el motor calcula siempre *border-box*: `width`/`height`
 > incluyen padding y borde. CSS usa *content-box* por defecto, así que una

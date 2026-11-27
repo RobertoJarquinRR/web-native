@@ -10,9 +10,12 @@
  *                positioned ancestor, root containing block, stretch, auto
  *                width/height, nested absolute and bottom-only placement.
  *   fixed      - out of flow, always the viewport containing block, ignores
- *                ancestor scroll and clips, nested fixed/absolute.
+ *                ancestor scroll and clips, nested fixed/absolute, and excluded
+ *                from flex/grid flow and intrinsic width.
  *   sticky     - stays in flow, pins to the nearest scroll container's
- *                scrollport by top/bottom inset, clamped by its parent block.
+ *                scrollport by top/bottom inset, clamped by its parent block;
+ *                top wins over bottom, the scrollport is the content box, only
+ *                `overflow: scroll` counts, and a fixed child stays anchored.
  *   scroll/hit - absolute nodes scroll with their containing block and are
  *                hittable at the placed rect; overflow clips them.
  *   loader     - the v4 position enum (through sticky) and inset mask are
@@ -723,6 +726,68 @@ static void run_flow_removal(void)
     free(data);
 }
 
+static void run_fixed_flow_removal(void)
+{
+    NodeSpec spec[12];
+    unsigned char *data;
+    size_t size = 0;
+    wn_document *document = NULL;
+    wn_core *core;
+
+    spec_init(&spec[0], -1, R2_NODE_BLOCK, 400.0f, 300.0f);
+    /* Flex row: the 150x80 fixed child must not take a slot, widen the line
+     * nor set its height. */
+    spec_init(&spec[1], 0, R2_NODE_FLEX, 200.0f, -1.0f);
+    spec_init(&spec[2], 1, R2_NODE_BLOCK, 40.0f, 20.0f);
+    spec_init(&spec[3], 1, R2_NODE_BLOCK, 150.0f, 80.0f);
+    spec_init(&spec[4], 1, R2_NODE_BLOCK, 40.0f, 20.0f);
+    /* Grid: the fixed child must not add a row nor set the row height. */
+    spec_init(&spec[5], 0, R2_NODE_GRID, 200.0f, -1.0f);
+    spec_init(&spec[6], 5, R2_NODE_BLOCK, 20.0f, 20.0f);
+    spec_init(&spec[7], 5, R2_NODE_BLOCK, 150.0f, 90.0f);
+    spec_init(&spec[8], 5, R2_NODE_BLOCK, 20.0f, 20.0f);
+    /* Intrinsic width: a shrink-to-fit box ignores its fixed child. */
+    spec_init(&spec[9], 0, R2_NODE_BLOCK, -1.0f, -1.0f);
+    spec_init(&spec[10], 9, R2_NODE_BLOCK, 20.0f, 10.0f);
+    spec_init(&spec[11], 9, R2_NODE_BLOCK, 120.0f, 10.0f);
+
+    spec[1].direction = 0;
+    spec[5].grid_mode = R2_GRID_AUTO_FILL;
+    spec[5].grid_column_px = 50.0f;
+
+    spec[3].position = R2_POSITION_FIXED;
+    spec[7].position = R2_POSITION_FIXED;
+    spec[9].position = R2_POSITION_ABSOLUTE;
+    spec[9].inset[0] = 200.0f;
+    spec[9].inset[3] = 250.0f;
+    spec[9].inset_mask = 0b1001u;
+    spec[11].position = R2_POSITION_FIXED;
+
+    data = build_blob(spec, 12u, 400u, 300u, &size);
+    core = data != NULL ? load_core(data, size, &document) : NULL;
+    if (!check("fixed flow removal: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        free(data);
+        return;
+    }
+
+    check("fixed: removed from flex flow (slot and line height)",
+          rect_is(core, 1, 0, 0, 200, 20) && rect_is(core, 2, 0, 0, 40, 20) &&
+              rect_is(core, 4, 40, 0, 40, 20) && rect_is(core, 3, 0, 0, 150, 80),
+          "flex height 20, second static at x=40, fixed at (0,0)");
+    check("fixed: removed from grid flow (no extra cell nor row height)",
+          rect_is(core, 5, 0, 20, 200, 20) && rect_is(core, 6, 0, 20, 20, 20) &&
+              rect_is(core, 8, 50, 20, 20, 20) && rect_is(core, 7, 0, 0, 150, 90),
+          "grid height 20, second static at (50,20), fixed at (0,0)");
+    check("fixed: excluded from the parent intrinsic width",
+          rect_is(core, 9, 250, 200, 20, 10) && rect_is(core, 11, 0, 0, 120, 10),
+          "node 9 auto width 20, its fixed child 120 wide");
+
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+    free(data);
+}
+
 static void run_scroll_max_exclusion(void)
 {
     NodeSpec spec[4];
@@ -1203,6 +1268,246 @@ static void run_sticky_without_scroller(void)
     free(data);
 }
 
+static void run_sticky_fixed_child(void)
+{
+    NodeSpec spec[6];
+    unsigned char *data;
+    size_t size = 0;
+    wn_document *document = NULL;
+    wn_core *core;
+
+    /* The sticky header shifts its flow subtree, but a fixed child ignores
+     * every ancestor offset: it stays anchored to the viewport. */
+    spec_init(&spec[0], -1, R2_NODE_BLOCK, 400.0f, 300.0f);
+    spec_init(&spec[1], 0, R2_NODE_BLOCK, 200.0f, 100.0f);
+    spec_init(&spec[2], 1, R2_NODE_BLOCK, 200.0f, 300.0f);
+    spec_init(&spec[3], 2, R2_NODE_BLOCK, 200.0f, 20.0f);
+    spec_init(&spec[4], 3, R2_NODE_BLOCK, 20.0f, 20.0f);
+    spec_init(&spec[5], 2, R2_NODE_BLOCK, 200.0f, 280.0f);
+    spec[1].overflow = R2_OVERFLOW_SCROLL;
+    spec[3].position = R2_POSITION_STICKY;
+    spec[3].inset[0] = 10.0f;
+    spec[3].inset_mask = 0b0001u;
+    spec[4].position = R2_POSITION_FIXED;
+    spec[4].inset[0] = 5.0f;
+    spec[4].inset[3] = 5.0f;
+    spec[4].inset_mask = 0b1001u;
+
+    data = build_blob(spec, 6u, 400u, 300u, &size);
+    core = data != NULL ? load_core(data, size, &document) : NULL;
+    if (!check("sticky fixed child: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        free(data);
+        return;
+    }
+
+    check("sticky fixed child: the header pins and the badge stays viewport-anchored",
+          rect_is(core, 3, 0, 10, 200, 20) && rect_is(core, 4, 5, 5, 20, 20),
+          "node 3 (0,10), node 4 (5,5)");
+    check("sticky fixed child: the tall sibling keeps its flow slot",
+          rect_is(core, 5, 0, 20, 200, 280), "node 5 (0,20)");
+
+    check("sticky fixed child: scroll_by(50) succeeds",
+          wn_core_scroll_by(core, 1, 0.0f, 50.0f) > 0, "scroll y=50");
+    check("sticky fixed child: the header stays pinned while the flow moves",
+          rect_is(core, 3, 0, 10, 200, 20) && rect_is(core, 5, 0, -30, 200, 280),
+          "node 3 (0,10), node 5 (0,-30)");
+    check("sticky fixed child: the fixed badge does not move with the sticky shift",
+          rect_is(core, 4, 5, 5, 20, 20), "node 4 stays (5,5) after scrolling");
+    check("sticky fixed child: the header is hittable away from the badge",
+          wn_core_node_at(core, 150.0f, 15.0f) == 3, "node_at(150,15)");
+
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+    free(data);
+}
+
+static void run_sticky_nearest_scroller(void)
+{
+    NodeSpec spec[9];
+    unsigned char *data;
+    size_t size = 0;
+    wn_document *document = NULL;
+    wn_core *core;
+
+    /* Nested scrollers: the inner header must use the inner scrollport and the
+     * outer header the outer one. */
+    spec_init(&spec[0], -1, R2_NODE_BLOCK, 400.0f, 300.0f);
+    spec_init(&spec[1], 0, R2_NODE_BLOCK, 300.0f, 200.0f);
+    spec_init(&spec[2], 1, R2_NODE_BLOCK, 300.0f, 600.0f);
+    spec_init(&spec[3], 2, R2_NODE_BLOCK, 300.0f, 50.0f);
+    spec_init(&spec[4], 2, R2_NODE_BLOCK, 150.0f, 100.0f);
+    spec_init(&spec[5], 4, R2_NODE_BLOCK, 150.0f, 300.0f);
+    spec_init(&spec[6], 5, R2_NODE_BLOCK, 150.0f, 20.0f);
+    spec_init(&spec[7], 5, R2_NODE_BLOCK, 150.0f, 280.0f);
+    spec_init(&spec[8], 2, R2_NODE_BLOCK, 300.0f, 20.0f);
+    spec[1].overflow = R2_OVERFLOW_SCROLL;
+    spec[4].overflow = R2_OVERFLOW_SCROLL;
+    spec[6].position = R2_POSITION_STICKY;
+    spec[6].inset[0] = 10.0f;
+    spec[6].inset_mask = 0b0001u;
+    spec[8].position = R2_POSITION_STICKY;
+    spec[8].inset[0] = 10.0f;
+    spec[8].inset_mask = 0b0001u;
+
+    data = build_blob(spec, 9u, 400u, 300u, &size);
+    core = data != NULL ? load_core(data, size, &document) : NULL;
+    if (!check("sticky nearest scroller: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        free(data);
+        return;
+    }
+
+    check("sticky nearest scroller: the inner header starts in the inner scrollport",
+          rect_is(core, 4, 0, 50, 150, 100) && rect_is(core, 6, 0, 60, 150, 20),
+          "inner scroller (0,50), header y=60 from its top + 10");
+    check("sticky nearest scroller: the outer header stays in flow at scroll 0",
+          rect_is(core, 8, 0, 150, 300, 20), "node 8 (0,150)");
+
+    check("sticky nearest scroller: scroll_by inner(50) succeeds",
+          wn_core_scroll_by(core, 4, 0.0f, 50.0f) > 0, "inner scroll y=50");
+    check("sticky nearest scroller: the inner header follows the inner scroller",
+          rect_is(core, 6, 0, 60, 150, 20) && rect_is(core, 7, 0, 20, 150, 280),
+          "node 6 stays y=60, node 7 y=20");
+    check("sticky nearest scroller: the outer header ignores the inner scroll",
+          rect_is(core, 8, 0, 150, 300, 20), "node 8 stays (0,150)");
+
+    check("sticky nearest scroller: scroll_by outer(250) succeeds",
+          wn_core_scroll_by(core, 1, 0.0f, 250.0f) > 0, "outer scroll y=250");
+    check("sticky nearest scroller: the outer header pins to the outer scrollport",
+          rect_is(core, 8, 0, 10, 300, 20), "node 8 (0,10)");
+    check("sticky nearest scroller: the inner header still pins to the inner scrollport",
+          rect_is(core, 4, 0, -200, 150, 100) && rect_is(core, 6, 0, -190, 150, 20),
+          "node 6 (0,-190), not the outer threshold (0,10)");
+
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+    free(data);
+}
+
+static void run_sticky_top_bottom(void)
+{
+    NodeSpec spec[6];
+    unsigned char *data;
+    size_t size = 0;
+    wn_document *document = NULL;
+    wn_core *core;
+
+    /* At scroll 0 `bottom: 10` would pull the box up to y=70; `top` wins, so it
+     * stays at y=80. Later `top` pins it while the bottom rule is inert. */
+    spec_init(&spec[0], -1, R2_NODE_BLOCK, 400.0f, 300.0f);
+    spec_init(&spec[1], 0, R2_NODE_BLOCK, 200.0f, 100.0f);
+    spec_init(&spec[2], 1, R2_NODE_BLOCK, 200.0f, 300.0f);
+    spec_init(&spec[3], 2, R2_NODE_BLOCK, 200.0f, 80.0f);
+    spec_init(&spec[4], 2, R2_NODE_BLOCK, 200.0f, 20.0f);
+    spec_init(&spec[5], 2, R2_NODE_BLOCK, 200.0f, 200.0f);
+    spec[1].overflow = R2_OVERFLOW_SCROLL;
+    spec[4].position = R2_POSITION_STICKY;
+    spec[4].inset[0] = 10.0f;  /* top */
+    spec[4].inset[2] = 10.0f;  /* bottom */
+    spec[4].inset_mask = 0b0101u;
+
+    data = build_blob(spec, 6u, 400u, 300u, &size);
+    core = data != NULL ? load_core(data, size, &document) : NULL;
+    if (!check("sticky top+bottom: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        free(data);
+        return;
+    }
+
+    check("sticky top+bottom: top wins at scroll 0 (no bottom pull)",
+          rect_is(core, 4, 0, 80, 200, 20), "node 4 (0,80), not the bottom threshold y=70");
+
+    check("sticky top+bottom: scroll_by(100) succeeds",
+          wn_core_scroll_by(core, 1, 0.0f, 100.0f) > 0, "scroll y=100");
+    check("sticky top+bottom: top pins once the flow scrolls past the threshold",
+          rect_is(core, 4, 0, 10, 200, 20), "node 4 (0,10)");
+
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+    free(data);
+}
+
+static void run_sticky_padded_scrollport(void)
+{
+    NodeSpec spec[5];
+    unsigned char *data;
+    size_t size = 0;
+    wn_document *document = NULL;
+    wn_core *core;
+
+    /* This engine uses the content box (rect + padding) as the scrollport, so a
+     * padded scroller pins at the content edge: 8 (padding) + 10 (top). */
+    spec_init(&spec[0], -1, R2_NODE_BLOCK, 400.0f, 300.0f);
+    spec_init(&spec[1], 0, R2_NODE_BLOCK, 200.0f, 100.0f);
+    spec_init(&spec[2], 1, R2_NODE_BLOCK, 200.0f, 300.0f);
+    spec_init(&spec[3], 2, R2_NODE_BLOCK, 200.0f, 20.0f);
+    spec_init(&spec[4], 2, R2_NODE_BLOCK, 200.0f, 280.0f);
+    spec[1].padding[0] = 8.0f;
+    spec[1].overflow = R2_OVERFLOW_SCROLL;
+    spec[3].position = R2_POSITION_STICKY;
+    spec[3].inset[0] = 10.0f;
+    spec[3].inset_mask = 0b0001u;
+
+    data = build_blob(spec, 5u, 400u, 300u, &size);
+    core = data != NULL ? load_core(data, size, &document) : NULL;
+    if (!check("sticky padded scrollport: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        free(data);
+        return;
+    }
+
+    check("sticky padded scrollport: pins at rect + padding + inset",
+          rect_is(core, 3, 0, 18, 200, 20), "node 3 y=18, not the padding box y=10");
+
+    check("sticky padded scrollport: scroll_by(50) succeeds",
+          wn_core_scroll_by(core, 1, 0.0f, 50.0f) > 0 &&
+              rect_is(core, 3, 0, 18, 200, 20),
+          "node 3 stays y=18 after scrolling");
+
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+    free(data);
+}
+
+static void run_sticky_hidden_not_scroller(void)
+{
+    NodeSpec spec[5];
+    unsigned char *data;
+    size_t size = 0;
+    wn_document *document = NULL;
+    wn_core *core;
+
+    /* Only `overflow: scroll` is a sticky scroll container in this engine;
+     * `overflow: hidden` clips but does not pin. */
+    spec_init(&spec[0], -1, R2_NODE_BLOCK, 400.0f, 300.0f);
+    spec_init(&spec[1], 0, R2_NODE_BLOCK, 200.0f, 100.0f);
+    spec_init(&spec[2], 1, R2_NODE_BLOCK, 200.0f, 300.0f);
+    spec_init(&spec[3], 2, R2_NODE_BLOCK, 200.0f, 20.0f);
+    spec_init(&spec[4], 2, R2_NODE_BLOCK, 200.0f, 280.0f);
+    spec[1].overflow = R2_OVERFLOW_HIDDEN;
+    spec[3].position = R2_POSITION_STICKY;
+    spec[3].inset[0] = 10.0f;
+    spec[3].inset_mask = 0b0001u;
+
+    data = build_blob(spec, 5u, 400u, 300u, &size);
+    core = data != NULL ? load_core(data, size, &document) : NULL;
+    if (!check("sticky hidden ancestor: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        free(data);
+        return;
+    }
+
+    check("sticky hidden ancestor: overflow hidden is not a scroll container",
+          rect_is(core, 3, 0, 0, 200, 20) &&
+              fabsf(wn_core_scroll_max(core, 1)) < 0.01f,
+          "node 3 stays at y=0 and the hidden box does not scroll");
+
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+    free(data);
+}
+
 static void run_loader_validation(void)
 {
     NodeSpec spec[2];
@@ -1350,6 +1655,7 @@ int main(void)
     run_relative_subtree();
     run_relative_scroll();
     run_flow_removal();
+    run_fixed_flow_removal();
     run_scroll_max_exclusion();
     run_clipped_ancestor_escape();
     run_viewport_containing_block();
@@ -1360,6 +1666,11 @@ int main(void)
     run_sticky_clamp();
     run_sticky_bottom();
     run_sticky_without_scroller();
+    run_sticky_fixed_child();
+    run_sticky_nearest_scroller();
+    run_sticky_top_bottom();
+    run_sticky_padded_scrollport();
+    run_sticky_hidden_not_scroller();
     run_loader_validation();
 
     if (failures != 0) {
