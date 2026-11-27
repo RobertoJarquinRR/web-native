@@ -174,7 +174,7 @@ Estado real según `docs/support.md`; no prometer lo que no hay:
 | IME / i18n    | IME IMM32 de una línea (composición/commit/cancel); sin TSF, bidi, CJK fuera del IME ni emoji                        |
 | DPI           | System-aware básico; sin `WM_DPICHANGED` ni multi-monitor                                                                 |
 | Texto         | Shape/raster/medición en runtime (DirectWrite); `font-weight`, `line-height`, `text-align`; sin wrapping todavía |
-| CSS           | `position: relative/absolute/fixed/sticky` (blob v4, enum extendido) con insets px/%/auto y `z-index` + stacking contexts (blob v5, también ítems flex/grid static) + estados CSS (blob v6, ABI v7); sin `inset`, `transform`, `transition`, `animation`, `float`; borders/radius uniformes; una sombra no-inset |
+| CSS           | `position: relative/absolute/fixed/sticky` (blob v4, enum extendido) con insets px/%/auto (incluido el shorthand `inset`) y `z-index` + stacking contexts (blob v5, también ítems flex/grid static) + estados CSS (blob v6, ABI v7); sin `transform`, `transition`, `animation`, `float`; borders/radius uniformes; una sombra no-inset |
 | Layout        | Sin virtualización/culling; grids con `repeat(auto-fill, px)` pilot                                                       |
 | Host          | Una ventana por app; sin tray, diálogos, notificaciones ni drag & drop                                                    |
 | Renderer      | wgpu/D3D12 por defecto; D3D11 en curso; WARP lento y con RSS alto                                                         |

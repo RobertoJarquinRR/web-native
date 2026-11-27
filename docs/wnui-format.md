@@ -225,7 +225,8 @@ su lado declarado y que todo inset declarado sea finito.
   Así un absoluto que escape de un ancestro **totalmente** recortado (p. ej.
   `relative > overflow:hidden(height:0) > static > absolute`) sí se pinta y
   responde al hit-test en su rect colocado.
-- **Diferido:** el shorthand `inset`. `z-index` sí forma parte de v5 (ver
+- El shorthand `inset` lo expande el frontend a los cuatro campos antes de
+  emitir; el blob no cambia. `z-index` sí forma parte de v5 (ver
   abajo).
 - **Límites conocidos de esta lane:** un porcentaje de `relative` dentro de un
   grid se resuelve contra el content box del contenedor, no contra el área del

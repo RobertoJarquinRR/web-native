@@ -44,6 +44,11 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 - Se diagnostican y descartan: `of` (`:nth-child(2n of .x)`), `:nth-last-*`,
   argumentos inválidos, combinadores `+`/`~`, pseudo-elementos y pseudos no
   listadas (incluida `:checked`, diferida porque no hay checkbox/radio).
+- `:has(<compuesto>)` y `:has(> <compuesto>)` con match **estático**: el
+  compuesto interno se busca en cualquier descendiente o solo en un hijo
+  directo. Acepta tipo, universal, `.clase`, `#id`, `[attr]` y pseudos
+  estructurales. Se diagnostican y descartan las listas, los combinadores
+  dentro del argumento, los estados, `:has()` anidado y las formas vacías.
 
 ### Layout
 
@@ -63,6 +68,8 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
   scrollport es el content box del scroller (ver `wnui-format.md`).
 - `top`, `right`, `bottom`, `left` en px, `%` o `auto` (los porcentajes se
   resuelven en layout contra el containing block; no se hornean).
+- `inset` (1-4 valores: px, `%` o `auto`, negativos incluidos) se expande en
+  el frontend a `top`/`right`/`bottom`/`left`; el blob no cambia.
 - `z-index: auto | <integer>` (v5; enteros de 32 bits, negativos y 0 incluidos;
   `-2147483648` reservado para `auto`). Se aplica a nodos posicionados
   (`relative`/`absolute`/`fixed`/`sticky`) y a ítems flex/grid `static`; `auto`
@@ -107,6 +114,20 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 > Las hojas también, porque pueden pintar varias pasadas (borde+fondo, sombra+
 > relleno, decoraciones de input, texto/imagen sobre fondo). Ver `support.md`.
 
+### Variables CSS
+
+- `--nombre: valor` declara una custom property; se hereda como cualquier
+  propiedad y el nombre es *case-sensitive*.
+- `var(--nombre)` y `var(--nombre, fallback)` se sustituyen en la cascada,
+  antes de interpretar el valor. El fallback se usa si el token no existe o es
+  inválido (ciclo). Sin token y sin fallback la declaración es inválida en
+  tiempo de cálculo y el nodo conserva el valor heredado o inicial.
+- El frontend diagnostica `var()` mal formada y tokens no definidos en el
+  documento sin fallback (con `--strict-subset` son error). Un `var()` dentro
+  de `border`/`border-*` se diagnostica porque el shorthand se expande antes de
+  resolver variables. En `inset`/`margin`/`padding` un `var()` debe resolver a
+  un solo componente.
+
 ### Bordes y caja
 
 - `border`, `border-width`, `border-style` (solid), `border-color`.
@@ -114,7 +135,7 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 - `overflow: hidden` (sin scroll en v1).
 
 > **Runtime actual:** CSS core v1 ya pinta radio y borde uniformes y la primera
-> sombra no-inset. Per-side, per-corner e inset siguen pendientes.
+> sombra no-inset. Per-side, per-corner y `box-shadow: inset` siguen pendientes.
 > `box-shadow` es una extensión pilot v3.
 
 ### Estados
@@ -149,9 +170,9 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 ### Fuera de v1
 
 `position: fixed | sticky` ya está implementado en el runtime actual. Siguen
-fuera de v1 el shorthand `inset`, `transform`, `transition`, `animation`,
+fuera de v1 `transform`, `transition`, `animation`,
 `gradient`, `@media`, `@font-face`, pseudo-elementos (`::before/::after`),
-`calc()`, `float`, `table`, `filter`, `clip-path`, `columns`.
+`calc()`/`clamp()`, `float`, `table`, `filter`, `clip-path`, `columns`.
 
 > `grid`, `box-shadow`, `em/rem/vh/vw`, per-side borders, per-corner radius y
 > `min/max` ya no están “fuera de v1” sin más: son **pilot v2/v3** y están en la
@@ -173,8 +194,8 @@ v4 (`position`) se acepta directamente en esta lane:
   `top/right/bottom/left` en px/%/auto (el enum de `position` se extiende sin
   bump de blob). `fixed` se ancla al viewport e ignora el scroll de los
   ancestros; `sticky` sigue en flujo y se ancla al scroll container más cercano
-  (`top`/`bottom`, con clamp al containing block). El shorthand `inset` sigue
-  fuera de esta lane.
+  (`top`/`bottom`, con clamp al containing block). El shorthand `inset` se
+  expande en el frontend y viaja por esos mismos campos (blob sin cambios).
 - **v5:** `z-index: auto | <integer>` y el orden de pintado por stacking
   contexts (negativos, 0/auto y positivos, anidados). Se acepta sin `--pilot`.
 
@@ -184,10 +205,11 @@ El detalle del contrato y de lo que el runtime ya implementa está en
 ## Diagnósticos
 
 - El frontend Rust emite `warning`/`error` con archivo, línea y propiedad.
-  Valores de `position` desconocidos, unidades no soportadas en insets, el
-  shorthand `inset`, valores de `z-index` no enteros/fuera de rango,
-  pseudo-clases no soportadas y combinaciones de estado distintas de
-  `:hover:active` se diagnostican.
+  Valores de `position` desconocidos, unidades no soportadas en insets, formas
+  de `:has()` fuera del subconjunto, `var()` mal formada o con un token no
+  definido sin fallback, `calc()`/`clamp()`, valores de `z-index`
+  no enteros/fuera de rango, pseudo-clases no soportadas y combinaciones de
+  estado distintas de `:hover:active` se diagnostican.
 - `--strict-subset`: error y exit ≠ 0 ante cualquier feature fuera del subset.
 - Sin `--strict-subset`: warning y fallback (ignorar la propiedad).
 - Objetivo: que el diseñador sepa exactamente qué puede usar.

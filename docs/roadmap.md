@@ -136,7 +136,7 @@ subset rechaza features fuera de v1; R2 sin regresión.
 
 - Bordes/radios/sombras, unidades relativas, `@media`. El **frontend** ya
   parsea y emite bordes/radius/sombras/unidades; falta el **render en core**
-  (per-side/per-corner/inset en E1).
+  (per-side/per-corner y `box-shadow: inset` en E1).
 - IME, clipboard, drag & drop, diálogos, accesibilidad (UIA/ARIA). (E3)
 - Controles de texto (input/select) si el target lo exige.
 
