@@ -555,8 +555,18 @@ wn_status wn_view_set_state(wn_view *view, int node, int state, int enabled)
     }
     if (state <= 0 || (state & ~(WN_STATE_HOVER | WN_STATE_PRESS |
                                  WN_STATE_SELECTED | WN_STATE_FOCUSED |
-                                 WN_STATE_DISABLED)) != 0) {
+                                 WN_STATE_DISABLED | WN_STATE_FOCUS_VISIBLE |
+                                 WN_STATE_FOCUS_WITHIN)) != 0) {
         wn_set_error("wn_view_set_state: unknown state 0x%X", (unsigned)state);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    /* Derived, not host-settable: the core recomputes it from FOCUSED on every
+     * focus, disable and tree change. Accepting it here would let a host leave
+     * a stale 0x40 bit behind the next recompute. Fixtures use the internal
+     * wn_core_force_state_mask hook instead. */
+    if ((state & WN_STATE_FOCUS_WITHIN) != 0) {
+        wn_set_error("wn_view_set_state: WN_STATE_FOCUS_WITHIN (0x40) is derived "
+                     "from WN_STATE_FOCUSED and cannot be set by the host");
         return WN_ERR_INVALID_ARGUMENT;
     }
     if (!wn_core_node_is_alive(view->core, node)) {
@@ -574,6 +584,9 @@ wn_status wn_view_set_state(wn_view *view, int node, int state, int enabled)
     }
     if ((state & WN_STATE_FOCUSED) != 0) {
         wn_core_set_state(view->core, node, WN_STATE_FOCUSED, enabled);
+    }
+    if ((state & WN_STATE_FOCUS_VISIBLE) != 0) {
+        wn_core_set_state(view->core, node, WN_STATE_FOCUS_VISIBLE, enabled);
     }
     if ((state & WN_STATE_DISABLED) != 0) {
         wn_core_set_state(view->core, node, WN_STATE_DISABLED, enabled);

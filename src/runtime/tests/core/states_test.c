@@ -8,6 +8,10 @@
  *   selected   - selected is the app base; a CSS state overrides it.
  *   disabled   - no hover/press/selection; hit-test stays diagnostic.
  *   focus      - input focus sets/clears the focused bit.
+ *   focusmatrix- visible implies focused, clearing rules, multiple focused
+ *                nodes, remove/reinsert re-derives focus-within, disabled
+ *                refuses the visible bit, fixed focus-family priority and the
+ *                focused node's own focus-within weight requesting relayout.
  *   loader     - bad node index, duplicate state and present mask are rejected.
  *
  *   states_test.exe
@@ -79,6 +83,7 @@ typedef struct {
     unsigned int text_color;
     float border_width;
     unsigned int border_color;
+    int font_weight;
     int action;
     unsigned int hover_bg;
     unsigned int press_bg;
@@ -88,6 +93,7 @@ typedef struct {
 typedef struct {
     unsigned char state;
     unsigned char present;
+    unsigned short font_weight;
     unsigned int background;
     unsigned int text;
     unsigned int border_color;
@@ -176,6 +182,7 @@ static unsigned char *build_blob(const NodeSpec *spec, uint32_t count,
         nodes[i].text_color = spec[i].text_color;
         nodes[i].border_width = spec[i].border_width;
         nodes[i].border_color = spec[i].border_color;
+        nodes[i].font_weight = spec[i].font_weight > 0 ? spec[i].font_weight : 400;
         nodes[i].action = spec[i].action;
         nodes[i].hover_bg = spec[i].hover_bg;
         nodes[i].press_bg = spec[i].press_bg;
@@ -210,6 +217,7 @@ static unsigned char *build_blob(const NodeSpec *spec, uint32_t count,
                 memset(&style, 0, sizeof(style));
                 style.state = states[i].entries[entry].state;
                 style.present = states[i].entries[entry].present;
+                style.reserved = states[i].entries[entry].font_weight;
                 style.background = states[i].entries[entry].background;
                 style.text = states[i].entries[entry].text;
                 style.border_color = states[i].entries[entry].border_color;
@@ -395,6 +403,308 @@ static void test_disabled_pointer(wn_core *core)
     wn_core_set_state(core, 1, WN_STATE_DISABLED, 0);
 }
 
+/* Focus-visible and focus-within: the derived WITHIN bit reaches every
+ * ancestor and the visible bit only applies while focused. */
+static void test_focus_visible_and_within(void)
+{
+    NodeSpec nodes[3];
+    StateRecordSpec states[2];
+    wn_document *document = NULL;
+    wn_core *core;
+
+    spec_init(&nodes[0], -1, R2_NODE_BLOCK, 200.0f, 120.0f);
+    nodes[0].background = 0xFF000000u;
+    spec_init(&nodes[1], 0, R2_NODE_BLOCK, 120.0f, 40.0f);
+    nodes[1].background = 0xFF101010u;
+    spec_init(&nodes[2], 1, R2_NODE_BLOCK, 80.0f, 30.0f);
+    nodes[2].background = 0xFF202020u;
+    memset(states, 0, sizeof(states));
+    states[0].node = 1;
+    states[0].count = 1;
+    memset(&states[0].entries[0], 0, sizeof(StateSpec));
+    states[0].entries[0].state = R2_STATE_STYLE_FOCUS_WITHIN;
+    states[0].entries[0].present = R2_STATE_FIELD_BACKGROUND;
+    states[0].entries[0].background = 0xFF112233u;
+    states[1].node = 2;
+    states[1].count = 2;
+    memset(&states[1].entries[0], 0, sizeof(StateSpec));
+    states[1].entries[0].state = R2_STATE_STYLE_FOCUS;
+    states[1].entries[0].present = R2_STATE_FIELD_BACKGROUND;
+    states[1].entries[0].background = 0xFF003366u;
+    memset(&states[1].entries[1], 0, sizeof(StateSpec));
+    states[1].entries[1].state = R2_STATE_STYLE_FOCUS_VISIBLE;
+    states[1].entries[1].present = R2_STATE_FIELD_BACKGROUND;
+    states[1].entries[1].background = 0xFF00AA55u;
+
+    core = build_core(nodes, 3, states, 2, NULL, &document);
+    check("focus-visible page builds", core != NULL, NULL);
+    if (core == NULL) {
+        return;
+    }
+    check("focus-within idle", wn_core_node_background(core, 1) == 0xFF101010u &&
+                               (wn_core_node_state(core, 1) &
+                                WN_STATE_FOCUS_WITHIN) == 0,
+          NULL);
+    wn_core_set_state(core, 2, WN_STATE_FOCUSED, 1);
+    check("focus marks the ancestors focus-within",
+          (wn_core_node_state(core, 1) & WN_STATE_FOCUS_WITHIN) != 0 &&
+              wn_core_node_background(core, 1) == 0xFF112233u,
+          "container paints its focus-within style");
+    check("plain focus paints the focus style",
+          wn_core_node_background(core, 2) == 0xFF003366u, NULL);
+    wn_core_set_state(core, 2, WN_STATE_FOCUS_VISIBLE, 1);
+    check("focus-visible implies focus and wins",
+          (wn_core_node_state(core, 2) &
+           (WN_STATE_FOCUSED | WN_STATE_FOCUS_VISIBLE)) ==
+              (WN_STATE_FOCUSED | WN_STATE_FOCUS_VISIBLE) &&
+              wn_core_node_background(core, 2) == 0xFF00AA55u,
+          "visible > focus");
+    wn_core_set_state(core, 2, WN_STATE_FOCUSED, 0);
+    check("clearing focus clears visible and focus-within",
+          wn_core_node_state(core, 2) == 0 &&
+              (wn_core_node_state(core, 1) & WN_STATE_FOCUS_WITHIN) == 0 &&
+              wn_core_node_background(core, 1) == 0xFF101010u,
+          "no stale derived state");
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+}
+
+/* Focus matrix: FOCUS_VISIBLE implies FOCUSED, clearing one or the other is
+ * consistent, multiple focused nodes coexist, and a remove/reinsert (append
+ * moves the subtree) re-derives FOCUS_WITHIN without stale ancestors. */
+static void test_focus_matrix(void)
+{
+    NodeSpec nodes[4];
+    wn_document *document = NULL;
+    wn_core *core;
+
+    spec_init(&nodes[0], -1, R2_NODE_BLOCK, 200.0f, 120.0f);
+    spec_init(&nodes[1], 0, R2_NODE_BLOCK, 180.0f, 40.0f);
+    spec_init(&nodes[2], 0, R2_NODE_BLOCK, 180.0f, 40.0f);
+    spec_init(&nodes[3], 2, R2_NODE_BLOCK, 80.0f, 30.0f);
+    core = build_core(nodes, 4, NULL, 0, NULL, &document);
+    check("focus matrix page builds", core != NULL, NULL);
+    if (core == NULL) {
+        return;
+    }
+
+    wn_core_set_state(core, 1, WN_STATE_FOCUS_VISIBLE, 1);
+    check("focus-visible alone implies focused",
+          (wn_core_node_state(core, 1) &
+           (WN_STATE_FOCUSED | WN_STATE_FOCUS_VISIBLE)) ==
+              (WN_STATE_FOCUSED | WN_STATE_FOCUS_VISIBLE),
+          "the host-visible focus bits are 0x28");
+    check("the focused node also derives its own focus-within",
+          (wn_core_node_state(core, 1) & WN_STATE_FOCUS_WITHIN) != 0, NULL);
+    check("focus-visible marks the ancestors focus-within",
+          (wn_core_node_state(core, 0) & WN_STATE_FOCUS_WITHIN) != 0, NULL);
+    wn_core_set_state(core, 1, WN_STATE_FOCUS_VISIBLE, 0);
+    check("clearing visible keeps focused",
+          (wn_core_node_state(core, 1) &
+           (WN_STATE_FOCUSED | WN_STATE_FOCUS_VISIBLE)) == WN_STATE_FOCUSED, NULL);
+    wn_core_set_state(core, 1, WN_STATE_FOCUS_VISIBLE, 1);
+    wn_core_set_state(core, 1, WN_STATE_FOCUSED, 0);
+    check("clearing focused clears visible",
+          wn_core_node_state(core, 1) == 0, "no stale 0x20");
+
+    wn_core_set_state(core, 3, WN_STATE_FOCUSED, 1);
+    check("a focused child marks every ancestor",
+          (wn_core_node_state(core, 2) & WN_STATE_FOCUS_WITHIN) != 0 &&
+              (wn_core_node_state(core, 0) & WN_STATE_FOCUS_WITHIN) != 0 &&
+              (wn_core_node_state(core, 1) & WN_STATE_FOCUS_WITHIN) == 0,
+          "only the chain to the root");
+    wn_core_append(core, 1, 3);
+    check("remove/reinsert re-derives focus-within",
+          (wn_core_node_state(core, 1) & WN_STATE_FOCUS_WITHIN) != 0 &&
+              (wn_core_node_state(core, 2) & WN_STATE_FOCUS_WITHIN) == 0 &&
+              (wn_core_node_state(core, 0) & WN_STATE_FOCUS_WITHIN) != 0,
+          "the old parent loses it, the new one gains it");
+    wn_core_remove(core, 3);
+    check("removing the focused node clears derived focus-within",
+          (wn_core_node_state(core, 1) & WN_STATE_FOCUS_WITHIN) == 0 &&
+              (wn_core_node_state(core, 0) & WN_STATE_FOCUS_WITHIN) == 0,
+          "no stale derived bits");
+
+    wn_core_set_state(core, 1, WN_STATE_FOCUSED, 1);
+    wn_core_set_state(core, 2, WN_STATE_FOCUSED, 1);
+    check("multiple focused nodes are independent",
+          (wn_core_node_state(core, 1) & WN_STATE_FOCUSED) != 0 &&
+              (wn_core_node_state(core, 2) & WN_STATE_FOCUSED) != 0 &&
+              (wn_core_node_state(core, 0) & WN_STATE_FOCUS_WITHIN) != 0,
+          NULL);
+    wn_core_set_state(core, 1, WN_STATE_FOCUSED, 0);
+    check("clearing one focus keeps the other's within",
+          (wn_core_node_state(core, 2) & WN_STATE_FOCUSED) != 0 &&
+              (wn_core_node_state(core, 0) & WN_STATE_FOCUS_WITHIN) != 0,
+          NULL);
+    wn_core_set_state(core, 2, WN_STATE_FOCUSED, 0);
+    check("clearing the last focus clears within",
+          (wn_core_node_state(core, 0) & WN_STATE_FOCUS_WITHIN) == 0, NULL);
+
+    wn_core_set_state(core, 2, WN_STATE_DISABLED, 1);
+    wn_core_set_state(core, 2, WN_STATE_FOCUS_VISIBLE, 1);
+    check("disabled refuses the focus-visible bit",
+          (wn_core_node_state(core, 2) &
+           (WN_STATE_FOCUSED | WN_STATE_FOCUS_VISIBLE)) == 0,
+          "interactive bits stay off while disabled");
+
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+}
+
+/* Fixed color priority inside the focus family: focus-visible > focus >
+ * focus-within. */
+static void test_focus_color_priority(void)
+{
+    NodeSpec nodes[2];
+    StateRecordSpec states[1];
+    wn_document *document = NULL;
+    wn_core *core;
+
+    spec_init(&nodes[0], -1, R2_NODE_BLOCK, 200.0f, 120.0f);
+    spec_init(&nodes[1], 0, R2_NODE_BLOCK, 120.0f, 30.0f);
+    nodes[1].background = 0xFF101010u;
+    memset(states, 0, sizeof(states));
+    states[0].node = 1;
+    states[0].count = 3;
+    states[0].entries[0] = color_state(R2_STATE_STYLE_FOCUS, 0xFF003366u,
+                                       0xFF003366u, 0xFF003366u);
+    states[0].entries[1] = color_state(R2_STATE_STYLE_FOCUS_VISIBLE, 0xFF00AA55u,
+                                       0xFF00AA55u, 0xFF00AA55u);
+    states[0].entries[2] = color_state(R2_STATE_STYLE_FOCUS_WITHIN, 0xFF112233u,
+                                       0xFF112233u, 0xFF112233u);
+    core = build_core(nodes, 2, states, 1, NULL, &document);
+    check("focus priority page builds", core != NULL, NULL);
+    if (core == NULL) {
+        return;
+    }
+    wn_core_set_state(core, 1, WN_STATE_FOCUS_WITHIN, 1);
+    check("focus-within paints when it is the only focus bit",
+          wn_core_node_background(core, 1) == 0xFF112233u, NULL);
+    wn_core_set_state(core, 1, WN_STATE_FOCUSED, 1);
+    check("focus beats focus-within",
+          wn_core_node_background(core, 1) == 0xFF003366u, NULL);
+    wn_core_set_state(core, 1, WN_STATE_FOCUS_VISIBLE, 1);
+    check("focus-visible beats focus",
+          wn_core_node_background(core, 1) == 0xFF00AA55u, NULL);
+    wn_core_set_state(core, 1, WN_STATE_FOCUS_VISIBLE, 0);
+    check("clearing visible falls back to focus",
+          wn_core_node_background(core, 1) == 0xFF003366u, NULL);
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+}
+
+/* A focused node also carries the derived FOCUS_WITHIN bit: a :focus-within
+ * font-weight on the node itself must request relayout even with no focused
+ * ancestor. */
+static void test_focus_within_own_layout(void)
+{
+    NodeSpec nodes[2];
+    StateRecordSpec states[1];
+    wn_document *document = NULL;
+    wn_core *core;
+
+    spec_init(&nodes[0], -1, R2_NODE_BLOCK, 200.0f, 120.0f);
+    spec_init(&nodes[1], 0, R2_NODE_BLOCK, 120.0f, 30.0f);
+    nodes[1].font_weight = 400;
+    memset(states, 0, sizeof(states));
+    states[0].node = 1;
+    states[0].count = 1;
+    memset(&states[0].entries[0], 0, sizeof(StateSpec));
+    states[0].entries[0].state = R2_STATE_STYLE_FOCUS_WITHIN;
+    states[0].entries[0].present = R2_STATE_FIELD_FONT_WEIGHT;
+    states[0].entries[0].font_weight = 500;
+
+    core = build_core(nodes, 2, states, 1, NULL, &document);
+    check("own focus-within weight page builds", core != NULL, NULL);
+    if (core == NULL) {
+        return;
+    }
+    wn_core_relayout(core);
+    check("a clean layout has no pending request",
+          wn_core_needs_layout(core) == 0, NULL);
+    wn_core_set_state(core, 1, WN_STATE_FOCUSED, 1);
+    check("focus applies the node's own focus-within weight",
+          wn_core_node_font_weight(core, 1) == 500, "effective weight 500");
+    check("the derived own focus-within weight requests relayout",
+          wn_core_needs_layout(core) != 0,
+          "own weight rule, not only a focused ancestor");
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+}
+
+/* State font-weight travels in the reserved u16 and follows the same priority
+ * as the colors. Text runs read their owner's state mask. */
+static void test_state_font_weight(void)
+{
+    NodeSpec nodes[3];
+    StateRecordSpec states[2];
+    wn_document *document = NULL;
+    wn_core *core;
+
+    spec_init(&nodes[0], -1, R2_NODE_BLOCK, 200.0f, 120.0f);
+    spec_init(&nodes[1], 0, R2_NODE_BLOCK, 120.0f, 40.0f);
+    nodes[1].font_weight = 400;
+    spec_init(&nodes[2], 1, R2_NODE_TEXT, 80.0f, 16.0f);
+    nodes[2].font_weight = 400;
+    memset(states, 0, sizeof(states));
+    states[0].node = 1;
+    states[0].count = 3;
+    memset(&states[0].entries[0], 0, sizeof(StateSpec));
+    states[0].entries[0].state = R2_STATE_STYLE_HOVER;
+    states[0].entries[0].present = R2_STATE_FIELD_FONT_WEIGHT;
+    states[0].entries[0].font_weight = 700;
+    memset(&states[0].entries[1], 0, sizeof(StateSpec));
+    states[0].entries[1].state = R2_STATE_STYLE_FOCUS_VISIBLE;
+    states[0].entries[1].present = R2_STATE_FIELD_FONT_WEIGHT;
+    states[0].entries[1].font_weight = 600;
+    memset(&states[0].entries[2], 0, sizeof(StateSpec));
+    states[0].entries[2].state = R2_STATE_STYLE_FOCUS_WITHIN;
+    states[0].entries[2].present = R2_STATE_FIELD_FONT_WEIGHT;
+    states[0].entries[2].font_weight = 500;
+    states[1].node = 2;
+    states[1].count = 2;
+    memset(&states[1].entries[0], 0, sizeof(StateSpec));
+    states[1].entries[0].state = R2_STATE_STYLE_HOVER;
+    states[1].entries[0].present = R2_STATE_FIELD_FONT_WEIGHT;
+    states[1].entries[0].font_weight = 700;
+    memset(&states[1].entries[1], 0, sizeof(StateSpec));
+    states[1].entries[1].state = R2_STATE_STYLE_FOCUS_VISIBLE;
+    states[1].entries[1].present = R2_STATE_FIELD_FONT_WEIGHT;
+    states[1].entries[1].font_weight = 600;
+
+    core = build_core(nodes, 3, states, 2, NULL, &document);
+    check("state weight page builds", core != NULL, NULL);
+    if (core == NULL) {
+        return;
+    }
+    check("base weight", wn_core_node_font_weight(core, 1) == 400 &&
+                             wn_core_node_font_weight(core, 2) == 400,
+          NULL);
+    wn_core_set_state(core, 1, WN_STATE_HOVER, 1);
+    check("hover weight reaches the owner and its text run",
+          wn_core_node_font_weight(core, 1) == 700 &&
+              wn_core_node_font_weight(core, 2) == 700,
+          "generated text follows the owner state");
+    wn_core_set_state(core, 1, WN_STATE_HOVER, 0);
+    wn_core_set_state(core, 1, WN_STATE_FOCUSED, 1);
+    wn_core_set_state(core, 1, WN_STATE_FOCUS_VISIBLE, 1);
+    check("focus-visible weight beats focus-within",
+          wn_core_node_font_weight(core, 1) == 600,
+          "visible > within with no focus-weight entry");
+    wn_core_set_state(core, 1, WN_STATE_HOVER, 0);
+    wn_core_set_state(core, 1, WN_STATE_FOCUSED, 0);
+    wn_core_set_state(core, 1, WN_STATE_FOCUS_VISIBLE, 0);
+    wn_core_set_state(core, 1, WN_STATE_FOCUS_WITHIN, 1);
+    check("focus-within weight applies without focus",
+          wn_core_node_font_weight(core, 1) == 500, NULL);
+    wn_core_set_state(core, 1, WN_STATE_FOCUS_WITHIN, 0);
+    check("weight returns to base", wn_core_node_font_weight(core, 1) == 400,
+          NULL);
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+}
+
 static void test_input_focus(void)
 {
     NodeSpec nodes[2];
@@ -419,13 +729,23 @@ static void test_input_focus(void)
     }
     check("input focus sets the focused bit",
           wn_core_focus_input_at_end(core, 1) == 1 &&
-          (wn_core_node_state(core, 1) & WN_STATE_FOCUSED) != 0,
-          "wn_core_focus_input_at_end");
+          (wn_core_node_state(core, 1) &
+           (WN_STATE_FOCUSED | WN_STATE_FOCUS_VISIBLE)) ==
+              (WN_STATE_FOCUSED | WN_STATE_FOCUS_VISIBLE),
+          "programmatic focus also marks :focus-visible");
+    check("focus-within reaches the input ancestors",
+          (wn_core_node_state(core, 0) & WN_STATE_FOCUS_WITHIN) != 0, NULL);
+    check("pointer focus clears focus-visible",
+          wn_core_focus_input(core, 1, 1.0f) == 1 &&
+              (wn_core_node_state(core, 1) & WN_STATE_FOCUS_VISIBLE) == 0,
+          "wn_core_focus_input is the pointer path");
     check("focus paint color", wn_core_node_background(core, 1) == 0xFF003366u,
           "focus state applies to the input");
     check("blur clears the focused bit",
           wn_core_blur_input(core) == 0 &&
-          (wn_core_node_state(core, 1) & WN_STATE_FOCUSED) == 0,
+          (wn_core_node_state(core, 1) &
+           (WN_STATE_FOCUSED | WN_STATE_FOCUS_VISIBLE)) == 0 &&
+          (wn_core_node_state(core, 0) & WN_STATE_FOCUS_WITHIN) == 0,
           "wn_core_blur_input");
     wn_core_set_state(core, 1, WN_STATE_DISABLED, 1);
     check("disabled input refuses programmatic focus",
@@ -712,6 +1032,23 @@ static void test_loader_validation(void)
     check("duplicate state is validated", load_states_blob(states, 1) == 0,
           "the same state appears twice");
     states[0].count = 1;
+
+    /* Additive v6 weight: the present bit and the reserved u16 are validated
+     * together, and the record size does not change. */
+    memset(&states[0].entries[0], 0, sizeof(StateSpec));
+    states[0].entries[0].state = R2_STATE_STYLE_HOVER;
+    states[0].entries[0].present = R2_STATE_FIELD_FONT_WEIGHT;
+    states[0].entries[0].font_weight = 700;
+    check("valid state weight loads", load_states_blob(states, 1) == 1, NULL);
+    states[0].entries[0].font_weight = 50;
+    check("state weight range is validated", load_states_blob(states, 1) == 0,
+          "50 is not a CSS weight");
+    states[0].entries[0].font_weight = 700;
+    states[0].entries[0].present = R2_STATE_FIELD_BACKGROUND;
+    states[0].entries[0].background = 0xFF112233u;
+    check("weight without the present bit is rejected",
+          load_states_blob(states, 1) == 0,
+          "reserved must stay zero when the field is absent");
 }
 
 int main(void)
@@ -735,6 +1072,11 @@ int main(void)
     test_disabled_subtree();
     test_data_sugar_fallback();
     test_text_run_follows_owner();
+    test_focus_visible_and_within();
+    test_focus_matrix();
+    test_focus_color_priority();
+    test_focus_within_own_layout();
+    test_state_font_weight();
     test_initial_disabled();
     test_input_focus();
     test_loader_validation();

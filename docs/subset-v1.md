@@ -32,6 +32,19 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 
 ## CSS
 
+### Selectores
+
+- Tipo, `.clase`, `#id`, `[attr]`/`[attr="valor"]`, compuestos, descendiente
+  (` `), hijo (`>`) y listas separadas por comas.
+- Estructurales estáticos: `:root`, `:first-child`, `:last-child`,
+  `:only-child`, `:nth-child(An+B)` y `:nth-of-type(An+B)`.
+- `An+B` acepta `odd`, `even`, un entero y las formas `n`, `2n`, `-n+3`,
+  `2n+1`/`2n + 1`. El índice es 1-based entre los hijos elemento; `nth-of-type`
+  cuenta sólo hermanos con la misma etiqueta.
+- Se diagnostican y descartan: `of` (`:nth-child(2n of .x)`), `:nth-last-*`,
+  argumentos inválidos, combinadores `+`/`~`, pseudo-elementos y pseudos no
+  listadas (incluida `:checked`, diferida porque no hay checkbox/radio).
+
 ### Layout
 
 - `display: block | flex` (`grid` en fase posterior).
@@ -71,6 +84,9 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
   declaración se descarta como en CSS (el nodo conserva el peso heredado) y el
   subset la diagnostica. El peso es heredado.
 - `line-height` (px/normal), `text-align` (left/center/right).
+- `text-overflow: ellipsis` en una caja de **una línea** con
+  `overflow: hidden`: el runtime recorta la línea y pinta `…`. En multilínea el
+  flag es inerte; `clip` es el valor por defecto.
 - `color`, `background`, `background-color`: hex 3/4/6/8, `rgb()`/`rgba()` y
   `hsl()`/`hsla()` (comas o sintaxis espacio/barra, 3–4 argumentos, alfa
   numérica o en `%`), nombres CSS3 y `rebeccapurple`/`transparent`. La misma
@@ -103,10 +119,14 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
 
 ### Estados
 
-- `:hover`, `:active`, `:focus`, `:disabled` (v6). Son **semánticos**: el
-  frontend resuelve cuatro estilos efectivos por nodo (hover, press =
-  `:hover`+`:active`, focus, disabled) y sólo viajan `background`, `color` y el
-  color de borde uniforme. `:disabled` sólo se guarda para `button`/`input`.
+- `:hover`, `:active`, `:focus`, `:disabled`, `:focus-visible` y
+  `:focus-within` (v6). Son **semánticos**: el frontend resuelve seis estilos
+  efectivos por nodo (hover, press = `:hover`+`:active`, focus, disabled,
+  focus-visible y focus-within) y viajan `background`, `color`, el color de
+  borde uniforme y `font-weight`. `:disabled` sólo se guarda para
+  `button`/`input`. La entrada focus-visible pliega las declaraciones `:focus`
+  en la misma cascada; focus-within es un estado propio del nodo y de sus
+  ancestros.
 - Se admite **una** pseudo-clase de estado por regla; `:hover:active` es la
   combinación de press y también se admite. Otras combinaciones
   (`:hover:focus`, …) se diagnostican y no se aplican.
@@ -114,15 +134,16 @@ rechaza con diagnóstico (modo `--strict-subset`). No es “soportar la web”.
   de la regla). `.card:hover .label` pone el estado en un ancestro: este runtime
   no lo propaga, así que la regla se descarta y se diagnostica en lugar de
   compilarse en silencio.
-- Una regla de estado sólo aporta **colores**: `background`/`background-color`,
-  `color` y `border-color` (o `border-*-color`). `border` sin más sólo aporta su
-  color; `border-width`/`border-style`, `opacity`, layout, tipografía y
-  `z-index` dentro de una regla de estado se diagnostican y no se aplican. Un
-  color de estado con alfa 0 (`transparent`, `rgba(…,0)`) también se
-  diagnostica: el blob no lo representa como override.
+- Una regla de estado sólo aporta **colores y `font-weight`**:
+  `background`/`background-color`, `color`, `border-color` (o `border-*-color`)
+  y `font-weight`. `border` sin más sólo aporta su color;
+  `border-width`/`border-style`, `opacity`, layout y `z-index` dentro de una
+  regla de estado se diagnostican y no se aplican. Un color de estado con alfa 0
+  (`transparent`, `rgba(…,0)`) también se diagnostica: el blob no lo representa
+  como override.
 - `data-hover`/`data-press`/`data-selected` siguen existiendo como azúcar para
   variantes sin CSS. Los estilos CSS tienen prioridad.
-- Diferido: `:checked`, `:focus-visible`, `:focus-within`, `:nth-*` y
+- Diferido: `:checked` (no hay widget checkbox/radio; se diagnostica) y
   transiciones.
 
 ### Fuera de v1

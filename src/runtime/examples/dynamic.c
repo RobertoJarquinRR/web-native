@@ -168,10 +168,11 @@ int main(int argc, char **argv)
     expect_status("set_visible(card,0)", wn_node_set_visible(app, card0, 0), WN_OK);
     expect_status("set_visible(card,1)", wn_node_set_visible(app, card0, 1), WN_OK);
     /* ABI v7: the state mask is validated before touching the view. Unknown
-     * bits (0x20) and an empty mask are rejected; the disabled bit round-trips
-     * and get_state reports 0 once cleared. */
+     * bits (0x80, above the focus-visible/focus-within additions) and an empty
+     * mask are rejected; the disabled bit round-trips and get_state reports 0
+     * once cleared. */
     expect_status("set_state(unknown bit)",
-                  wn_node_set_state(app, card0, 0x20u, 1),
+                  wn_node_set_state(app, card0, 0x80u, 1),
                   WN_ERR_INVALID_ARGUMENT);
     expect_status("set_state(zero mask)",
                   wn_node_set_state(app, card0, 0u, 1),

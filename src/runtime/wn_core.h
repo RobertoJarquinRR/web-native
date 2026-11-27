@@ -270,6 +270,12 @@ int wn_core_node_disabled(const wn_core *core, int node);
 unsigned int wn_core_node_background(const wn_core *core, int node);
 unsigned int wn_core_node_text_color(const wn_core *core, int node);
 unsigned int wn_core_node_border_color(const wn_core *core, int node);
+/* Effective font weight after the state styles (same priority as the colors).
+ * Layout, shaping, atlas and paint all use it; diagnostic/test hook too. */
+int wn_core_node_font_weight(const wn_core *core, int node);
+/* Effective state mask a node paints with (a generated text run follows its
+ * owning element). Diagnostic/test hook. */
+unsigned char wn_core_effective_state(const wn_core *core, int node);
 
 /* Laid-out border box, forcing layout first when the tree is dirty. */
 int wn_core_node_rect(wn_core *core, int node, wn_rect *out);

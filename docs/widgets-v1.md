@@ -24,7 +24,7 @@ formularios web: sin `form`, `action`, validación ni `submit`.
 | Normal | — | Base. |
 | Hover | `:hover` | Solo puntero; no mueve el foco. Estilo CSS compilado (v6). |
 | Press | `:active` | Entre down y up sobre el mismo nodo. El estilo press incluye hover. |
-| Focus | `:focus` | Bit `WN_STATE_FOCUSED` (v7); input focus lo enciende. Anillo/caret del editor. |
+| Focus | `:focus` | Bit `WN_STATE_FOCUSED` (v7); input focus lo enciende. `:focus-visible` (0x20, host) y `:focus-within` (0x40, derivado, sólo lectura) se eligen por campo en ese orden. Anillo/caret del editor. |
 | Disabled | `disabled` + `:disabled` | Bit `WN_STATE_DISABLED` (v7): inerte al puntero y al foco; UIA lo marcará no disponible. |
 | Selected | `data-selected` / `aria-selected` | Color base de la app; los estados CSS componen encima. Lo gobierna el host. |
 | Checked | `checked` / `aria-checked` | Alternancia binaria (checkbox, radio, toggle). |
@@ -32,12 +32,14 @@ formularios web: sin `form`, `action`, validación ni `submit`.
 Estados específicos (`readonly`, `error`, `loading`, `indeterminado`) se suman a
 esta base y se documentan en la fila del widget.
 
-**Implementado (blob v6 / ABI v7):** `:hover`, `:active`, `:focus` y
-`:disabled` se compilan a cuatro estilos efectivos por nodo y el runtime elige
-por campo con `disabled > press > hover > focus > base`. Sólo viajan
-`background`, `color` y el color de borde uniforme; `:disabled` se guarda para
-`button`/`input` y el bit del host decide cuándo aplica. `:checked`,
-`:focus-visible`, `:focus-within`, `:nth-*` y transiciones siguen diferidos.
+**Implementado (blob v6 / ABI v7):** `:hover`, `:active`, `:focus`,
+`:disabled`, `:focus-visible` y `:focus-within` se compilan a estilos efectivos
+por nodo y el runtime elige por campo con
+`disabled > press > hover > focus-visible > focus > focus-within > base`.
+Viajan `background`, `color`, el color de borde uniforme y `font-weight`;
+`:disabled` se guarda para `button`/`input` y el bit del host decide cuándo
+aplica. `:checked` (no hay widget checkbox/radio) y las transiciones siguen
+diferidos.
 
 ### Foco y teclado
 

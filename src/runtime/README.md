@@ -131,18 +131,26 @@ pero no fija), y un hijo `fixed` del sticky no se traslada. Los hijos
 
 ### Estados CSS (blob v6, ABI v7)
 
-El frontend compila `:hover`, `:active` (press incluye hover), `:focus` y
-`:disabled` a cuatro estilos efectivos de `background`, `color` y color de
-borde. El estado sólo se aplica al compuesto sujeto (`.card:hover .label` se
-diagnostica y no se compila) y la regla sólo transporta esos tres grupos de
-color; cualquier otra declaración en una regla de estado se diagnostica.
-`disabled`/`focus` del nodo son bits (`WN_STATE_DISABLED`,
+El frontend compila `:hover`, `:active` (press incluye hover), `:focus`,
+`:disabled`, `:focus-visible` y `:focus-within` a estilos efectivos de
+`background`, `color`, color de borde y `font-weight`. El estado sólo se aplica
+al compuesto sujeto (`.card:hover .label` se diagnostica y no se compila) y la
+regla sólo transporta esos campos; cualquier otra declaración en una regla de
+estado se diagnostica. `disabled`/`focus` del nodo son bits (`WN_STATE_DISABLED`,
 `WN_STATE_FOCUSED`); el input enciende el foco al editar y lo apaga al hacer
-blur. La prioridad por campo es `disabled > press > hover > focus > base`, con
-`selected` como base de la app y `data-*` como fallback. Un nodo deshabilitado
-(o su subárbol) es inerte al puntero pero sigue visible en `wn_node_at` y
-`wn_node_get_rect`; al deshabilitar un contenedor se limpian hover/press/focus
-de todo el subárbol y se hace blur del input enfocado dentro.
+blur. Aditivo v7: `WN_STATE_FOCUS_VISIBLE` (0x20) marca foco de
+teclado/programático; `WN_STATE_FOCUS_WITHIN` (0x40) es derivado y de sólo
+lectura para el host (set_state lo rechaza) y el core lo mantiene en el nodo
+enfocado y todos sus ancestros (se recalcula al cambiar foco, deshabilitar,
+quitar o reinsertar). La prioridad por campo es
+`disabled > press > hover > focus-visible > focus > focus-within > base`, con
+`selected` como base de la app y `data-*` como fallback. El peso efectivo se usa
+en layout, shaping, atlas y pintura. Un nodo deshabilitado (o su subárbol) es
+inerte al puntero pero sigue visible en `wn_node_at` y `wn_node_get_rect`; al
+deshabilitar un contenedor se limpian hover/press/focus de todo el subárbol y se
+hace blur del input enfocado dentro. `text-overflow: ellipsis` viaja en la
+sección aditiva `text_extras`: el runtime recorta la línea y pinta `…` sólo en
+una línea (multilínea queda inerte).
 
 ### Z-index y stacking contexts (blob v5)
 

@@ -6,7 +6,8 @@
 use std::collections::HashMap;
 
 use crate::parse::css::{
-    parse_declarations, Rule, STATE_ACTIVE, STATE_DISABLED, STATE_FOCUS, STATE_HOVER,
+    parse_declarations, Rule, STATE_ACTIVE, STATE_DISABLED, STATE_FOCUS, STATE_FOCUS_VISIBLE,
+    STATE_FOCUS_WITHIN, STATE_HOVER,
 };
 use crate::parse::dom::{ua_display, Dom, NodeId};
 use crate::style::color::{length, parse_color, percentage};
@@ -95,6 +96,9 @@ pub(crate) struct ComputedStyle {
     pub(crate) grid_auto_rows: Option<GridAutoRows>,
     /// v2: `hidden | auto | scroll`; `visible`/unknown -> `None`.
     pub(crate) overflow: Option<String>,
+    /// `text-overflow`: only `ellipsis` changes rendering; `clip` is the
+    /// default. Applied by the emitter to the generated text run.
+    pub(crate) text_overflow: Option<String>,
     /// v2: `fill | cover | contain`; emitted inside `image.object_fit`.
     pub(crate) object_fit: Option<String>,
     /// Raw `data-hover` / `data-press` / `data-selected` / `data-action`.
@@ -261,6 +265,18 @@ fn compute_state_styles(
 ) -> StateStyles {
     let tag = dom.nodes[id].tag.as_str();
     let can_disable = tag == "button" || tag == "input";
+    // Only materialize the additive visible entry when a `:focus-visible` rule
+    // actually matches: evaluating the mask folds `:focus` declarations in, so
+    // an unconditional entry would grow every existing `:focus` blob.
+    let has_focus_visible = parent
+        .and_then(|style| style.states.focus_visible.as_ref())
+        .is_some()
+        || rules.iter().any(|rule| {
+            (rule.selector.state_mask() & STATE_FOCUS_VISIBLE) != 0
+                && rule
+                    .selector
+                    .matches_with_state(dom, id, STATE_FOCUS | STATE_FOCUS_VISIBLE)
+        });
     StateStyles {
         hover: compute_state(dom, id, rules, base, parent, STATE_HOVER),
         press: compute_state(
@@ -277,6 +293,31 @@ fn compute_state_styles(
         } else {
             None
         },
+        // `:focus-visible` implies focus, so `:focus` declarations from the
+        // same cascade are part of the entry; the runtime picks visible before
+        // plain focus.
+        focus_visible: if has_focus_visible {
+            compute_state(
+                dom,
+                id,
+                rules,
+                base,
+                parent,
+                STATE_FOCUS | STATE_FOCUS_VISIBLE,
+            )
+        } else {
+            None
+        },
+        // `:focus-within` is a pure ancestor/self state. Only its own rules
+        // apply; a node that is additionally focused uses the focus entry.
+        focus_within: compute_state(
+            dom,
+            id,
+            rules,
+            base,
+            parent,
+            STATE_FOCUS_WITHIN,
+        ),
     }
 }
 
@@ -290,6 +331,7 @@ fn compute_state(
 ) -> Option<StateStyle> {
     let winners = collect_winners(dom, id, rules, state_mask);
     let parent_text = parent.and_then(|style| parent_state_text(style, state_mask));
+    let parent_weight = parent.and_then(|style| parent_state_weight(style, state_mask));
     let background = state_color(&winners, "background-color")
         .or_else(|| state_color(&winners, "background"));
     // `color` is inherited. A node with no own color declaration follows the
@@ -302,17 +344,37 @@ fn compute_state(
     } else {
         None
     };
+    // `font-weight` is inherited the same way, but unlike color it changes
+    // layout, so the override travels for the text run and the runtime metrics.
+    let font_weight = if let Some(value) = state_font_weight(&winners) {
+        Some(value)
+    } else if !winners.contains_key("font-weight") {
+        parent_weight
+    } else {
+        None
+    };
     let border = state_border(&winners, base, text.as_deref());
     let style = StateStyle {
         background,
         text,
         border,
+        font_weight,
     };
     if style.is_empty() {
         None
     } else {
         Some(style)
     }
+}
+
+/// `font-weight` declared by an *active state rule*; `None` for base/inline
+/// winners (the base weight is already part of the layout).
+fn state_font_weight(winners: &Winners) -> Option<i32> {
+    let (_, value, from_state) = winners.get("font-weight")?;
+    if !from_state {
+        return None;
+    }
+    parse_font_weight(value)
 }
 
 /// Color override declared by an *active state rule*; `None` for base/inline
@@ -332,9 +394,25 @@ fn parent_state_text(style: &ComputedStyle, state_mask: u8) -> Option<&str> {
         mask if mask == (STATE_HOVER | STATE_ACTIVE) => states.press.as_ref(),
         STATE_FOCUS => states.focus.as_ref(),
         STATE_DISABLED => states.disabled.as_ref(),
+        mask if mask == (STATE_FOCUS | STATE_FOCUS_VISIBLE) => states.focus_visible.as_ref(),
+        STATE_FOCUS_WITHIN => states.focus_within.as_ref(),
         _ => None,
     };
     state.and_then(|state| state.text.as_deref())
+}
+
+fn parent_state_weight(style: &ComputedStyle, state_mask: u8) -> Option<i32> {
+    let states = &style.states;
+    let state = match state_mask {
+        STATE_HOVER => states.hover.as_ref(),
+        mask if mask == (STATE_HOVER | STATE_ACTIVE) => states.press.as_ref(),
+        STATE_FOCUS => states.focus.as_ref(),
+        STATE_DISABLED => states.disabled.as_ref(),
+        mask if mask == (STATE_FOCUS | STATE_FOCUS_VISIBLE) => states.focus_visible.as_ref(),
+        STATE_FOCUS_WITHIN => states.focus_within.as_ref(),
+        _ => None,
+    };
+    state.and_then(|state| state.font_weight)
 }
 
 /// Recolors the first visible base border side when a state rule changes it.
@@ -444,6 +522,7 @@ fn resolve(
     };
 
     let overflow = keyword_value(raw.get("overflow"), &["hidden", "auto", "scroll"]);
+    let text_overflow = keyword_value(raw.get("text-overflow"), &["ellipsis", "clip"]);
     let object_fit = keyword_value(raw.get("object-fit"), &["fill", "cover", "contain"]);
     let grid_template_columns = raw
         .get("grid-template-columns")
@@ -551,6 +630,7 @@ fn resolve(
         grid_template_columns,
         grid_auto_rows,
         overflow,
+        text_overflow,
         object_fit,
         data_hover: dom.attr(id, "data-hover").map(str::to_string),
         data_press: dom.attr(id, "data-press").map(str::to_string),

@@ -126,6 +126,153 @@ fn state_text_color_inherits_into_generated_text_runs() {
     assert!(text.states.focus.is_none());
 }
 
+const EXTENDED_STATE_PAGE: &str = r##"<!doctype html>
+<html><head><style>
+  body { display: block; background: #000000; }
+  .btn {
+    display: block;
+    width: 120px;
+    height: 30px;
+    background: #101010;
+    color: #ffffff;
+    font-weight: 400;
+  }
+  .btn:hover { font-weight: 700; }
+  .btn:focus { color: #123456; }
+  .btn:focus-visible { background: #00aa55; font-weight: 600; }
+  .card { display: block; background: #202020; }
+  .card:focus-within { background: #112233; color: #abcdef; font-weight: 500; }
+</style></head><body>
+  <button id="btn" class="btn">Go</button>
+  <div id="card" class="card"><div id="label">Label</div></div>
+</body></html>
+"##;
+
+#[test]
+fn focus_visible_focus_within_and_state_weight_are_effective() {
+    let dir = temp_dir("states-extended");
+    let tree = build(&dir, EXTENDED_STATE_PAGE);
+    let button = node_with_id(&tree, "btn");
+    let hover = button.states.hover.as_ref().expect("hover weight");
+    assert_eq!(hover.font_weight, Some(700));
+    assert_eq!(hover.background, None, "hover only changes the weight");
+
+    // `:focus-visible` folds in the `:focus` declarations; the visible rule
+    // wins where both set the same field (later source order, same spec).
+    let visible = button
+        .states
+        .focus_visible
+        .as_ref()
+        .expect("focus-visible style");
+    assert_eq!(visible.background.as_deref(), Some("#00aa55"));
+    assert_eq!(visible.text.as_deref(), Some("#123456"));
+    assert_eq!(visible.font_weight, Some(600));
+
+    // Generated text runs carry the state weight and color of their owner.
+    let prefix = format!("{}/", button.name);
+    let text = tree
+        .nodes
+        .iter()
+        .find(|node| node.tag == "#text" && node.name.starts_with(&prefix))
+        .expect("button text run");
+    assert_eq!(text.states.hover.as_ref().unwrap().font_weight, Some(700));
+    assert_eq!(
+        text.states.focus_visible.as_ref().unwrap().font_weight,
+        Some(600)
+    );
+
+    let card = node_with_id(&tree, "card");
+    let within = card
+        .states
+        .focus_within
+        .as_ref()
+        .expect("focus-within style");
+    assert_eq!(within.background.as_deref(), Some("#112233"));
+    assert_eq!(within.text.as_deref(), Some("#abcdef"));
+    assert_eq!(within.font_weight, Some(500));
+    // The label has no own color/weight declaration, so the inherited
+    // focus-within values travel to its generated text run.
+    let label = node_with_id(&tree, "label");
+    let label_text = tree
+        .nodes
+        .iter()
+        .find(|node| {
+            node.tag == "#text" && node.name.starts_with(&format!("{}/", label.name))
+        })
+        .expect("label text run");
+    assert_eq!(
+        label_text.states.focus_within.as_ref().unwrap().text.as_deref(),
+        Some("#abcdef")
+    );
+    assert_eq!(
+        label_text.states.focus_within.as_ref().unwrap().font_weight,
+        Some(500)
+    );
+}
+
+const ELLIPSIS_PAGE: &str = r##"<!doctype html>
+<html><head><style>
+  body { display: block; background: #000000; }
+  .clip {
+    display: block;
+    width: 40px;
+    height: 20px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .plain {
+    display: block;
+    width: 40px;
+    height: 20px;
+    text-overflow: ellipsis;
+  }
+  .clip2 {
+    display: block;
+    width: 40px;
+    height: 20px;
+    overflow: hidden;
+    text-overflow: clip;
+  }
+</style></head><body>
+  <div id="clip" class="clip">A long piece of text</div>
+  <div id="plain" class="plain">A long piece of text</div>
+  <div id="clip2" class="clip2">A long piece of text</div>
+</body></html>
+"##;
+
+#[test]
+fn text_overflow_ellipsis_is_emitted_only_for_clipped_boxes() {
+    let dir = temp_dir("states-ellipsis");
+    let tree = build(&dir, ELLIPSIS_PAGE);
+    let text_flags = |element_id: &str| {
+        let owner = node_with_id(&tree, element_id);
+        let prefix = format!("{}/", owner.name);
+        tree.nodes
+            .iter()
+            .find(|node| node.tag == "#text" && node.name.starts_with(&prefix))
+            .expect("text run")
+            .text_flags
+    };
+    assert_eq!(text_flags("clip"), 0x01, "overflow:hidden + ellipsis");
+    assert_eq!(text_flags("plain"), 0, "ellipsis without clipping is inert");
+    assert_eq!(text_flags("clip2"), 0, "text-overflow:clip is the default");
+}
+
+#[test]
+fn text_overflow_ellipsis_is_documented_without_pilot() {
+    let report = diagnostics(
+        "<!doctype html><html><head><style>\n\
+         body { display: block; }\n\
+         .a { display: block; overflow: hidden; text-overflow: ellipsis; }\n\
+         .b { display: block; text-overflow: fade; }\n\
+         </style></head><body><div class=\"a\">x</div><div class=\"b\">y</div></body></html>",
+        "states-ellipsis-diagnostics",
+    );
+    assert_eq!(report.len(), 1, "{report:#?}");
+    assert!(report[0].contains("text-overflow"), "{report:#?}");
+    assert!(report[0].contains("fade"), "{report:#?}");
+}
+
 const SPECIFICITY_PAGE: &str = r##"<!doctype html>
 <html><head><style>
   body { display: block; }

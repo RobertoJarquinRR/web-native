@@ -30,11 +30,20 @@ const SECTION_NAMES: u32 = 2;
 const SECTION_STRINGS: u32 = 3;
 const SECTION_INPUTS: u32 = 4;
 const SECTION_STATES: u32 = 5;
+/// Blob v6 optional text extras (`text-overflow: ellipsis`). Additive section;
+/// the header version stays 6.
+const SECTION_TEXT_EXTRAS: u32 = 6;
 
 /// Blob v6 state style presence bits.
 const STATE_FIELD_BACKGROUND: u8 = 1 << 0;
 const STATE_FIELD_TEXT: u8 = 1 << 1;
 const STATE_FIELD_BORDER: u8 = 1 << 2;
+/// Additive under v6: the state `font-weight` travels in the record's reserved
+/// u16, so the 16-byte entry does not grow.
+const STATE_FIELD_FONT_WEIGHT: u8 = 1 << 3;
+
+/// Blob v6 optional text extras flags.
+const TEXT_FLAG_ELLIPSIS: u8 = 1 << 0;
 
 /// Blob string pool: byte 0 is NUL, deduped in first-use order.
 struct StringPool {
@@ -472,12 +481,29 @@ pub(crate) fn write_blob(
             if state.border.is_some() {
                 present |= STATE_FIELD_BORDER;
             }
+            if state.font_weight.is_some() {
+                present |= STATE_FIELD_FONT_WEIGHT;
+            }
             state_records.push(present);
-            state_records.extend_from_slice(&[0, 0]);
+            let weight = state.font_weight.unwrap_or(0);
+            state_records.extend_from_slice(&(weight as u16).to_le_bytes());
             push_u32(&mut state_records, argb(state.background.as_deref()));
             push_u32(&mut state_records, argb(state.text.as_deref()));
             push_u32(&mut state_records, argb(state.border.as_deref()));
         }
+    }
+
+    // Blob v6: optional `text_extras` records, 8 bytes each. Only text nodes
+    // with a nonzero flag byte carry one.
+    let mut text_extras = Vec::new();
+    for (index, node) in nodes.iter().enumerate() {
+        let flags = node.text_flags & TEXT_FLAG_ELLIPSIS;
+        if flags == 0 {
+            continue;
+        }
+        push_i32(&mut text_extras, index as i32);
+        text_extras.push(flags);
+        text_extras.extend_from_slice(&[0, 0, 0]);
     }
 
     let mut sections: Vec<(u32, Vec<u8>)> = vec![
@@ -490,6 +516,9 @@ pub(crate) fn write_blob(
     }
     if !state_records.is_empty() {
         sections.push((SECTION_STATES, state_records));
+    }
+    if !text_extras.is_empty() {
+        sections.push((SECTION_TEXT_EXTRAS, text_extras));
     }
 
     let table_size = BLOB_HEADER_SIZE + sections.len() * BLOB_SECTION_SIZE;

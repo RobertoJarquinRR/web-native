@@ -21,6 +21,7 @@ typedef struct {
 
 _Static_assert(sizeof(WnBlobStateRecord) == 8, "WnBlobStateRecord must stay 8 bytes");
 _Static_assert(sizeof(WnBlobStateStyle) == 16, "WnBlobStateStyle must stay 16 bytes");
+_Static_assert(sizeof(WnBlobTextExtras) == 8, "WnBlobTextExtras must stay 8 bytes");
 
 static int blob_map_open(WnBlobMap *map, const char *path)
 {
@@ -260,11 +261,13 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
     const WnBlobSection *strings_section;
     const WnBlobSection *inputs_section = NULL;
     const WnBlobSection *states_section = NULL;
+    const WnBlobSection *text_extras_section = NULL;
     uint32_t nodes_size = 0;
     uint32_t names_size = 0;
     uint32_t strings_size = 0;
     uint32_t inputs_size = 0;
     uint32_t states_size = 0;
+    uint32_t text_extras_size = 0;
     uint32_t state_total = 0;
     UiStateStyle *states = NULL;
     const char *strings;
@@ -325,6 +328,12 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
                                   header->file_size, &states_size);
     if (states_section == NULL) {
         states_size = 0;
+    }
+    text_extras_section = find_section(sections, header->section_count,
+                                       WN_BLOB_SECTION_TEXT_EXTRAS, header->file_size,
+                                       &text_extras_size);
+    if (text_extras_section == NULL) {
+        text_extras_size = 0;
     }
     if ((uint64_t)header->node_count * sizeof(WnBlobNode) != nodes_size ||
         (uint64_t)header->node_count * sizeof(uint32_t) != names_size ||
@@ -414,9 +423,9 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
                 return NULL;
             }
             previous_node = record.node;
-            if (record.state_count > 4) {
+            if (record.state_count > 6) {
                 wn_set_error("wn_document_load_blob: %s: node %d has %u state "
-                             "entries (expected 0..4)", origin, (int)record.node,
+                             "entries (expected 0..6)", origin, (int)record.node,
                              (unsigned)record.state_count);
                 return NULL;
             }
@@ -455,7 +464,8 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
                 if (style.present == 0u ||
                     (style.present & ~(uint8_t)(R2_STATE_FIELD_BACKGROUND |
                                                 R2_STATE_FIELD_TEXT |
-                                                R2_STATE_FIELD_BORDER)) != 0u) {
+                                                R2_STATE_FIELD_BORDER |
+                                                R2_STATE_FIELD_FONT_WEIGHT)) != 0u) {
                     wn_set_error("wn_document_load_blob: %s: node %d state %u has "
                                  "invalid present mask 0x%x", origin,
                                  (int)record.node, (unsigned)style.state,
@@ -474,6 +484,22 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
                                  (int)record.node, (unsigned)style.state);
                     return NULL;
                 }
+                if ((style.present & R2_STATE_FIELD_FONT_WEIGHT) != 0u) {
+                    if (style.reserved < 100u || style.reserved > 900u) {
+                        wn_set_error("wn_document_load_blob: %s: node %d state %u "
+                                     "has font-weight %u (expected 100..900)",
+                                     origin, (int)record.node,
+                                     (unsigned)style.state,
+                                     (unsigned)style.reserved);
+                        return NULL;
+                    }
+                } else if (style.reserved != 0u) {
+                    wn_set_error("wn_document_load_blob: %s: node %d state %u "
+                                 "carries a weight (%u) without the present bit",
+                                 origin, (int)record.node, (unsigned)style.state,
+                                 (unsigned)style.reserved);
+                    return NULL;
+                }
             }
             offset += (uint32_t)record.state_count * (uint32_t)sizeof(WnBlobStateStyle);
             state_total += (uint32_t)record.state_count;
@@ -483,10 +509,46 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
                          origin);
             return NULL;
         }
-        if (state_total > header->node_count * 4u) {
+        if (state_total > header->node_count * 6u) {
             wn_set_error("wn_document_load_blob: %s: too many state entries (%u)",
                          origin, state_total);
             return NULL;
+        }
+    }
+    if (text_extras_section != NULL && text_extras_size > 0) {
+        const unsigned char *extras_data = data + text_extras_section->offset;
+        uint32_t offset = 0;
+        int32_t previous_node = -1;
+        if (text_extras_size % (uint32_t)sizeof(WnBlobTextExtras) != 0) {
+            wn_set_error("wn_document_load_blob: %s: bad text_extras section",
+                         origin);
+            return NULL;
+        }
+        while (offset < text_extras_size) {
+            WnBlobTextExtras record;
+            memcpy(&record, extras_data + offset, sizeof(record));
+            offset += (uint32_t)sizeof(record);
+            if (record.node < 0 || (uint32_t)record.node >= header->node_count) {
+                wn_set_error("wn_document_load_blob: %s: text_extras record "
+                             "references node %d", origin, (int)record.node);
+                return NULL;
+            }
+            if (record.node <= previous_node) {
+                wn_set_error("wn_document_load_blob: %s: text_extras records are "
+                             "not in strictly increasing node order (%d after %d)",
+                             origin, (int)record.node, (int)previous_node);
+                return NULL;
+            }
+            previous_node = record.node;
+            if (record.flags == 0u ||
+                (record.flags & ~(uint8_t)WN_TEXT_FLAG_ELLIPSIS) != 0u ||
+                record.reserved[0] != 0u || record.reserved[1] != 0u ||
+                record.reserved[2] != 0u) {
+                wn_set_error("wn_document_load_blob: %s: node %d has invalid "
+                             "text_extras flags 0x%x", origin, (int)record.node,
+                             (unsigned)record.flags);
+                return NULL;
+            }
         }
     }
 
@@ -641,6 +703,7 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
          * range validation: the frontend rejects non-integers, values outside
          * int32 and the reserved sentinel before writing. */
         dst->z_index = src->z_index;
+        dst->text_flags = 0u;
     }
     {
         const uint32_t *name_offsets =
@@ -672,6 +735,16 @@ static wn_document *blob_parse(const unsigned char *data, size_t size,
             offset += (uint32_t)record.state_count * (uint32_t)sizeof(WnBlobStateStyle);
         }
         document->owned_states = states;
+    }
+    if (text_extras_section != NULL && text_extras_size > 0) {
+        const unsigned char *extras_data = data + text_extras_section->offset;
+        uint32_t offset = 0;
+        while (offset < text_extras_size) {
+            WnBlobTextExtras record;
+            memcpy(&record, extras_data + offset, sizeof(record));
+            offset += (uint32_t)sizeof(record);
+            nodes[record.node].text_flags = record.flags;
+        }
     }
     free(depth);
     depth = NULL;

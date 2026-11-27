@@ -115,7 +115,7 @@ static void ensure_image_batch_capacity(wn_core *c, int needed)
 
 /* Generated text runs follow the state of their owning element (their parent
  * in the runtime tree); every other node uses its own mask. */
-static unsigned char effective_state(const wn_core *c, int node)
+unsigned char wn_core_effective_state(const wn_core *c, int node)
 {
     const UiNode *n = &c->nodes[node];
     if (n->kind == R2_NODE_TEXT && c->parent[node] >= 0) {
@@ -124,7 +124,7 @@ static unsigned char effective_state(const wn_core *c, int node)
     return c->state[node];
 }
 
-static const UiStateStyle *state_entry(const UiNode *n, int code)
+const UiStateStyle *wn_core_state_entry(const UiNode *n, int code)
 {
     unsigned char i;
     for (i = 0; i < n->state_style_count; ++i) {
@@ -138,7 +138,7 @@ static const UiStateStyle *state_entry(const UiNode *n, int code)
 static int state_color(const UiNode *n, int code, unsigned char field,
                        unsigned int *out)
 {
-    const UiStateStyle *style = state_entry(n, code);
+    const UiStateStyle *style = wn_core_state_entry(n, code);
     if (style == NULL || (style->present & field) == 0u) {
         return 0;
     }
@@ -156,13 +156,25 @@ static int state_color(const UiNode *n, int code, unsigned char field,
     return 1;
 }
 
+/* State weight override. `reserved` is the additive v6 field; the present bit
+ * says whether it applies. */
+static int state_weight(const UiNode *n, int code, int *out)
+{
+    const UiStateStyle *style = wn_core_state_entry(n, code);
+    if (style == NULL || (style->present & R2_STATE_FIELD_FONT_WEIGHT) == 0u) {
+        return 0;
+    }
+    *out = (int)style->reserved;
+    return 1;
+}
+
 /* CSS state styles take precedence; data-* attributes remain the sugar for
  * variants without CSS. Selected is the app's base color: it shows when no
  * higher-priority state overrides the field. */
 unsigned int wn_core_node_background(const wn_core *c, int node)
 {
     const UiNode *n = &c->nodes[node];
-    unsigned char state = effective_state(c, node);
+    unsigned char state = wn_core_effective_state(c, node);
     unsigned int color;
     if ((state & WN_STATE_DISABLED) != 0u) {
         if (state_color(n, R2_STATE_STYLE_DISABLED, R2_STATE_FIELD_BACKGROUND,
@@ -179,8 +191,18 @@ unsigned int wn_core_node_background(const wn_core *c, int node)
         state_color(n, R2_STATE_STYLE_HOVER, R2_STATE_FIELD_BACKGROUND, &color)) {
         return color;
     }
+    if ((state & WN_STATE_FOCUS_VISIBLE) != 0u &&
+        state_color(n, R2_STATE_STYLE_FOCUS_VISIBLE, R2_STATE_FIELD_BACKGROUND,
+                    &color)) {
+        return color;
+    }
     if ((state & WN_STATE_FOCUSED) != 0u &&
         state_color(n, R2_STATE_STYLE_FOCUS, R2_STATE_FIELD_BACKGROUND, &color)) {
+        return color;
+    }
+    if ((state & WN_STATE_FOCUS_WITHIN) != 0u &&
+        state_color(n, R2_STATE_STYLE_FOCUS_WITHIN, R2_STATE_FIELD_BACKGROUND,
+                    &color)) {
         return color;
     }
     if (n->action != ACTION_NONE) {
@@ -200,7 +222,7 @@ unsigned int wn_core_node_background(const wn_core *c, int node)
 unsigned int wn_core_node_text_color(const wn_core *c, int node)
 {
     const UiNode *n = &c->nodes[node];
-    unsigned char state = effective_state(c, node);
+    unsigned char state = wn_core_effective_state(c, node);
     unsigned int color;
     if ((state & WN_STATE_DISABLED) != 0u) {
         if (state_color(n, R2_STATE_STYLE_DISABLED, R2_STATE_FIELD_TEXT, &color)) {
@@ -216,8 +238,16 @@ unsigned int wn_core_node_text_color(const wn_core *c, int node)
         state_color(n, R2_STATE_STYLE_HOVER, R2_STATE_FIELD_TEXT, &color)) {
         return color;
     }
+    if ((state & WN_STATE_FOCUS_VISIBLE) != 0u &&
+        state_color(n, R2_STATE_STYLE_FOCUS_VISIBLE, R2_STATE_FIELD_TEXT, &color)) {
+        return color;
+    }
     if ((state & WN_STATE_FOCUSED) != 0u &&
         state_color(n, R2_STATE_STYLE_FOCUS, R2_STATE_FIELD_TEXT, &color)) {
+        return color;
+    }
+    if ((state & WN_STATE_FOCUS_WITHIN) != 0u &&
+        state_color(n, R2_STATE_STYLE_FOCUS_WITHIN, R2_STATE_FIELD_TEXT, &color)) {
         return color;
     }
     return n->text_color;
@@ -226,7 +256,7 @@ unsigned int wn_core_node_text_color(const wn_core *c, int node)
 unsigned int wn_core_node_border_color(const wn_core *c, int node)
 {
     const UiNode *n = &c->nodes[node];
-    unsigned char state = effective_state(c, node);
+    unsigned char state = wn_core_effective_state(c, node);
     unsigned int color;
     if ((state & WN_STATE_DISABLED) != 0u) {
         if (state_color(n, R2_STATE_STYLE_DISABLED, R2_STATE_FIELD_BORDER, &color)) {
@@ -242,11 +272,59 @@ unsigned int wn_core_node_border_color(const wn_core *c, int node)
         state_color(n, R2_STATE_STYLE_HOVER, R2_STATE_FIELD_BORDER, &color)) {
         return color;
     }
+    if ((state & WN_STATE_FOCUS_VISIBLE) != 0u &&
+        state_color(n, R2_STATE_STYLE_FOCUS_VISIBLE, R2_STATE_FIELD_BORDER,
+                    &color)) {
+        return color;
+    }
     if ((state & WN_STATE_FOCUSED) != 0u &&
         state_color(n, R2_STATE_STYLE_FOCUS, R2_STATE_FIELD_BORDER, &color)) {
         return color;
     }
+    if ((state & WN_STATE_FOCUS_WITHIN) != 0u &&
+        state_color(n, R2_STATE_STYLE_FOCUS_WITHIN, R2_STATE_FIELD_BORDER,
+                    &color)) {
+        return color;
+    }
     return n->border_color;
+}
+
+/* Effective font weight for layout, shaping, atlas and paint. Same priority as
+ * the colors: disabled > press > hover > focus-visible > focus > focus-within
+ * > base. Generated text runs read the owner's state through
+ * wn_core_effective_state(). */
+int wn_core_node_font_weight(const wn_core *c, int node)
+{
+    const UiNode *n = &c->nodes[node];
+    unsigned char state = wn_core_effective_state(c, node);
+    int weight;
+    if ((state & WN_STATE_DISABLED) != 0u) {
+        if (state_weight(n, R2_STATE_STYLE_DISABLED, &weight)) {
+            return weight;
+        }
+        return n->font_weight;
+    }
+    if ((state & WN_STATE_PRESS) != 0u &&
+        state_weight(n, R2_STATE_STYLE_PRESS, &weight)) {
+        return weight;
+    }
+    if ((state & WN_STATE_HOVER) != 0u &&
+        state_weight(n, R2_STATE_STYLE_HOVER, &weight)) {
+        return weight;
+    }
+    if ((state & WN_STATE_FOCUS_VISIBLE) != 0u &&
+        state_weight(n, R2_STATE_STYLE_FOCUS_VISIBLE, &weight)) {
+        return weight;
+    }
+    if ((state & WN_STATE_FOCUSED) != 0u &&
+        state_weight(n, R2_STATE_STYLE_FOCUS, &weight)) {
+        return weight;
+    }
+    if ((state & WN_STATE_FOCUS_WITHIN) != 0u &&
+        state_weight(n, R2_STATE_STYLE_FOCUS_WITHIN, &weight)) {
+        return weight;
+    }
+    return n->font_weight;
 }
 
 /* ---------------------------------------------------------------- geometry */
@@ -865,6 +943,7 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
         if (a == 0) {
             continue;
         }
+        int weight = wn_core_node_font_weight(c, node);
         wn_paint_use_item(c, item);
         set_glyph_clip(c, &item->clip);
         cr = (uint8_t)((color >> 16) & 0xFFu);
@@ -879,7 +958,7 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
             float node_leading;
             float avail = 0.0f;
             int align_per_line = 0;
-            if (wn_text_block_get(text, n->font_family, n->font_size, n->font_weight,
+            if (wn_text_block_get(text, n->font_family, n->font_size, weight,
                                   wrap_width, WN_LINE_HEIGHT(n), &block) != 0) {
                 continue;
             }
@@ -899,11 +978,43 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
             for (int line_index = 0; line_index < layout->line_count; ++line_index) {
                 const wn_text_line *line = &layout->lines[line_index];
                 const wn_atlas_run *run = wn_text_atlas_shape(
-                    c->text_atlas, line->text, n->font_family, n->font_size, n->font_weight);
+                    c->text_atlas, line->text, n->font_family, n->font_size, weight);
                 float align_dx = 0.0f;
                 float baseline;
+                int draw_count;
+                int ellipsis = 0;
+                float ellipsis_x = 0.0f;
+                const wn_atlas_run *ellipsis_run = NULL;
                 if (run == NULL) {
                     continue;
+                }
+                draw_count = run->count;
+                /* `text-overflow: ellipsis` is single-line only: with more than
+                 * one line the box wraps normally and the flag is inert. The
+                 * flag is only emitted for `overflow: hidden` boxes. */
+                if ((n->text_flags & WN_TEXT_FLAG_ELLIPSIS) != 0u &&
+                    layout->line_count == 1 && line->width > wrap_width) {
+                    ellipsis_run = wn_text_atlas_shape(
+                        c->text_atlas, "\xE2\x80\xA6", n->font_family,
+                        n->font_size, weight);
+                    if (ellipsis_run != NULL && ellipsis_run->count > 0) {
+                        float ellipsis_width = ellipsis_run->width;
+                        float limit = wrap_width - ellipsis_width;
+                        int i;
+                        if (limit < 0.0f) {
+                            limit = 0.0f;
+                        }
+                        ellipsis = 1;
+                        ellipsis_x = wrap_width - ellipsis_width;
+                        draw_count = run->count;
+                        for (i = 0; i < run->count; ++i) {
+                            if (run->glyphs[i].x + run->glyphs[i].advance >
+                                limit + 0.01f) {
+                                draw_count = i;
+                                break;
+                            }
+                        }
+                    }
                 }
                 if (align_per_line) {
                     float extent = layout->line_count == 1 ? r->w : line->width;
@@ -914,10 +1025,10 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
                 }
                 baseline = r->y + node_leading + block.half_leading + block.ascent +
                            (float)line_index * block.line_height;
-                for (j = 0; j < run->count; ++j) {
+                for (j = 0; j < draw_count; ++j) {
                     const wn_text_glyph *glyph = &run->glyphs[j];
                     const wn_atlas_glyph *packed = wn_text_atlas_glyph(
-                        c->text_atlas, n->font_family, n->font_size, n->font_weight,
+                        c->text_atlas, n->font_family, n->font_size, weight,
                         glyph->glyph);
                     float x;
                     float y;
@@ -929,6 +1040,28 @@ static void build_text_geometry(wn_core *c, float viewport_w, float viewport_h)
                     push_glyph_quad(c, x, y, (float)packed->width, (float)packed->height,
                                     packed->u0, packed->v0, packed->u1, packed->v1,
                                     viewport_w, viewport_h, cr, cg, cb, a);
+                }
+                if (ellipsis) {
+                    int i;
+                    for (i = 0; i < ellipsis_run->count; ++i) {
+                        const wn_text_glyph *glyph = &ellipsis_run->glyphs[i];
+                        const wn_atlas_glyph *packed = wn_text_atlas_glyph(
+                            c->text_atlas, n->font_family, n->font_size, weight,
+                            glyph->glyph);
+                        float x;
+                        float y;
+                        if (packed == NULL || packed->width <= 0 ||
+                            packed->height <= 0) {
+                            continue;
+                        }
+                        x = floorf(r->x + align_dx + ellipsis_x + glyph->x +
+                                   (float)packed->bearing_x + 0.5f);
+                        y = floorf(baseline + (float)packed->bearing_y + 0.5f);
+                        push_glyph_quad(c, x, y, (float)packed->width,
+                                        (float)packed->height, packed->u0,
+                                        packed->v0, packed->u1, packed->v1,
+                                        viewport_w, viewport_h, cr, cg, cb, a);
+                    }
                 }
             }
         }

@@ -45,7 +45,8 @@
  *        composition on the focused single-line input (IMM32 today). No struct
  *        layout changed: the composition UTF-8 rides in `target_id`, the
  *        codepoint cursor in `key`, and the caret rect in x/y/width/height.
- */
+ *        Same-version follow-ups: WN_STATE_FOCUS_VISIBLE (keyboard/programmatic
+ *        focus) and WN_STATE_FOCUS_WITHIN (engine-derived ancestor focus). */
 #ifndef WEBNATIVE_H
 #define WEBNATIVE_H
 
@@ -86,12 +87,26 @@ extern "C" {
  * ABI v7: WN_STATE_FOCUSED lets a host mark any node as focused (CSS `:focus`
  * styles). WN_STATE_DISABLED makes the node and its subtree inert to the
  * pointer machine; :disabled styles stored by the frontend start applying.
- * Both are additive bits, accepted by set_state and returned by get_state. */
+ * Both are additive bits, accepted by set_state and returned by get_state.
+ *
+ * v7 follow-ups (additive, same version):
+ * - WN_STATE_FOCUS_VISIBLE distinguishes keyboard/programmatic focus from
+ *   pointer focus (CSS `:focus-visible`). A host marks keyboard focus by
+ *   setting FOCUS_VISIBLE together with FOCUSED; a pointer click sets only
+ *   FOCUSED. The engine sets FOCUS_VISIBLE on programmatic/keyboard focus and
+ *   clears it on a pointer focus.
+ * - WN_STATE_FOCUS_WITHIN is engine-derived (CSS `:focus-within`): the focused
+ *   node and every ancestor carry it while a focus exists. It is recomputed on
+ *   every focus change, subtree disable and remove/reinsert. It is read-only
+ *   for hosts: wn_node_set_state() rejects a mask that contains it with
+ *   WN_ERR_INVALID_ARGUMENT, and wn_node_get_state() reports it. */
 #define WN_STATE_HOVER    0x01u
 #define WN_STATE_PRESS    0x02u
 #define WN_STATE_SELECTED 0x04u
 #define WN_STATE_FOCUSED  0x08u
 #define WN_STATE_DISABLED 0x10u
+#define WN_STATE_FOCUS_VISIBLE 0x20u
+#define WN_STATE_FOCUS_WITHIN  0x40u
 
 /* Reserved flags; must be 0 in v0. */
 #define WN_FLAG_NONE 0u
@@ -380,17 +395,20 @@ WN_API wn_status wn_node_append(wn_app *app, wn_node_id parent, wn_node_id child
  * selected or focused. Input focus drives WN_STATE_FOCUSED automatically.
  *
  * Painting resolves each color field independently with the documented
- * priority disabled > press > hover > focus > base. Selected is the app's base
- * color and only shows when no higher-priority state overrides that field, so
- * "selected + hover" shows the hover color. CSS state colors (blob v6) win over
- * the compiled data-* hover/press/selected colors; data-* remains the fallback
- * for nodes without CSS state styles.
+ * priority disabled > press > hover > focus-visible > focus > focus-within >
+ * base. Selected is the app's base color and only shows when no
+ * higher-priority state overrides that field, so "selected + hover" shows the
+ * hover color. CSS state colors (blob v6) win over the compiled data-*
+ * hover/press/selected colors; data-* remains the fallback for nodes without
+ * CSS state styles.
  *
  * A disabled node (and its subtree) is inert to the pointer machine: no hover,
  * press or selection, and it cannot be focused. wn_node_get_rect() and the
  * diagnostic hit test still see it.
- * Returns WN_ERR_INVALID_ARGUMENT for a dead handle, a zero mask or an unknown
- * bit. wn_node_get_state() returns the active mask, or 0 for a dead handle.
+ * Returns WN_ERR_INVALID_ARGUMENT for a dead handle, a zero mask, an unknown
+ * bit, or a mask containing WN_STATE_FOCUS_WITHIN (engine-derived; read it via
+ * wn_node_get_state()). wn_node_get_state() returns the active mask, or 0 for a
+ * dead handle.
  */
 WN_API wn_status wn_node_set_state(wn_app *app, wn_node_id node, uint32_t state,
                                    int enabled);

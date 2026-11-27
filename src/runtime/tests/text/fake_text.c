@@ -340,6 +340,111 @@ const wn_text_ops *wn_text_fake_broken_measure(void)
     return &g_fake_broken_measure_ops;
 }
 
+/* Weight-sensitive variant for state-weight tests: the advance grows with the
+ * weight, so a layout rebuild after a state change has a measurable effect.
+ * Existing tests keep the fixed-advance backend above. */
+static float fake_weight_advance(float size, int weight)
+{
+    float scale = 1.0f + (float)(weight - 400) / 1000.0f;
+    if (scale < 0.1f) {
+        scale = 0.1f;
+    }
+    return size * 0.5f * scale;
+}
+
+static int fake_weight_measure(void *context, const char *utf8,
+                               const wn_text_style *style, float max_width,
+                               wn_text_metrics *out)
+{
+    WnFakeState *state = (WnFakeState *)context;
+    float size = style != NULL && style->size > 0.0f ? style->size : 16.0f;
+    int weight = style != NULL ? style->weight : 400;
+    int codepoints = fake_codepoints(utf8);
+    (void)max_width;
+    if (out == NULL) {
+        return 1;
+    }
+    if (state != NULL) {
+        state->measure_calls += 1;
+    }
+    memset(out, 0, sizeof(*out));
+    out->ascent = size;
+    out->descent = size * 0.25f;
+    out->width = fake_weight_advance(size, weight) * (float)codepoints;
+    out->height = fake_line_height(size);
+    return 0;
+}
+
+static int fake_weight_shape(void *context, const char *utf8,
+                             const wn_text_style *style, wn_text_glyph *glyphs,
+                             int capacity, wn_text_shaped *out)
+{
+    WnFakeState *state = (WnFakeState *)context;
+    const unsigned char *p = (const unsigned char *)(utf8 != NULL ? utf8 : "");
+    float size = style != NULL && style->size > 0.0f ? style->size : 16.0f;
+    int weight = style != NULL ? style->weight : 400;
+    float advance = fake_weight_advance(size, weight);
+    float pen = 0.0f;
+    int written = 0;
+    int total = 0;
+    if (out == NULL) {
+        return 1;
+    }
+    if (state != NULL) {
+        state->shape_calls += 1;
+    }
+    while (*p != '\0') {
+        unsigned int codepoint = 0;
+        p += decode_codepoint(p, &codepoint);
+        if (glyphs != NULL && written < capacity) {
+            glyphs[written].glyph = (int)(codepoint & 0xFFFFu);
+            glyphs[written].advance = advance;
+            glyphs[written].x = pen;
+            ++written;
+        }
+        pen += advance;
+        ++total;
+    }
+    memset(out, 0, sizeof(*out));
+    out->glyphs = glyphs;
+    out->glyph_count = written;
+    out->truncated = written < total ? 1 : 0;
+    out->width = pen;
+    out->height = fake_line_height(size);
+    out->ascent = size;
+    out->descent = size * 0.25f;
+    return 0;
+}
+
+static WnFakeState g_fake_weight;
+
+static int fake_weight_init(void **context)
+{
+    if (context == NULL) {
+        return 1;
+    }
+    memset(&g_fake_weight, 0, sizeof(g_fake_weight));
+    *context = &g_fake_weight;
+    return 0;
+}
+
+static const wn_text_ops g_fake_weight_ops = {
+    "fake-weight",
+    fake_weight_init,
+    fake_destroy,
+    fake_weight_measure,
+    fake_weight_shape,
+    fake_rasterize,
+    fake_cache_misses,
+    fake_has_family,
+    fake_cache_stats,
+};
+
+const wn_text_ops *wn_text_fake_weight(void)
+{
+    return &g_fake_weight_ops;
+}
+
 const wn_text_ops *wn_text_fake_failing_init(void)
 {
     return &g_fake_failing_ops;

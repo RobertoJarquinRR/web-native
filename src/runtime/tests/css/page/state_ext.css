@@ -1,0 +1,76 @@
+/* Extended state fixture: nth-child, focus-visible, focus-within, state
+   font-weight and single-line ellipsis. 400x164. */
+html { height: 100%; }
+
+body {
+  margin: 0;
+  padding: 10px;
+  display: block;
+  background: #000000;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.nth {
+  width: 80px;
+  height: 30px;
+  background: #00ff00;
+}
+
+.nth:nth-child(2) {
+  background: #ff0000;
+}
+
+.focus {
+  width: 80px;
+  height: 30px;
+  background: #202020;
+}
+
+.focus:focus {
+  background: #3366cc;
+}
+
+.focus:focus-visible {
+  background: #00aa55;
+}
+
+.within {
+  width: 180px;
+  height: 30px;
+  background: #202020;
+  color: #ffffff;
+}
+
+.within:focus-within {
+  background: #112233;
+}
+
+.weight {
+  width: 100px;
+  height: 30px;
+  background: #101010;
+  color: #ffffff;
+}
+
+.weight:hover {
+  background: #445566;
+  font-weight: 700;
+}
+
+/* Single-line only: flex column pins the text run to the box width and the
+   unbreakable token cannot wrap. `white-space: nowrap` is not in the subset. */
+.ellipsis {
+  display: flex;
+  flex-direction: column;
+  width: 180px;
+  height: 24px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: #1a1a1a;
+  color: #ffffff;
+}

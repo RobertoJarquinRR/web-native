@@ -17,6 +17,7 @@
 #include <string.h>
 
 #include "webnative.h"
+#include "document/wn_blob.h"
 #include "document/wn_document_internal.h"
 #include "wn_internal.h"
 
@@ -125,6 +126,8 @@ static const char *state_style_name(int value)
     case R2_STATE_STYLE_PRESS: return "press";
     case R2_STATE_STYLE_FOCUS: return "focus";
     case R2_STATE_STYLE_DISABLED: return "disabled";
+    case R2_STATE_STYLE_FOCUS_VISIBLE: return "focus-visible";
+    case R2_STATE_STYLE_FOCUS_WITHIN: return "focus-within";
     default: return "unknown";
     }
 }
@@ -231,6 +234,13 @@ static void text_state_styles(FILE *out, const UiNode *node)
             fprintf(out, "%sborder=#%08x",
                     (style->present & (R2_STATE_FIELD_BACKGROUND | R2_STATE_FIELD_TEXT)) != 0u ? "," : "",
                     style->border_color);
+        }
+        if ((style->present & R2_STATE_FIELD_FONT_WEIGHT) != 0u) {
+            fprintf(out, "%sweight=%u",
+                    (style->present & (R2_STATE_FIELD_BACKGROUND |
+                                       R2_STATE_FIELD_TEXT |
+                                       R2_STATE_FIELD_BORDER)) != 0u ? "," : "",
+                    (unsigned)style->reserved);
         }
         fputc(')', out);
     }
@@ -346,6 +356,9 @@ static void text_node(FILE *out, int index, const UiNode *node, const char *name
     } else {
         fprintf(out, "%d", (int)node->z_index);
     }
+    if ((node->text_flags & WN_TEXT_FLAG_ELLIPSIS) != 0u) {
+        fputs(" text-flags=ellipsis", out);
+    }
     text_state_styles(out, node);
     text_initial_state(out, node);
     text_string(out, "text", node->text);
@@ -401,6 +414,9 @@ static void json_state_styles(FILE *out, const UiNode *node)
         }
         if ((style->present & R2_STATE_FIELD_BORDER) != 0u) {
             fprintf(out, ", \"border\": \"#%08x\"", style->border_color);
+        }
+        if ((style->present & R2_STATE_FIELD_FONT_WEIGHT) != 0u) {
+            fprintf(out, ", \"weight\": %u", (unsigned)style->reserved);
         }
         fputc('}', out);
     }
@@ -475,6 +491,9 @@ static void json_node(FILE *out, int index, const UiNode *node, const char *name
         fprintf(out, "      \"z_index\": \"auto\",\n");
     } else {
         fprintf(out, "      \"z_index\": %d,\n", (int)node->z_index);
+    }
+    if ((node->text_flags & WN_TEXT_FLAG_ELLIPSIS) != 0u) {
+        fprintf(out, "      \"text_flags\": [\"ellipsis\"],\n");
     }
     json_state_styles(out, node);
     {
