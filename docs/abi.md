@@ -15,8 +15,8 @@ en `include/webnative.h`; este documento explica uso y límites.
 8. **Versionado**: `WN_ABI_VERSION` + `wn_version()`; breaking bump de major.
    v2 (wheel), v3 (UI dinámica), v4 (text input), v5 (identidad de nodos),
    v6 (estado, lecturas, eventos, timer, ownership) y **v7** (bits de foco y
-   deshabilitado, eventos de composición IME) son aditivas. v7 no cambia el
-   tamaño ni el layout de ningún struct público.
+   deshabilitado, eventos de composición IME, overrides de layout en runtime)
+   son aditivas. v7 no cambia el tamaño ni el layout de ningún struct público.
 
 ## Superficie v7
 
@@ -87,6 +87,35 @@ inquilino del slot. No persists handles entre documentos ni tras
 
 Toda mutación marca el core dirty: el siguiente frame re-layouta, recorta y
 pinta. No hay `commit` separado.
+
+### Layout en runtime (v7 aditivo)
+
+| Función | Uso |
+|---|---|
+| `wn_node_set_size(app, node, width, height)` | fija el ancho/alto CSS del nodo; `WN_AUTO` restaura el valor compilado |
+| `wn_node_set_position(app, node, x, y)` | fija `left`/`top` en px de un nodo posicionado; `WN_AUTO` restaura el par compilado |
+
+- `WN_AUTO` es `-1.0e6f`, fuera de cualquier coordenada real. En tamaño,
+  cualquier valor negativo (incluido `WN_AUTO`) restaura el eje compilado,
+  incluido un porcentaje compilado. Los tamaños explícitos deben ser finitos y
+  `>= 0`; `0` es válido y colapsa la caja.
+- El tamaño usa el mismo box que CSS: respeta `box-sizing`, padding y márgenes
+  compilados. No cambia `position`, `display` ni el tipo de nodo.
+- `set_position` exige un nodo posicionado (`relative`, `absolute`, `fixed` o
+  `sticky`). `x`/`y` se resuelven contra el containing block que ya tenga el
+  nodo; en cada eje el lado opuesto (`right`/`bottom`) se limpia, igual que una
+  declaración CSS `left`/`top`. En `sticky` esos mismos campos conservan su
+  significado CSS (el umbral de pin de ese eje). `WN_AUTO` por eje restaura el
+  par izquierda/derecha o arriba/abajo compilado, incluidos sus bits de
+  porcentaje. Un nodo `static` devuelve `WN_ERR_INVALID_ARGUMENT`.
+- Ambas llamadas marcan layout y pintura sucios: el siguiente
+  frame/`wn_view_render` re-layouta y reconstruye la display list. El `.wnui`
+  en disco no se toca; el override vive en el core vivo y desaparece al cargar
+  otro documento o al eliminar el nodo. Los clones guardan su propia geometría
+  base, así que `WN_AUTO` restaura la del template clonado, no la del original.
+- Handle muerto, app nula, nodo `static` para posición, `NaN`, infinito o
+  tamaño explícito negativo devuelven `WN_ERR_INVALID_ARGUMENT` sin cambiar
+  nada. No hay parser CSS: solo se transportan estos dos campos.
 
 ### Text input (v4)
 
@@ -347,6 +376,10 @@ private static partial nint wn_node_get_value(nint app, ulong node);
   host, pero el runtime renderiza el documento `.wnui` compilado. **No hay
   parser HTML/CSS en runtime**; cambiar la página requiere recompilar el blob
   (`frontend-rust --emit-blob`) o cargar otro `.wnui`.
+- Los overrides de layout (`wn_node_set_size`/`wn_node_set_position`) solo
+  mueven `width`/`height` y los insets `left`/`top` de un nodo ya posicionado;
+  no cambian `position`, márgenes, padding, `display` ni el resto de propiedades
+  CSS. No se persisten en el `.wnui`.
 - `set_text` acepta cualquier UTF-8: el runtime shapea y rasteriza el texto. El
   documento solo lleva cadena, familia, tamaño, peso y `line-height`.
 - `set_image` conserva el tamaño intrínseco compilado hasta que el host llame

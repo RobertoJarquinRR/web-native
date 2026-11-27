@@ -129,6 +129,18 @@ CSS: un scroller con padding fija en el borde del contenido. Solo
 pero no fija), y un hijo `fixed` del sticky no se traslada. Los hijos
 `absolute` de un `fixed` usan su caja como containing block.
 
+### Overrides de layout (ABI v7)
+
+`wn_node_set_size` y `wn_node_set_position` cambian la geometría de un nodo vivo
+sin tocar el `.wnui`: el primero fija `width`/`height` y el segundo `left`/`top`
+de un nodo ya posicionado, siempre contra su containing block actual. En cada
+eje, `set_position` limpia el lado opuesto (`right`/`bottom`) como una
+declaración CSS. `WN_AUTO` (o un tamaño negativo) restaura el valor compilado
+del eje; los clones guardan su propia base, copiada del template. Ambas llamadas
+marcan `dirty`/`needs_layout` y la siguiente pasada re-layouta y repinta; el
+archivo compilado permanece inmutable y los overrides desaparecen al reemplazar
+el documento o eliminar el nodo.
+
 ### Estados CSS (blob v6, ABI v7)
 
 El frontend compila `:hover`, `:active` (press incluye hover), `:focus`,

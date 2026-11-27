@@ -46,7 +46,9 @@
  *        layout changed: the composition UTF-8 rides in `target_id`, the
  *        codepoint cursor in `key`, and the caret rect in x/y/width/height.
  *        Same-version follow-ups: WN_STATE_FOCUS_VISIBLE (keyboard/programmatic
- *        focus) and WN_STATE_FOCUS_WITHIN (engine-derived ancestor focus). */
+ *        focus), WN_STATE_FOCUS_WITHIN (engine-derived ancestor focus) and
+ *        runtime layout overrides (wn_node_set_size/wn_node_set_position plus
+ *        the WN_AUTO sentinel). No struct or event layout changed. */
 #ifndef WEBNATIVE_H
 #define WEBNATIVE_H
 
@@ -110,6 +112,15 @@ extern "C" {
 
 /* Reserved flags; must be 0 in v0. */
 #define WN_FLAG_NONE 0u
+
+/* ABI v7: layout override sentinel.
+ *
+ * Pass WN_AUTO to wn_node_set_size()/wn_node_set_position() to restore the
+ * compiled value for that axis. The value sits far outside any real UI
+ * coordinate, so ordinary negative insets (for example left: -1px) remain
+ * representable. Any negative width/height also restores the compiled size;
+ * positions only reserve this exact sentinel. */
+#define WN_AUTO (-1.0e6f)
 
 /* Axis-aligned rectangle in view pixels. ABI v6: public so hosts can read
  * laid-out geometry through wn_node_get_rect(). */
@@ -451,6 +462,35 @@ WN_API wn_status wn_app_blur_input(wn_app *app);
  * frame/render applies it. */
 WN_API wn_status wn_node_set_image_size(wn_app *app, wn_node_id node,
                                         float width, float height);
+
+/* ------------------------------------------- layout overrides (ABI v7) */
+/*
+ * Runtime-only geometry for an existing node. The compiled .wnui file is never
+ * modified; the override lives in the live core until the document is replaced
+ * or the node is removed.
+ *
+ * wn_node_set_size sets the node's CSS width/height (the same box sized by
+ * box-sizing; padding and margins are untouched). A negative width or height,
+ * including WN_AUTO, restores the compiled value for that axis, including a
+ * compiled percentage. Explicit sizes must be finite and >= 0.
+ *
+ * wn_node_set_position sets the horizontal and vertical offset of a positioned
+ * node (relative/absolute/fixed/sticky). x/y become `left`/`top` pixels against
+ * the node's existing containing block, and the opposite side on each axis
+ * (right/bottom) is cleared. For sticky the same fields keep their CSS meaning
+ * (the stick threshold on that axis). WN_AUTO for one axis restores the
+ * compiled left/right or top/bottom pair, including its percentage bits. A
+ * static node is rejected: compile it as positioned (or clone a positioned
+ * node) first.
+ *
+ * Both calls mark layout and paint dirty; the next frame/render re-runs layout
+ * and rebuilds the display list. An invalid app, node handle, property or
+ * value returns WN_ERR_INVALID_ARGUMENT and changes nothing.
+ */
+WN_API wn_status wn_node_set_size(wn_app *app, wn_node_id node,
+                                  float width, float height);
+WN_API wn_status wn_node_set_position(wn_app *app, wn_node_id node,
+                                      float x, float y);
 
 /* -------------------------------------------------- text input (ABI v5) */
 /*

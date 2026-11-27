@@ -886,6 +886,23 @@ def run_fidelity() -> int:
     )
     _expect(_run(abi_exe, [], out), ["abi_v6_core_test: PASS"], "ABI v6 core test")
 
+    log_step("fidelity: ABI v7 runtime layout overrides")
+    override_exe = out / "layout_override_test.exe"
+    _compile(
+        override_exe,
+        [_suite_dir("core") / "layout_override_test.c",
+         *[runtime / source for source in CORE_SOURCES]],
+        [get_paths().root / "include", runtime, out / "emit"],
+        CORE_LIBS,
+    )
+    override_text = _run(override_exe, [], out)
+    _expect(override_text, ["layout_override_test: PASS"], "layout override test")
+    # 43 checks: size change/reflow/repaint, negative and WN_AUTO restore
+    # (including a compiled percentage), zero size, absolute and relative
+    # placement, right/bottom restoration, partial auto, clone base, and the
+    # rejected handle/value/static cases.
+    _expect_checks(override_text, "layout_override_test", 43)
+
     log_step("fidelity: ABI v7 header (focus/disabled bits)")
     header_exe = out / "abi_v7_header_check.exe"
     _compile(
@@ -1206,6 +1223,10 @@ def run_dynamic() -> int:
         "set_image(text) -> WN_ERR_UNSUPPORTED",
         "set_state(unknown bit) -> WN_ERR_INVALID_ARGUMENT",
         "set_state(zero mask) -> WN_ERR_INVALID_ARGUMENT",
+        "set_size(card,160,140) -> WN_OK",
+        "set_size(card,auto) -> WN_OK",
+        "layout size 120x120 -> 160x140 -> auto 120x120 -> restored",
+        "set_position(static) -> WN_ERR_INVALID_ARGUMENT",
         "set_state(disabled) -> WN_OK",
         "set_state(disabled off) -> WN_OK",
         "remove(root) -> WN_ERR_INVALID_ARGUMENT",

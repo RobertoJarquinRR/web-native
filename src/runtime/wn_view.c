@@ -1731,6 +1731,60 @@ wn_status wn_view_set_image_size(wn_view *view, wn_node_id node,
     return WN_OK;
 }
 
+wn_status wn_view_set_size(wn_view *view, wn_node_id node,
+                           float width, float height)
+{
+    int index;
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_node_set_size: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    index = view_node_index(view, node);
+    if (index < 0) {
+        wn_set_error("wn_node_set_size: invalid node handle %llu",
+                     (unsigned long long)node);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    if (wn_core_set_size(view->core, index, width, height) != 0) {
+        wn_set_error("wn_node_set_size: invalid size %.2fx%.2f",
+                     (double)width, (double)height);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    view_mark_geometry(view);
+    return WN_OK;
+}
+
+wn_status wn_view_set_position(wn_view *view, wn_node_id node, float x, float y)
+{
+    int index;
+    int result;
+    wn_clear_error();
+    if (view == NULL) {
+        wn_set_error("wn_node_set_position: view is NULL");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    index = view_node_index(view, node);
+    if (index < 0) {
+        wn_set_error("wn_node_set_position: invalid node handle %llu",
+                     (unsigned long long)node);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    result = wn_core_set_position(view->core, index, x, y);
+    if (result == 1) {
+        wn_set_error("wn_node_set_position: node handle %llu is not positioned",
+                     (unsigned long long)node);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    if (result != 0) {
+        wn_set_error("wn_node_set_position: invalid offset %.2f,%.2f",
+                     (double)x, (double)y);
+        return WN_ERR_INVALID_ARGUMENT;
+    }
+    view_mark_geometry(view);
+    return WN_OK;
+}
+
 wn_status wn_view_tick(wn_view *view)
 {
     wn_clear_error();

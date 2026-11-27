@@ -86,6 +86,9 @@ wn_status wn_view_get_rect(wn_view *view, wn_node_id node, wn_rect *out);
 wn_status wn_view_scroll_into_view(wn_view *view, wn_node_id node, float margin);
 wn_status wn_view_set_image_size(wn_view *view, wn_node_id node,
                                  float width, float height);
+wn_status wn_view_set_size(wn_view *view, wn_node_id node,
+                           float width, float height);
+wn_status wn_view_set_position(wn_view *view, wn_node_id node, float x, float y);
 
 /* Text input (ABI v4) internal surface. */
 int wn_view_input_focused(const wn_view *view);

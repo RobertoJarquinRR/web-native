@@ -322,6 +322,13 @@ int wn_core_set_image(wn_core *core, int node, const char *path);
  * 1 unsupported (not an image), -1 invalid argument. Marks layout dirty. */
 int wn_core_set_image_size(wn_core *core, int node, float width, float height);
 
+/* ABI v7: runtime geometry overrides. 0 ok, -1 invalid argument. A negative
+ * size (including WN_AUTO) restores the compiled axis; a position requires a
+ * non-static node and WN_AUTO restores the compiled inset pair of that axis.
+ * Both mark layout dirty. */
+int wn_core_set_size(wn_core *core, int node, float width, float height);
+int wn_core_set_position(wn_core *core, int node, float x, float y);
+
 /* Deep clone. Returns the new node index or -1 (invalid) / -2 (out of memory or
  * beyond WN_NODE_MAX_CAPACITY). */
 int wn_core_clone(wn_core *core, int template_node, int parent);
