@@ -9,6 +9,10 @@
 > reproducción: eso es E5 y siguientes. Cualquier implementación que contradiga
 > este documento es un bug, no una variante.
 >
+> **Plan de ejecución:** `docs/media-roadmap.md` secuencia las olas E5–E8,
+> sus gates y las estimaciones con agentes. Este documento sigue siendo el
+> contrato; el roadmap no cambia la ABI ni el blob.
+>
 > **Modo de hilos de E4:** el bucle de media corre **inline** desde
 > `wn_core_media_tick` (UI), de forma determinista y sin locks. El modo con un
 > hilo por sesión queda para E4b; la API y las reglas de propiedad de §3.6 ya
