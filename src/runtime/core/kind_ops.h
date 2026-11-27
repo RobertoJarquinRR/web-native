@@ -39,16 +39,16 @@ typedef struct WnKindOps {
 } WnKindOps;
 
 /* One entry per R2_NODE_*, in enum order; core/kind_ops.c defines it. */
-enum { WN_KIND_COUNT = R2_NODE_INPUT + 1 };
+enum { WN_KIND_COUNT = R2_NODE_VIDEO + 1 };
 extern const WnKindOps wn_kind_table[WN_KIND_COUNT];
 
-/* Entry for `kind`, or NULL outside R2_NODE_BLOCK..R2_NODE_INPUT. Inline
+/* Entry for `kind`, or NULL outside R2_NODE_BLOCK..R2_NODE_VIDEO. Inline
  * because layout_node asks once per node and the cost is visible in the pilot.
  * Callers that need to keep the historical behaviour for a corrupt kind fall
  * back to R2_NODE_BLOCK (see layout_node). */
 static inline const WnKindOps *wn_kind_ops(int kind)
 {
-    if (kind < R2_NODE_BLOCK || kind > R2_NODE_INPUT) {
+    if (kind < R2_NODE_BLOCK || kind > R2_NODE_VIDEO) {
         return NULL;
     }
     return &wn_kind_table[kind];

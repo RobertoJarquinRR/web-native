@@ -70,8 +70,8 @@ Construir y conservar (nombres reales del repo):
 | ----------------------------------------- | -------------------------------- | ----------------------------------------------- |
 | `build/release/wgpu_native.dll`           | `python tools\cli.py setup wgpu` | Runtime GPU opcional (`--no-wgpu` no lo necesita) |
 | `build/release/runtime_r2.exe`            | `python tools\cli.py build`      | Layout runtime, eventos, `--render`, `--frames` |
-| `build/release/standalone.exe`            | `python tools\cli.py build`      | Demo standalone (ABI v7)                        |
-| `build/release/embedded.exe`              | `python tools\cli.py build`      | Demo embedded (ABI v7)                          |
+| `build/release/standalone.exe`            | `python tools\cli.py build`      | Demo standalone (ABI v8)                        |
+| `build/release/embedded.exe`              | `python tools\cli.py build`      | Demo embedded (ABI v8)                          |
 | `build/release/webnative.dll` (+ `.lib`)  | `python tools\cli.py build`      | Motor como DLL (ABI C)                          |
 | `src/runtime/build/release/abi_smoke.exe` | `python tools\cli.py build`      | Smoke de la ABI                                 |
 | `include/webnative.h`                     | repo                             | Contrato C v7 (SDK)                             |
@@ -174,7 +174,7 @@ Estado real según `docs/support.md`; no prometer lo que no hay:
 | IME / i18n    | IME IMM32 de una línea (composición/commit/cancel); sin TSF, bidi, CJK fuera del IME ni emoji                        |
 | DPI           | System-aware básico; sin `WM_DPICHANGED` ni multi-monitor                                                                 |
 | Texto         | Shape/raster/medición en runtime (DirectWrite); `font-weight`, `line-height`, `text-align`; sin wrapping todavía |
-| CSS           | `position: relative/absolute/fixed/sticky` (blob v4, enum extendido) con insets px/%/auto (incluido el shorthand `inset`) y `z-index` + stacking contexts (blob v5, también ítems flex/grid static) + estados CSS (blob v6, ABI v7); sin `transform`, `transition`, `animation`, `float`; borders/radius uniformes; una sombra no-inset |
+| CSS           | `position: relative/absolute/fixed/sticky` (blob v4, enum extendido) con insets px/%/auto (incluido el shorthand `inset`) y `z-index` + stacking contexts (blob v5, también ítems flex/grid static) + estados CSS (blob v7, ABI v7); sin `transform`, `transition`, `animation`, `float`; borders/radius uniformes; una sombra no-inset |
 | Layout        | Sin virtualización/culling; grids con `repeat(auto-fill, px)` pilot                                                       |
 | Host          | Una ventana por app; sin tray, diálogos, notificaciones ni drag & drop                                                    |
 | Renderer      | wgpu/D3D12 por defecto; D3D11 en curso; WARP lento y con RSS alto                                                         |

@@ -235,6 +235,45 @@ static float input_intrinsic_width(wn_core *c, int node, float available)
     return width + n->padding[1] + n->padding[3];
 }
 
+/* ----------------------------------------------------------- video hooks */
+/*
+ * A video is a replaced element; its intrinsic size is not baked in the blob.
+ * Phase A has no decoder and no intrinsic poster probe, so the documented
+ * HTML default (300 x 150) is the placeholder aspect until a provider or a
+ * poster reports a real size. Declared CSS width/height always win in
+ * layout_node before these hooks run.
+ */
+#define WN_VIDEO_DEFAULT_WIDTH 300.0f
+#define WN_VIDEO_DEFAULT_HEIGHT 150.0f
+
+static float video_auto_width(wn_core *c, int node, float available,
+                              float parent_content_h)
+{
+    (void)c;
+    (void)node;
+    (void)available;
+    (void)parent_content_h;
+    return WN_VIDEO_DEFAULT_WIDTH;
+}
+
+static float video_auto_height(wn_core *c, int node, float width, float content_h)
+{
+    (void)c;
+    (void)node;
+    (void)content_h;
+    if (width > 0.0f) {
+        return width * (WN_VIDEO_DEFAULT_HEIGHT / WN_VIDEO_DEFAULT_WIDTH);
+    }
+    return WN_VIDEO_DEFAULT_HEIGHT;
+}
+
+static float video_intrinsic_width(wn_core *c, int node, float available)
+{
+    const UiNode *n = &c->nodes[node];
+    (void)available;
+    return WN_VIDEO_DEFAULT_WIDTH + n->padding[1] + n->padding[3];
+}
+
 /* ------------------------------------------------------------------ table */
 
 /* One entry per R2_NODE_*, in enum order. */
@@ -250,4 +289,6 @@ const WnKindOps wn_kind_table[WN_KIND_COUNT] = {    /* R2_NODE_BLOCK */
     { "image", 1, image_auto_width, image_auto_height, image_intrinsic_width, NULL },
     /* R2_NODE_INPUT */
     { "input", 1, NULL, input_auto_height, input_intrinsic_width, NULL },
+    /* R2_NODE_VIDEO */
+    { "video", 1, video_auto_width, video_auto_height, video_intrinsic_width, NULL },
 };

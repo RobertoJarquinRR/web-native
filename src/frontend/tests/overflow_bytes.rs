@@ -73,7 +73,7 @@ fn overflow_hidden_reaches_a_page_without_v2_or_v3_fields() {
     tree.write_blob(&blob).unwrap();
     let bytes = fs::read(&blob).unwrap();
     assert_eq!(&bytes[0..4], b"WNUI");
-    assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().unwrap()), 6);
+    assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().unwrap()), 7);
 
     // Node 0 is the body root; the field is not inherited by the box.
     assert_eq!(overflow_of_node(&bytes, 0), OVERFLOW_HIDDEN);

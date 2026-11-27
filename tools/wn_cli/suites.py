@@ -21,6 +21,9 @@ RUNTIME_SOURCES = (
     "core/scroll.c",
     "wn_common.c",
     "document/wn_blob.c",
+    "media/media_registry.c",
+    "media/media_null.c",
+    "media/media_core.c",
     "wn_view.c",
     "wn_app.c",
     "renderer_wgpu.c",
@@ -37,7 +40,8 @@ RUNTIME_SOURCES_NO_WGPU = tuple(
 )
 CORE_SOURCES = ("core/wn_core.c", "core/layout.c", "core/kind_ops.c", "core/paint.c",
                 "core/input.c", "core/hit_test.c", "core/scroll.c", "wn_common.c",
-                "document/wn_blob.c", "text/text_runtime.c", "text/text_atlas.c",
+                "document/wn_blob.c", "media/media_registry.c", "media/media_null.c",
+                "media/media_core.c", "text/text_runtime.c", "text/text_atlas.c",
                 "text/text_directwrite.cpp")
 CORE_LIBS = ("dwrite.lib",)
 RUNTIME_LIBS = (
@@ -60,32 +64,34 @@ CXX_SUFFIXES = (".cpp", ".cc", ".cxx")
 # compares the builtin and file renders, but that comparison alone is
 # tautological (both sides use the same emission).
 PINNED_BLOBS = {
-    "canonical": "f9b86be6d1fffdf129102156e508f83e931a7f01bce6e6bb6dfb4ffaca50a3f1",
-    "input": "d7a08a4e8a4051fd92a7cbcead0e54b44361ed597154b457e3bcffe320b40de1",
-    "fidelity": "c8137243834022da0228cef1e78fefe781b5367124b896e5706b7e2395628f4e",
-    "pilot": "7fe91d46956f89022d743f8654e92038cb9b5278277f3eb3cc0265cce689adaa",
-    "dynamic": "22cb06405270930f39eb5939dc1945a2fd18f3476341e5cafef2dd06c36dbba7",
-    "cache": "bcd4b52bc784a4ef2118dc21cf643d3296b9564cb2518f1f7d930500a604c8b0",
+    "canonical": "32fde35e5892cebb93f5da93a8d62669869cc1a0666125f38c1e2e3ed0b97f1c",
+    "input": "0fc0d7257cf5aebf762622ab3825bb0dae443238246c39b3d98c16f9cdd2fe2d",
+    "fidelity": "39ea1bb988edfff1913616d1f3c84de18eb2b6ae4a5132651234606c45575fbf",
+    "pilot": "8ea1dce911a4c9cf163cabaf071cf15edd882722cd99d909a51dbdca45dd0850",
+    "dynamic": "4f344ffb917bfab3c9e7fb158491038732096fa5d356ebec75e573385a9b8897",
+    "cache": "c3f92f67808d62569f1802e0f185c1735a564442f676fd395052cbb35597bb8b",
     # CSS suite fixtures (HTML/CSS -> blob, same pinning rule as the corpus).
-    "css_card": "91bc9c02d5791e978c2c0d91d6d61c17320758b9e6a5cbf678e87c8a5ecf0a8d",
-    "css_control": "e7dadee52703f3510dc8f83694cc68f74d6c766d25ed5b20c1e21946c4ac4d00",
-    "css_none": "090f40034a8c89b93bcf87bfbaf8c4b84ef998f52f72ff65f159f5e4eb3c8085",
+    "css_card": "32a1404eddf8a9914757b2e91088b8eb1c9eaab893f9d653826a7b24a9a334cd",
+    "css_control": "f96eb1f06f42593d3b95937ef3e0afd4bc8224694388cf138eeca36ad524e309",
+    "css_none": "71011fbc09890966e624e7d2eeb454f1697261eafdc3f395c274c1fda4e81ef9",
     # Group-opacity pixel fixtures (emitted by the css suite, verified there).
-    "opacity": "c082d65ae837a9a18e5b30425ab7d564af362eb07784b2d857c8cbc6024bd445",
-    "opacity_deep": "3e472dea5654ff8824c702c099d951c0e5f608cb9ce4824538350ba8c4a99623",
+    "opacity": "b28fd9579a018d98d3f16a075e953f11a4e3a693f44a3901cc8591d6d54c3427",
+    "opacity_deep": "d9db23445b426b1ad500efc261b2ed503567beee7917eeac1c3e1162923eeb27",
     # Position fixture (relative/absolute boxes, verified on d3d11 + wgpu).
-    "position": "9035f7d1c56b7a53e7a236f1247052d870b6f293bdb1151f4b1205751778be5d",
+    "position": "f635f249a8430064ee0783fa4497f035732cc9d55256da0825b186a9397815f3",
     # Fixed / sticky / static-item z-index fixtures (v4 position + v5 z-index).
-    "fixed": "a3a783df0760f54e1db1d889ea53942fc4517eff6616086c65e1a1a3e2d3248b",
-    "sticky": "4096a5ba8599921d89443ca01a6cbdff61f30e7489c7d91759f85f7f8ceb75d8",
-    "zitem": "84f2803b92f3cbddd50a0bae44379b347153ba0ca19a13bf1568ae0d42e1babd",
+    "fixed": "b2f6faababaa1d62f1e306e8f3451102280eb9b786ca40dfefd6fe8d98d44fb6",
+    "sticky": "0ba5bd0e4a46f5f4d4e9d3b8fd277b749e8e6550441d2c5f2bddfb46bf3de1c6",
+    "zitem": "69c46217c750a5594e1c15d06a19994424560158263c5c8ec8805cb5cc2b7817",
     # z-index / stacking-context fixture (blob v5, d3d11 + wgpu).
-    "z": "58ccea5f399d9084afddb65f88fdac1ace96faeb5a7bc6cc0566fabc5d2872e1",
+    "z": "28167c57e2b30fa6d23121126e714138c493d706a67676793ce119d8849b00dc",
     # CSS state fixture (blob v6, d3d11 + wgpu).
-    "state": "ccdeb8aead50cbcefab324b71db07e5fe71b88a638002b2316d2db1bfaf0067f",
+    "state": "0ac0005f064c9e5596d2a1873a422500209e89c2a2be183d3e8ddc7cf6bf7cdd",
     # Extended state fixture: nth-child, focus-visible/within, state weight,
     # ellipsis (blob v6 additive, d3d11 + wgpu).
-    "state_ext": "22621a23ead7eb7f95372698005217fc4bb58f3603eab459cc41a3eb6890a8ba",
+    "state_ext": "289a213505e483dd2845f1d5d99d0776fda69cc94ad0c91e68a5d7b69a04504b",
+    # Media fixture: kind 6 video nodes + the optional media section (blob v7).
+    "media": "9fc5ef986adf55ef6b7309cd750210f07f0a0bcea704c2a48d4037524b0fd583",
 }
 
 
@@ -642,7 +648,7 @@ def run_css() -> int:
         _run(card_exe, ["--document", str(z_blob),
                         "--render", "400", "690", str(png)],
              page, environment)
-        # 110 checks: format wnui/6, twenty-seven z-index dump values, the
+        # 110 checks: format wnui/7, twenty-seven z-index dump values, the
         # layout report, thirty-three exact rects, the PNG size and
         # forty-seven analytic color probes (siblings, swapped order, auto/0,
         # step 8, equal z, negative, trapped child, opacity+z, nested,
@@ -719,7 +725,7 @@ def run_css() -> int:
         for node_id, mask in force:
             arguments += ["--force-state", f"{node_id}:{mask}"]
         _run(card_exe, arguments, page, environment)
-        # 31 checks: capture size, the wnui/6 dump + four state styles, the
+        # 31 checks: capture size, the wnui/7 dump + four state styles, the
         # text/JSON initial_state (disabled/none), and background+border for
         # nine nodes on each backend.
         _expect_reported_checks(
@@ -787,7 +793,7 @@ def run_css() -> int:
         for node_id, mask in force:
             arguments += ["--force-state", f"{node_id}:{mask}"]
         _run(card_exe, arguments, page, environment)
-        # 17 checks: capture + wnui/6, the four new dump fields (visible,
+        # 17 checks: capture + wnui/7, the four new dump fields (visible,
         # within, weight, text-flags), JSON weight/text_flags, nine pixel probes
         # (nth row, focus pair, within, weight, ellipsis) and the real
         # single-line truncation (one-line run + glyph_vertices below the full
@@ -943,9 +949,9 @@ def run_fidelity() -> int:
     )
     kind_text = _run(kind_exe, [], out)
     _expect(kind_text, ["kind_ops_test: PASS"], "kind ops test")
-    # 9 checks per kind entry (6 kinds) + 5 table-level checks. Deleting one
-    # kind iteration drops this to 50, so the floor is the full 59.
-    _expect_checks(kind_text, "kind ops test", 59)
+    # 9 checks per kind entry (7 kinds) + 5 table-level checks. Deleting one
+    # kind iteration drops this to 59, so the floor is the full 68.
+    _expect_checks(kind_text, "kind ops test", 68)
 
     log_step("fidelity: TEXT percentage height")
     pct_exe = out / "text_pct_height_test.exe"
@@ -1236,7 +1242,7 @@ def run_dynamic() -> int:
     _compile(abi_exe, runtime_sources(skip_main=True) + [runtime / "examples" / "dynamic.c"], includes, libs)
     abi_text = _run(abi_exe, ["--frames", "8", "--image-b", str(page / "images" / "b.png")], page)
     _expect(abi_text, [
-        "ABI 7",
+        "ABI 8",
         "dynamic: PASS",
         "set_text(Omega) -> WN_OK",
         "set_image(text) -> WN_ERR_UNSUPPORTED",
@@ -1359,7 +1365,7 @@ def run_input() -> int:
     _compile(abi_exe, runtime_sources(skip_main=True) + [runtime / "examples" / "input.c"], includes, libs)
     abi_text = _run_logged(abi_exe, ["--frames", "8"], page, out / "abi_input.log")
     _expect(abi_text, [
-        "ABI 7",
+        "ABI 8",
         "input: PASS",
         "set_state(focused|visible) -> WN_OK",
         "state(focused|visible)=0x28 (expected 0x28)",
@@ -1717,7 +1723,103 @@ def run_blob() -> int:
         CORE_LIBS,
     )
     _expect(_run(input_exe, [str(input_blob)], out), ["blob_test: PASS"], "input blob test")
-    log_info("blob v6: PASS")
+    log_info("blob v7: PASS")
+    return 0
+
+
+def run_media() -> int:
+    suite = _suite_dir("media")
+    out = suite / "out"
+    page = suite / "page"
+    fixture = out / "fixture"
+    out.mkdir(parents=True, exist_ok=True)
+    fixture.mkdir(parents=True, exist_ok=True)
+    runtime = get_paths().runtime
+
+    log_step("media: deterministic 300x150 poster")
+    _python(suite / "make_poster.py", [], cwd=suite)
+
+    log_step("media: frontend-rust --emit-blob (video element + media section)")
+    blob = _blob_emit(page, fixture, 400, 640, True)
+    _assert_pinned_blob("media", blob)
+
+    includes = runtime_includes(fixture)
+    libs = runtime_libs()
+    objects = [runtime / item for item in CORE_SOURCES]
+
+    log_step("media: blob v7 media section + malformed inputs")
+    blob_exe = out / "media_blob_test.exe"
+    _compile(blob_exe, [suite / "media_blob_test.c", *objects], includes,
+             CORE_LIBS)
+    blob_text = _run(blob_exe, [], out)
+    _expect(blob_text, ["media_blob_test: PASS"], "media blob test")
+    _expect_checks(blob_text, "media_blob_test", 18)
+
+    log_step("media: HTML <video> -> blob -> load -> kind 6 + layout")
+    layout_exe = out / "media_layout_test.exe"
+    _compile(layout_exe, [suite / "media_layout_test.c", *objects], includes,
+             CORE_LIBS)
+    layout_text = _run(layout_exe, [str(blob)], out)
+    _expect(layout_text, ["media_layout_test: PASS"], "media layout test")
+    _expect_checks(layout_text, "media_layout_test", 25)
+
+    log_step("media: media_null, provider order, handshake, event path")
+    abi_exe = out / "media_abi_test.exe"
+    _compile(
+        abi_exe,
+        [suite / "media_abi_test.c", *runtime_sources(skip_main=True)],
+        includes,
+        libs,
+    )
+    copy_wgpu_dll(out)
+    abi_text = _run(abi_exe, [], out)
+    _expect(abi_text, ["media_abi_test: PASS"], "media ABI test")
+    _expect_checks(abi_text, "media_abi_test", 40)
+
+    log_step("media: wnui-dump projection (kind=video + media line)")
+    dump_exe = out / "wnui-dump.exe"
+    _compile(dump_exe, [runtime / "tools" / "wn_dump.c", *objects], includes,
+             CORE_LIBS)
+    dump_text = _run(dump_exe, [str(blob)], out)
+    _expect(dump_text, [
+        "format=wnui/7",
+        " kind=video ",
+        'media node=1 src="clips/poster.mp4" poster="posters/poster.png" '
+        "flags=controls,autoplay,loop,muted preload=metadata",
+    ], "media dump projection")
+    dump_json = json.loads(_run(dump_exe, ["--json", str(blob)], out))
+    media_nodes = [node for node in dump_json.get("nodes", [])
+                   if node.get("kind") == "video"]
+    if len(media_nodes) != 5:
+        raise CliError(f"media dump has {len(media_nodes)} video nodes, expected 5")
+    if media_nodes[0].get("media_src") != "clips/poster.mp4" or \
+            media_nodes[0].get("media_poster") != "posters/poster.png":
+        raise CliError("media dump lost the video src/poster")
+    if media_nodes[0].get("media_flags") != ["controls", "autoplay", "loop",
+                                             "muted"]:
+        raise CliError("media dump lost the video flags")
+
+    log_step("media: offscreen render (placeholder + poster)")
+    runtime_exe = out / "runtime_media.exe"
+    _compile(runtime_exe, runtime_sources(), includes, libs)
+    copy_wgpu_dll(out)
+    backends = ["d3d11"] + (["wgpu"] if wgpu_available() else [])
+    for backend in backends:
+        png = out / f"media_{backend}.png"
+        report = out / f"layout_media_{backend}.json"
+        environment = {"WN_RENDERER": backend}
+        _run(runtime_exe, ["--report", str(report), "--sizes", "400x640"], page,
+             environment)
+        _run(runtime_exe, ["--render", "400", "640", str(png)], page,
+             environment)
+        _expect_reported_checks(
+            _python(suite / "verify_media.py",
+                    ["--png", str(png), "--report", str(report),
+                     "--backend", backend], cwd=suite),
+            f"media verify ({backend})", 21)
+        log_info(f"media: {backend} png {png}")
+
+    log_info("media v1 phase A: PASS")
     return 0
 
 
@@ -1760,7 +1862,7 @@ def run_dump() -> int:
 
     log_step("dump: canonical JSON projection")
     document = json.loads(_run(exe, ["--json", str(canonical)], out))
-    if document.get("format") != "wnui/6":
+    if document.get("format") != "wnui/7":
         raise CliError(f"unexpected dump format: {document.get('format')!r}")
     if document.get("viewport") != {"width": 960, "height": 640}:
         raise CliError(f"unexpected dump viewport: {document.get('viewport')!r}")
@@ -1810,7 +1912,8 @@ SUITES = {
     "input": ("text input v1 (caret, selection, clipboard, ABI demo)", run_input),
     "offscreen": ("offscreen vtable (d3d11 vs wgpu readback)", run_offscreen),
     "text": ("runtime text v0 (contracts on the fake backend + DirectWrite smoke)", run_text),
-    "blob": ("blob v6 (.wnui load, layout and pixels)", run_blob),
+    "blob": ("blob v7 (.wnui load, layout and pixels)", run_blob),
+    "media": ("media v1 phase A (video element, blob v7, media_null)", run_media),
     "dump": ("wnui-dump debug projection (text/JSON/errors)", run_dump),
 }
 

@@ -110,6 +110,29 @@ wn_status wn_view_blur_input(wn_view *view);
  * Hosts with their own loop call it from their timer/frame callback. */
 wn_status wn_view_tick(wn_view *view);
 
+/* ---------------------------------------------------------- media (v8) */
+/* Provider seam and per-node media controls for the embedded facade. The
+ * provider vtable types come from include/webnative_media.h. */
+wn_status wn_view_register_media_provider(wn_view *view,
+        const wn_media_provider_ops *ops, void *context, int32_t priority);
+wn_status wn_view_unregister_media_provider(wn_view *view,
+        const wn_media_provider_ops *ops, void *context);
+wn_status wn_view_load_media_provider(wn_view *view, const char *dll_path);
+wn_status wn_view_on_media_event(wn_view *view, wn_media_event_cb cb,
+                                 void *userdata);
+wn_status wn_view_media_open(wn_view *view, wn_node_id node);
+wn_status wn_view_media_play(wn_view *view, wn_node_id node);
+wn_status wn_view_media_pause(wn_view *view, wn_node_id node);
+wn_status wn_view_media_seek(wn_view *view, wn_node_id node,
+                             int64_t position_us);
+wn_status wn_view_media_set_volume(wn_view *view, wn_node_id node, float gain);
+wn_status wn_view_media_set_muted(wn_view *view, wn_node_id node, int muted);
+wn_status wn_view_media_set_loop(wn_view *view, wn_node_id node, int loop);
+wn_status wn_view_media_set_source(wn_view *view, wn_node_id node,
+                                   const char *path_utf8);
+wn_status wn_view_media_get_state(wn_view *view, wn_node_id node,
+                                  wn_media_state_info *out);
+
 /* ABI v7 internal: installs the platform IME backend on the view. The backend
  * (ops + opaque context) is retained by the view and re-installed on the core
  * built by wn_view_replace_document(); focus is restored by node name when the

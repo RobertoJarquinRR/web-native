@@ -1,5 +1,5 @@
 /*
- * webnative.h — C ABI v7
+ * webnative.h — C ABI v8
  *
  * Public contract between the webnative engine and host applications.
  *
@@ -53,12 +53,19 @@
  *        (wn_node_set_color/background/font_family/font_size/font_weight,
  *        wn_node_reset_style, wn_app_set_font_family). They are a per-node
  *        override layer over the compiled document, with no runtime CSS and no
- *        blob change. Still v7: no struct or event layout changed. */
+ *        blob change. Still v7: no struct or event layout changed.
+ *  - v8: `<video>` and the optional media provider seam (docs/media-v1.md).
+ *        Adds include/webnative_media.h (WN_MEDIA_ABI_VERSION 1), provider
+ *        registration, wn_node_media_* controls and the wn_media_event family.
+ *        Additive: no v7 struct changed layout. Blob v7 adds kind 6 (video) and
+ *        the optional media section; there is no v6/v7 dual reader. */
 #ifndef WEBNATIVE_H
 #define WEBNATIVE_H
 
 #include <stddef.h>
 #include <stdint.h>
+
+#include "webnative_media.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -76,7 +83,7 @@ extern "C" {
 #  define WN_API __attribute__((visibility("default")))
 #endif
 
-#define WN_ABI_VERSION 7u
+#define WN_ABI_VERSION 8u
 
 /* Modifier bits for wn_event.modifiers. */
 #define WN_MOD_SHIFT 0x01u
@@ -246,6 +253,60 @@ typedef struct wn_event {
 } wn_event;
 
 typedef void (*wn_event_cb)(void *userdata, const wn_event *event);
+
+/* ------------------------------------------------------- media (ABI v8) */
+/*
+ * `<video>` is a first-class replaced element (blob v7 kind 6). The document
+ * declares intent (`src`, `poster`, `controls`, `autoplay`, `loop`, `muted`,
+ * `preload`); playback state belongs to the live core, never to the blob.
+ *
+ * This phase implements the element (layout/paint, poster/placeholder) and the
+ * provider seam. There is no decoder, audio sink or player UI in the engine:
+ * with the built-in media_null provider (always present) an open request ends
+ * in WN_MEDIA_EVENT_ERROR with WN_MEDIA_UNSUPPORTED_CONTAINER, and that is a
+ * normal, testable path. A host may register a provider for a later session
+ * driver, but this build does not decode frames yet.
+ *
+ * Media events are a separate family from wn_event: the fields (state, error,
+ * position, duration) are explicit instead of overloading `key`/`target_id`.
+ * They are delivered on the UI thread from wn_view_render()/wn_view_tick(),
+ * in order. `detail` is engine-owned and only valid during the callback.
+ */
+typedef enum wn_media_event_type {
+    WN_MEDIA_EVENT_OPENED = 0,        /* duration, streams, intrinsic size */
+    WN_MEDIA_EVENT_FIRST_FRAME = 1,   /* the poster can stop being painted */
+    WN_MEDIA_EVENT_STATE = 2,         /* wn_media_state changed */
+    WN_MEDIA_EVENT_PROGRESS = 3,      /* ~4 Hz while PLAYING; for the scrubber */
+    WN_MEDIA_EVENT_ENDED = 4,
+    WN_MEDIA_EVENT_ERROR = 5,
+    WN_MEDIA_EVENT_AUDIO_DEVICE_LOST = 6,
+    WN_MEDIA_EVENT_AUDIO_DEVICE_RESTORED = 7
+} wn_media_event_type;
+
+typedef struct wn_media_event {
+    uint32_t struct_size;
+    uint32_t type;             /* wn_media_event_type */
+    wn_node_id node;           /* <video> node that originates it */
+    int32_t  state;            /* wn_media_state after the event */
+    int32_t  error;            /* wn_media_status; 0 when not applicable */
+    int64_t  position_us;
+    int64_t  duration_us;
+    const char *detail;        /* UTF-8, callback lifetime only */
+} wn_media_event;
+
+typedef void (*wn_media_event_cb)(void *userdata, const wn_media_event *event);
+
+/* Copied read of the per-node media state. Never blocks; valid in any state. */
+typedef struct wn_media_state_info {
+    uint32_t struct_size;
+    int32_t  state;          /* wn_media_state */
+    int32_t  error;          /* wn_media_status */
+    int64_t  position_us;
+    int64_t  duration_us;
+    uint32_t stream_flags;   /* WN_MEDIA_INFO_* of the open file */
+    float    volume;
+    int32_t  muted, loop;
+} wn_media_state_info;
 
 typedef struct wn_config {
     const char *title;       /* window title (standalone) */
@@ -563,6 +624,65 @@ WN_API wn_status wn_node_reset_style(wn_app *app, wn_node_id node,
                                      uint32_t fields);
 WN_API wn_status wn_app_set_font_family(wn_app *app, const char *family,
                                         int recursive);
+
+/* ----------------------------------------------------------- media (v8) */
+/*
+ * Provider registration is per app/view, never global. The registry always
+ * ends in the built-in media_null provider (priority 0, never matches), which
+ * cannot be removed or duplicated. Registration order is descending priority,
+ * then registration order. A provider vtable is validated before it is copied:
+ * struct_size must cover receive_audio, abi_version must be
+ * WN_MEDIA_ABI_VERSION, name must be non-empty, and caps/open/close/destroy
+ * must be non-null. Unregister removes an explicit registration; media_null is
+ * not removable. load_* follows the plugin allowlist rules in docs/media-v1.md
+ * and never loads code from a document path.
+ *
+ * wn_node_media_* require a kind==video node (blob v7 kind 6); any other kind
+ * returns WN_ERR_UNSUPPORTED, and a dead handle returns
+ * WN_ERR_INVALID_ARGUMENT. Without a real provider the calls are safe:
+ * open/play accept the request and report WN_MEDIA_EVENT_ERROR with
+ * WN_MEDIA_UNSUPPORTED_CONTAINER from the next render/tick; nothing pretends
+ * to play. set_source replaces the runtime source and returns to IDLE; the
+ * document is never modified. Subtitle selection/delay are part of the
+ * contract but return WN_ERR_UNSUPPORTED in this phase (no subtitle pipeline).
+ *
+ * wn_node_media_get_state is a copied struct, never a pointer into the engine,
+ * and is valid in every state. volume is 0..1; muted starts from the document
+ * flag and, like loop, is runtime state (never written back to the blob).
+ */
+WN_API wn_status wn_app_register_media_provider(wn_app *app,
+        const wn_media_provider_ops *ops, void *context, int32_t priority);
+WN_API wn_status wn_app_unregister_media_provider(wn_app *app,
+        const wn_media_provider_ops *ops, void *context);
+WN_API wn_status wn_app_load_media_provider(wn_app *app, const char *dll_path);
+WN_API wn_status wn_view_register_media_provider(wn_view *view,
+        const wn_media_provider_ops *ops, void *context, int32_t priority);
+WN_API wn_status wn_view_unregister_media_provider(wn_view *view,
+        const wn_media_provider_ops *ops, void *context);
+WN_API wn_status wn_view_load_media_provider(wn_view *view, const char *dll_path);
+
+WN_API wn_status wn_app_on_media_event(wn_app *app, wn_media_event_cb cb,
+                                       void *userdata);
+WN_API wn_status wn_view_on_media_event(wn_view *view, wn_media_event_cb cb,
+                                        void *userdata);
+
+WN_API wn_status wn_node_media_open(wn_app *app, wn_node_id node);
+WN_API wn_status wn_node_media_play(wn_app *app, wn_node_id node);
+WN_API wn_status wn_node_media_pause(wn_app *app, wn_node_id node);
+WN_API wn_status wn_node_media_seek(wn_app *app, wn_node_id node,
+                                    int64_t position_us);
+WN_API wn_status wn_node_media_set_volume(wn_app *app, wn_node_id node,
+                                          float gain);
+WN_API wn_status wn_node_media_set_muted(wn_app *app, wn_node_id node, int muted);
+WN_API wn_status wn_node_media_set_loop(wn_app *app, wn_node_id node, int loop);
+WN_API wn_status wn_node_media_set_source(wn_app *app, wn_node_id node,
+                                          const char *path_utf8);
+WN_API wn_status wn_node_media_select_subtitle(wn_app *app, wn_node_id node,
+                                               int32_t stream_index);
+WN_API wn_status wn_node_media_set_subtitle_delay(wn_app *app, wn_node_id node,
+                                                  int32_t delay_ms);
+WN_API wn_status wn_node_media_get_state(wn_app *app, wn_node_id node,
+                                         wn_media_state_info *out);
 
 /* -------------------------------------------------- text input (ABI v5) */
 /*

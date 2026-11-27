@@ -1,7 +1,7 @@
 """Pixel gate for the blob v6 CSS state fixture (400x450).
 
 Checks, on the exact offscreen capture:
-  - the dump format is wnui/6 and carries hover/press/focus/disabled styles;
+  - the dump format is wnui/7 and carries hover/press/focus/disabled styles;
   - every button-like node paints its effective background and border color;
   - selected stays the app base and a CSS hover state composes over it;
   - data-hover is the fallback and loses to a CSS hover rule.
@@ -71,7 +71,7 @@ def main() -> int:
 
     dump = subprocess.run([args.dump, args.blob], capture_output=True, text=True)
     text = dump.stdout + dump.stderr
-    check("dump", "format wnui/6", "format=wnui/6" in text, text.splitlines()[0]
+    check("dump", "format wnui/7", "format=wnui/7" in text, text.splitlines()[0]
           if text else "no output")
     for expected in (
         "states=hover(bg=#ff2a3140,text=#ffffff00,border=#ffff0000)",

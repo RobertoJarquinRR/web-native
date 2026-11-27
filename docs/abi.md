@@ -1,7 +1,8 @@
-# ABI C v7
+# ABI C v8
 
 Referencia de la superficie pública. El contrato compilable y comentado está
-en `include/webnative.h`; este documento explica uso y límites.
+en `include/webnative.h` y `include/webnative_media.h`; este documento explica
+uso y límites.
 
 ## Principios
 
@@ -14,19 +15,21 @@ en `include/webnative.h`; este documento explica uso y límites.
 7. **Sin excepciones**: todo devuelve `wn_status`; error legible en `wn_last_error`.
 8. **Versionado**: `WN_ABI_VERSION` + `wn_version()`; breaking bump de major.
    v2 (wheel), v3 (UI dinámica), v4 (text input), v5 (identidad de nodos),
-   v6 (estado, lecturas, eventos, timer, ownership) y **v7** (bits de foco y
+   v6 (estado, lecturas, eventos, timer, ownership), v7 (bits de foco y
    deshabilitado, eventos de composición IME, overrides de layout y de estilo
-   en runtime) son aditivas. v7 no cambia el tamaño ni el layout de ningún
-   struct público.
+   en runtime) y **v8** (`<video>`, registro de proveedores de media y familia
+   de eventos de media) son aditivas. v8 no cambia el tamaño ni el layout de
+   ningún struct de v7; añade `include/webnative_media.h`
+   (`WN_MEDIA_ABI_VERSION 1`).
 
-## Superficie v7
+## Superficie v8
 
 ### Común
 
 | Función | Uso |
 |---|---|
 | `wn_version()` | versión legible |
-| `wn_abi_version()` | `WN_ABI_VERSION` (7) |
+| `wn_abi_version()` | `WN_ABI_VERSION` (8) |
 | `wn_last_error()` | último error del hilo |
 
 ### Documentos
@@ -163,6 +166,66 @@ Máscara de `wn_node_reset_style`: `WN_STYLE_TEXT_COLOR` 0x01,
   no finito o fuera de 1..1024, peso fuera de 100..900 y máscara de reset cero o
   con bits desconocidos devuelven `WN_ERR_INVALID_ARGUMENT` sin cambiar nada. Un
   color ARGB no tiene representación inválida: el rechazo es por app/handle.
+
+### Media y `<video>` (v8)
+
+`<video>` es un elemento de primera clase: blob v7 `kind = 6` más la sección
+opcional 7. El documento declara intención (`src`, `poster`, `controls`,
+`autoplay`, `loop`, `muted`, `preload`); el estado de reproducción vive en el
+core, nunca en el `.wnui`.
+
+| Función | Uso |
+|---|---|
+| `wn_app_register_media_provider(app, ops, context, priority)` | registra un proveedor en la vista/app |
+| `wn_app_unregister_media_provider(app, ops, context)` | elimina un registro explícito; `media_null` no se puede quitar |
+| `wn_app_load_media_provider(app, dll)` | carga un plugin `wn_media_provider_query` por allowlist de host |
+| `wn_view_register_media_provider` / `wn_view_unregister_media_provider` / `wn_view_load_media_provider` | la misma superficie en una vista embedded |
+| `wn_app_on_media_event(app, cb, userdata)` / `wn_view_on_media_event` | eventos de media en el hilo de UI |
+| `wn_node_media_open/play/pause/seek` | control por nodo `kind == 6` |
+| `wn_node_media_set_volume/set_muted/set_loop/set_source` | estado de runtime; no toca el blob |
+| `wn_node_media_get_state(app, node, &info)` | lectura copiada, nunca bloquea |
+| `wn_node_media_select_subtitle/set_subtitle_delay` | contrato reservado; hoy `WN_ERR_UNSUPPORTED` |
+
+Cadena de proveedores:
+
+- Orden descendente de `priority`; empate por orden de registro. `media_null`
+  (prioridad 0) es siempre el último, no es removible y nunca acierta.
+- El handshake de `include/webnative_media.h` exige `struct_size` que cubra
+  `receive_audio`, `abi_version == WN_MEDIA_ABI_VERSION`, `name` no vacío y
+  `caps`/`open`/`close`/`destroy` no nulos.
+- Un build sin proveedor real es válido: `media_null` produce
+  `WN_MEDIA_UNSUPPORTED_CONTAINER` y el nodo pinta póster o placeholder. No hay
+  crash ni `NULL` sin explicación.
+
+Eventos de media (familia separada de `wn_event`):
+
+```c
+typedef struct wn_media_event {
+    uint32_t struct_size;
+    uint32_t type;          // WN_MEDIA_EVENT_*
+    wn_node_id node;
+    int32_t state;          // WN_MEDIA_STATE_*
+    int32_t error;          // wn_media_status
+    int64_t position_us;
+    int64_t duration_us;
+    const char *detail;     // válido solo durante el callback
+} wn_media_event;
+```
+
+Se entregan en el hilo de UI desde `wn_view_render`/`wn_view_tick`. `detail` es
+propiedad del motor y solo vive durante el callback.
+
+`wn_node_media_get_state` devuelve `wn_media_state_info` (tamaño 48): `state`,
+`error`, `position_us`, `duration_us`, `stream_flags`, `volume`, `muted`,
+`loop`. Sin proveedor real el estado es `IDLE` antes de `open` y `ERROR` con
+`WN_MEDIA_UNSUPPORTED_CONTAINER` después; `play` sobre `ERROR` devuelve
+`WN_ERR_STATE` y `set_source` vuelve a `IDLE`.
+
+**Fase actual (E3a):** el elemento, el blob, el registro, `media_null` y los
+errores tipados están implementados. **No hay decodificador, demuxer, sink de
+audio, reloj A/V, subtítulos ni UI de reproducción**; un proveedor registrado
+no reproduce todavía (`WN_MEDIA_INTERNAL`, sin fingir `OPENED`/`PLAYING`). El
+detalle de fases está en `docs/media-v1.md`.
 
 ### Text input (v4)
 
@@ -417,7 +480,7 @@ private static partial nint wn_node_get_value(nint app, ulong node);
 - Sin tipos de UI de .NET expuestos a la ABI.
 - `wn_node_get_value` se convierte inmediatamente con `Marshal.PtrToStringUTF8`.
 
-## Limitaciones de v7 (importante)
+## Limitaciones de v8 (importante)
 
 - `wn_app_load` / `wn_view_load` **copian** HTML/CSS por compatibilidad de
   host, pero el runtime renderiza el documento `.wnui` compilado. **No hay
@@ -451,13 +514,18 @@ private static partial nint wn_node_get_value(nint app, ulong node);
   estado con otras propiedades, o con el estado en un compuesto ancestro
   (`.card:hover .label`), se diagnostica y no se compila.
 - `scroll_into_view` es vertical y mueve solo el ancestro scrollable más cercano.
+- `<video>` (blob v7) pinta póster o placeholder y expone la ABI de media,
+  pero **no reproduce**: no hay decodificador, audio, subtítulos, reloj ni
+  controles del motor. `open` sin proveedor real acaba en
+  `WN_MEDIA_EVENT_ERROR`; con un proveedor registrado acaba en
+  `WN_MEDIA_INTERNAL` hasta que exista el driver de sesión (E3b).
 - Sin virtualización, culling de sólidos, accesibilidad/UIA, DPI/multi-monitor
   ni cross-platform todavía.
 - Sin path offscreen en la ABI (sigue en `runtime_r2.exe --render/--states`).
 - Sin bindings WPF/WinForms; el host C# es consola/WinExe.
 - `wn_app_run`/`wn_view_render` son single-thread; no reentrar.
 
-## Fuera de v7
+## Fuera de v8
 
 - Motor de texto en Linux (HarfBuzz/FreeType detrás de la misma vtable).
 - TSF, candidatos por segmentos y composición multilínea (IMM32 de una línea ya

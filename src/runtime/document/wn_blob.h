@@ -9,8 +9,14 @@ extern "C" {
 #endif
 
 #define WN_BLOB_MAGIC 0x49554E57u /* "WNUI" */
-#define WN_BLOB_VERSION 6u
+#define WN_BLOB_VERSION 7u
 #define WN_BLOB_HEADER_SIZE 32u
+
+/* Blob v7: `<video>` is a first-class node kind. A video node carries box and
+ * style like any other node; the media-specific intent travels in the optional
+ * section 7. Reusing kind 5 (image) with a video path is explicitly rejected
+ * by the contract: identity decides layout, hit-test, state and lifecycle. */
+#define WN_BLOB_NODE_VIDEO 6
 
 /* Blob v5: `z_index` uses INT32_MIN as the "auto" sentinel, so every other
  * int32 is a valid explicit CSS `z-index` (negative, zero and positive).
@@ -37,7 +43,10 @@ typedef enum {
     WN_BLOB_SECTION_STATES = 5,
     /* Blob v6: optional per-node text extras (ellipsis). Additive section;
      * absent when no text run carries a flag. */
-    WN_BLOB_SECTION_TEXT_EXTRAS = 6
+    WN_BLOB_SECTION_TEXT_EXTRAS = 6,
+    /* Blob v7: optional per-video media intent. Absent when the document has
+     * no kind==video node. */
+    WN_BLOB_SECTION_MEDIA = 7
 } wn_blob_section_id;
 
 typedef struct {
@@ -179,6 +188,37 @@ typedef struct {
 } WnBlobTextExtras;
 
 #define WN_TEXT_FLAG_ELLIPSIS 0x01u
+
+/* Blob v7 optional media section (id 7). A sequence of 16-byte records in
+ * strictly increasing node order, one per kind==video node:
+ *
+ *   WnBlobMediaRecord { int32 node; uint32 src; uint32 poster;
+ *                       uint8 flags; uint8 preload; uint8 reserved[2]; }
+ *
+ * `src` is a mandatory non-empty strings offset and must not contain a scheme
+ * (`://`). `poster` is a strings offset or 0. `flags` uses WN_MEDIA_FLAG_* and
+ * bits 4..7 are rejected. `preload` is 0 none, 1 metadata (default), 2 auto.
+ * The section is absent when the document has no video node, every video node
+ * has exactly one record, and a record may not target any other kind.
+ */
+#define WN_MEDIA_FLAG_CONTROLS 0x01u
+#define WN_MEDIA_FLAG_AUTOPLAY 0x02u
+#define WN_MEDIA_FLAG_LOOP     0x04u
+#define WN_MEDIA_FLAG_MUTED    0x08u
+#define WN_MEDIA_FLAG_ALL      0x0Fu
+
+#define WN_MEDIA_PRELOAD_NONE     0u
+#define WN_MEDIA_PRELOAD_METADATA 1u
+#define WN_MEDIA_PRELOAD_AUTO     2u
+
+typedef struct {
+    int32_t  node;       /* node index; kind must be 6 */
+    uint32_t src;        /* strings offset; mandatory, != 0, non-empty */
+    uint32_t poster;     /* strings offset; 0 = no poster */
+    uint8_t  flags;      /* WN_MEDIA_FLAG_* */
+    uint8_t  preload;    /* 0 none, 1 metadata, 2 auto */
+    uint8_t  reserved[2];/* 0 */
+} WnBlobMediaRecord;
 
 struct wn_document;
 

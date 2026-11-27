@@ -8,10 +8,10 @@ from wn_cli.core import log_info, log_step
 
 def cmd_all(args: argparse.Namespace) -> int:
     suites.set_wgpu_enabled(not args.no_wgpu)
-    log_step("suite 1/10: frontend-rust tests")
+    log_step("suite 1/11: frontend-rust tests")
     frontend.cmd_test(argparse.Namespace())
 
-    log_step("suite 2/10: runtime ABI and verification")
+    log_step("suite 2/11: runtime ABI and verification")
     runtime.cmd_verify(
         argparse.Namespace(
             config=args.config,
@@ -21,28 +21,31 @@ def cmd_all(args: argparse.Namespace) -> int:
         )
     )
 
-    log_step("suite 3/10: css core v1")
+    log_step("suite 3/11: css core v1")
     suites.run_suite("css")
 
-    log_step("suite 4/10: e1 fidelity")
+    log_step("suite 4/11: e1 fidelity")
     suites.run_suite("fidelity")
 
-    log_step("suite 5/10: dynamic UI")
+    log_step("suite 5/11: dynamic UI")
     suites.run_suite("dynamic")
 
-    log_step("suite 6/10: text input")
+    log_step("suite 6/11: text input")
     suites.run_suite("input")
 
-    log_step("suite 7/10: offscreen vtable")
+    log_step("suite 7/11: offscreen vtable")
     suites.run_suite("offscreen")
 
-    log_step("suite 8/10: runtime text")
+    log_step("suite 8/11: runtime text")
     suites.run_suite("text")
 
-    log_step("suite 9/10: blob v6")
+    log_step("suite 9/11: blob v7")
     suites.run_suite("blob")
 
-    log_step("suite 10/10: wnui-dump")
+    log_step("suite 10/11: media v1 phase A")
+    suites.run_suite("media")
+
+    log_step("suite 11/11: wnui-dump")
     suites.run_suite("dump")
 
     log_info("all test suites passed")

@@ -14,6 +14,7 @@
 #include "document/wn_blob.h"
 #include "wn_core_internal.h"
 #include "wn_internal.h"
+#include "wn_media.h"
 
 /* The builtin page is an embedded .wnui blob parsed once by the same loader
  * the file path uses. Its strings point into kBuiltinBlob, which lives for the
@@ -755,6 +756,7 @@ wn_core *wn_core_create(const wn_document *document)
     c->nodes = (UiNode *)calloc(bytes, sizeof(UiNode));
     c->base = (WnNodeBase *)calloc(bytes, sizeof(WnNodeBase));
     c->style = (WnNodeStyle *)calloc(bytes, sizeof(WnNodeStyle));
+    c->media = (WnMediaNode *)calloc(bytes, sizeof(WnMediaNode));
     c->names = (const char **)calloc(bytes, sizeof(char *));
     c->generation = (uint32_t *)calloc(bytes, sizeof(uint32_t));
     c->alive = (unsigned char *)calloc(bytes, sizeof(unsigned char));
@@ -808,7 +810,7 @@ wn_core *wn_core_create(const wn_document *document)
 
     if (c->nodes == NULL || c->names == NULL || c->generation == NULL ||
         c->alive == NULL ||
-        c->base == NULL || c->style == NULL ||
+        c->base == NULL || c->style == NULL || c->media == NULL ||
         c->dynamic_node == NULL || c->visible == NULL || c->visible_eff == NULL ||
         c->state == NULL ||
         c->parent == NULL || c->order_key == NULL ||
@@ -860,6 +862,26 @@ wn_core *wn_core_create(const wn_document *document)
     c->input_focus = -1;
     c->ime_node = -1;
     c->next_order = count;
+
+    c->media_registry = wn_media_registry_create();
+    if (c->media_registry == NULL) {
+        wn_set_error("wn_core_create: out of memory for the media registry");
+        wn_core_destroy(c);
+        return NULL;
+    }
+    for (i = 0; i < count; ++i) {
+        if (c->nodes[i].kind == R2_NODE_VIDEO) {
+            c->media[i].state = WN_MEDIA_STATE_IDLE;
+            c->media[i].error = WN_MEDIA_OK;
+            c->media[i].volume = 1.0f;
+            c->media[i].muted =
+                (c->nodes[i].media_flags & WN_MEDIA_FLAG_MUTED) != 0u ? 1u : 0u;
+            c->media[i].loop =
+                (c->nodes[i].media_flags & WN_MEDIA_FLAG_LOOP) != 0u ? 1u : 0u;
+        } else {
+            c->media[i].volume = 1.0f;
+        }
+    }
 
     build_hierarchy(c);
     c->text_atlas = wn_text_atlas_create(NULL, 0, 0);
@@ -917,6 +939,12 @@ static void free_node_payload(wn_core *c, int node)
         wn_free_(c->style[node].font_family);
         memset(&c->style[node], 0, sizeof(c->style[node]));
     }
+    if (c->media != NULL) {
+        wn_free_(c->media[node].source_override);
+        memset(&c->media[node], 0, sizeof(c->media[node]));
+        c->media[node].state = WN_MEDIA_STATE_IDLE;
+        c->media[node].volume = 1.0f;
+    }
 }
 
 /* realloc one parallel array. On failure the previous block stays valid: the
@@ -960,6 +988,7 @@ static int arena_reserve(wn_core *c, int minimum)
     WN_GROW_ARRAY(c, nodes, capacity);
     WN_GROW_ARRAY(c, base, capacity);
     WN_GROW_ARRAY(c, style, capacity);
+    WN_GROW_ARRAY(c, media, capacity);
     WN_GROW_ARRAY(c, names, capacity);
     WN_GROW_ARRAY(c, generation, capacity);
     WN_GROW_ARRAY(c, alive, capacity);
@@ -1022,6 +1051,9 @@ static int arena_alloc(wn_core *c)
     c->nodes[id].object_fit = R2_OBJECT_FIT_FILL;
     memset(&c->base[id], 0, sizeof(WnNodeBase));
     memset(&c->style[id], 0, sizeof(WnNodeStyle));
+    memset(&c->media[id], 0, sizeof(WnMediaNode));
+    c->media[id].state = WN_MEDIA_STATE_IDLE;
+    c->media[id].volume = 1.0f;
     c->names[id] = NULL;
     c->alive[id] = 1;
     c->dynamic_node[id] = 1;
@@ -1654,6 +1686,24 @@ int wn_core_clone(wn_core *core, int template_node, int parent)
         core->base[dst] = core->base[src];
         core->style[dst] = core->style[src];
         core->style[dst].font_family = NULL;
+        /* A clone copies media intent (src/poster/flags/preload) but never the
+         * session: it starts in IDLE with no playback. */
+        core->media[dst].state = WN_MEDIA_STATE_IDLE;
+        core->media[dst].error = WN_MEDIA_OK;
+        core->media[dst].position_us = 0;
+        core->media[dst].duration_us = 0;
+        core->media[dst].stream_flags = 0;
+        core->media[dst].volume = core->media[src].volume;
+        core->media[dst].muted = core->media[src].muted;
+        core->media[dst].loop = core->media[src].loop;
+        core->media[dst].source_override = NULL;
+        if (core->media[src].source_override != NULL) {
+            core->media[dst].source_override =
+                wn_strdup_(core->media[src].source_override);
+            if (core->media[dst].source_override == NULL) {
+                oom = 1;
+            }
+        }
         if (core->style[src].font_family != NULL) {
             core->style[dst].font_family =
                 wn_strdup_(core->style[src].font_family);
@@ -1846,6 +1896,7 @@ void wn_core_destroy(wn_core *core)
     wn_free_(core->nodes);
     wn_free_(core->base);
     wn_free_(core->style);
+    wn_free_(core->media);
     wn_free_((void *)core->names);
     wn_free_(core->generation);
     wn_free_(core->alive);
@@ -1887,6 +1938,7 @@ void wn_core_destroy(wn_core *core)
     wn_free_(core->glyph_batches);
     wn_free_(core->image_vertices);
     wn_free_(core->image_batches);
+    wn_media_registry_destroy(core->media_registry);
     wn_free_(core);
     wn_document_release((wn_document *)document);
 }

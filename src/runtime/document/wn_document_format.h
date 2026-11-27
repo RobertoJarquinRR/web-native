@@ -27,7 +27,11 @@ typedef enum {
     R2_NODE_TEXT,
     R2_NODE_GRID,
     R2_NODE_IMAGE,
-    R2_NODE_INPUT
+    R2_NODE_INPUT,
+    /* Blob v7: `<video>/<audio>` replaced element (see docs/media-v1.md).
+     * Must stay 6: the blob node kind, the Rust writer and the loader share
+     * this number. */
+    R2_NODE_VIDEO
 } NodeKind;
 
 typedef enum {
@@ -169,6 +173,13 @@ typedef struct {
     unsigned char initial_state;
     /* Blob v6 optional `text_extras` flags (bit 0 = ellipsis). */
     unsigned int text_flags;
+    /* Blob v7 optional media intent for kind==R2_NODE_VIDEO. The strings are
+     * borrowed from the document (mapping or caller buffer) and stay valid
+     * while the document is alive. Non-video nodes leave all four at zero. */
+    const char *media_src;
+    const char *media_poster;
+    unsigned char media_flags;   /* WN_MEDIA_FLAG_* */
+    unsigned char media_preload; /* WN_MEDIA_PRELOAD_* */
 } UiNode;
 
 typedef struct {

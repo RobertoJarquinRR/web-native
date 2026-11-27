@@ -22,12 +22,13 @@ Leyenda:
 | Contrato                | Versión                    | Estado                   |
 | ----------------------- | -------------------------- | ------------------------ |
 | Display list R1         | `webnative.display-list/1` | archivado, ya no se emite |
-| Documento `.wnui`       | blob v6                    | ✅                       |
+| Documento `.wnui`       | blob v7                    | ✅                       |
 | Grid, scroll e imágenes | campos v2 del blob         | ✅ pilot                 |
 | Text input              | sección `inputs` del blob  | ✅ pilot                 |
 | IME (IMM32, una línea)  | eventos v7 + `wn_ime_ops`  | Parcial: composición/commit/cancel con backend falso; smoke manual Win32 pendiente |
-| ABI C                   | `WN_ABI_VERSION 7`         | ✅ standalone + embedded |
+| ABI C                   | `WN_ABI_VERSION 8`         | ✅ standalone + embedded |
 | Estados CSS             | sección `states` del blob  | ✅ hover/press/focus/disabled (color; `disabled` en HTML siembra el bit) |
+| Media (`<video>`)       | blob v7 + `WN_MEDIA_ABI_VERSION 1` | Parcial: nodo, layout, póster/placeholder, registro y `media_null`; sin decodificador ni reproducción (E3b) |
 
 ## HTML
 
@@ -36,16 +37,18 @@ Leyenda:
 | `html`, `head`, `body`, `div`, `span`, `p`, `h1`–`h6`        | Sí       | Sí      | Sí  | base                |
 | `button`                                                     | Sí       | Sí      | Sí  | estado por `data-*` |
 | `img` local                                                  | Sí       | Parcial | Sí  | WIC; sin red        |
+| `video` local (blob v7, ABI v8)                              | Sí       | No      | Sí  | nodo reemplazado, póster/placeholder, `object-fit`, 300×150 por defecto; sin decodificador ni reproducción (E3b) |
 | `ul`, `ol`, `li`                                             | Sí       | Sí      | Sí  | listas estáticas    |
 | `link` stylesheet, `style`                                   | Sí       | Sí      | Sí  | CSS local           |
 | `input type="text"`                                          | Pilot v3 | warning | Sí  | UTF-8 en edición; IME en runtime (no cambia el blob) |
 | `script`, `iframe`                                           | No       | No      | No  | no-goal             |
-| `form`, `select`, `table`, `canvas`, `video`, `audio`, `svg` | No       | No      | No  | fuera del subset    |
+| `form`, `select`, `table`, `canvas`, `audio`, `svg`           | No       | No      | No  | fuera del subset    |
 | `template`, `slot`, `object`, `embed`                        | No       | No      | No  | fuera del subset    |
 
 Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 `data-selected`, `data-action`, `src`, `href`, `title`, `disabled`; en input:
-`type`, `placeholder`, `value`, `maxlength`.
+`type`, `placeholder`, `value`, `maxlength`; en video: `src`, `poster`,
+`width`, `height`, `controls`, `autoplay`, `muted`, `loop`, `preload`.
 
 ## CSS: layout
 
