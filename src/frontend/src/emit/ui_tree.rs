@@ -140,9 +140,9 @@ fn video_preload(node: &Node) -> u8 {
     }
 }
 
-/// A `<video>` is a replaced element only when it has a non-empty local src.
-/// The blob requires a non-empty source; a video without one is diagnosed by
-/// the subset and emitted as its normal block box so the document stays valid.
+/// A `<video>` is always a replaced element (kind 6). It may omit `src`: the
+/// blob then carries `src = 0`, the host-bound player node documented in
+/// docs/media-v1.md §2.2. A non-empty local `src` is still resolved here.
 fn video_source(node: &Node) -> Option<&str> {
     if node.tag != "video" {
         return None;
@@ -350,11 +350,11 @@ impl<'a> Builder<'a> {
         // `password`, `checkbox`, etc. are not part of this contract and are
         // emitted as a normal block (the subset validator warns).
         let is_input = self.dom.nodes[id].tag == "input" && input_type_is_text(&self.dom.nodes[id]);
-        // Blob v7: `<video>` is a replaced element with kind 6. A missing src is
-        // diagnosed by the subset; without one it stays a block box so the
-        // blob never carries an empty media source.
+        // Blob v7: `<video>` is always a replaced element with kind 6. A
+        // missing src is the host-bound player node (`src = 0` in the media
+        // record), not a block box.
         let video_src = video_source(&self.dom.nodes[id]);
-        let is_video = video_src.is_some();
+        let is_video = self.dom.nodes[id].tag == "video";
         let is_replaced = is_image || is_input || is_video;
         let mut width_px = style.width.unwrap_or(-1.0);
         let mut width_pct = style.width_pct;
@@ -446,8 +446,8 @@ impl<'a> Builder<'a> {
         } else {
             None
         };
-        let media = video_src.map(|src| MediaOut {
-            src: src.to_string(),
+        let media = is_video.then(|| MediaOut {
+            src: video_src.unwrap_or("").to_string(),
             poster: self.dom.nodes[id]
                 .attr("poster")
                 .map(str::trim)
@@ -583,7 +583,7 @@ impl<'a> Builder<'a> {
         if self.dom.nodes[child].tag == "input" && input_type_is_text(&self.dom.nodes[child]) {
             return true;
         }
-        if self.dom.nodes[child].tag == "video" && video_source(&self.dom.nodes[child]).is_some() {
+        if self.dom.nodes[child].tag == "video" {
             return true;
         }
         matches!(style.display.as_str(), "block" | "flex" | "grid")

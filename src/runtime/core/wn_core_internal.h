@@ -14,6 +14,7 @@
 #include "document/wn_document_internal.h"
 #include "text/text_atlas.h"
 #include "wn_core.h"
+#include "wn_media.h"
 
 /* The on-disk node record is a fixed contract shared with the Rust writer and
  * the blob loader. A field added without bumping both sides must fail here. */
@@ -141,10 +142,34 @@ typedef struct {
 } WnNodeStyle;
 
 /* ABI v8: live media state per node. The blob only carries intent; position,
- * volume, mute and loop belong to the running core. Phase A never opens a real
- * session, so state starts IDLE and an open request ends in ERROR through
- * media_null. Keeping the record here (not in UiNode) means a clone copies the
- * intent and starts fresh state, as the contract requires. */
+ * volume, mute and loop belong to the running core. `session` is allocated on
+ * the first open and owns the provider handle, the decoded-frame queue and the
+ * texture id of the last presented frame. A clone copies the intent and starts
+ * with a NULL session, as the contract requires. */
+typedef struct {
+    wn_video_frame frame;   /* plane pointers owned by the provider lease */
+    int serial;             /* session serial at decode time */
+    int used;
+} WnMediaFrameSlot;
+
+typedef struct {
+    const wn_media_provider_ops *ops;
+    void *context;
+    wn_media_session *session;   /* provider handle, owned by this record */
+
+    int64_t anchor_wall_us;      /* virtual clock anchor (play/seek) */
+    int64_t anchor_position_us;
+    int64_t seek_target_us;
+    int64_t last_progress_position_us;
+    int serial;                  /* bumps on seek/flush */
+    int eof;
+    int resume_playing;          /* SEEKING -> PLAYING when set */
+    int decode_one;              /* preload=auto: decode one frame, stay paused */
+
+    WnMediaFrameSlot frames[3];  /* decoded ring, oldest at 0 */
+    int frame_count;
+} WnMediaSession;
+
 typedef struct {
     int state;                   /* WN_MEDIA_STATE_* */
     int error;                   /* wn_media_status */
@@ -155,6 +180,23 @@ typedef struct {
     unsigned char muted;
     unsigned char loop;
     char *source_override;       /* owned; replaces the blob src */
+    WnMediaSession *session;     /* owned; NULL when IDLE/ERROR */
+    unsigned char auto_open;     /* preload>=metadata or autoplay pending */
+    float intrinsic_w, intrinsic_h; /* provider/open size; 0 = unknown */
+
+    /* Last frame uploaded to the renderer. Owned by the sink; paint copies the
+     * id into a video batch. Kept across ERROR (an already presented frame is
+     * never replaced by the poster), released on close/set_source/destroy. */
+    uint64_t frame_texture;
+    uint32_t frame_format;
+    uint32_t frame_color;
+    int64_t frame_pts_us;
+    int64_t frame_duration_us;
+    int64_t frame_interval_us;
+    int frame_width, frame_height;
+    unsigned char first_frame_seen;
+    int presented;
+    int dropped;
 } WnMediaNode;
 
 #define WN_MEDIA_EVENT_QUEUE 16
@@ -243,6 +285,12 @@ struct wn_core {
     int image_batch_count;
     int image_batch_capacity;
 
+    /* ABI v8: `<video>` frame batches. Vertices live in image_vertices; the
+     * batch only adds the texture id, pixel format and flags. */
+    wn_video_batch *video_batches;
+    int video_batch_count;
+    int video_batch_capacity;
+
     wn_display_list list;
 
     int width;
@@ -313,6 +361,12 @@ struct wn_core {
     int media_event_head;
     int media_event_tail;
     int media_event_count;
+    /* Renderer video sink and injectable clock (NULL = no GPU sink / wall
+     * clock). Both are installed by the view and cleared before teardown. */
+    const wn_video_sink_ops *media_sink;
+    void *media_sink_context;
+    int64_t (*media_now_us)(void *context);
+    void *media_now_context;
 };
 
 /* Cross-module helpers. Mutations link/unlink the child lists incrementally;

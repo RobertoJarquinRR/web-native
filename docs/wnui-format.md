@@ -67,7 +67,7 @@ La sección 7 es una secuencia de registros de 16 bytes en orden estricto de
 ```
 WnBlobMediaRecord (16 bytes)
   int32  node;      // índice del nodo; kind debe ser 6
-  uint32 src;       // offset al pool; obligatorio, != 0, no vacío, sin "://"
+  uint32 src;       // offset al pool; 0 = sin fuente todavía, o no vacío sin "://"
   uint32 poster;    // offset al pool; 0 = sin póster
   uint8  flags;     // WN_MEDIA_FLAG_* (bits 4..7 reservados, el loader los rechaza)
   uint8  preload;   // 0 none, 1 metadata (default), 2 auto
@@ -76,9 +76,18 @@ WnBlobMediaRecord (16 bytes)
 
 `flags`: `0x01 controls`, `0x02 autoplay`, `0x04 loop`, `0x08 muted`. La sección
 está ausente si el documento no tiene vídeos; un vídeo sin registro, un registro
-sobre otro `kind`, un `src` vacío/con esquema, `preload > 2`, bits reservados o
-`reserved != 0` son un blob corrupto. El loader no tiene lector dual v6/v7: la
-cabecera debe ser exactamente 7.
+sobre otro `kind`, un `src` vacío/**no-cero** o con esquema, `preload > 2`, bits
+reservados o `reserved != 0` son un blob corrupto. El loader no tiene lector
+dual v6/v7: la cabecera debe ser exactamente 7.
+
+`src = 0` es la excepción de **nodo reproductor del host**: el documento reserva
+la caja, el póster y el layout, y el host llama `wn_node_media_set_source` antes
+de `open`/`play`. El registro `media` sigue siendo obligatorio (no se puede
+omitir por no tener fuente) y el nodo sigue siendo `kind = 6`, nunca un `img`
+con una ruta de vídeo. Es lo que permite a la galería descongelar su documento
+con un reproductor sin hornear la ruta del archivo. Sin fuente, `open` devuelve
+`WN_ERR_STATE` y emite `WN_MEDIA_EVENT_ERROR`; póster/placeholder se pintan con
+normalidad. No hay bump de versión: el blob sigue siendo v7.
 
 ### Sección `states` (v6)
 

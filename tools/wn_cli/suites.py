@@ -1753,7 +1753,7 @@ def run_media() -> int:
              CORE_LIBS)
     blob_text = _run(blob_exe, [], out)
     _expect(blob_text, ["media_blob_test: PASS"], "media blob test")
-    _expect_checks(blob_text, "media_blob_test", 18)
+    _expect_checks(blob_text, "media_blob_test", 26)
 
     log_step("media: HTML <video> -> blob -> load -> kind 6 + layout")
     layout_exe = out / "media_layout_test.exe"
@@ -1774,7 +1774,53 @@ def run_media() -> int:
     copy_wgpu_dll(out)
     abi_text = _run(abi_exe, [], out)
     _expect(abi_text, ["media_abi_test: PASS"], "media ABI test")
-    _expect_checks(abi_text, "media_abi_test", 40)
+    _expect_checks(abi_text, "media_abi_test", 59)
+
+    log_step("media: synthetic provider contract (PTS, seek, lease)")
+    provider_exe = out / "media_test_provider_test.exe"
+    _compile(
+        provider_exe,
+        [suite / "media_test_provider_test.c", runtime / "media" / "media_test.c"],
+        includes,
+        CORE_LIBS,
+    )
+    provider_text = _run(provider_exe, [], out)
+    _expect(provider_text, ["media_test_provider_test: PASS"],
+            "media synthetic provider test")
+    _expect_checks(provider_text, "media_test_provider_test", 21)
+
+    log_step("media: session state machine (inline, injected clock)")
+    session_exe = out / "media_session_test.exe"
+    _compile(
+        session_exe,
+        [suite / "media_session_test.c", runtime / "media" / "media_test.c",
+         *objects],
+        includes,
+        CORE_LIBS,
+    )
+    session_text = _run(session_exe, [str(blob)], out)
+    _expect(session_text, ["media_session_test: PASS"], "media session test")
+    _expect_checks(session_text, "media_session_test", 46)
+
+    log_step("media: offscreen RGBA frame path (poster -> frame -> seek)")
+    frame_exe = out / "media_frame_test.exe"
+    _compile(
+        frame_exe,
+        [suite / "media_frame_test.c", runtime / "media" / "media_test.c",
+         *runtime_sources(skip_main=True)],
+        includes,
+        libs,
+    )
+    copy_wgpu_dll(out)
+    frame_env = {"WN_RENDERER": "d3d11"}
+    frame_text = _run(frame_exe, [str(blob), str(out)], page, frame_env)
+    _expect(frame_text, ["media_frame_test: PASS"], "media frame test")
+    _expect_checks(frame_text, "media_frame_test", 26)
+    _expect_reported_checks(
+        _python(suite / "verify_media_frames.py",
+                ["--dir", str(out), "--backend", "d3d11"], cwd=suite),
+        "media frames (d3d11)", 30,
+    )
 
     log_step("media: wnui-dump projection (kind=video + media line)")
     dump_exe = out / "wnui-dump.exe"

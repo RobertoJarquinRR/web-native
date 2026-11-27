@@ -532,8 +532,9 @@ pub(crate) fn write_blob(
 
     // Blob v7: optional `media` section, one 16-byte record per video node in
     // strictly increasing node order. The section is absent when no node is a
-    // video. `src` must be non-empty (the emitter only creates kind 6 with a
-    // source); `poster` is 0 when the attribute is absent.
+    // video. `src` is 0 for the host-bound player node (no source yet) and a
+    // non-empty local path otherwise; `poster` is 0 when the attribute is
+    // absent.
     let mut media_records = Vec::new();
     for (index, node) in nodes.iter().enumerate() {
         let Some(media) = &node.media else {

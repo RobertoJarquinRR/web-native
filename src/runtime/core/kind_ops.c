@@ -249,29 +249,39 @@ static float input_intrinsic_width(wn_core *c, int node, float available)
 static float video_auto_width(wn_core *c, int node, float available,
                               float parent_content_h)
 {
-    (void)c;
-    (void)node;
-    (void)available;
     (void)parent_content_h;
+    (void)available;
+    if (c != NULL && c->media != NULL && c->media[node].intrinsic_w > 0.0f) {
+        return c->media[node].intrinsic_w;
+    }
     return WN_VIDEO_DEFAULT_WIDTH;
 }
 
 static float video_auto_height(wn_core *c, int node, float width, float content_h)
 {
-    (void)c;
-    (void)node;
+    float iw = WN_VIDEO_DEFAULT_WIDTH;
+    float ih = WN_VIDEO_DEFAULT_HEIGHT;
     (void)content_h;
-    if (width > 0.0f) {
-        return width * (WN_VIDEO_DEFAULT_HEIGHT / WN_VIDEO_DEFAULT_WIDTH);
+    if (c != NULL && c->media != NULL && c->media[node].intrinsic_w > 0.0f &&
+        c->media[node].intrinsic_h > 0.0f) {
+        iw = c->media[node].intrinsic_w;
+        ih = c->media[node].intrinsic_h;
     }
-    return WN_VIDEO_DEFAULT_HEIGHT;
+    if (width > 0.0f) {
+        return width * (ih / iw);
+    }
+    return ih;
 }
 
 static float video_intrinsic_width(wn_core *c, int node, float available)
 {
     const UiNode *n = &c->nodes[node];
+    float intrinsic = WN_VIDEO_DEFAULT_WIDTH;
     (void)available;
-    return WN_VIDEO_DEFAULT_WIDTH + n->padding[1] + n->padding[3];
+    if (c != NULL && c->media != NULL && c->media[node].intrinsic_w > 0.0f) {
+        intrinsic = c->media[node].intrinsic_w;
+    }
+    return intrinsic + n->padding[1] + n->padding[3];
 }
 
 /* ------------------------------------------------------------------ table */

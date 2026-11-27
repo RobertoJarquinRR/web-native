@@ -170,6 +170,10 @@ static int g_event_type = -1;
 static int g_event_state = -1;
 static int g_event_error = -1;
 static char g_event_detail[256];
+static wn_node_id g_first_error_node = WN_NODE_INVALID;
+static int g_first_error_state = -1;
+static int g_first_error_error = -1;
+static char g_first_error_detail[256];
 
 static void on_media_event(void *userdata, const wn_media_event *event)
 {
@@ -183,6 +187,16 @@ static void on_media_event(void *userdata, const wn_media_event *event)
         snprintf(g_event_detail, sizeof(g_event_detail), "%s", event->detail);
     } else {
         g_event_detail[0] = '\0';
+    }
+    if (event->type == WN_MEDIA_EVENT_ERROR &&
+        g_first_error_node == WN_NODE_INVALID) {
+        g_first_error_node = event->node;
+        g_first_error_state = event->state;
+        g_first_error_error = event->error;
+        if (event->detail != NULL) {
+            snprintf(g_first_error_detail, sizeof(g_first_error_detail), "%s",
+                     event->detail);
+        }
     }
 }
 
@@ -267,16 +281,17 @@ int main(void)
     g_events = 0;
     g_event_node = WN_NODE_INVALID;
     g_event_type = -1;
+    g_first_error_node = WN_NODE_INVALID;
     check("video open is accepted", wn_view_media_open(view, video) == WN_OK);
-    check("open queued an event until tick", g_events == 0);
+    check("open queues an event until tick", g_events == 0);
     check("tick flushes the event on the UI thread",
-          wn_view_tick(view) == WN_OK && g_events == 1);
-    check("event carries the typed media_null error",
-          g_event_node == video && g_event_type == WN_MEDIA_EVENT_ERROR &&
-              g_event_state == WN_MEDIA_STATE_ERROR &&
-              g_event_error == WN_MEDIA_UNSUPPORTED_CONTAINER);
+          wn_view_tick(view) == WN_OK && g_events == 5);
+    check("the explicit open carries the typed media_null error",
+          g_first_error_node == video &&
+              g_first_error_state == WN_MEDIA_STATE_ERROR &&
+              g_first_error_error == WN_MEDIA_UNSUPPORTED_CONTAINER);
     check("event detail names the source",
-          strstr(g_event_detail, "clips/poster.mp4") != NULL);
+          strstr(g_first_error_detail, "clips/poster.mp4") != NULL);
     memset(&state, 0, sizeof(state));
     check("state is ERROR/UNSUPPORTED after open",
           wn_view_media_get_state(view, video, &state) == WN_OK &&
@@ -356,13 +371,13 @@ int main(void)
     check("replacement keeps media_null last",
           wn_core_media_provider_is_null(wn_view_core(view), 4));
 
-    /* With a registered provider this phase still has no session driver: the
-     * open must not fake OPENED/PLAYING. */
-    check("open with a provider still refuses to fake playback",
+    /* With a registered provider whose probe does not claim the file, the
+     * chain still ends in media_null: the typed "no codec" path. */
+    check("open with non-matching providers reports media_null",
           wn_view_media_open(view, video) == WN_OK &&
               wn_view_media_get_state(view, video, &state) == WN_OK &&
               state.state == WN_MEDIA_STATE_ERROR &&
-              state.error == WN_MEDIA_INTERNAL);
+              state.error == WN_MEDIA_UNSUPPORTED_CONTAINER);
 
     /* Handshake rejections. */
     bad = kFakeOps;

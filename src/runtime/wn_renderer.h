@@ -9,6 +9,7 @@
 #define WN_RENDERER_H
 
 #include "wn_core.h"
+#include "wn_media.h"
 
 #if defined(__cplusplus)
 extern "C" {
@@ -60,6 +61,10 @@ typedef struct wn_renderer_ops {
     int (*image_cache_count)(void *context);
     /* Optional diagnostics: decoded bytes held by the image cache. -1 if unknown. */
     long long (*image_cache_bytes)(void *context);
+    /* Optional video sink (docs/media-v1.md §3.3). NULL when the backend does
+     * not upload RGBA frames yet (E4b: wgpu); the core then presents no video
+     * batch and the node keeps painting its poster/placeholder. */
+    const wn_video_sink_ops *(*video_sink)(void *context);
 } wn_renderer_ops;
 
 const wn_renderer_ops *wn_renderer_wgpu(void);

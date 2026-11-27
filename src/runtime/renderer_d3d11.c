@@ -56,6 +56,15 @@ typedef struct {
     ID3D11ShaderResourceView *srv;
 } WnD3D11LayerTarget;
 
+/* One uploaded `<video>` frame. The id is the opaque handle copied into
+ * wn_video_batch.texture and released through the sink vtable. */
+typedef struct {
+    uint64_t id;
+    ID3D11Texture2D *texture;
+    ID3D11ShaderResourceView *view;
+    int width, height;
+} WnD3D11VideoTexture;
+
 typedef struct {
     ID3D11Device *device;
     ID3D11DeviceContext *context;
@@ -118,6 +127,17 @@ typedef struct {
     unsigned long long image_frame;
     IWICImagingFactory *wic;
     int com_initialized;
+
+    /* E4 video sink: uploaded RGBA frames keyed by the opaque id handed to the
+     * core. Distinct from the path-keyed image cache. */
+    WnD3D11VideoTexture *videos;
+    int video_count;
+    int video_capacity;
+    uint64_t next_video_id;
+    uint32_t video_uploads;
+    uint32_t video_imports;
+    uint32_t video_dropped;
+    double video_last_upload_ms;
 
     int uploaded_vertices;
     int uploaded_glyphs;
@@ -1085,6 +1105,217 @@ static int capture_backbuffer(WnD3D11 *gpu, const char *path)
     return result;
 }
 
+/* ------------------------------------------------------- video sink (E4) */
+/*
+ * Software-only RGBA8 upload path from docs/media-v1.md §3.3/§4.3. The sink
+ * owns the texture and the id; the core only copies the id into a video batch.
+ * NV12/P010 shaders and D3D11VA import are later phases (E4b/E5).
+ */
+
+static void video_texture_release(WnD3D11VideoTexture *entry)
+{
+    com_release((IUnknown *)entry->view);
+    com_release((IUnknown *)entry->texture);
+    memset(entry, 0, sizeof(*entry));
+}
+
+static void video_textures_destroy(WnD3D11 *gpu)
+{
+    int i;
+    for (i = 0; i < gpu->video_count; ++i) {
+        video_texture_release(&gpu->videos[i]);
+    }
+    wn_free_(gpu->videos);
+    gpu->videos = NULL;
+    gpu->video_count = 0;
+    gpu->video_capacity = 0;
+}
+
+static WnD3D11VideoTexture *video_texture_find(WnD3D11 *gpu, uint64_t id)
+{
+    int i;
+    for (i = 0; i < gpu->video_count; ++i) {
+        if (gpu->videos[i].id == id) {
+            return &gpu->videos[i];
+        }
+    }
+    return NULL;
+}
+
+static uint32_t video_sink_formats(void *context)
+{
+    (void)context;
+    return WN_MEDIA_BIT(WN_PIXEL_RGBA8);
+}
+
+static uint32_t video_sink_native_kind(void *context)
+{
+    (void)context;
+    return 0; /* software only in E4 */
+}
+
+static int video_sink_device(void *context, void **out_device)
+{
+    (void)context;
+    if (out_device != NULL) {
+        *out_device = NULL;
+    }
+    return 1; /* no decoder device exposed */
+}
+
+static wn_media_status video_sink_upload(void *context,
+                                         const wn_video_frame *frame,
+                                         uint64_t *out_texture)
+{
+    WnD3D11 *gpu = (WnD3D11 *)context;
+    const wn_media_plane *plane;
+    D3D11_TEXTURE2D_DESC desc;
+    D3D11_SUBRESOURCE_DATA initial;
+    WnD3D11VideoTexture *entry;
+    HRESULT hr;
+    double t0;
+
+    if (gpu == NULL || frame == NULL || out_texture == NULL) {
+        return WN_MEDIA_INTERNAL;
+    }
+    *out_texture = 0;
+    if (frame->format != WN_PIXEL_RGBA8 || frame->planes < 1 ||
+        frame->plane[0].data == NULL) {
+        return WN_MEDIA_UNSUPPORTED_CODEC; /* E4 sink accepts RGBA8 only */
+    }
+    plane = &frame->plane[0];
+    if (plane->width <= 0 || plane->height <= 0 || plane->stride <= 0 ||
+        plane->width > 8192 || plane->height > 8192) {
+        return WN_MEDIA_INTERNAL;
+    }
+    if (gpu->video_count == gpu->video_capacity) {
+        int capacity = gpu->video_capacity > 0 ? gpu->video_capacity * 2 : 8;
+        WnD3D11VideoTexture *grown = (WnD3D11VideoTexture *)realloc(
+            gpu->videos, (size_t)capacity * sizeof(*grown));
+        if (grown == NULL) {
+            return WN_MEDIA_OOM;
+        }
+        memset(grown + gpu->video_capacity, 0,
+               (size_t)(capacity - gpu->video_capacity) * sizeof(*grown));
+        gpu->videos = grown;
+        gpu->video_capacity = capacity;
+    }
+    memset(&desc, 0, sizeof(desc));
+    desc.Width = (UINT)plane->width;
+    desc.Height = (UINT)plane->height;
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    desc.CPUAccessFlags = 0;
+    memset(&initial, 0, sizeof(initial));
+    initial.pSysMem = plane->data;
+    initial.SysMemPitch = (UINT)plane->stride;
+    initial.SysMemSlicePitch = (UINT)(plane->stride * plane->height);
+
+    t0 = wn_now_ms();
+    entry = &gpu->videos[gpu->video_count];
+    memset(entry, 0, sizeof(*entry));
+    hr = gpu->device->lpVtbl->CreateTexture2D(gpu->device, &desc, &initial,
+                                              &entry->texture);
+    if (FAILED(hr) || entry->texture == NULL) {
+        set_error(gpu, "video CreateTexture2D(%dx%d) failed (hr=0x%08lX)",
+                  (int)plane->width, (int)plane->height, (unsigned long)hr);
+        return WN_MEDIA_GPU;
+    }
+    hr = gpu->device->lpVtbl->CreateShaderResourceView(
+        gpu->device, (ID3D11Resource *)entry->texture, NULL, &entry->view);
+    if (FAILED(hr) || entry->view == NULL) {
+        video_texture_release(entry);
+        set_error(gpu, "video CreateShaderResourceView failed (hr=0x%08lX)",
+                  (unsigned long)hr);
+        return WN_MEDIA_GPU;
+    }
+    entry->width = plane->width;
+    entry->height = plane->height;
+    entry->id = ++gpu->next_video_id;
+    if (entry->id == 0) {
+        entry->id = ++gpu->next_video_id;
+    }
+    gpu->video_count += 1;
+    gpu->video_uploads += 1;
+    gpu->video_last_upload_ms = wn_now_ms() - t0;
+    *out_texture = entry->id;
+    return WN_MEDIA_OK;
+}
+
+static wn_media_status video_sink_import_native(void *context,
+                                                void *native_texture,
+                                                uint32_t slice,
+                                                const wn_video_frame *desc,
+                                                uint64_t *out_texture)
+{
+    (void)context;
+    (void)native_texture;
+    (void)slice;
+    (void)desc;
+    if (out_texture != NULL) {
+        *out_texture = 0;
+    }
+    return WN_MEDIA_UNSUPPORTED_CODEC; /* D3D11VA import is phase C */
+}
+
+static void video_sink_release_texture(void *context, uint64_t texture)
+{
+    WnD3D11 *gpu = (WnD3D11 *)context;
+    int i;
+    if (gpu == NULL || texture == 0) {
+        return;
+    }
+    for (i = 0; i < gpu->video_count; ++i) {
+        if (gpu->videos[i].id == texture) {
+            video_texture_release(&gpu->videos[i]);
+            gpu->videos[i] = gpu->videos[gpu->video_count - 1];
+            memset(&gpu->videos[gpu->video_count - 1], 0,
+                   sizeof(gpu->videos[0]));
+            gpu->video_count -= 1;
+            return;
+        }
+    }
+}
+
+static void video_sink_stats(void *context, wn_media_upload_stats *out)
+{
+    WnD3D11 *gpu = (WnD3D11 *)context;
+    if (out == NULL) {
+        return;
+    }
+    memset(out, 0, sizeof(*out));
+    out->struct_size = (uint32_t)sizeof(*out);
+    if (gpu == NULL) {
+        return;
+    }
+    out->uploads = gpu->video_uploads;
+    out->imports = gpu->video_imports;
+    out->dropped = gpu->video_dropped;
+    out->last_upload_ms = gpu->video_last_upload_ms;
+}
+
+static const wn_video_sink_ops g_d3d11_video_sink = {
+    (uint32_t)sizeof(wn_video_sink_ops),
+    WN_MEDIA_SINK_ABI,
+    "d3d11-rgba",
+    video_sink_formats,
+    video_sink_native_kind,
+    video_sink_device,
+    video_sink_upload,
+    video_sink_import_native,
+    video_sink_release_texture,
+    video_sink_stats
+};
+
+static const wn_video_sink_ops *renderer_video_sink(void *context)
+{
+    return context != NULL ? &g_d3d11_video_sink : NULL;
+}
+
 /* ------------------------------------------------------------- vtable ops */
 
 static int renderer_init(void **out, const wn_surface_desc *surface, int width, int height)
@@ -1641,15 +1872,47 @@ static void draw_glyph_range(WnD3D11 *gpu, const wn_paint_range *range)
                                (UINT)range->first);
 }
 
+static void draw_video_range(WnD3D11 *gpu, const wn_paint_draw *draw)
+{
+    const wn_paint_range *range = &draw->video;
+    WnD3D11VideoTexture *texture;
+    UINT stride;
+    UINT offset = 0;
+    if (range->count <= 0 || draw->video_texture == 0 ||
+        gpu->uploaded_images <= 0) {
+        return;
+    }
+    texture = video_texture_find(gpu, draw->video_texture);
+    if (texture == NULL || texture->view == NULL) {
+        return;
+    }
+    if (!set_scissor(gpu, range->clip.x, range->clip.y, range->clip.w,
+                     range->clip.h)) {
+        return;
+    }
+    stride = (UINT)sizeof(wn_image_vertex);
+    gpu->context->lpVtbl->IASetInputLayout(gpu->context, gpu->image_layout);
+    gpu->context->lpVtbl->IASetVertexBuffers(gpu->context, 0, 1,
+                                             &gpu->image_buffer, &stride, &offset);
+    gpu->context->lpVtbl->VSSetShader(gpu->context, gpu->image_vs, NULL, 0);
+    gpu->context->lpVtbl->PSSetShader(gpu->context, gpu->image_ps, NULL, 0);
+    gpu->context->lpVtbl->PSSetSamplers(gpu->context, 0, 1, &gpu->sampler);
+    gpu->context->lpVtbl->PSSetShaderResources(gpu->context, 0, 1,
+                                               &texture->view);
+    gpu->context->lpVtbl->Draw(gpu->context, (UINT)range->count,
+                               (UINT)range->first);
+}
+
 /* One paint item in the layered replay, in the same pass order the flat
  * renderer uses: solids (background, shadow, input decorations, scrollbars),
- * then the image, then text. */
+ * then the video frame or image, then text. */
 static void draw_paint_item(WnD3D11 *gpu, const wn_paint_draw *draw)
 {
     draw_solid_range(gpu, &draw->solid);
     draw_solid_range(gpu, &draw->decoration);
     draw_solid_range(gpu, &draw->input_body);
     draw_solid_range(gpu, &draw->scrollbar);
+    draw_video_range(gpu, draw);
     draw_image_range(gpu, draw);
     draw_glyph_range(gpu, &draw->glyph);
     draw_glyph_range(gpu, &draw->input_glyph);
@@ -1872,6 +2135,35 @@ static int renderer_render(void *context, const wn_display_list *list)
         }
     }
 
+    if (gpu->uploaded_images > 0 && list != NULL &&
+        list->video_batch_count > 0) {
+        int b;
+        stride = (UINT)sizeof(wn_image_vertex);
+        gpu->context->lpVtbl->IASetInputLayout(gpu->context, gpu->image_layout);
+        gpu->context->lpVtbl->IASetVertexBuffers(gpu->context, 0, 1,
+                                                 &gpu->image_buffer, &stride,
+                                                 &offset);
+        gpu->context->lpVtbl->VSSetShader(gpu->context, gpu->image_vs, NULL, 0);
+        gpu->context->lpVtbl->PSSetShader(gpu->context, gpu->image_ps, NULL, 0);
+        gpu->context->lpVtbl->PSSetSamplers(gpu->context, 0, 1, &gpu->sampler);
+        for (b = 0; b < list->video_batch_count; ++b) {
+            const wn_video_batch *batch = &list->video_batches[b];
+            WnD3D11VideoTexture *texture =
+                video_texture_find(gpu, batch->texture);
+            if (texture == NULL || texture->view == NULL) {
+                continue;
+            }
+            if (!set_scissor(gpu, batch->clip_x, batch->clip_y, batch->clip_w,
+                             batch->clip_h)) {
+                continue;
+            }
+            gpu->context->lpVtbl->PSSetShaderResources(gpu->context, 0, 1,
+                                                       &texture->view);
+            gpu->context->lpVtbl->Draw(gpu->context, (UINT)batch->count,
+                                       (UINT)batch->first);
+        }
+    }
+
     if (gpu->uploaded_glyphs > 0 && gpu->atlas_view != NULL) {
         int b;
         stride = (UINT)sizeof(wn_glyph_vertex);
@@ -1962,6 +2254,7 @@ static void renderer_destroy(void *context)
         release_image_entry(&gpu->images[i]);
     }
     wn_free_(gpu->images);
+    video_textures_destroy(gpu);
     com_release((IUnknown *)gpu->wic);
     com_release((IUnknown *)gpu->raster);
     com_release((IUnknown *)gpu->blend);
@@ -2054,7 +2347,8 @@ static const wn_renderer_ops g_d3d11_ops = {
     renderer_get_stats,
     renderer_readback,
     renderer_image_cache_count,
-    renderer_image_cache_bytes
+    renderer_image_cache_bytes,
+    renderer_video_sink
 };
 
 const wn_renderer_ops *wn_renderer_d3d11(void)

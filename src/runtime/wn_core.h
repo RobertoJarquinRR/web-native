@@ -16,6 +16,7 @@
 #include <stdint.h>
 
 #include "webnative.h"
+#include "wn_media.h"
 #include "wn_ime.h"
 
 #if defined(__cplusplus)
@@ -57,6 +58,24 @@ typedef struct {
     float clip_x, clip_y, clip_w, clip_h;
     const char *src;
 } wn_image_batch;
+
+/* One `<video>` frame draw. The vertex range indexes the shared image vertex
+ * array (same pos/uv/alpha layout as an image); the texture id is opaque and
+ * owned by the renderer's video sink. `texture == 0` batches are never emitted:
+ * without a frame the node paints its poster or the neutral placeholder. */
+typedef struct {
+    int first;
+    int count;
+    float clip_x, clip_y, clip_w, clip_h;
+    uint64_t texture;
+    uint32_t format;   /* wn_pixel_format */
+    uint32_t color;    /* WN_MEDIA_COLOR(...) */
+    uint32_t flags;    /* WN_VIDEO_BATCH_* */
+} wn_video_batch;
+
+/* The rotation is already resolved in the UVs; OVERLAY only marks a batch that
+ * composites on top of the video frame (bitmap subtitle). */
+#define WN_VIDEO_BATCH_OVERLAY 0x01u
 
 /* ----------------------------------------------------- group layers (v3) */
 /* Stacking contexts are represented as paint layers. Two kinds exist:
@@ -104,6 +123,8 @@ typedef struct {
     wn_paint_range scrollbar;
     wn_paint_range image;
     const char *image_src;
+    wn_paint_range video;
+    uint64_t video_texture;
     wn_paint_range glyph;
     wn_paint_range input_glyph;
 } wn_paint_draw;
@@ -150,6 +171,10 @@ typedef struct {
     int image_vertex_count;
     const wn_image_batch *image_batches;
     int image_batch_count;
+    /* ABI v8 media: `<video>` frame batches. They reuse the image vertex array
+     * and are drawn with the frame texture id; empty when no frame exists. */
+    const wn_video_batch *video_batches;
+    int video_batch_count;
     /* Group layers (blob v3 `opacity`). `layers[0]` is the root; the renderer
      * keeps its historical single-pass path while layer_count <= 1. `draws`
      * are per paint item and `commands` replay the nesting exactly. */
@@ -331,11 +356,12 @@ int wn_core_set_image_size(wn_core *core, int node, float width, float height);
 /* ------------------------------------------------------- media (ABI v8) */
 /*
  * The compiled document carries media intent only (kind 6 + section 7).
- * The live core owns state, volume, mute and loop. A video is a replaced leaf:
- * no decoder, no audio sink and no player UI exist here yet, so `open` records
- * the typed media_null error and queues WN_MEDIA_EVENT_ERROR. Calls return 0 on
- * success, 1/2 for the documented unsupported/state cases and -1/-2 for
- * invalid arguments/out of memory.
+ * The live core owns the session, state, volume, mute and loop. The session
+ * driver is inline (WN_MEDIA_THREADS=0): every provider call happens from
+ * `wn_core_media_tick`, on the UI thread, deterministically. A video is a
+ * replaced leaf: with no provider the typed media_null error is queued as
+ * WN_MEDIA_EVENT_ERROR. Calls return 0 on success, -2 for the documented
+ * state cases and -1 for invalid arguments/out of memory.
  */
 int wn_core_node_is_video(const wn_core *core, int node);
 const char *wn_core_node_media_src(const wn_core *core, int node);
@@ -351,6 +377,29 @@ int wn_core_media_set_loop(wn_core *core, int node, int loop);
 int wn_core_media_set_source(wn_core *core, int node, const char *path);
 int wn_core_media_get_state(const wn_core *core, int node,
                             wn_media_state_info *out);
+
+/* Session driver (internal, UI thread). `tick` advances the state machine and
+ * decodes into the per-node queue; `present` picks the due frame and uploads it
+ * through the installed video sink (at most one upload per node per call).
+ * `close` destroys one session and returns the node to IDLE; `shutdown` closes
+ * every session (document replacement/core destruction). */
+void wn_core_media_tick(wn_core *core);
+int wn_core_media_present(wn_core *core);
+void wn_core_media_close(wn_core *core, int node);
+void wn_core_media_shutdown(wn_core *core);
+/* 1 while some session is PLAYING/BUFFERING/SEEKING or waiting to auto-open. */
+int wn_core_media_active(const wn_core *core);
+/* Media position of a node at the injected clock (0 when idle). */
+int64_t wn_core_media_position_us(const wn_core *core, int node);
+
+/* Renderer seam. The view installs the backend's video sink once the renderer
+ * exists and clears it before destroying the renderer. `now_us` is injectable
+ * so tests advance the media clock by hand (docs/media-v1.md §8.3). */
+void wn_core_set_media_sink(wn_core *core, const wn_video_sink_ops *ops,
+                            void *context);
+void wn_core_set_media_clock(wn_core *core,
+                             int64_t (*now_us)(void *context), void *context);
+int64_t wn_core_media_now_us(const wn_core *core);
 
 /* Provider seam. A registry belongs to one core (one view/app). */
 int wn_core_register_media_provider(wn_core *core,

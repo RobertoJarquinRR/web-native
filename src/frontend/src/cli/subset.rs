@@ -422,19 +422,7 @@ impl<'a> HtmlScanner<'a> {
                     .to_string(),
             );
         }
-        if tag == "video" {
-            let has_src = attrs.iter().any(|(name, value, _)| {
-                name == "src" && !value.trim().is_empty()
-            });
-            if !has_src {
-                self.push(
-                    line,
-                    Some("<video>".to_string()),
-                    "<video> sin src no forma un nodo de media; el blob v7 exige una fuente local no vacia"
-                        .to_string(),
-                );
-            }
-        }
+        /* `<video>` without `src` is the host-bound player node (`src = 0`). */
 
         for (name, value, attr_line) in attrs {
             if !attribute_supported(tag, name) {

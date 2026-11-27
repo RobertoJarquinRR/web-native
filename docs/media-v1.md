@@ -1,10 +1,18 @@
 # Media v1 — `<video>` de primera clase y códecs como proveedores
 
-> **Estado:** **Fase A implementada (E3a).** El elemento `<video>`, el blob v7,
-> la sección `media`, el registro de proveedores, `media_null` y la superficie
-> `wn_node_media_*` están en el árbol. **No** hay decodificador, demuxer, sink de
-> audio, subtítulos ni UI de reproducción: eso es E3b y siguientes. Cualquier
-> implementación que contradiga este documento es un bug, no una variante.
+> **Estado:** **Fase A implementada (E3a) y primera mitad de la Fase B (E4).**
+> El elemento `<video>`, el blob v7, la sección `media`, el registro de
+> proveedores, `media_null`, la superficie `wn_node_media_*`, el **driver de
+> sesión con la máquina de estados**, el proveedor sintético **`media_test`
+> (solo tests)** y el **sink RGBA del primer frame** están en el árbol. **No**
+> hay decodificador real, demuxer, sink de audio, subtítulos ni UI de
+> reproducción: eso es E5 y siguientes. Cualquier implementación que contradiga
+> este documento es un bug, no una variante.
+>
+> **Modo de hilos de E4:** el bucle de media corre **inline** desde
+> `wn_core_media_tick` (UI), de forma determinista y sin locks. El modo con un
+> hilo por sesión queda para E4b; la API y las reglas de propiedad de §3.6 ya
+> describen ese destino.
 >
 > **Regla de oro:** `<video>` es un **elemento del runtime** (nodo, layout,
 > pintado, eventos, estado). El **códec, el demuxer y el sink de audio son
@@ -151,7 +159,7 @@ Secuencia de registros de 16 bytes en orden estricto de índice de nodo
 
 typedef struct {
     int32_t  node;      /* índice del nodo; kind debe ser 6 */
-    uint32_t src;       /* strings offset; obligatorio, != 0, no vacío */
+    uint32_t src;       /* strings offset; 0 = sin fuente todavía */
     uint32_t poster;    /* strings offset; 0 = sin póster */
     uint8_t  flags;     /* WN_MEDIA_FLAG_* */
     uint8_t  preload;   /* 0 none, 1 metadata (default), 2 auto */
@@ -176,6 +184,18 @@ typedef struct {
 El default es `1`: el póster se ve y la duración está disponible para el
 overlay del host sin gastar decode.
 
+**Nodo reproductor sin fuente (`src = 0`).** Un `<video>` puede declararse sin
+`src` para que el host lo use como reproductor: el documento reserva la caja, el
+póster y el layout, y el host llama `wn_node_media_set_source` antes de
+`open`/`play`. No es un hack de "imagen con ruta de vídeo": sigue siendo
+`kind = 6`, con su sección `media` obligatoria, sus flags y su ciclo de vida.
+`poster` es opcional. Sin fuente, el nodo pinta póster o placeholder y
+`wn_node_media_open` devuelve `WN_ERR_STATE` (y emite `WN_MEDIA_EVENT_ERROR`
+con `detail`), sin crash. `preload`/`autoplay` no abren un nodo sin fuente.
+Esto es lo que la galería necesita para congelar/descongelar su documento sin
+hornear una ruta de reproducción (ver §11). El frontend emite `kind = 6` y un
+registro `media` con `src = 0` cuando el `<video>` no declara `src`.
+
 ### 2.3 Validación del loader
 
 Además de las validaciones actuales (orden, límites, offsets de strings), el
@@ -188,7 +208,9 @@ loader de v7 exige:
    - `node` en rango, estrictamente creciente;
    - `kind == 6` para ese nodo;
    - `flags & 0xF0 == 0`; `preload <= 2`; `reserved == 0`;
-   - `src != 0` y string no vacío; sin `://`;
+   - `src` es **0 (sin fuente todavía) o un offset no vacío sin `://`**. El
+     registro `media` sigue siendo obligatorio: un nodo `video` sin registro es
+     un blob corrupto. Un offset no-cero vacío o con esquema se rechaza;
    - `poster` válido como offset (0 permitido).
 3. Todo nodo `kind == 6` tiene **exactamente** un registro en la sección 7.
    Un `video` sin registro, o un registro sobre un nodo que no es `video`, es
@@ -757,8 +779,13 @@ Reglas:
 5. `release()` de una *lease* puede llegar desde el hilo de render (el sink
    terminó de subir el frame) o desde el hilo de media (frame descartado).
    Debe ser thread-safe.
-6. `WN_MEDIA_THREADS=0` (build de test) ejecuta el bucle de media **inline**
-   desde `wn_media_session_tick`, de forma determinista y sin hilos.
+6. **E4 corre siempre inline**: el bucle de media se ejecuta desde
+   `wn_core_media_tick` (llamado por `wn_view_tick`/`wn_view_render`) y el
+   upload del frame elegido desde `wn_core_media_present` (llamado por
+   `wn_view_render`, antes de construir la display list). No hay hilos,
+   anillos SPSC ni locks en el camino de UI. `WN_MEDIA_THREADS=1` y el hilo
+   por sesión son E4b; la propiedad y los presupuestos de esta tabla ya son el
+   contrato de destino.
 7. `serial` es un contador por sesión que sube en `seek()` y `flush()`. El
    runtime lo guarda en su entrada de cola (no en `wn_video_frame`, que es del
    proveedor) y descarta cualquier frame que llegue con un `serial` anterior.
@@ -924,8 +951,11 @@ WN_API wn_status wn_node_media_get_state(wn_app *app, wn_node_id node,
 Semántica:
 
 - `open` es **asíncrono**: devuelve `WN_OK` si la petición se aceptó y el
-  resultado llega como `OPENED` o `ERROR`. Con `WN_MEDIA_THREADS=0` (tests)
-  completa inline.
+  resultado llega como `OPENED` o `ERROR`. En E4 el bucle es inline, así que la
+  transición ocurre dentro de la misma llamada, pero el retorno sigue siendo
+  "petición aceptada": un `media_null` devuelve `WN_OK` y encola `ERROR`. Un
+  nodo sin `src` es la excepción explícita: devuelve `WN_ERR_STATE` y encola el
+  `ERROR` tipado.
 - `open` fuerza la apertura aunque `preload = none`; es el "cargar ahora" del
   host.
 - `play` sobre `IDLE` abre primero (equivale a `open` + `play`).
@@ -936,6 +966,9 @@ Semántica:
 - `set_volume`/`set_muted`/`set_loop` son estado de runtime: **no** modifican
   el blob.
 - `get_state` nunca bloquea y es válido en cualquier estado.
+- No hay `wn_node_media_close` en la ABI v8: el cierre interno ocurre al
+  destruir el nodo, reemplazar el documento o `set_source`. Un host que quiera
+  "stop" hace `pause` + `seek(0)`.
 - `wn_node_set_image` sobre un nodo `video` devuelve `WN_ERR_UNSUPPORTED`;
   `wn_node_media_*` sobre un nodo que no es `video`, ídem.
 - `wn_node_clone` copia la sección `media` (intención), **no** la sesión: el
@@ -1307,15 +1340,16 @@ vtable o un backend falso, y el backend real queda como smoke.
 
 | Test | Qué fija |
 |---|---|
-| `tests/media/null_test.c` | `media_null` siempre presente; `open` devuelve `UNSUPPORTED_CONTAINER`; el nodo pinta póster/fondo; no hay fugas ni sesiones huérfanas |
-| `tests/media/synthetic_test.c` | proveedor `media_test` con frames sintéticos deterministas (barras + contador de frame): primer frame, `pts` monótono, `OPENED`, `FIRST_FRAME`, `ENDED`, `loop` |
-| `tests/media/clock_test.c` | sink de audio falso con reloj controlable: presenta el frame con `pts <= clock + lead`, descarta los tardíos, congela en pausa, re-ancla en seek, sin salto en underrun |
-| `tests/media/seek_test.c` | seek hacia delante/atrás, seek al mismo `pts`, seek durante `BUFFERING`, frames de `serial` viejo descartados |
-| `tests/media/plugin_abi_test.c` | handshake: `struct_size` corto, `abi_version` distinto, `caps`/`open`/`destroy` nulos, `name` vacío; `wn_last_error()` legible |
-| `tests/media/drop_test.c` | 23.976/24/25/29.97/60 con reloj falso: cuenta de frames presentados y descartados exacta |
-| `tests/media/source_test.c` | `set_source` reinicia a `IDLE`, sustituye ruta, `set_image` sobre vídeo falla, `media_*` sobre imagen falla |
-| `tests/core/media_paint_test.c` | layout `object-fit` + `300×150` default + póster; ningún batch con `texture == 0` |
-| `tests/media/upload_test.c` | offscreen D3D11 y wgpu: subir NV12/P010/RGBA sintéticos, readback PNG y comparar contra el RGB esperado con tolerancia (±1 por redondeo) |
+| `tests/media/null_test.c` (cubierto por `media_abi_test.c`) | `media_null` siempre presente; `open` devuelve `UNSUPPORTED_CONTAINER`; el nodo pinta póster/fondo; no hay fugas ni sesiones huérfanas |
+| `tests/media/media_test_provider_test.c` | proveedor `media_test`: PTS monótono, duración, determinismo pixel a pixel, seek, release/lease |
+| `tests/media/media_session_test.c` | máquina de estados completa, preload/autoplay, idempotencia, seek/clamp, loop, ENDED→restart, nodo sin fuente, evento ERROR, sin fugas de buffer |
+| `tests/media/media_frame_test.c` + `verify_media_frames.py` | póster→primer frame→seek→pausa en PNG offscreen; batches de vídeo con textura real; `object-fit` fill/contain/cover |
+| `tests/media/media_abi_test.c` | handshake, orden de la cadena, eventos y símbolos públicos (v8) |
+| `tests/media/media_blob_test.c` | blob v7: `src = 0` aceptado; src vacío/con esquema, flags, reserved, preload y asociación rechazados |
+| `tests/media/media_layout_test.c` | layout `object-fit` + `300×150` default + póster; ningún batch con `texture == 0` |
+| `tests/media/clock_test.c` | **pendiente (E5)**: sink de audio falso y reloj de audio |
+| `tests/media/drop_test.c` | **pendiente (E5)**: 23.976/24/25/29.97/60 con reloj falso |
+| `tests/media/upload_test.c` | **pendiente (E5)**: NV12/P010/RGBA con readback |
 
 ### 8.2 Matriz de fixtures (smoke con códecs reales)
 
@@ -1380,18 +1414,22 @@ actualizado.
 
 ### Fase B — proveedor software + sinks + sincronía básica
 
-1. `media_test` (sintético) y `demux_mkv` + decoders del baseline libre.
-2. `video_sink` software: ring de texturas, upload NV12/P010/RGBA, shaders
-   YUV, `object-fit` y rotación.
-3. `audio_sink` WASAPI shared + resampler lineal.
-4. `media_session` completo: hilos, colas, máquina de estados, reloj,
-   buffering, frame drop, `seek`, `loop`.
+1. **[E4] `media_test`** (sintético, solo tests). `demux_mkv` + decoders del
+   baseline libre quedan **pendientes (E5)**.
+2. **[E4] `video_sink` software**: upload **RGBA8** a textura D3D11, un id
+   opaco por frame, `object-fit` y cuadro de vídeo en la display list. NV12/P010,
+   shaders YUV, rotación de contenido e import nativo quedan pendientes.
+3. `audio_sink` WASAPI shared + resampler lineal: **pendiente (E5)**.
+4. **[E4] `media_session`**: máquina de estados, colas de 3 frames, reloj
+   virtual inyectable, buffering, frame drop, `seek`, `loop`, eventos y
+   auto-open por `preload`/`autoplay`. **Inline** y sin locks; el hilo por
+   sesión es E4b.
 5. Overlay de controles del host en el demo (`examples/media.c`), no en el
-   core.
+   core: pendiente.
 
-Gate B: 60 s sin deriva A/V > 20 ms con `media_test`; CPU de frame extra
-< 2 ms para 1080p NV12; `ctest` pasa sin proveedor real; los tests de §8.1 en
-verde en D3D11 y wgpu.
+Gate B: los tests de §8.1 en verde en D3D11 (el sink wgpu es E4b); `ctest`
+pasa sin proveedor real; el frame sintético se ve en un PNG offscreen y no hay
+fuga de `wn_frame_lease`. La deriva A/V de 60 s es E5 (no hay audio todavía).
 
 ### Fase C — D3D11VA zero-copy
 
@@ -1423,19 +1461,21 @@ src/runtime/
   wn_media.h                   interno: registry, session driver, sinks
   media/
     media_registry.c           cadena, prioridades, allowlist, carga de plugin
-    media_session.c            máquina de estados, colas, scheduling
-    media_clock.c              reloj virtual, ancla, latencia, deriva
+    media_core.c               control público + driver de sesión inline (E4)
+    media_session.c            (E4b) hilo por sesión, colas, scheduling
+    media_clock.c              (E4b) reloj virtual inyectable ya vive en media_core
     media_null.c               proveedor nulo (siempre)
-    media_test.c               proveedor sintético (solo tests)
-    video_sink.c               despacho al sink, ids de textura, ring
-    audio_sink.c               despacho al sink, selección de backend
-    audio_wasapi.c             WASAPI shared, IMMNotificationClient
+    media_test.c               proveedor sintético (solo tests, nunca en CMake)
+    video_sink.c               (E5) despacho al sink, ids de textura, ring
+    audio_sink.c               (E5) despacho al sink, selección de backend
+    audio_wasapi.c             (E5) WASAPI shared, IMMNotificationClient
     audio_miniaudio.c          opcional
     media_subtitles.c          cues, SRT/VTT, seek/sync
     media_subass.c             libass (opcional)
     demux_mkv.c                EBML Matroska/WebM (baseline)
     dec_vpx.c, dec_dav1d.c     baseline libre (opcional)
-  renderer_d3d11_video.c       upload NV12/P010, shaders YUV, import D3D11VA
+  renderer_d3d11.c             E4: sink RGBA + upload (en el mismo TU)
+  renderer_d3d11_video.c       (E5) NV12/P010, shaders YUV, import D3D11VA
   renderer_wgpu_video.c        fase D
   plugin/
     ffmpeg/wn_media_ffmpeg.c   objetivo DLL separado (LGPL)
@@ -1448,7 +1488,7 @@ CMake:
 ```
 # El elemento, el registro y media_null no se apagan: son contrato.
 option(WN_MEDIA_BASELINE "VP8/VP9/AV1/Opus + MKV" OFF)
-option(WN_MEDIA_THREADS "media thread per session" ON)
+option(WN_MEDIA_THREADS "media thread per session" OFF) # E4: inline only
 option(WN_MEDIA_LIBASS "ASS/SSA subtitles" OFF)
 option(WN_MEDIA_FFMPEG "build the LGPL plugin" OFF)
 target wn_media_ffmpeg SHARED ...   # nunca enlazado a webnative
@@ -1484,9 +1524,10 @@ resuelve regenerando, nunca a mano.
 - `WN_BLOB_VERSION 7`, `kind = 6` (`video`) y la sección opcional 7
   (`WnBlobMediaRecord`, 16 bytes) con validación completa del loader. Un solo
   lector; v6 se rechaza con "bad magic or version".
-- Frontend: `<video>` con `src`, `poster`, `width`, `height`, `controls`,
-  `autoplay`, `muted`, `loop` y `preload`; `src`/`poster` se resuelven como los
-  de `img`; el nodo nunca hornea `image_src`/`image_width`/`image_height`.
+- Frontend: `<video>` con `src` (opcional desde E4: sin él emite `src = 0`),
+  `poster`, `width`, `height`, `controls`, `autoplay`, `muted`, `loop` y
+  `preload`; `src`/`poster` se resuelven como los de `img`; el nodo nunca
+  hornea `image_src`/`image_width`/`image_height`.
 - Layout/paint: caja reemplazada, `object-fit`, tamaño por defecto **300 × 150**,
   póster por la ruta de imagen existente y placeholder neutro
   (`#232A36`) cuando no hay póster. Hit-test y accesibilidad se comportan como
@@ -1499,21 +1540,58 @@ resuelve regenerando, nunca a mano.
 - Tests: `src/runtime/tests/media/` (blob, layout/paint, media_null/ABI y
   píxeles) y el suite `media` de `wn-cli`.
 
-**Diferido a E3b+ (stubs honestos, no simulaciones)**
+**Diferido en E3a y cerrado por E4**
 
-- `open` no crea sesión ni llama `probe`/`open` reales: con solo `media_null`
-  termina en `WN_MEDIA_EVENT_ERROR`/`WN_MEDIA_UNSUPPORTED_CONTAINER`; con un
-  proveedor registrado termina en `WN_MEDIA_INTERNAL` porque el driver de
-  sesión aún no existe.
-- Sin decodificador, sin `wn_video_frame`, sin textura de vídeo, sin sink de
-  audio, sin reloj A/V, sin buffering, sin seek real, sin `loop`/`autoplay` en
-  reproducción, sin `get_state` distinto de IDLE/ERROR.
-- Subtítulos (`select_subtitle`/`set_subtitle_delay`) devuelven
-  `WN_ERR_UNSUPPORTED`; no hay `media_test`, `media_ffmpeg`, `media_mf`,
-  `demux_mkv`, sinks ni plugins reales.
-- El tamaño intrínseco del póster no se sondea todavía: `object-fit` usa el
-  aspecto por defecto 300 × 150. `preload` se acepta y se guarda, pero no abre
-  sesión al cargar.
+- `open` ya crea sesión, llama `probe`/`open` reales y recorre la cadena
+  determinista; con solo `media_null` termina en
+  `WN_MEDIA_EVENT_ERROR`/`WN_MEDIA_UNSUPPORTED_CONTAINER`, nunca en
+  `WN_MEDIA_INTERNAL`.
+- Hay `wn_video_frame`, textura de vídeo, estado `OPENING…ENDED/ERROR`, seek,
+  `loop`, `autoplay`, `preload`, `buffering` y `frame drop`.
+- Sigue sin decodificador real, sink de audio, reloj A/V con audio,
+  subtítulos, `media_ffmpeg`, `media_mf`, `demux_mkv` ni plugins. El
+  tamaño intrínseco del **póster** sigue siendo 300 × 150; el del frame
+  decodificado sí se publica y relayouta.
+
+### 9.8 Estado de implementación (E4, primera mitad de la Fase B)
+
+**Implementado**
+
+- **Driver de sesión** en `src/runtime/media/media_core.c`: una sesión por nodo
+  `video` vivo, máquina de estados completa, reloj virtual anclado,
+  PROGRESS a 4 Hz, eventos `OPENED/FIRST_FRAME/STATE/PROGRESS/ENDED/ERROR`,
+  `loop` en EOF, `play()` desde ENDED a 0, seek con flush+serial+filtro de
+  frames viejos y `close` a IDLE. Todo **inline** desde `tick` con reloj
+  inyectable (`wn_core_set_media_clock` / `wn_view_set_media_clock`).
+- **Ciclo de vida**: `wn_view_render` bombea tick+present antes de construir la
+  display list; `wn_view_tick` bombea el estado. Documento reemplazado y core
+  destruido cierran cada sesión y liberan texturas antes de destruir el
+  renderer.
+- **`media_test`**: 10 s, 30 fps, 320 × 180 RGBA8, barras + índice de frame en
+  bits + marcador móvil, PTS monótono, seek al frame ≤ target y *lease* por
+  `malloc`/`free`. Registrado **solo** por los tests; el CMake de producto no
+  lo compila.
+- **Sink RGBA D3D11** (E4): `wn_video_sink_ops` en `wn_renderer.h`,
+  implementación en `renderer_d3d11.c`, id opaco por frame,
+  `release_texture`, `wn_video_batch` en la display list y dibujo del cuadro
+  con `object-fit` `fill/cover/contain`. wgpu devuelve `video_sink = NULL`:
+  el nodo sigue pintando póster/placeholder (declarado E4b, sin fingir).
+- **Nodo sin fuente**: `src = 0` aceptado en el blob v7, con el registro
+  `media` obligatorio; `open` devuelve `WN_ERR_STATE` y emite ERROR tipado;
+  `set_source` recupera y habilita `open`.
+- Póster → primer frame → seek → pausa verificados en PNGs offscreen
+  (`frame_poster/first/seek/paused.png`).
+
+**Pendiente para E5**
+
+- Demuxer/decoders reales (`demux_mkv`, libvpx/dav1d, FFmpeg LGPL, MF).
+- NV12/P010 y shaders YUV; rotación de contenido; superficie HW.
+- Sink de audio (WASAPI), resampler, reloj maestro de audio, underrun y
+  deriva A/V.
+- Subtítulos (SRT/VTT, libass, PGS) y UI de reproducción del host.
+- wgpu: upload RGBA (E4b) o import nativo (fase D).
+- Hilo de media por sesión (`WN_MEDIA_THREADS`), ring SPSC real y
+  `thread_stress`.
 
 ## 10. Preguntas abiertas (decisión del owner)
 

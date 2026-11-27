@@ -878,6 +878,13 @@ wn_core *wn_core_create(const wn_document *document)
                 (c->nodes[i].media_flags & WN_MEDIA_FLAG_MUTED) != 0u ? 1u : 0u;
             c->media[i].loop =
                 (c->nodes[i].media_flags & WN_MEDIA_FLAG_LOOP) != 0u ? 1u : 0u;
+            /* preload>=metadata or autoplay opens on the first media tick;
+             * a source-less host-bound node stays IDLE. */
+            c->media[i].auto_open =
+                (c->nodes[i].media_preload >= WN_MEDIA_PRELOAD_METADATA ||
+                 (c->nodes[i].media_flags & WN_MEDIA_FLAG_AUTOPLAY) != 0u)
+                    ? 1u
+                    : 0u;
         } else {
             c->media[i].volume = 1.0f;
         }
@@ -940,6 +947,9 @@ static void free_node_payload(wn_core *c, int node)
         memset(&c->style[node], 0, sizeof(c->style[node]));
     }
     if (c->media != NULL) {
+        /* Drop the provider session, decoded frames and texture before the
+         * source string is released. */
+        wn_core_media_close(c, node);
         wn_free_(c->media[node].source_override);
         memset(&c->media[node], 0, sizeof(c->media[node]));
         c->media[node].state = WN_MEDIA_STATE_IDLE;
@@ -1886,6 +1896,9 @@ void wn_core_destroy(wn_core *core)
     wn_core_ime_abort(core);
     core->input_focus = -1;
     document = core->doc;
+    /* Close every media session while the renderer sink is still alive; the
+     * view clears the sink before destroying the backend. */
+    wn_core_media_shutdown(core);
     if (core->nodes != NULL) {
         for (i = 0; i < core->node_count; ++i) {
             if (core->alive != NULL && core->alive[i]) {
@@ -1938,6 +1951,7 @@ void wn_core_destroy(wn_core *core)
     wn_free_(core->glyph_batches);
     wn_free_(core->image_vertices);
     wn_free_(core->image_batches);
+    wn_free_(core->video_batches);
     wn_media_registry_destroy(core->media_registry);
     wn_free_(core);
     wn_document_release((wn_document *)document);

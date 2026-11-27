@@ -1,14 +1,11 @@
 /*
- * wn_media.h - internal media host: provider registry and media_null.
+ * wn_media.h - internal media host: provider registry, sinks and media_null.
  *
  * Not part of the public contract. The provider ABI itself lives in
- * include/webnative_media.h; this header only declares the engine-side
- * registry, its deterministic ordering and the always-present null provider.
- *
- * Phase A of docs/media-v1.md has no session driver and no decoder: the
- * registry exists so builds, tests and hosts can prove the optional-provider
- * seam and the "no codec" path without depending on FFmpeg or a platform
- * decoder.
+ * include/webnative_media.h; this header declares the engine-side registry,
+ * its deterministic ordering, the always-present null provider and the
+ * internal video sink vtable. The session driver lives in media/media_core.c
+ * and runs inline on the UI thread in E4.
  */
 #ifndef WN_MEDIA_INTERNAL_H
 #define WN_MEDIA_INTERNAL_H
@@ -25,6 +22,34 @@ extern "C" {
 #define WN_MEDIA_PRIORITY_PLUGIN    500
 #define WN_MEDIA_PRIORITY_COMPILED  100
 #define WN_MEDIA_PRIORITY_NULL        0
+
+/* Sink ABI (docs/media-v1.md §3.3). Sinks are internal: the host never
+ * implements them and no GPU type crosses the public ABI. */
+#define WN_MEDIA_SINK_ABI 1u
+
+typedef struct wn_media_upload_stats {
+    uint32_t struct_size;
+    uint32_t uploads;
+    uint32_t imports;
+    uint32_t dropped;
+    double   last_upload_ms;
+} wn_media_upload_stats;
+
+typedef struct wn_video_sink_ops {
+    uint32_t struct_size;
+    uint32_t abi_version;              /* WN_MEDIA_SINK_ABI */
+    const char *name;
+    uint32_t (*formats)(void *context);        /* mask of wn_pixel_format */
+    uint32_t (*native_kind)(void *context);    /* WN_NATIVE_*; 0 = CPU only */
+    int (*device)(void *context, void **out_device);
+    wn_media_status (*upload)(void *context, const wn_video_frame *frame,
+                              uint64_t *out_texture);
+    wn_media_status (*import_native)(void *context, void *native_texture,
+                                     uint32_t slice, const wn_video_frame *desc,
+                                     uint64_t *out_texture);
+    void (*release_texture)(void *context, uint64_t texture);
+    void (*stats)(void *context, wn_media_upload_stats *out);
+} wn_video_sink_ops;
 
 typedef struct wn_media_registry wn_media_registry;
 
