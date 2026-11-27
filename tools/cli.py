@@ -27,6 +27,7 @@ def _stage_master_outputs(config: str, no_wgpu: bool = False) -> None:
         exe_name("runtime_r2"),
         exe_name("standalone"),
         exe_name("embedded"),
+        exe_name("wnui-dump"),
         "wgpu_native.dll" if sys.platform == "win32" else "libwgpu_native.so",
         "webnative.dll" if sys.platform == "win32" else "libwebnative.so",
         "webnative.lib",
@@ -38,11 +39,13 @@ def _stage_master_outputs(config: str, no_wgpu: bool = False) -> None:
         if src_file.is_file():
             shutil.copy2(src_file, out_dir / name)
 
-    public_header = paths.root / "include" / "webnative.h"
-    if public_header.is_file():
+    public_headers = paths.root / "include"
+    headers = sorted(public_headers.glob("*.h")) if public_headers.is_dir() else []
+    if headers:
         inc_out = out_dir / "include"
         inc_out.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(public_header, inc_out / "webnative.h")
+        for header in headers:
+            shutil.copy2(header, inc_out / header.name)
 
 
 def cmd_root_build(args: argparse.Namespace) -> int:
