@@ -25,6 +25,22 @@
 What is missing is exactly the real decode/audio/subtitle/UI stack, not the
 element or the session contract.
 
+## 1.1 Backend decision (2026-11-27)
+
+The supported target is **Windows + Direct3D 11** for now:
+
+- Renderer: **D3D11/DXGI only**. wgpu is parked; no Vulkan/macOS/Linux claim
+  and no cross-backend parity gate in the MVP.
+- Decoder: **Media Foundation** first, using D3D11VA where available.
+- Audio: **WASAPI** shared mode.
+- FFmpeg remains an optional software provider, not a hard dependency; it does
+  not change the renderer choice.
+- E8 is reduced to optional HDR/tonemap on D3D11. The wgpu lane returns only if
+  cross-platform becomes a product requirement.
+
+Consequences: one renderer path to test, no wgpu goldens, and a smaller surface
+for driver bugs. The trade-off is Windows-only playback.
+
 ## 2. Wave sequence
 
 Estimates are **agent wall-clock** with two implementation agents in parallel
@@ -40,10 +56,10 @@ they are not promises.
 | **E6** | Optional FFmpeg LGPL provider, allowlist load, packaging | E5a/E5c | 3–6 d | MKV/HEVC/AV1 fixture matrix passes with the plugin, and the app still starts without it |
 | **E7** | SRT/VTT parsing, timing, overlay, seek correctness | E5b | 0.5–1 d | Subtitles follow seek within one frame |
 | **E7b** | ASS/SSA via libass, PGS bitmap overlay | E7 | 2–4 d | Styled and bitmap subtitles render correctly |
-| **E8** | wgpu RGBA upload, then native import; HDR/tonemap | E5c | 2–5 d | D3D11/wgpu color fixture parity; HDR reference |
+| **E8** | optional HDR/tonemap on D3D11 (wgpu parked) | E5c | 1–2 d | HDR reference frame, or explicitly deferred |
 
-**MVP:** E5a + A11 + E5b → **4–7 calendar days** for a real player with audio.
-**Full:** E5a–E8 → **3–5 weeks**.
+**MVP:** E5a + A11 + E5b → **4–6 calendar days** for a real player with audio.
+**Full (D3D11, no wgpu):** E5a–E8 → **3–4 weeks**; add E6 if FFmpeg is wanted.
 
 Parallelism is limited by shared hotspots: one agent owns `media_core.c` and
 the renderer at a time; the app can work in parallel because it is another
@@ -112,7 +128,7 @@ repository.
 - `object-fit`, rotation metadata, 10-bit, color range.
 - D3D11VA `device()` + `import_native`; automatic software fallback with an
   `imports` counter.
-- wgpu stays software until E8; no fake hardware path.
+- wgpu is out of scope for the current target; no fake hardware path.
 
 ## 7. E6 — optional FFmpeg provider
 
@@ -131,11 +147,13 @@ repository.
 - ASS/SSA via libass (optional target); PGS bitmap overlay.
 - Subtitle menus in the app read the existing `subtitle_tracks` data.
 
-## 9. E8 — wgpu and HDR
+## 9. E8 — HDR on D3D11 (wgpu parked)
 
-- RGBA upload on wgpu first, then native import if the backend allows it.
-- HDR swapchain/tonemap, 10-bit, reference frames.
-- No parity claims without a color fixture; document gaps.
+- wgpu is not part of the current target; the stub remains and no parity claim
+  is made.
+- Optional HDR swapchain/tonemap and 10-bit reference frames on D3D11.
+- If cross-platform becomes a requirement, reopen the wgpu lane with its own
+  gates; the session/provider ABI does not need to change.
 
 ## 10. Risks and decisions
 
@@ -145,7 +163,8 @@ repository.
 | MKV support varies by Windows build | Probe with MF; fall back to FFmpeg |
 | FFmpeg licensing and DLL size | Separate optional provider, notices, allowlist |
 | A/V drift | Audio master clock, measured gate |
-| GPU/driver variance | Fixed backend for goldens, tolerance, layout/text asserts |
+| GPU/driver variance | D3D11 only for now; fixed backend for goldens, tolerance, layout/text asserts |
+| Windows-only renderer | Explicit product decision; wgpu can return later behind the same sink contract |
 | Agent overconfidence | Evidence per wave: PNG, log, tests, review |
 | App/engine contract drift | ABI 8 frozen during E5; additive only with review |
 
