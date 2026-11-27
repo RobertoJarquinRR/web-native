@@ -69,6 +69,7 @@ typedef struct {
     int grid_mode;
     float grid_column_px;
     float grid_auto_rows;
+    int action;
 } NodeSpec;
 
 static uint32_t align_up8(uint32_t value)
@@ -136,6 +137,7 @@ static unsigned char *build_blob(const NodeSpec *spec, uint32_t count,
         nodes[i].grid_mode = spec[i].grid_mode;
         nodes[i].grid_column_px = spec[i].grid_column_px;
         nodes[i].grid_auto_rows = spec[i].grid_auto_rows;
+        nodes[i].action = spec[i].action;
         nodes[i].font_size = 16.0f;
         nodes[i].flex_shrink = 1.0f;
         nodes[i].flex_basis = -1.0f;
@@ -883,8 +885,50 @@ static void run_loader(void)
     free(data);
 }
 
+/* An overlay panel is painted above an actionable card but has no action of
+ * its own. A click on the panel background must be swallowed by the overlay,
+ * not fall through to the card underneath; a click on an actionable child of
+ * the overlay returns that child, and a disabled child still swallows it. */
+static void run_overlay_swallow(void)
+{
+    NodeSpec spec[4];
+    wn_document *document = NULL;
+    wn_core *core;
+
+    spec_init(&spec[0], -1, 400.0f, 200.0f);
+    spec_init(&spec[1], 0, 200.0f, 100.0f);
+    spec[1].action = ACTION_SELECT;           /* card under the overlay */
+    spec_init(&spec[2], 0, 200.0f, 200.0f);   /* panel, no action */
+    set_absolute(&spec[2], 0.0f, 0.0f, 200.0f, 200.0f);
+    spec_init(&spec[3], 2, 50.0f, 50.0f);     /* menu item on the panel */
+    spec[3].action = ACTION_SELECT;
+    set_absolute(&spec[3], 10.0f, 10.0f, 50.0f, 50.0f);
+
+    core = build_core(spec, 4u, &document);
+    if (!check("overlay: core built", core != NULL,
+               core != NULL ? NULL : wn_last_error())) {
+        return;
+    }
+    check("overlay: the panel is the topmost painted node",
+          wn_core_node_at(core, 150.0f, 150.0f) == 2, "node_at(150,150)");
+    check("overlay: the panel background swallows the click",
+          wn_core_hit_test(core, 150.0f, 150.0f) == -1,
+          "the card underneath must not win");
+    check("overlay: the menu item is the topmost node",
+          wn_core_node_at(core, 20.0f, 20.0f) == 3, "node_at(20,20)");
+    check("overlay: the menu item wins its own hit",
+          wn_core_hit_test(core, 20.0f, 20.0f) == 3, "hit(20,20)");
+    wn_core_set_state(core, 3, WN_STATE_DISABLED, 1);
+    check("overlay: a disabled menu item swallows the click",
+          wn_core_hit_test(core, 20.0f, 20.0f) == -1,
+          "no fall-through to the card");
+    wn_core_destroy(core);
+    wn_document_destroy(document);
+}
+
 int main(void)
 {
+    run_overlay_swallow();
     run_siblings();
     run_auto_zero();
     run_negative();

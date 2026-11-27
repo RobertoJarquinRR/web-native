@@ -49,20 +49,22 @@ int wn_core_node_at(const wn_core *core, float px, float py)
 
 int wn_core_hit_test(const wn_core *core, float px, float py)
 {
-    int i;
+    int node;
     if (core == NULL) {
         return -1;
     }
-    ensure_layout_for_hit((wn_core *)core);
-    for (i = core->paint_item_count - 1; i >= 0; --i) {
-        int node = core->paint_items[i].node;
-        if ((core->nodes[node].action != ACTION_NONE ||
-             core->nodes[node].kind == R2_NODE_INPUT) &&
-            !wn_core_node_disabled(core, node) &&
-            point_in_rect(px, py, &core->rects[node]) &&
-            point_in_rect(px, py, &core->paint_items[i].clip)) {
-            return node;
+    /* Resolve the topmost painted node first, then bubble to its nearest
+     * actionable ancestor. Skipping non-action nodes while scanning the paint
+     * list would let a click fall through an overlay panel (which usually has
+     * no action of its own) to an actionable card painted underneath. A
+     * disabled hit still swallows the click instead of falling through. */
+    node = wn_core_node_at(core, px, py);
+    while (node >= 0) {
+        if (core->nodes[node].action != ACTION_NONE ||
+            core->nodes[node].kind == R2_NODE_INPUT) {
+            return wn_core_node_disabled(core, node) ? -1 : node;
         }
+        node = core->parent[node];
     }
     return -1;
 }
