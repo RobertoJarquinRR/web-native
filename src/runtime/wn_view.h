@@ -41,7 +41,8 @@ wn_status wn_view_readback(wn_view *view, const char *png_path);
 int wn_view_replace_document(wn_view *view, wn_document *document);
 
 /* Tooling/test surface: states and wheel on the view's own core.
- * `state` is one or more WN_STATE_* bits. */
+ * `state` is one or more host-settable WN_STATE_* bits; the derived
+ * WN_STATE_FOCUS_WITHIN is rejected with WN_ERR_INVALID_ARGUMENT. */
 wn_status wn_view_set_state(wn_view *view, int node, int state, int enabled);
 /* Applies the wheel and returns the scroll container node, or -1. */
 int wn_view_wheel_node(wn_view *view, float x, float y, float delta_x, float delta_y);

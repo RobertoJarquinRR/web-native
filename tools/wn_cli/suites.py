@@ -81,7 +81,7 @@ PINNED_BLOBS = {
     "state": "ccdeb8aead50cbcefab324b71db07e5fe71b88a638002b2316d2db1bfaf0067f",
     # Extended state fixture: nth-child, focus-visible/within, state weight,
     # ellipsis (blob v6 additive, d3d11 + wgpu).
-    "state_ext": "ec40e0b365c4d899f756fedccc389b21458c0a12e4c4825aa5572f7a412eaf63",
+    "state_ext": "22621a23ead7eb7f95372698005217fc4bb58f3603eab459cc41a3eb6890a8ba",
 }
 
 
@@ -631,15 +631,18 @@ def run_css() -> int:
         for node_id, mask in force:
             arguments += ["--force-state", f"{node_id}:{mask}"]
         _run(card_exe, arguments, page, environment)
-        # 16 checks: capture + wnui/6, the four new dump fields (visible,
-        # within, weight, text-flags), JSON weight/text_flags and nine pixel
-        # probes (nth row, focus pair, within, weight, ellipsis).
+        # 17 checks: capture + wnui/6, the four new dump fields (visible,
+        # within, weight, text-flags), JSON weight/text_flags, nine pixel probes
+        # (nth row, focus pair, within, weight, ellipsis) and the real
+        # single-line truncation (one-line run + glyph_vertices below the full
+        # unbreakable token).
         _expect_reported_checks(
             _python(suite / "verify_state_ext.py",
                     ["--png", str(png), "--report", str(report),
                      "--blob", str(ext_blob), "--dump", str(dump_exe),
+                     "--runtime", str(card_exe),
                      "--backend", ext_backend], cwd=suite),
-            f"state_ext verify ({ext_backend})", 16)
+            f"state_ext verify ({ext_backend})", 17)
     if wgpu_available():
         log_step("state_ext: compare d3d11 and wgpu")
         compare = out / "state_ext_compare.json"
@@ -830,11 +833,15 @@ def run_fidelity() -> int:
     )
     states_text = _run(states_exe, [], out)
     _expect(states_text, ["states_test: PASS"], "state styles test")
-    # 53 checks: the v6 colors/priority/selected/data-sugar/loader set plus the
+    # 70 checks: the v6 colors/priority/selected/data-sugar/loader set, the
     # disabled-subtree cases (bits cleared across the subtree, input blurred,
     # char/key/paste rejected even with a leaked focus, interactive set_state
-    # refused while disabled) and the initial-disabled seed.
-    _expect_checks(states_text, "state styles test", 53)
+    # refused while disabled), the initial-disabled seed, plus the v7 focus
+    # matrix (visible implies focused, clearing rules, multiple focused nodes,
+    # remove/reinsert re-derives focus-within, disabled refuses visible), the
+    # fixed focus-family color priority and the own focus-within weight that
+    # must request relayout.
+    _expect_checks(states_text, "state styles test", 70)
 
     log_step("fidelity: state font-weight + ellipsis (fake weight backend)")
     weight_state_exe = out / "state_weight_test.exe"
@@ -865,7 +872,10 @@ def run_fidelity() -> int:
     )
     extras_text = _run(extras_exe, [], out)
     _expect(extras_text, ["text_extras_test: PASS"], "text extras loader test")
-    _expect_checks(extras_text, "text_extras_test", 5)
+    # 8 checks: valid load, unknown/zero flags, node range, non-zero reserved
+    # bytes (two positions), a section size that is not a whole record, and the
+    # strictly increasing node order.
+    _expect_checks(extras_text, "text_extras_test", 8)
 
     log_step("fidelity: paint item list (identity, transform, opacity, layers)")
     paint_exe = out / "paint_list_test.exe"
@@ -1141,6 +1151,10 @@ def run_input() -> int:
     _expect(abi_text, [
         "ABI 7",
         "input: PASS",
+        "set_state(focused|visible) -> WN_OK",
+        "state(focused|visible)=0x28 (expected 0x28)",
+        "set_state(focus-within) -> WN_ERR_INVALID_ARGUMENT",
+        "pointer focus focused=1 visible=0",
         "set_value(abc) -> WN_OK",
         "set_value(Omega) -> WN_OK",
         "set_value(13 chars) -> WN_ERR_INVALID_ARGUMENT",

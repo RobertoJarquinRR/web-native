@@ -406,8 +406,11 @@ static void mark_state_layout(wn_core *c, int node, int state)
     if (state == WN_STATE_DISABLED) {
         needs = subtree_any_weight(c, node) || ancestor_within_weight(c, node);
     } else if (state == WN_STATE_FOCUSED || state == WN_STATE_FOCUS_VISIBLE) {
+        /* A focused node also carries the derived FOCUS_WITHIN bit, so its own
+         * :focus-within weight can change even though no ancestor is focused. */
         needs = owner_or_text_weight(c, node, R2_STATE_STYLE_FOCUS) ||
                 owner_or_text_weight(c, node, R2_STATE_STYLE_FOCUS_VISIBLE) ||
+                owner_or_text_weight(c, node, R2_STATE_STYLE_FOCUS_WITHIN) ||
                 ancestor_within_weight(c, node);
     } else if (state == WN_STATE_FOCUS_WITHIN) {
         needs = owner_or_text_weight(c, node, R2_STATE_STYLE_FOCUS_WITHIN);

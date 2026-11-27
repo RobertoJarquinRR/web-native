@@ -2,7 +2,8 @@
  * text_extras_test.c - blob v6 optional text_extras section.
  *
  * Validates the additive ellipsis section without HTML/CSS: valid load,
- * reserved/unknown flag rejection, node range and strictly increasing order.
+ * unknown flag and non-zero reserved rejection, node range, strictly
+ * increasing order and a section size that is not a whole record.
  *
  *   text_extras_test.exe
  */
@@ -115,11 +116,9 @@ static unsigned char *build_extras_blob(const WnBlobTextExtras *extras,
     return data;
 }
 
-static int load_extras(const WnBlobTextExtras *extras, uint32_t count,
-                       unsigned int *flags_out)
+static int load_extras_bytes(unsigned char *data, size_t size,
+                             unsigned int *flags_out)
 {
-    size_t size = 0;
-    unsigned char *data = build_extras_blob(extras, count, &size);
     wn_document *document;
     if (data == NULL) {
         return -1;
@@ -134,6 +133,38 @@ static int load_extras(const WnBlobTextExtras *extras, uint32_t count,
     }
     wn_document_destroy(document);
     return 1;
+}
+
+static int load_extras(const WnBlobTextExtras *extras, uint32_t count,
+                       unsigned int *flags_out)
+{
+    size_t size = 0;
+    unsigned char *data = build_extras_blob(extras, count, &size);
+    return load_extras_bytes(data, size, flags_out);
+}
+
+/* Declare a section size that is not a whole number of records. The loader
+ * must reject it before reading a partial record. */
+static int load_extras_bad_section_size(const WnBlobTextExtras *extras,
+                                        uint32_t count)
+{
+    size_t size = 0;
+    unsigned char *data = build_extras_blob(extras, count, &size);
+    WnBlobHeader *header;
+    WnBlobSection *sections;
+    uint32_t i;
+    if (data == NULL) {
+        return -1;
+    }
+    header = (WnBlobHeader *)data;
+    sections = (WnBlobSection *)(data + WN_BLOB_HEADER_SIZE);
+    for (i = 0; i < header->section_count; ++i) {
+        if (sections[i].id == WN_BLOB_SECTION_TEXT_EXTRAS) {
+            sections[i].size -= 1u;
+            break;
+        }
+    }
+    return load_extras_bytes(data, size, NULL);
 }
 
 int main(void)
@@ -159,6 +190,19 @@ int main(void)
     record.node = 5;
     check("text_extras node range is validated",
           load_extras(&record, 1, NULL) == 0, "node 5 is out of range");
+
+    record.node = 1;
+    record.reserved[0] = 1u;
+    check("text_extras reserved bytes must stay zero",
+          load_extras(&record, 1, NULL) == 0, "reserved[0] = 1 is rejected");
+    record.reserved[0] = 0u;
+    record.reserved[2] = 0x80u;
+    check("text_extras every reserved byte is validated",
+          load_extras(&record, 1, NULL) == 0, "reserved[2] = 0x80 is rejected");
+    record.reserved[2] = 0u;
+    check("text_extras section size must be a whole record",
+          load_extras_bad_section_size(&record, 1) == 0,
+          "a 7-byte section is not one 8-byte record");
 
     memset(pair, 0, sizeof(pair));
     pair[0].node = 1;

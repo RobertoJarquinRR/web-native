@@ -5,19 +5,30 @@ Checks, on the exact offscreen capture:
   - `:focus` vs `:focus-visible` (keyboard bit 0x20);
   - derived `:focus-within` on an ancestor bit 0x40;
   - state font-weight in the dump;
-  - `text-overflow: ellipsis` in the optional text_extras section (dump).
+  - `text-overflow: ellipsis` in the optional text_extras section (dump), and a
+    real single-line truncation: the text run is one line high and the display
+    list emits fewer glyphs than the full unbreakable token.
 
-Usage: verify_state_ext.py --png FILE --report JSON --blob FILE --dump EXE --backend NAME
+Usage: verify_state_ext.py --png FILE --report JSON --blob FILE --dump EXE
+                           --runtime EXE --backend NAME
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
+import re
 import subprocess
 import sys
 from pathlib import Path
 
 from PIL import Image
+
+# The fixture's #ellipsis token (58 ASCII letters, no spaces, no ligature pairs)
+# plus "Inside" and "Weight" in the other rows. Without truncation the display
+# list carries every glyph of the token.
+ELLIPSIS_TOKEN = "Llanfairpwllgwyngyllgogerychwyrndrobwllllantysiliogogogoch"
+OTHER_GLYPHS = len("Inside") + len("Weight")
 
 CHECKS: list[dict] = []
 
@@ -43,6 +54,9 @@ def text_run(report: dict, element_id: str) -> dict:
     raise KeyError(f"no text run under #{element_id}")
 
 
+
+
+
 def px(img: Image.Image, x: float, y: float) -> str:
     r, g, b = img.convert("RGB").getpixel((int(round(x)), int(round(y))))
     return f"#{r:02x}{g:02x}{b:02x}"
@@ -54,6 +68,7 @@ def main() -> int:
     parser.add_argument("--report", required=True)
     parser.add_argument("--blob", required=True)
     parser.add_argument("--dump", required=True)
+    parser.add_argument("--runtime", required=True)
     parser.add_argument("--backend", required=True)
     args = parser.parse_args()
 
@@ -85,12 +100,41 @@ def main() -> int:
     ellipsis = text_run(payload, "ellipsis")
     check("dump", "json text_flags", ellipsis.get("text_flags") == ["ellipsis"],
           f"{ellipsis.get('text_flags')!r}")
+    ellipsis_rect = text_run(size, "ellipsis")
     weight = node(payload, "weight")
     hover_styles = [item for item in weight["state_styles"]
                     if item["state"] == "hover"]
     check("dump", "json state weight",
           bool(hover_styles) and hover_styles[0].get("weight") == 700,
           f"{hover_styles!r}")
+
+    # Real truncation, not just the blob flag: the run must be exactly one line
+    # and the display list must drop glyphs of the unbreakable token. Rendering
+    # to a scratch PNG gives us the runtime's glyph_vertices counter.
+    scratch = Path(args.png).with_name(Path(args.png).stem + "_glyphcount.png")
+    environment = dict(os.environ)
+    environment["WN_RENDERER"] = backend
+    rendered = subprocess.run(
+        [args.runtime, "--document", args.blob, "--render", "400", "164",
+         str(scratch)],
+        capture_output=True, text=True, env=environment,
+    )
+    match = re.search(r"glyph_vertices=(\d+)", rendered.stdout)
+    one_line_height = ellipsis_rect.get("h", 999.0) <= 24.0
+    if match is not None:
+        glyph_vertices = int(match.group(1))
+        # Full line = other text + every token letter, six vertices per glyph;
+        # the ellipsis adds one more glyph but still stays below the bound.
+        full_vertices = (OTHER_GLYPHS + len(ELLIPSIS_TOKEN)) * 6
+        truncated = glyph_vertices < full_vertices
+        detail = (f"h={ellipsis_rect.get('h')} "
+                  f"glyph_vertices={glyph_vertices} < full {full_vertices}")
+    else:
+        truncated = False
+        detail = (f"h={ellipsis_rect.get('h')} no glyph_vertices in runtime "
+                  f"output (rc={rendered.returncode})")
+    check("ellipsis", "truncates the single line",
+          one_line_height and truncated, detail)
 
     EXPECTED = {
         "n1": "#00ff00",

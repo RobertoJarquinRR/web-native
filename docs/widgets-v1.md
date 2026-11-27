@@ -24,7 +24,7 @@ formularios web: sin `form`, `action`, validación ni `submit`.
 | Normal | — | Base. |
 | Hover | `:hover` | Solo puntero; no mueve el foco. Estilo CSS compilado (v6). |
 | Press | `:active` | Entre down y up sobre el mismo nodo. El estilo press incluye hover. |
-| Focus | `:focus` | Bit `WN_STATE_FOCUSED` (v7); input focus lo enciende. Anillo/caret del editor. |
+| Focus | `:focus` | Bit `WN_STATE_FOCUSED` (v7); input focus lo enciende. `:focus-visible` (0x20, host) y `:focus-within` (0x40, derivado, sólo lectura) se eligen por campo en ese orden. Anillo/caret del editor. |
 | Disabled | `disabled` + `:disabled` | Bit `WN_STATE_DISABLED` (v7): inerte al puntero y al foco; UIA lo marcará no disponible. |
 | Selected | `data-selected` / `aria-selected` | Color base de la app; los estados CSS componen encima. Lo gobierna el host. |
 | Checked | `checked` / `aria-checked` | Alternancia binaria (checkbox, radio, toggle). |

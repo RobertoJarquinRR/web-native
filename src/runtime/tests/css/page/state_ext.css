@@ -62,7 +62,11 @@ body {
   font-weight: 700;
 }
 
+/* Single-line only: flex column pins the text run to the box width and the
+   unbreakable token cannot wrap. `white-space: nowrap` is not in the subset. */
 .ellipsis {
+  display: flex;
+  flex-direction: column;
   width: 180px;
   height: 24px;
   overflow: hidden;

@@ -161,8 +161,8 @@ pinta. No hay `commit` separado.
 
 | Función | Uso |
 |---|---|
-| `wn_node_set_state(app, node, mask, enabled)` | enciende/apaga `WN_STATE_HOVER/PRESS/SELECTED/FOCUSED/DISABLED/FOCUS_VISIBLE/FOCUS_WITHIN` |
-| `wn_node_get_state(app, node)` | máscara activa; 0 si el handle está muerto |
+| `wn_node_set_state(app, node, mask, enabled)` | enciende/apaga `WN_STATE_HOVER/PRESS/SELECTED/FOCUSED/DISABLED/FOCUS_VISIBLE`; rechaza `FOCUS_WITHIN` (derivado, sólo lectura) |
+| `wn_node_get_state(app, node)` | máscara activa (incluye `FOCUS_WITHIN` derivado); 0 si el handle está muerto |
 
 - `selected` y `focused` son por nodo: el host puede marcar varios nodos.
   Hover y press siguen siendo exclusivos (un cursor).
@@ -171,12 +171,17 @@ pinta. No hay `commit` separado.
   input; el host puede marcar cualquier nodo con `set_state`.
 - **v7 aditivo:** `WN_STATE_FOCUS_VISIBLE` (0x20) distingue foco de
   teclado/programático del foco por puntero. El host marca teclado pasando
-  `FOCUSED | FOCUS_VISIBLE`; un click deja sólo `FOCUSED`. El foco programático
-  de un input (`wn_app_focus_input`) enciende ambos; el click en un input limpia
-  `FOCUS_VISIBLE`. `WN_STATE_FOCUS_WITHIN` (0x40) es **derivado**: el core lo
-  enciende en el nodo enfocado y todos sus ancestros y lo recalcula al cambiar
-  el foco, deshabilitar un subárbol o quitar/reinsertar nodos; el host no
-  necesita fijarlo (se acepta para diagnóstico/fixtures).
+  `FOCUSED | FOCUS_VISIBLE` (get_state devuelve 0x28); un click deja sólo
+  `FOCUSED`. El foco programático de un input (`wn_app_focus_input`) enciende
+  ambos; el click en un input limpia `FOCUS_VISIBLE`.
+  `WN_STATE_FOCUS_WITHIN` (0x40) es **derivado y de sólo lectura para el host**:
+  el core lo enciende en el nodo enfocado y todos sus ancestros y lo recalcula
+  al cambiar el foco, deshabilitar un subárbol o quitar/reinsertar nodos.
+  `wn_node_set_state`/`wn_view_set_state` rechazan una máscara que lo incluya
+  con `WN_ERR_INVALID_ARGUMENT`; los fixtures usan el hook interno
+  `wn_core_force_state_mask`. La prioridad de pintado por campo es
+  `focus-visible > focus > focus-within` (con `disabled > press > hover` por
+  encima y `base` debajo).
 - Un nodo deshabilitado (o dentro de un subárbol deshabilitado) es **inerte** al
   puntero: no recibe hover, press ni selección, y no puede enfocarse. El blob
   v6 siembra el bit desde el atributo `disabled` de `button`/`input`; el host

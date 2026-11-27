@@ -107,7 +107,7 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | Scroll vertical + clip                       | ✅  | scrollbar track+thumb (sin drag); thumb sigue el wheel   |
 | Imágenes WIC + cache                         | ✅  | LRU con presupuesto (`WN_IMAGE_CACHE_MB`, 256 MB)        |
 | Tamaño intrínseco tras `set_image`            | ✅  | `wn_node_set_image_size` re-layout y `object-fit` (A9)   |
-| Hover / press / selected / focus / disabled  | ✅  | bitset por nodo (v7); selección/foco múltiples, hover/press exclusivos; disabled inerte. Aditivo v7: `FOCUS_VISIBLE` (0x20) y `FOCUS_WITHIN` (0x40, derivado) |
+| Hover / press / selected / focus / disabled  | ✅  | bitset por nodo (v7); selección/foco múltiples, hover/press exclusivos; disabled inerte. Aditivo v7: `FOCUS_VISIBLE` (0x20, host) y `FOCUS_WITHIN` (0x40, derivado y sólo lectura; `set_state` lo rechaza) |
 | Lecturas y navegación                        | ✅  | `get_text`, `get_rect`, `scroll_into_view`, foco/blur     |
 | Resize                                       | ✅  | re-layout                                                |
 | Wheel                                        | ✅  | `WN_EVENT_WHEEL`; `delta_x` horizontal llega, el core no lo usa |
@@ -121,7 +121,7 @@ Atributos: `id`, `class`, `style`, `data-hover`, `data-press`,
 | Text shaping runtime                         | ✅  | DirectWrite; medición, shaping y atlas dinámico          |
 | Documento `.wnui` (blob)                     | ✅  | mmap + memoria, refcount; builtin embebido en la DLL     |
 | Wrapping / line breaking                     | ✅  | greedy por palabras; `line-height` y `text-align` por línea |
-| Ellipsis / truncado por ancho                | Parcial | `text-overflow: ellipsis` en caja de una línea con `overflow: hidden` (sección aditiva `text_extras` del blob v6); multilínea pospuesta |
+| Ellipsis / truncado por ancho                | Parcial | `text-overflow: ellipsis` en caja de una línea con `overflow: hidden` (sección aditiva `text_extras` del blob v6); multilínea pospuesta; sin `white-space: nowrap` (usa token sin espacios o ancho declarado) |
 | Timers / reloj público                       | ✅  | `wn_app_set_tick_ms` + `wn_view_tick`; blink interno aparte |
 | Bidi, CJK, emoji                             | ❌  | pendiente (el IME compone texto CJK, pero el motor no implementa bidi/emoji) |
 | Accesibilidad / UIA                          | ❌  | pendiente                                                |

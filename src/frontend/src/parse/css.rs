@@ -222,8 +222,28 @@ fn nth_index_matches(index: i64, a: i64, b: i64) -> bool {
     if a == 0 {
         return index == b;
     }
-    let diff = index - b;
-    diff % a == 0 && diff / a >= 0
+    /* `index - b` overflows for a parsed b near i64::MIN. The parser already
+     * rejects values outside NTH_VALUE_LIMIT; checked arithmetic keeps this
+     * helper safe even if it is ever called with another source. */
+    let Some(diff) = index.checked_sub(b) else {
+        return false;
+    };
+    let Some(remainder) = diff.checked_rem(a) else {
+        return false;
+    };
+    if remainder != 0 {
+        return false;
+    }
+    matches!(diff.checked_div(a), Some(quotient) if quotient >= 0)
+}
+
+/// Largest `a`/`b` the static matcher accepts. Layout indices are tiny; a
+/// larger coefficient can only overflow the arithmetic, so the CSS argument is
+/// rejected and the subset reports it as an unsupported form.
+const NTH_VALUE_LIMIT: i64 = 1_000_000_000;
+
+fn nth_value_in_range(value: i64) -> bool {
+    (-NTH_VALUE_LIMIT..=NTH_VALUE_LIMIT).contains(&value)
 }
 
 /// Parses the An+B microsyntax: `odd`, `even`, `<integer>`, `an+b` with
@@ -259,10 +279,17 @@ pub(crate) fn parse_an_plus_b(text: &str) -> Option<(i64, i64)> {
             let compact: String = rest.chars().filter(|c| !c.is_whitespace()).collect();
             parse_nth_integer(&compact)?
         };
+        if !nth_value_in_range(a) || !nth_value_in_range(b) {
+            return None;
+        }
         return Some((a, b));
     }
     // A bare integer has no internal whitespace.
-    Some((0, parse_nth_integer(lowered.as_str())?))
+    let b = parse_nth_integer(lowered.as_str())?;
+    if !nth_value_in_range(b) {
+        return None;
+    }
+    Some((0, b))
 }
 
 /// Optional sign followed by one or more ASCII digits (no units, no decimals).

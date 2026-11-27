@@ -489,6 +489,13 @@ wn_status wn_node_set_state(wn_app *app, wn_node_id node, uint32_t state,
                      (unsigned)state);
         return WN_ERR_INVALID_ARGUMENT;
     }
+    /* WN_STATE_FOCUS_WITHIN is derived from FOCUSED by the core; a host write
+     * would disagree with the next focus/disable/tree recompute. */
+    if ((state & WN_STATE_FOCUS_WITHIN) != 0u) {
+        wn_set_error("wn_node_set_state: WN_STATE_FOCUS_WITHIN (0x40) is derived "
+                     "from WN_STATE_FOCUSED and cannot be set by the host");
+        return WN_ERR_INVALID_ARGUMENT;
+    }
     return wn_view_set_state_handle(app->view, node, state, enabled);
 }
 

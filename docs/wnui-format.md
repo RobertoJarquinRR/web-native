@@ -127,11 +127,13 @@ como parte de la clave.
 
 **Focus-visible y focus-within (runtime).** `WN_STATE_FOCUS_VISIBLE` (0x20) es
 un bit aditivo de ABI 7: el host marca foco de teclado/programático pasándolo
-junto con `WN_STATE_FOCUSED`; el click de puntero deja sólo `FOCUSED`.
-`WN_STATE_FOCUS_WITHIN` (0x40) es derivado: el core lo enciende en el nodo
-enfocado y todos sus ancestros, y lo recalcula al cambiar el foco, deshabilitar
-un subárbol, quitar/reinsertar nodos. No viaja en el blob (los estilos ya están
-por nodo).
+junto con `WN_STATE_FOCUSED` (get_state devuelve 0x28); el click de puntero deja
+sólo `FOCUSED`. `WN_STATE_FOCUS_WITHIN` (0x40) es derivado y de sólo lectura
+para el host: el core lo enciende en el nodo enfocado y todos sus ancestros, y
+lo recalcula al cambiar el foco, deshabilitar un subárbol, quitar/reinsertar
+nodos. `wn_node_set_state` rechaza una máscara con 0x40. No viaja en el blob
+(los estilos ya están por nodo). La prioridad fija por campo es
+`focus-visible > focus > focus-within`.
 
 **Diferido:** `:checked` (no hay widget checkbox/radio; el subset lo
 diagnostica), transiciones/animaciones, opacidad o layout por estado salvo el
@@ -157,7 +159,10 @@ WnBlobTextExtras (8 bytes) int32 node; uint8 flags; uint8 reserved[3]
   orden no creciente y `reserved` distinto de 0.
 - El frontend escribe el flag en el **run de texto generado** del elemento, no
   en la caja propietaria. El runtime sólo lo aplica si el layout produce una
-  sola línea y el texto excede el ancho; en multilínea es inerte.
+  **sola línea** y el texto excede el ancho; en multilínea es inerte. Para que
+  una línea larga no envuelva, el fixture usa una caja flex column con un token
+  sin espacios (o un ancho de texto declarado): `white-space: nowrap` no forma
+  parte del subset y no se usa.
 - No cambia el registro de nodo (252 bytes), ni la versión del blob.
 
 ### Semántica de `position` e insets (v4)

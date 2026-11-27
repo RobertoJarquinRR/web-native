@@ -85,6 +85,91 @@ fn nth_child_and_nth_of_type_match_static_positions() {
     );
 }
 
+const NTH_CHILD_COMBINATOR_PAGE: &str = r##"<!doctype html>
+<html><head><style>
+  body { display: block; }
+  .list div { display: block; width: 10px; height: 10px; background: #000000; }
+  .list > div:nth-child(3) { background: #abcdef; }
+</style></head><body>
+  <div class="list">
+    <div id="a"></div>
+    <span id="span"></span>
+    <div id="b"></div>
+    <div id="c"></div>
+  </div>
+</body></html>
+"##;
+
+#[test]
+fn nth_child_works_with_the_child_combinator() {
+    let dir = temp_dir("nth-child-combinator");
+    let tree = build(&dir, NTH_CHILD_COMBINATOR_PAGE);
+    // Element children are a(1), span(2), b(3), c(4): nth-child counts the
+    // span even though the subject is restricted to div.
+    assert_eq!(
+        node_with_id(&tree, "b").style.background.as_deref(),
+        Some("#abcdef"),
+        "the third element child matches through the child combinator"
+    );
+    assert_ne!(
+        node_with_id(&tree, "a").style.background.as_deref(),
+        Some("#abcdef"),
+        "a is the first child"
+    );
+}
+
+const NTH_UNSUPPORTED_PAGE: &str = r##"<!doctype html>
+<html><head><style>
+  body { display: block; }
+  .list div { display: block; width: 10px; height: 10px; background: #000000; }
+  .list div:nth-child(2) + div { background: #ff0000; }
+  .list div:nth-child(2)::before { background: #ff0000; }
+  .list div:nth-child(2n+) { background: #ff0000; }
+  .list div:nth-child(-1n-9223372036854775808) { background: #ff0000; }
+  .list div:nth-child(9223372036854775807) { background: #ff0000; }
+</style></head><body>
+  <div class="list"><div id="x"></div><div id="y"></div><div id="z"></div></div>
+</body></html>
+"##;
+
+#[test]
+fn nth_invalid_combinator_and_pseudo_element_are_locked() {
+    let dir = temp_dir("nth-unsupported");
+    let diagnostics = diagnostics(NTH_UNSUPPORTED_PAGE, "nth-unsupported");
+    // One per rule: sibling combinator, pseudo-element, malformed argument and
+    // the two out-of-range integers (signed near i64::MIN and a bare i64::MAX).
+    assert_eq!(diagnostics.len(), 5, "{diagnostics:#?}");
+    assert!(
+        diagnostics.iter().any(|line| line.contains("combinador '+'")),
+        "missing sibling-combinator diagnostic: {diagnostics:#?}"
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|line| line.contains("pseudo-elemento '::before'")),
+        "missing pseudo-element diagnostic: {diagnostics:#?}"
+    );
+    assert_eq!(
+        diagnostics
+            .iter()
+            .filter(|line| line.contains("forma no soportada"))
+            .count(),
+        3,
+        "the malformed and out-of-range An+B forms are rejected: {diagnostics:#?}"
+    );
+
+    // The same stylesheet must still compile without matching or panicking:
+    // rejected forms become `Simple::Never`, never an overflowing An+B.
+    let tree = build(&dir, NTH_UNSUPPORTED_PAGE);
+    for id in ["x", "y", "z"] {
+        assert_ne!(
+            node_with_id(&tree, id).style.background.as_deref(),
+            Some("#ff0000"),
+            "an unsupported nth form must not style #{id}"
+        );
+    }
+}
+
 const NTH_OF_TYPE_PAGE: &str = r##"<!doctype html>
 <html><head><style>
   body { display: block; }

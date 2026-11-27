@@ -130,9 +130,10 @@ regla sólo transporta esos campos; cualquier otra declaración en una regla de
 estado se diagnostica. `disabled`/`focus` del nodo son bits (`WN_STATE_DISABLED`,
 `WN_STATE_FOCUSED`); el input enciende el foco al editar y lo apaga al hacer
 blur. Aditivo v7: `WN_STATE_FOCUS_VISIBLE` (0x20) marca foco de
-teclado/programático; `WN_STATE_FOCUS_WITHIN` (0x40) es derivado y el core lo
-mantiene en el nodo enfocado y todos sus ancestros (se recalcula al cambiar
-foco, deshabilitar, quitar o reinsertar). La prioridad por campo es
+teclado/programático; `WN_STATE_FOCUS_WITHIN` (0x40) es derivado y de sólo
+lectura para el host (set_state lo rechaza) y el core lo mantiene en el nodo
+enfocado y todos sus ancestros (se recalcula al cambiar foco, deshabilitar,
+quitar o reinsertar). La prioridad por campo es
 `disabled > press > hover > focus-visible > focus > focus-within > base`, con
 `selected` como base de la app y `data-*` como fallback. El peso efectivo se usa
 en layout, shaping, atlas y pintura. Un nodo deshabilitado (o su subárbol) es

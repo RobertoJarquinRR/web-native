@@ -141,6 +141,7 @@ int main(int argc, char **argv)
     wn_config config;
     wn_status status;
     wn_app_stats stats;
+    uint32_t state_bits;
 
     for (i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc) {
@@ -184,6 +185,37 @@ int main(int argc, char **argv)
         wn_app_destroy(g_app);
         return 1;
     }
+    /* ABI v7 state dispatch: the public mask routes FOCUS_VISIBLE to the core,
+     * get_state reports the 0x28 focus bits, and the derived FOCUS_WITHIN bit
+     * is rejected. Try the rejection first, while no focus exists, so 0x40
+     * cannot be there from the core's own derivation. */
+    expect_status("set_state(focus-within)",
+                  wn_node_set_state(g_app, g_search, WN_STATE_FOCUS_WITHIN, 1),
+                  WN_ERR_INVALID_ARGUMENT);
+    if (wn_node_get_state(g_app, g_search) != 0u) {
+        printf("input: FAIL (derived focus-within was written)\n");
+        ++g_failures;
+    }
+    expect_status("set_state(focused|visible)",
+                  wn_node_set_state(g_app, g_search,
+                                    WN_STATE_FOCUSED | WN_STATE_FOCUS_VISIBLE,
+                                    1),
+                  WN_OK);
+    state_bits = wn_node_get_state(g_app, g_search);
+    /* The node also derives FOCUS_WITHIN (0x40) for itself, so compare the two
+     * host-settable focus bits: they must read exactly 0x28. */
+    printf("input: state(focused|visible)=0x%02X (expected 0x28)\n",
+           (unsigned)(state_bits &
+                      (WN_STATE_FOCUSED | WN_STATE_FOCUS_VISIBLE)));
+    if ((state_bits & (WN_STATE_FOCUSED | WN_STATE_FOCUS_VISIBLE)) !=
+        (WN_STATE_FOCUSED | WN_STATE_FOCUS_VISIBLE)) {
+        ++g_failures;
+    }
+    if ((state_bits & WN_STATE_FOCUS_WITHIN) == 0u) {
+        printf("input: FAIL (focused node did not derive focus-within)\n");
+        ++g_failures;
+    }
+
     expect_value("initial value", "");
     expect_status("set_value(abc)", wn_node_set_value(g_app, g_search, "abc"), WN_OK);
     expect_value("after set_value", "abc");
@@ -206,6 +238,16 @@ int main(int argc, char **argv)
     inject_click(16.0f + 160.0f, 16.0f + 17.0f);
     if (!wn_view_input_focused(g_view)) {
         printf("input: FAIL (click did not focus the input)\n");
+        ++g_failures;
+    }
+    /* Pointer focus keeps FOCUSED and clears the keyboard-only visible bit.
+     * A click also hovers/presses the target, so compare only those two bits. */
+    state_bits = wn_node_get_state(g_app, g_search);
+    printf("input: pointer focus focused=%d visible=%d\n",
+           (state_bits & WN_STATE_FOCUSED) != 0u ? 1 : 0,
+           (state_bits & WN_STATE_FOCUS_VISIBLE) != 0u ? 1 : 0);
+    if ((state_bits & WN_STATE_FOCUSED) == 0u ||
+        (state_bits & WN_STATE_FOCUS_VISIBLE) != 0u) {
         ++g_failures;
     }
     inject_char('d');
